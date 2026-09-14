@@ -4,8 +4,6 @@ import { format } from "date-fns";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
-import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
-
 const styles = StyleSheet.create({
     page: {
         padding: 24,
@@ -213,7 +211,20 @@ interface InvoicePDFProps {
 }
 
 export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, templateSettings }: InvoicePDFProps) => {
-    const fa = useFiscalAuthority();
+    // Derived from company prop — no React Query hooks allowed here because
+    // @react-pdf/renderer renders InvoicePDF in its own reconciler (no context).
+    const fa = (() => {
+        const fiscalProvider = (company?.fiscalProvider || (company?.country === "Lesotho" ? "LEKUKA" : "ZIMRA")) as "ZIMRA" | "LEKUKA";
+        const isLesotho = fiscalProvider === "LEKUKA";
+        return {
+            fiscalProvider,
+            isLesotho,
+            isZimbabwe: !isLesotho,
+            authorityName: isLesotho ? "RSL" : "ZIMRA",
+            authorityFullName: isLesotho ? "Revenue Services Lesotho" : "Zimbabwe Revenue Authority",
+            authorityShortName: isLesotho ? "LEKUKA" : "ZIMRA",
+        };
+    })();
 
     const pageFont = pdfFontFamily('Helvetica');
     const designerSettings = templateSettings || getStoredInvoiceTemplateSettings(company?.id || invoice?.companyId);

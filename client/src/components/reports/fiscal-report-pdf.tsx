@@ -8,7 +8,6 @@ import {
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
-import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 const s = StyleSheet.create({
   page: {
@@ -156,7 +155,9 @@ export const FiscalReportPDF = ({
 }: FiscalReportPDFProps) => {
   const dateStr = format(new Date(data.summary.date), "dd MMM yyyy, HH:mm");
   const pageFont = pdfFontFamily("Helvetica");
-  const fa = useFiscalAuthority();
+  // Derived from company prop — no hooks allowed in @react-pdf/renderer reconciler
+  const isLesotho = company?.fiscalProvider === "LEKUKA" || company?.country === "Lesotho";
+  const authorityShortName = isLesotho ? "LEKUKA" : "ZIMRA";
 
   return (
     <Document
@@ -316,7 +317,7 @@ export const FiscalReportPDF = ({
               System | Confidential
             </Text>
             <Text style={[s.footerText, { marginTop: 2 }]}>
-              {fa.authorityShortName} Electronic Signature and QR Verification included in
+              {authorityShortName} Electronic Signature and QR Verification included in
               original receipts.
             </Text>
           </View>

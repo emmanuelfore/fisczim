@@ -17,6 +17,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -37,6 +38,7 @@ interface MaintenanceSettingsProps {
 
 export function MaintenanceSettings({ company }: MaintenanceSettingsProps) {
   const { toast } = useToast();
+  const fa = useFiscalAuthority();
   const [confirmText, setConfirmText] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
@@ -109,7 +111,7 @@ export function MaintenanceSettings({ company }: MaintenanceSettingsProps) {
                   All Inventory Ledger entries (Stock levels will be reset to 0)
                 </li>
                 <li>All Expenses and Audit Logs</li>
-                <li>ZIMRA transmission logs</li>
+                <li>{fa.authorityShortName} transmission logs</li>
                 <li>
                   Fiscal counters (Receipt Numbers, etc.) will be reset to zero
                 </li>

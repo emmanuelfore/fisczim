@@ -147,7 +147,7 @@ import { useAuth } from "@/hooks/use-auth";
 // Refresh the local offline fiscal-sequence cache from the server's
 // authoritative counters. Always attempts the live fetch and only falls
 // back to the existing cache on failure — this prevents offline claims from
-// minting numbers out of a stale sequence (which ZIMRA flags Red).
+// minting numbers out of a stale sequence (which fiscal system flags Red).
 async function refreshCachedFiscalSequence(companyId: number): Promise<any | undefined> {
   try {
     const res = await apiFetch(`/api/companies/${companyId}/zimra/sequence`);
@@ -2435,7 +2435,7 @@ export default function POSPage() {
             const waitedMs = Date.now() - enqueuedAt;
             if (waitedMs >= BACKGROUND_PRINT_MAX_WAIT_MS) {
               console.warn(
-                `[POS] Background Printing: Invoice ${invoiceId} timed out waiting for ZIMRA after ${Math.round(waitedMs / 1000)}s. Printing fallback receipt.`,
+                `[POS] Background Printing: Invoice ${invoiceId} timed out waiting for fiscal system after ${Math.round(waitedMs / 1000)}s. Printing fallback receipt.`,
               );
               handleSilentPrint(invoice, { suppressNotifications: true }).catch(
                 console.error,

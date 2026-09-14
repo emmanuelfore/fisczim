@@ -39,6 +39,27 @@
       "max_restarts": 10,
       "min_uptime": "10s",
       "watch": false
+    },
+    {
+      "name": "fiscalstack_lesotho",
+      "script": "./start.sh",
+      "interpreter": "bash",
+      "instances": 1,
+      "exec_mode": "fork",
+      "env": {
+        "NODE_ENV": "production",
+        "PORT": 5002,
+        "COUNTRY_SCOPE": "lesotho",
+        "VITE_APP_BRAND": "fiscalstack_lesotho"
+      },
+      "error_file": "./logs/pm2-lesotho-error.log",
+      "out_file": "./logs/pm2-lesotho-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true,
+      "autorestart": true,
+      "max_restarts": 10,
+      "min_uptime": "10s",
+      "watch": false
     }
   ]
 }

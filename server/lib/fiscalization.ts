@@ -1275,7 +1275,14 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     throw submitErr;
                 }
             }
-        } catch (err: any) {
+    } catch (err: any) {
+        // Log full error details for debugging
+        console.log(`[LEKUKA] submitReceipt error:`, JSON.stringify(err?.details, null, 2));
+        if (err?.details?.errors) {
+            for (const [field, msgs] of Object.entries(err.details.errors)) {
+                console.log(`[LEKUKA] validation error "${field}":`, JSON.stringify(msgs));
+            }
+        }
             // CRITICAL: Always lock the counters to this invoice on failure
             // This ensures resubmission uses the same number, and next invoice gets a new one.
             try {
@@ -1600,25 +1607,37 @@ export const processInvoiceFiscalizationLEKUKA = async (
         };
     }
 
-    let buyerData: any = undefined;
-    const customerTin = invoice.customer?.tin?.trim();
-    if (invoice.customer && customerTin) {
-        buyerData = {
-            buyerRegisterName: invoice.customer.name,
-            buyerTradeName: invoice.customer.name,
-            buyerTIN: customerTin,
-        };
-        if (invoice.customer.vatNumber?.trim()) buyerData.vatNumber = invoice.customer.vatNumber.trim();
-        if (invoice.customer.phone?.trim() || invoice.customer.email?.trim()) {
-            buyerData.buyerContacts = {};
-            if (invoice.customer.phone?.trim()) buyerData.buyerContacts.phoneNo = invoice.customer.phone.trim();
-            if (invoice.customer.email?.trim()) buyerData.buyerContacts.email = invoice.customer.email.trim();
+    const customerTin = invoice.customer?.tin?.trim() || invoice.buyerTin?.trim();
+    const customerVat = invoice.customer?.vatNumber?.trim() || invoice.buyerVat?.trim();
+    let buyerData: any = {
+        buyerRegisterName: invoice.customer?.name || invoice.customerName || "Walk-in Customer",
+        buyerTradeName: invoice.customer?.name || invoice.customerName || "Walk-in Customer",
+    };
+    // TIN is mandatory — use customer TIN or fallback
+    buyerData.buyerTIN = customerTin || "0000000000";
+    // VATNumber — Lekuka requires EXACTLY 8 characters
+    if (customerVat) {
+        const vatDigits = customerVat.replace(/\D/g, "");
+        if (vatDigits.length === 8) {
+            buyerData.VATNumber = vatDigits;
+        } else if (vatDigits.length > 8) {
+            // Truncate to 8 digits (Lekuka gateway validation: min 8, max 8)
+            buyerData.VATNumber = vatDigits.slice(0, 8);
+            console.log(`[LEKUKA] buyer VAT truncated from ${vatDigits} to ${buyerData.VATNumber} (Lekuka requires exactly 8 chars)`);
+        } else {
+            console.log(`[LEKUKA] buyer VAT "${customerVat}" has ${vatDigits.length} digits, Lekuka requires exactly 8. Not sending.`);
         }
-        if (invoice.customer.city?.trim() || invoice.customer.address?.trim()) {
-            buyerData.buyerAddress = {};
-            if (invoice.customer.city?.trim()) buyerData.buyerAddress.city = invoice.customer.city.trim();
-            if (invoice.customer.address?.trim()) buyerData.buyerAddress.street = invoice.customer.address.trim();
-        }
+    }
+    console.log(`[LEKUKA] buyerData:`, JSON.stringify(buyerData));
+    if (invoice.customer?.phone?.trim() || invoice.customer?.email?.trim()) {
+        buyerData.buyerContacts = {};
+        if (invoice.customer.phone?.trim()) buyerData.buyerContacts.phoneNo = invoice.customer.phone.trim();
+        if (invoice.customer.email?.trim()) buyerData.buyerContacts.email = invoice.customer.email.trim();
+    }
+    if (invoice.customer?.city?.trim() || invoice.customer?.address?.trim()) {
+        buyerData.buyerAddress = {};
+        if (invoice.customer.city?.trim()) buyerData.buyerAddress.city = invoice.customer.city.trim();
+        if (invoice.customer.address?.trim()) buyerData.buyerAddress.street = invoice.customer.address.trim();
     }
 
     // HIGH #9: Acquire advisory lock to prevent race conditions on receipt counters
@@ -1633,6 +1652,8 @@ export const processInvoiceFiscalizationLEKUKA = async (
 
     const submitOnce = async (lines: LekukaReceiptLine[]) => {
         const { prepared, signed } = await buildSignedReceipt(nextReceiptCounter, nextGlobalNo, prevHash, lines);
+        console.log(`[LEKUKA] prepared receipt buyerData:`, JSON.stringify((signed as any).buyerData));
+        console.log(`[LEKUKA] prepared receipt keys:`, Object.keys(signed).join(", "));
         const result = await device.submitReceipt(signed, prevHash);
         return { prepared, result };
     };

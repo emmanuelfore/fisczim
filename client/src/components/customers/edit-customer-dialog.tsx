@@ -6,6 +6,7 @@ import {
   type Customer,
 } from "@shared/schema";
 import { useUpdateCustomer } from "@/hooks/use-customers";
+import { getDefaultCountry } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -56,7 +57,7 @@ export function EditCustomerDialog({ customer, trigger }: Props) {
       address: customer.address || "",
       billingAddress: customer.billingAddress || "",
       city: customer.city || "",
-      country: customer.country || "Zimbabwe",
+      country: customer.country || getDefaultCountry(),
       tin: customer.tin || "",
       vatNumber: customer.vatNumber || "",
       bpNumber: customer.bpNumber || "",
@@ -210,7 +211,7 @@ export function EditCustomerDialog({ customer, trigger }: Props) {
                     Business Details
                   </span>
                   <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                    ZIMRA Requirement
+                    Tax Requirement
                   </span>
                 </div>
                 <FormField

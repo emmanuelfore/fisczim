@@ -221,6 +221,35 @@
     <sys:String x:Key="hist.refundQ">为 {0}（{1} {2}）开具税务红字发票？</sys:String>
     <sys:String x:Key="hist.offline">离线中 - 联网后将自动上传发票。</sys:String>
     <sys:String x:Key="hist.submitFail">上传失败：{0}</sys:String>
+    <sys:String x:Key="hist.from">自</sys:String>
+    <sys:String x:Key="hist.to">至</sys:String>
+    <sys:String x:Key="hist.cashier">收银员</sys:String>
+    <sys:String x:Key="hist.payment">支付方式</sys:String>
+    <sys:String x:Key="hist.rate">增值税率</sys:String>
+    <sys:String x:Key="hist.flag">类型</sys:String>
+    <sys:String x:Key="hist.all">全部</sys:String>
+    <sys:String x:Key="hist.reset">重置筛选</sys:String>
+    <sys:String x:Key="hist.colCashier">收银员</sys:String>
+    <sys:String x:Key="hist.colVat">增值税</sys:String>
+    <sys:String x:Key="hist.colNet">净额</sys:String>
+    <sys:String x:Key="hist.colItems">件数</sys:String>
+    <sys:String x:Key="hist.sale">销售</sys:String>
+    <sys:String x:Key="hist.credit">红字发票</sys:String>
+    <sys:String x:Key="hist.debit">蓝字发票</sys:String>
+    <sys:String x:Key="hist.gross">总额</sys:String>
+    <sys:String x:Key="hist.taxTotal">增值税合计</sys:String>
+    <sys:String x:Key="hist.netTotal">净额</sys:String>
+    <sys:String x:Key="hist.count">票据数</sys:String>
+    <sys:String x:Key="hist.byCashier">按收银员</sys:String>
+    <sys:String x:Key="hist.byTax">按税率</sys:String>
+    <sys:String x:Key="hist.byPayment">按支付方式</sys:String>
+    <sys:String x:Key="hist.colWho">人员</sys:String>
+    <sys:String x:Key="hist.colSales">销售额</sys:String>
+    <sys:String x:Key="hist.colRate">税率</sys:String>
+    <sys:String x:Key="hist.colTax">税额</sys:String>
+    <sys:String x:Key="hist.colGross">总额</sys:String>
+    <sys:String x:Key="hist.colMethod">方式</sys:String>
+    <sys:String x:Key="hist.colType">类型</sys:String>
 
     <!-- reports -->
     <sys:String x:Key="rep.title">报表与税务日</sys:String>

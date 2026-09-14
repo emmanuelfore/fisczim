@@ -110,6 +110,7 @@ import { PaymentReceipt } from "@/components/invoices/payment-receipt";
 import { ValidationErrorsDisplay } from "@/components/invoices/validation-errors-display";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useBranchContext } from "@/lib/branch-context";
 import { usePermissions } from "@/hooks/use-permissions";
 import { pdf } from "@react-pdf/renderer";
@@ -779,6 +780,7 @@ export default function InvoicesPage() {
   const [location, setLocation] = useLocation();
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
+  const fa = useFiscalAuthority();
   const selectedCompanyId = activeCompanyId || 0;
   const { data: company } = useCompany(selectedCompanyId);
   const useFiscalWorkflow = Boolean(
@@ -1362,8 +1364,8 @@ export default function InvoicesPage() {
                                   </TooltipTrigger>
                                   <TooltipContent side="right" className="max-w-xs text-xs">
                                     {invoice.validationStatus === "red"
-                                      ? "ZIMRA validation error. Resolve before closing fiscal day."
-                                      : "Fiscalisation failed."}
+                                       ? `${fa.authorityShortName} validation error. Resolve before closing fiscal day.`
+                                       : "Fiscalisation failed."}
                                   </TooltipContent>
                                 </Tooltip>
                               )}
@@ -1517,7 +1519,7 @@ export default function InvoicesPage() {
                                       className="max-w-xs text-xs"
                                     >
                                       {invoice.validationStatus === "red"
-                                        ? "ZIMRA validation error. Resolve before closing fiscal day."
+                                        ? `${fa.authorityShortName} validation error. Resolve before closing fiscal day.`
                                         : "Fiscalisation failed."}
                                     </TooltipContent>
                                   </Tooltip>

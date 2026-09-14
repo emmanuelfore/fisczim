@@ -169,7 +169,7 @@ export function useFiscalizeInvoice() {
       queryClient.invalidateQueries({ queryKey: [api.invoices.get.path] }); // Invalidate all invoice details
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
 
-      if (err?.code === "ZIMRA_PREFLIGHT_FAILED") {
+      if (err?.code === "FISCAL_PREFLIGHT_FAILED") {
         if (err.invoiceId) {
           queryClient.invalidateQueries({ queryKey: [api.invoices.get.path, err.invoiceId] });
         }

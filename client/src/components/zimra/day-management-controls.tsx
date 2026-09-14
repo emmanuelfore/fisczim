@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface DayManagementControlsProps {
   company: any;
@@ -33,6 +34,7 @@ export function DayManagementControls({
   company,
   variant = "light",
 }: DayManagementControlsProps) {
+  const fa = useFiscalAuthority();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [errorRecovery, setErrorRecovery] = useState<any>(null);
@@ -266,7 +268,7 @@ export function DayManagementControls({
               )}
               {errorRecovery?.zimraErrorCode && (
                 <p>
-                  <strong>ZIMRA Error Code:</strong>{" "}
+                  <strong>{fa.authorityShortName} Error Code:</strong>{" "}
                   {errorRecovery.zimraErrorCode}
                 </p>
               )}

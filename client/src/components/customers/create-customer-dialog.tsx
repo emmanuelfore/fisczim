@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCustomerSchema, type InsertCustomer } from "@shared/schema";
 import { useCreateCustomer } from "@/hooks/use-customers";
+import { getDefaultCountry } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,7 +47,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
       address: "",
       billingAddress: "",
       city: "",
-      country: "Zimbabwe",
+      country: getDefaultCountry(),
       tin: "",
       vatNumber: "",
       bpNumber: "",
@@ -194,7 +195,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
                     Business Details
                   </span>
                   <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                    ZIMRA Requirement
+                    Tax Requirement
                   </span>
                 </div>
                 <FormField

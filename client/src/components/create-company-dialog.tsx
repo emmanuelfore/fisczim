@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getDefaultCountry } from "@/lib/country-detect";
 import { Label } from "@/components/ui/label";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,7 +28,7 @@ export function CreateCompanyDialog({
   const form = useForm<InsertCompany>({
     resolver: zodResolver(insertCompanySchema),
     defaultValues: {
-      country: "Zimbabwe",
+      country: getDefaultCountry(),
     },
   });
 
@@ -138,7 +139,7 @@ export function CreateCompanyDialog({
             </div>
 
             <div className="col-span-2 border-t pt-4 mt-2">
-              <h4 className="font-semibold mb-4 text-primary">ZIMRA Details</h4>
+              <h4 className="font-semibold mb-4 text-primary">Fiscal Details</h4>
             </div>
 
             <div className="space-y-2">

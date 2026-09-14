@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -67,26 +68,71 @@ namespace FiscalStackPOS
         {
             Timer = new DispatcherTimer();
             Timer.Interval = TimeSpan.FromSeconds(Math.Max(5, State.Settings.OnlineCheckIntervalSec));
-            Timer.Tick += (s, e) =>
+            Timer.Tick += OnTimerTick;
+            Timer.Start();
+        }
+
+        private static volatile bool checkRunning;
+
+        private static void OnTimerTick(object sender, EventArgs e)
+        {
+            if (checkRunning) return;               // previous pass still working; skip this tick
+            try { Timer.Stop(); } catch { }
+            checkRunning = true;
+            Task.Run(() =>
+            {
+                try { RunOnlineCheck(); }
+                finally
+                {
+                    checkRunning = false;
+                    ReportRestart();
+                }
+            });
+        }
+
+        /// <summary>
+        /// Runs the blocking IsOnline/SubmitPending work off the UI thread so a
+        /// slow (or unreachable) ZIMRA endpoint can never freeze the POS.
+        /// Only the results are marshalled back onto the dispatcher.
+        /// </summary>
+        private static void RunOnlineCheck()
+        {
+            bool on = false;
+            try { on = Submitter.IsOnline(); } catch { }
+            string msg = "";
+            if (on && State != null && State.Settings.SubmitWhenOnline &&
+                !string.IsNullOrEmpty(State.CurrentFiscalDayNo) && State.CurrentFiscalDayNo != "0")
+            {
+                try { msg = Submitter.SubmitPending(State.CurrentFiscalDayNo, State.CurrentFiscalDate).Message; }
+                catch { }
+            }
+            var disp = Application.Current == null ? null : Application.Current.Dispatcher;
+            if (disp != null)
             {
                 try
                 {
-                    bool on = Submitter.IsOnline();
-                    if (on != Online)
+                    disp.BeginInvoke(new Action(() =>
                     {
-                        Online = on;
-                        NotifyStatus();
-                    }
-                    if (on && State.Settings.SubmitWhenOnline && !string.IsNullOrEmpty(State.CurrentFiscalDayNo) && State.CurrentFiscalDayNo != "0")
-                    {
-                        var outcome = Submitter.SubmitPending(State.CurrentFiscalDayNo, State.CurrentFiscalDate);
-                        QueueCount = Journal.Unsubmitted().Count;
-                        NotifyStatus();
-                    }
+                        try
+                        {
+                            if (on != Online) { Online = on; NotifyStatus(); }
+                            if (msg.Length > 0) { QueueCount = Journal.Unsubmitted().Count; NotifyStatus(); }
+                        }
+                        catch { }
+                    }));
                 }
                 catch { }
-            };
-            Timer.Start();
+            }
+        }
+
+        private static void ReportRestart()
+        {
+            var disp = Application.Current == null ? null : Application.Current.Dispatcher;
+            if (disp != null)
+            {
+                try { disp.BeginInvoke(new Action(() => { try { if (Timer != null) Timer.Start(); } catch { } })); }
+                catch { }
+            }
         }
 
         public static void StopTimers()

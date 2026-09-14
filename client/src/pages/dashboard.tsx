@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { useI18n } from "@/lib/i18n";
+import { isLesothoDomain } from "@/lib/country-detect";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -216,7 +217,11 @@ export default function Dashboard() {
     .filter((c: any) => c.isActive !== false)
     .map((c: any) => String(c.code || "").toUpperCase())
     .filter(Boolean);
-  const visibleCurrencyCodes = Array.from(new Set(["USD", ...configuredCurrencyCodes, configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG"]));
+  const visibleCurrencyCodes = Array.from(new Set([
+    isLesothoDomain() ? "LSL" : "USD",
+    ...configuredCurrencyCodes,
+    isLesothoDomain() ? null : (configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG")
+  ].filter(Boolean)));
 
   const totalSalesByCurrency = (operationalMetrics?.totalRevenueByCurrency || {}) as CurrencyAmounts;
   const vatCollectedByCurrency = invoices.reduce(

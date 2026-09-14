@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { isLesothoDomain } from "@/lib/country-detect";
 import { ProfitAndLossView } from "@/components/reports/profit-and-loss-view";
 import { BalanceSheetView } from "@/components/reports/balance-sheet-view";
 import { CashFlowView } from "@/components/reports/cash-flow-view";
@@ -112,9 +113,11 @@ export default function FinancialReportsPage() {
                 <SelectValue placeholder="USD" />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                <SelectItem value="USD" className="text-xs font-bold">
-                  USD
-                </SelectItem>
+                {!isLesothoDomain() && (
+                  <SelectItem value="USD" className="text-xs font-bold">
+                    USD
+                  </SelectItem>
+                )}
                 {currencies
                   ?.filter((c) => c.code !== "USD")
                   .map((c) => (

@@ -54,8 +54,8 @@ const LEKUKA_PROD_GATEWAY = 'https://lekukaapi.rsl.org.ls';
  * @returns The base URL for the specified environment
  */
 export function getZimraBaseUrl(environment: 'test' | 'production' = 'test'): string {
-    const isLekakuDeployment = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase() === "lesotho";
-    if (isLekakuDeployment) {
+    const isLekukaDeployment = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase() === "lesotho";
+    if (isLekukaDeployment) {
         return environment === 'production' ? LEKUKA_PROD_GATEWAY : LEKUKA_TEST_GATEWAY;
     }
     return environment === 'production' ? ZIMRA_PROD_URL : ZIMRA_TEST_URL;

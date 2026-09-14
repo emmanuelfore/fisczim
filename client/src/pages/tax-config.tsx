@@ -19,6 +19,7 @@ import { ShieldCheck, Calculator, Smartphone, Pencil, RefreshCw, CheckCircle, XC
 import { apiFetch } from "@/lib/api";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -32,6 +33,7 @@ export default function TaxConfigPage() {
   const isLoadingCompanies = isLoadingActive;
   const companyId = activeCompanyId;
   const { toast } = useToast();
+  const fa = useFiscalAuthority();
 
   const [health, setHealth] = useState<any>(null);
   const [checkingHealth, setCheckingHealth] = useState(false);
@@ -105,14 +107,14 @@ export default function TaxConfigPage() {
               Your company is currently marked as{" "}
               <strong>not registered for VAT</strong>. VAT will be automatically
               disabled (set to 0%) for all invoices to ensure compliance with
-              ZIMRA regulations for non-VAT taxpayers.
+              {fa.authorityShortName} regulations for non-VAT taxpayers.
             </p>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: ZIMRA Settings */}
+        {/* Left Column: Settings */}
         <div className="lg:col-span-1 space-y-8">
           <Card className="card-depth border-none">
             <CardHeader>
@@ -120,7 +122,7 @@ export default function TaxConfigPage() {
                 <ShieldCheck className="w-5 h-5 mr-2" />
                 Fiscal Connection
               </CardTitle>
-              <CardDescription>ZIMRA FDMS Configuration</CardDescription>
+              <CardDescription>{fa.authorityShortName} FDMS Configuration</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <form
@@ -140,7 +142,7 @@ export default function TaxConfigPage() {
                       body: JSON.stringify(data),
                     });
                     if (res.ok) {
-                      toast({ title: "ZIMRA settings updated." });
+                      toast({ title: `${fa.authorityShortName} settings updated.` });
                       window.location.reload();
                     } else {
                       toast({ title: "Failed to update settings", variant: "destructive" });
@@ -185,7 +187,7 @@ export default function TaxConfigPage() {
                   disabled={isSaving}
                 >
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Save ZIMRA Settings
+                  Save {fa.settingsLabel}
                 </Button>
               </form>
             </CardContent>
@@ -201,7 +203,7 @@ export default function TaxConfigPage() {
                 <div>
                   <CardTitle className="flex items-center text-blue-700">
                     <Calculator className="w-5 h-5 mr-2" />
-                    Tax Rates & ZIMRA Types
+                    Tax Rates & {fa.authorityShortName} Types
                   </CardTitle>
                   <CardDescription>
                     Manage master tax rates used by categories
@@ -272,17 +274,17 @@ export default function TaxConfigPage() {
             </CardContent>
           </Card>
 
-          {/* ZIMRA Tax Mapping Health */}
+          {/* Tax Mapping Health */}
           <Card className="card-depth border-none">
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle className="flex items-center text-purple-700">
                     <Smartphone className="w-5 h-5 mr-2" />
-                    ZIMRA Tax Mapping Health
+                    {fa.authorityShortName} Tax Mapping Health
                   </CardTitle>
                   <CardDescription>
-                    Validates your tax types against the live ZIMRA device config — catches
+                    Validates your tax types against the live {fa.authorityShortName} device config — catches
                     duplicate rates, wrong tax IDs and percent mismatches that cause Red
                     invoices.
                   </CardDescription>
@@ -293,7 +295,7 @@ export default function TaxConfigPage() {
                   disabled={checkingHealth}
                 >
                   <RefreshCw className={`mr-2 h-4 w-4 ${checkingHealth ? "animate-spin" : ""}`} />
-                  Check Against ZIMRA
+                  Check Against {fa.authorityShortName}
                 </Button>
               </div>
             </CardHeader>
@@ -335,7 +337,7 @@ export default function TaxConfigPage() {
                   ) : (
                     <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
                       <CheckCircle className="w-4 h-4 shrink-0" />
-                      All tax types map cleanly to the ZIMRA device.
+                      All tax types map cleanly to the {fa.authorityShortName} device.
                     </div>
                   )}
 
@@ -345,7 +347,7 @@ export default function TaxConfigPage() {
                         <tr>
                           <th className="p-2.5 font-medium text-slate-500">Local Tax Type</th>
                           <th className="p-2.5 font-medium text-slate-500 text-right">Rate</th>
-                          <th className="p-2.5 font-medium text-slate-500">ZIMRA ID</th>
+                          <th className="p-2.5 font-medium text-slate-500">{fa.authorityShortName} ID</th>
                           <th className="p-2.5 font-medium text-slate-500">Maps To (Live)</th>
                           <th className="p-2.5 font-medium text-slate-500">Status</th>
                         </tr>
@@ -377,7 +379,7 @@ export default function TaxConfigPage() {
 
               {!health && !healthError && (
                 <p className="text-sm text-muted-foreground">
-                  Run a check to see how each of your tax types maps to the ZIMRA device
+                  Run a check to see how each of your tax types maps to the {fa.authorityShortName} device
                   and whether any configuration will produce invalid receipts.
                 </p>
               )}

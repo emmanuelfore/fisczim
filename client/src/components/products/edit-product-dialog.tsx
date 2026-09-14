@@ -43,6 +43,7 @@ import { BatchVariationManager } from "./batch-variation-manager";
 import { ChefHat, Pill, FlaskConical, Boxes } from "lucide-react";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface Props {
   product: any;
@@ -51,6 +52,7 @@ interface Props {
 }
 
 export function EditProductDialog({ product, trigger, children }: Props) {
+  const fa = useFiscalAuthority();
   const [open, setOpen] = useState(false);
   const updateProduct = useUpdateProduct();
   const { taxCategories, taxTypes } = useTaxConfig(product.companyId);
@@ -853,7 +855,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
-                        ZIMRA Tax Type
+                        {fa.authorityShortName} Tax Type
                       </FormLabel>
                       <Select
                         onValueChange={(val) => {

@@ -1,4 +1,4 @@
--- LEKAKU / Revenue Services Lesotho configuration and product-level levies.
+-- LEKUKA / Revenue Services Lesotho configuration and product-level levies.
 ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "fiscal_provider" text DEFAULT 'ZIMRA';
 ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "lekaku_gateway_url" text;
 ALTER TABLE "tax_types" ADD COLUMN IF NOT EXISTS "lekaku_tax_id" text;

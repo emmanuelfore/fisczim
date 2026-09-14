@@ -4,8 +4,8 @@ export const ZIMRA_ERROR_MAP: Record<string, { title: string, message: string }>
     'DEV01': { title: "Device Inactive", message: "Device not found or not active. Please check your registration status." },
     'DEV02': { title: "Activation Failed", message: "The activation key provided is incorrect." },
     'DEV03': { title: "Invalid CSR", message: "The certificate request is invalid. Please regenerate your keys." },
-    'DEV04': { title: "Device Blocked", message: "This device model has been blacklisted by ZIMRA." },
-    'DEV05': { title: "Taxpayer Inactive", message: "Your taxpayer account is not active in the ZIMRA system." },
+    'DEV04': { title: "Device Blocked", message: "This device model has been blacklisted by the fiscal authority." },
+    'DEV05': { title: "Taxpayer Inactive", message: "Your taxpayer account is not active in the fiscal system." },
     'DEV06': { title: "Model Mismatch", message: "This device model and version is not registered in FDMS." },
 
     // Receipt Errors
@@ -42,13 +42,13 @@ export const ZIMRA_ERROR_MAP: Record<string, { title: string, message: string }>
 };
 
 /**
- * Get a human-readable error from a ZIMRA error code
+ * Get a human-readable error from a fiscal error code
  */
 export function getZimraErrorMessage(errorCode: string | undefined, fallback?: string) {
-    if (!errorCode) return { title: "ZIMRA Error", message: fallback || "An unknown ZIMRA error occurred." };
+    if (!errorCode) return { title: "Fiscal Error", message: fallback || "An unknown fiscal error occurred." };
 
     const mapped = ZIMRA_ERROR_MAP[errorCode];
     if (mapped) return mapped;
 
-    return { title: `ZIMRA Error (${errorCode})`, message: fallback || "A specific ZIMRA error occurred." };
+    return { title: `Fiscal Error (${errorCode})`, message: fallback || "A specific fiscal error occurred." };
 }

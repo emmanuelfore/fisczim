@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { isLesothoDomain } from "@/lib/country-detect";
 import { DailySalesTable } from "@/components/reports/daily-sales-table";
 import { User } from "@shared/schema";
 import { downloadExcel } from "@/lib/export-utils";
@@ -238,9 +239,11 @@ export default function DailySalesLedgerPage() {
                 <SelectValue placeholder="USD" />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                <SelectItem value="USD" className="text-xs font-bold">
-                  USD
-                </SelectItem>
+                {!isLesothoDomain() && (
+                  <SelectItem value="USD" className="text-xs font-bold">
+                    USD
+                  </SelectItem>
+                )}
                 {currencies
                   ?.filter((c) => c.code !== "USD")
                   .map((c) => (

@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Badge } from "@/components/ui/badge";
 import { 
   Table, 
@@ -63,6 +64,7 @@ export default function HREmployees() {
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
   const { toast } = useToast();
+  const fa = useFiscalAuthority();
 
   const [search, setSearch] = useState("");
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
@@ -304,7 +306,7 @@ export default function HREmployees() {
           branchCode: row['Branch'] || row.branchCode,
           joiningDate: row['Joining Date'] || row['Date of Join'] || row.joiningDate,
           nssaNumber: row['NSSA Number'] || row.nssaNumber,
-          zimraTaxNumber: row['ZIMRA Tax Number'] || row['ZIMRA Number'] || row.zimraTaxNumber,
+          zimraTaxNumber: row['Fiscal Tax Number'] || row['Fiscal Number'] || row.zimraTaxNumber,
           baseSalary: row['Base Salary'] || row.baseSalary,
           currency: row['Currency'] || row.currency,
           usdPercentage: row['USD %'] || row.usdPercentage,
@@ -645,7 +647,7 @@ export default function HREmployees() {
                     <Input value={statutoryData.nssaNumber} onChange={(e) => setStatutoryData({...statutoryData, nssaNumber: e.target.value})} placeholder="NSSA ID" />
                   </div>
                   <div className="space-y-2">
-                    <Label>ZIMRA Tax Number</Label>
+                    <Label>{fa.authorityShortName} Tax Number</Label>
                     <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="BP Number" />
                   </div>
                 </div>
@@ -854,7 +856,7 @@ export default function HREmployees() {
                 <div className="space-y-2">
                   <Label>Probation End Date</Label>
                   <Input type="date" value={contractData.probationEndDate || ""} onChange={(e) => setContractData({...contractData, probationEndDate: e.target.value})} />
-                  <p className="text-xs text-slate-500">Zimbabwe common practice: 3 months (max 6 months)</p>
+                  <p className="text-xs text-slate-500">Common practice: 3 months (max 6 months)</p>
                 </div>
               </div>
 
@@ -1149,7 +1151,7 @@ export default function HREmployees() {
             <DialogHeader>
               <DialogTitle>Statutory Settings</DialogTitle>
               <DialogDescription>
-                Configure ZIMRA and NSSA details for this employee.
+                Configure {fa.authorityShortName} and NSSA details for this employee.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleUpdateStatutory} className="space-y-4 pt-4">
@@ -1158,7 +1160,7 @@ export default function HREmployees() {
                 <Input value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} required />
               </div>
               <div className="space-y-2">
-                <Label>ZIMRA Tax Number</Label>
+                <Label>{fa.authorityShortName} Tax Number</Label>
                 <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="e.g. 020000000" />
               </div>
               <div className="space-y-2">

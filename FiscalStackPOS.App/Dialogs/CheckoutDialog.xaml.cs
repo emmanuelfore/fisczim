@@ -79,6 +79,7 @@ namespace FiscalStackPOS.Dialogs
             sale.CustomerPhone = TxtPhone.Text.Trim();
             sale.CustomerAddress = TxtAddr.Text.Trim();
             sale.CustomerEmail = TxtEmail.Text.Trim();
+            sale.Cashier = AppServices.CurrentUser == null ? "" : AppServices.CurrentUser.FullName;
             sale.Created = DateTime.Now;
 
             try
@@ -105,6 +106,7 @@ namespace FiscalStackPOS.Dialogs
                         Vat = sale.VatTotal,
                         Flag = sale.InvoiceFlag,
                         CustomerName = sale.CustomerName,
+                        Cashier = AppServices.CurrentUser == null ? "" : AppServices.CurrentUser.FullName,
                         ItemsCount = sale.Items.Count,
                         QrUrl = res.QrUrl,
                         DeviceHash = res.DeviceHash,
@@ -151,7 +153,8 @@ namespace FiscalStackPOS.Dialogs
                     {
                         var pv = new PrintPreviewDialog(bmp, sale.InvoiceNumber);
                         if (pv.ShowDialog() == true)
-                            ThermalPrinter.PrintBitmap(bmp, AppServices.State.Settings.PrinterName, false, "FISCAL RECEIPT");
+                            ThermalPrinter.PrintEscPos(sale, res, AppServices.Card,
+                                AppServices.State.Settings.ReceiptWidth, AppServices.State.Settings.PrinterName);
                     }));
                 }
                 else

@@ -23,6 +23,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { isLesothoDomain } from "@/lib/country-detect";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { apiRequest } from "@/lib/queryClient";
@@ -99,13 +100,13 @@ export default function VatReturnPage() {
   const currentReturnId = `VAT-${localStorage.getItem("selectedCompanyId") || ""}-${dateRange.from.replace(/-/g, "")}-${dateRange.to.replace(/-/g, "")}`;
   const currentLifecycle = vatReturns.find((row) => row.id === currentReturnId);
   const visibleCurrencyCodes = Array.from(new Set([
-    "USD",
-    "ZWG",
+    isLesothoDomain() ? "LSL" : "USD",
+    isLesothoDomain() ? null : "ZWG",
     ...(report?.availableCurrencies || []),
     ...Object.keys(report?.outputVatByCurrency || {}),
     ...Object.keys(report?.inputVatByCurrency || {}),
     ...Object.keys(report?.netVatByCurrency || {}),
-  ]));
+  ].filter(Boolean)));
 
   const draftMutation = useMutation({
     mutationFn: async () => {

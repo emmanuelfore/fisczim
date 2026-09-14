@@ -11,6 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { findHsCodeSuggestions } from "@/lib/hs-code-suggestions";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface HsCodeAssistantProps {
   initialQuery?: string;
@@ -23,6 +24,7 @@ export function HsCodeAssistant({
   getQuery,
   onSelect,
 }: HsCodeAssistantProps) {
+  const fa = useFiscalAuthority();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(initialQuery);
   const suggestions = useMemo(() => findHsCodeSuggestions(query), [query]);
@@ -110,8 +112,8 @@ export function HsCodeAssistant({
         </div>
 
         <p className="text-[11px] leading-relaxed text-[#64748B]">
-          Suggestions are decision support for Zimbabwe HS classification.
-          Confirm the final tariff line with the official ZIMRA/customs tariff
+          Suggestions are decision support for HS classification.
+          Confirm the final tariff line with the official {fa.authorityShortName}/customs tariff
           for regulated or ambiguous goods.
         </p>
       </DialogContent>

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@shared/routes";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { isLesothoDomain, getDefaultCountry, getDefaultCurrency, getDefaultCity } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -77,7 +78,7 @@ const companySchema = insertCompanyBaseSchema
     city: z.string().min(1, "City is required"),
     phone: z.string().min(1, "Phone number is required"),
     email: z.string().email("Invalid email address"),
-    country: z.string().default("Zimbabwe"),
+    country: z.string().default(isLesothoDomain() ? "Lesotho" : "Zimbabwe"),
     tin: z
       .string()
       .regex(/^\d{10}$/, "TIN must be exactly 10 digits")
@@ -141,10 +142,10 @@ export default function OnboardingPage() {
       phone: "",
       email: "",
       address: "",
-      city: "Harare",
+      city: getDefaultCity(),
       logoUrl: "",
-      currency: "USD",
-      country: "Zimbabwe",
+      currency: getDefaultCurrency(),
+      country: getDefaultCountry(),
     },
     mode: "onBlur", // Validate as user navigates
   });
@@ -449,7 +450,7 @@ export default function OnboardingPage() {
                         </FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value ?? "Zimbabwe"}
+                          defaultValue={field.value ?? getDefaultCountry()}
                         >
                           <FormControl>
                             <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
@@ -507,7 +508,7 @@ export default function OnboardingPage() {
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed relative z-10">
                     If your business is not VAT registered yet, leave tax
-                    registration off. You can add TIN, VAT, and ZIMRA device
+                    registration off. You can add TIN, VAT, and fiscal device
                     details later from Settings.
                   </p>
                 </div>
@@ -634,11 +635,17 @@ export default function OnboardingPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="USD">USD - US Dollar</SelectItem>
-                              <SelectItem value="ZWG">
-                                ZWG - Zimbabwe Gold
-                              </SelectItem>
-                              <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
+                              {isLesothoDomain() ? (
+                                <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
+                              ) : (
+                                <>
+                                  <SelectItem value="USD">USD - US Dollar</SelectItem>
+                                  <SelectItem value="ZWG">
+                                    ZWG - Zimbabwe Gold
+                                  </SelectItem>
+                                  <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
+                                </>
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />

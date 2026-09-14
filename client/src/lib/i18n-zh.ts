@@ -113,12 +113,12 @@ export const zh = {
   "Loans & Advances": "贷款与预支",
   "Employee Self-Service": "员工自助服务",
   "Tax & Compliance": "税务与合规",
-  "ZIMRA Device Settings": "ZIMRA 设备设置",
+  "Fiscal Device Settings": "Fiscal 设备设置",
   "Transaction Logs": "交易日志",
   "Scheduled Jobs": "计划任务",
   "API Logs": "API 日志",
   "FDMS Test": "FDMS 测试",
-  "Tax & ZIMRA Report": "税务与 ZIMRA 报表",
+  "Tax & Fiscal Report": "税务与 Fiscal 报表",
   "VAT Returns": "增值税申报",
   "Tax Reports": "税务报表",
   "Tax Summary": "税务汇总",
@@ -364,7 +364,7 @@ export const zh = {
   "Banking Details": "银行信息",
   "Sales Orders Configuration": "销售订单配置",
   "Inventory Controls": "库存控制",
-  "ZIMRA Device": "ZIMRA 设备",
+  "Fiscal Device": "Fiscal 设备",
   "Tax Configuration": "税务配置",
   "App Mode Configuration": "应用模式配置",
   "POS Terminal Settings": "收银终端设置",
@@ -402,8 +402,8 @@ export const zh = {
     "配置库存计价方法和默认控制。",
   "Set default currencies and manage exchange rates.":
     "设置默认货币并管理汇率。",
-  "Configure fiscal device connectivity and ZIMRA settings.":
-    "配置税控设备连接和 ZIMRA 设置。",
+  "Configure fiscal device connectivity and settings.":
+    "配置税控设备连接和 Fiscal 设置。",
   "Manage tax categories and VAT configuration.":
     "管理税务类别和增值税配置。",
   "Switch between standard retail, restaurant, or bus modes.":

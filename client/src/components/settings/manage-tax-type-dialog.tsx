@@ -33,7 +33,7 @@ import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
   code: z.string().min(1, "Tax Code is required (e.g., VAT-STD)"),
-  zimraCode: z.string().min(1, "ZIMRA Code is required (e.g. C)"),
+  zimraCode: z.string().min(1, "Tax Code is required (e.g. C)"),
   zimraTaxId: z.string().optional(),
   rate: z
     .string()

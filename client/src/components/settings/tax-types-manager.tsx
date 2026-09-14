@@ -30,6 +30,7 @@ import {
 import { useState } from "react";
 import { Edit2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface TaxType {
   id: number;
@@ -44,6 +45,7 @@ interface TaxType {
 export function TaxTypesManager({ companyId }: { companyId: number }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const fa = useFiscalAuthority();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTax, setEditingTax] = useState<TaxType | null>(null);
 
@@ -172,7 +174,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Rate (%)</TableHead>
-            <TableHead>ZIMRA ID</TableHead>
+            <TableHead>{fa.authorityShortName} ID</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -230,7 +232,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
               {editingTax ? "Edit Tax Type" : "Add Tax Type"}
             </DialogTitle>
             <DialogDescription>
-              Configure tax details and ZIMRA mapping.
+              Configure tax details and {fa.authorityShortName} mapping.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -267,7 +269,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-4">
-              <Label className="text-right">ZIMRA ID</Label>
+              <Label className="text-right">{fa.authorityShortName} ID</Label>
               <Select
                 value={formData.zimraTaxId}
                 onValueChange={(val) =>
@@ -275,7 +277,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
                 }
               >
                 <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select ZIMRA Tax ID" />
+                  <SelectValue placeholder={`Select ${fa.authorityShortName} Tax ID`} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">1 - Exempt</SelectItem>

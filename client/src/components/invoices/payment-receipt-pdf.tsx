@@ -356,7 +356,7 @@ export const PaymentReceiptPDF = ({
                 <Text style={s.companyMeta}>{company.address}</Text>
               ) : null}
               <Text style={s.companyMeta}>
-                {company?.city || "Harare"}, {company?.country || "Zimbabwe"}
+                {company?.city || getDefaultCity()}, {company?.country || getDefaultCountry()}
               </Text>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
                 {company?.tin ? (

@@ -44,6 +44,7 @@ import { format } from "date-fns";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiFetch } from "@/lib/api";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import {
   Select,
   SelectContent,
@@ -54,6 +55,7 @@ import {
 
 export default function ZimraLogs() {
   const { user } = useAuth();
+  const fa = useFiscalAuthority();
   const [search, setSearch] = useState("");
   const [endpointFilter, setEndpointFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -191,7 +193,7 @@ export default function ZimraLogs() {
                     <div>
                       <CardTitle>Transaction History</CardTitle>
                       <CardDescription>
-                        Recent API interactions with ZIMRA FDMS (
+                        Recent API interactions with {fa.authorityShortName} FDMS (
                         {filteredLogs.length} logs)
                       </CardDescription>
                     </div>

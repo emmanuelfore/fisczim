@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Layout } from "@/components/layout";
 import {
   Card,
@@ -43,6 +44,7 @@ import { cn } from "@/lib/utils";
 
 export default function TaxReportsPage() {
   const { activeCompany } = useActiveCompany();
+  const fa = useFiscalAuthority();
   const companyId = activeCompany?.id;
   const [dateRange, setDateRange] = useState({
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -66,7 +68,7 @@ export default function TaxReportsPage() {
     enabled: !!companyId,
   });
 
-  // Fetch ZIMRA Logs
+  // Fetch Fiscal Logs
   const { data: zimraLogs, isLoading: isLoadingLogs } = useQuery({
     queryKey: ["zimra-logs", companyId],
     queryFn: async () => {
@@ -349,15 +351,15 @@ export default function TaxReportsPage() {
           </Card>
         </div>
 
-        {/* ZIMRA Communication Logs */}
+        {/* Fiscal Communication Logs */}
         <Card className="border-none shadow-sm overflow-hidden">
           <CardHeader className="bg-white border-b border-slate-100 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg font-bold">
-                Recent ZIMRA Logs
+                Recent {fa.authorityShortName} Logs
               </CardTitle>
               <CardDescription>
-                Live communication with ZIMRA servers
+                Live communication with {fa.authorityShortName} servers
               </CardDescription>
             </div>
             <History className="h-5 w-5 text-slate-400" />

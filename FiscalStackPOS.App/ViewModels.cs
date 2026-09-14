@@ -117,6 +117,19 @@ namespace FiscalStackPOS
         public string Time { get { return Entry.Created.ToString("yyyy-MM-dd  HH:mm:ss"); } }
         public string Amount { get { return Entry.Amount.ToString("0.00"); } }
         public string Payment { get { return string.IsNullOrEmpty(Entry.PaymentMethod) ? "-" : Entry.PaymentMethod; } }
+        public string Cashier { get { return string.IsNullOrEmpty(Entry.Cashier) ? "-" : Entry.Cashier; } }
+        public string Type
+        {
+            get
+            {
+                if (Entry.Flag == "02") return AppServices.T("hist.credit");
+                if (Entry.Flag == "03") return AppServices.T("hist.debit");
+                return AppServices.T("hist.sale");
+            }
+        }
+        public string Items { get { return Entry.ItemsCount > 0 ? Entry.ItemsCount.ToString() : "-"; } }
+        public string Net { get { return (Entry.Amount - Entry.Vat).ToString("0.00"); } }
+        public string Vat { get { return Entry.Vat.ToString("0.00"); } }
         public string Status
         {
             get

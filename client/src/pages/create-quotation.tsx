@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { isLesothoDomain } from "@/lib/country-detect";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -490,7 +491,7 @@ export default function CreateQuotationPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="USD">USD</SelectItem>
+                    {!isLesothoDomain() && <SelectItem value="USD">USD</SelectItem>}
                     {currencies?.map((c) => (
                       <SelectItem key={c.id} value={c.code}>
                         {c.code}

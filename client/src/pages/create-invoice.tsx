@@ -84,6 +84,7 @@ import {
   type InvoiceTemplateId,
 } from "@/lib/invoice-templates";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { apiFetch } from "@/lib/api";
 import { QuantityInput } from "@/components/ui/quantity-input";
 
@@ -138,6 +139,7 @@ export default function CreateInvoicePage() {
   const createProduct = useCreateProduct(companyId);
   const { user } = useAuth();
   const { can, requiresApproval } = usePermissions();
+  const fa = useFiscalAuthority();
 
   const { data: segments } = useQuery<any[]>({
     queryKey: ["/api/accounting/segments", companyId],
@@ -943,7 +945,7 @@ export default function CreateInvoicePage() {
     const warnings: string[] = [];
     if (items.some((item) => !isDiscountLine(item) && (!item.hsCode || item.hsCode.length < 4))) {
       warnings.push(
-        "⚠️ Some items are missing valid HS Codes. ZIMRA requires proper classification.",
+        `⚠️ Some items are missing valid HS Codes. ${fa.authorityShortName} requires proper classification.`,
       );
     }
     if (items.some((item) => item.unitPrice === 0)) {

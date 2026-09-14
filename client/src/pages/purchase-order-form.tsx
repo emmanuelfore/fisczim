@@ -37,6 +37,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
+import { isLesothoDomain } from "@/lib/country-detect";
 
 type DraftLine = {
   isFreetext?: boolean;
@@ -578,6 +579,8 @@ export default function PurchaseOrderFormPage({
                       (currencies as any[]).map((c) => (
                         <SelectItem key={c.id || c.code} value={c.code}>{c.code} - {c.name}</SelectItem>
                       ))
+                    ) : isLesothoDomain() ? (
+                      <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
                     ) : (
                       <>
                         <SelectItem value="USD">USD - US Dollar</SelectItem>

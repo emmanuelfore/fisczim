@@ -40,6 +40,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 export function CreateProductDialog({
   companyId,
@@ -50,6 +51,7 @@ export function CreateProductDialog({
   triggerLabel?: string;
   defaultType?: "good" | "service";
 }) {
+  const fa = useFiscalAuthority();
   const resolvedLabel = triggerLabel ?? (defaultType === "service" ? "Add Service" : "Add Product");
   const [open, setOpen] = useState(false);
   const [isService, setIsService] = useState(defaultType === "service");
@@ -666,7 +668,7 @@ export function CreateProductDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
-                        ZIMRA Tax Type
+                        {fa.authorityShortName} Tax Type
                       </FormLabel>
                       <Select
                         onValueChange={(val) => {

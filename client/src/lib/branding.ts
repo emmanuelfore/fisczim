@@ -8,19 +8,19 @@ export interface BrandConfig {
   whatsappMessage: string;
   heroTitle: string;
   heroSubtitle: string;
-  primaryColor: string; // HSL values: "256 90% 60%"
+  primaryColor: string;
 }
 
-export const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
+const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
   fiscalstack: {
     name: "FiscalStack",
     logo: "/fiscalstack-logo.png",
     supportEmail: "info@fiscalstack.co.zw",
     website: "https://fiscalstack.co.zw",
     whatsappMessage: "Hi FiscalStack! I'd like to learn more about your fiscalization platform.",
-    heroTitle: "Seamless ZIMRA Compliant Invoicing.",
+    heroTitle: "Seamless Fiscal Compliance Invoicing.",
     heroSubtitle: "Manage customers, products, and fiscalization in one secure platform.",
-    primaryColor: "256 90% 60%", // Violet/Indigo
+    primaryColor: "256 90% 60%",
   },
   fiscalzone: {
     name: "FiscalZone",
@@ -28,14 +28,12 @@ export const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     supportEmail: "support@fiscalzone.com",
     website: "https://fiscalzone.com",
     whatsappMessage: "Hi FiscalZone! I'd like to learn more about your fiscalization platform.",
-    heroTitle: "Next-Gen ZIMRA Compliance.",
+    heroTitle: "Next-Gen Fiscal Compliance.",
     heroSubtitle: "The most reliable way to manage your fiscalization and business growth.",
-    primaryColor: "210 100% 50%", // Blue (example)
+    primaryColor: "210 100% 50%",
   },
 };
 
-// Default to fiscalstack if VITE_APP_BRAND is not set
 const brandEnv = (import.meta.env.VITE_APP_BRAND as string)?.toLowerCase();
 export const currentBrand: Brand = (brandEnv === "fiscalzone") ? "fiscalzone" : "fiscalstack";
-
 export const brand = BRAND_CONFIGS[currentBrand];

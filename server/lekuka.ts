@@ -274,7 +274,9 @@ export class LekukaDevice {
     try {
       return (await this.client.request<T>({ method, url: endpoint, data })).data;
     } catch (error: any) {
-      throw new LekukaApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
+      const respData = error.response?.data;
+      console.log(`[LEKUKA-API] ${method} ${endpoint} ERROR ${error.response?.status}:`, JSON.stringify(respData, null, 2));
+      throw new LekukaApiError(error.response?.status || 0, endpoint, respData || error.message);
     }
   }
 
@@ -314,10 +316,22 @@ export class LekukaDevice {
   getStatus() { return this.request<any>("GET", "v1", "GetStatus"); }
   openDay(fiscalDayNo?: number) { return this.request<any>("POST", "v1", "OpenDay", fiscalDayNo ? { fiscalDayNo } : {}); }
   submitReceipt(receipt: LekukaReceipt, previousReceiptHash?: string) {
-    return this.request<any>("POST", "v2", "SubmitReceipt", {
+    const signed = this.signReceipt(receipt, previousReceiptHash);
+    const payload = {
       deviceID: Number(this.deviceId),
-      receipt: this.signReceipt(receipt, previousReceiptHash),
-    });
+      receipt: signed,
+    };
+    console.log(`[LEKUKA-API] SubmitReceipt payload (first 500 chars of buyerData):`, JSON.stringify({
+      deviceID: payload.deviceID,
+      buyerData: (signed as any).buyerData,
+      receiptType: signed.receiptType,
+      receiptCurrency: signed.receiptCurrency,
+      receiptTotal: signed.receiptTotal,
+      receiptCounter: signed.receiptCounter,
+      receiptGlobalNo: signed.receiptGlobalNo,
+      invoiceNo: signed.invoiceNo,
+    }));
+    return this.request<any>("POST", "v2", "SubmitReceipt", payload);
   }
 
   generateQrCode(hash: string, globalNo: number, receiptDate: string): string {

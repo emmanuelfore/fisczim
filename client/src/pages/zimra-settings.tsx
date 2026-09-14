@@ -41,6 +41,7 @@ import { DayManagementControls } from "@/components/zimra/day-management-control
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 function cleanDeviceId(value: unknown) {
   const text = String(value || "").trim();
@@ -48,6 +49,7 @@ function cleanDeviceId(value: unknown) {
 }
 
 export default function ZimraSettingsPage() {
+  const fa = useFiscalAuthority();
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
   const currentCompany = activeCompany;
   const isLoading = isLoadingActive;
@@ -81,7 +83,7 @@ export default function ZimraSettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center">
               <Server className="w-5 h-5 mr-2 text-green-600" />
-              ZIMRA Fiscal Device
+              {fa.authorityShortName} Fiscal Device
             </CardTitle>
             <CardDescription>
               Configure your device connection and registration status
@@ -99,6 +101,7 @@ export default function ZimraSettingsPage() {
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
 
 function ZimraDeviceConfig({ company }: { company: any }) {
+  const fa = useFiscalAuthority();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedBranch } = useBranchContext();
@@ -279,7 +282,7 @@ function ZimraDeviceConfig({ company }: { company: any }) {
       const env = data.currentEnvironment || "unknown";
       toast({
         title: "Environment Switched",
-        description: `Now using ZIMRA ${env.toUpperCase()} endpoint.`,
+        description: `Now using ${fa.authorityShortName} ${env.toUpperCase()} endpoint.`,
         className: "bg-blue-600 text-white",
       });
     },
@@ -311,7 +314,7 @@ function ZimraDeviceConfig({ company }: { company: any }) {
       if (data.overallStatus === "Online") {
         toast({
           title: "Device Online",
-          description: "Connection to ZIMRA is healthy.",
+          description: `Connection to ${fa.authorityShortName} is healthy.`,
           className: "bg-green-100 text-green-900",
         });
       } else {
@@ -396,7 +399,7 @@ function ZimraDeviceConfig({ company }: { company: any }) {
             }
             if (
               confirm(
-                "⚠️ CAUTION: You are about to switch to the ZIMRA PRODUCTION environment. Real fiscal data will be submitted. Are you sure?",
+                `⚠️ CAUTION: You are about to switch to the ${fa.authorityShortName} PRODUCTION environment. Real fiscal data will be submitted. Are you sure?`,
               )
             ) {
               switchEnvironmentMutation.mutate("production");
@@ -622,7 +625,7 @@ function ZimraDeviceConfig({ company }: { company: any }) {
             <DialogTitle>Connectivity Test Results</DialogTitle>
             <DialogDescription>
               {" "}
-              Diagnostic results for ZIMRA connection{" "}
+               Diagnostic results for {fa.authorityShortName} connection{" "}
             </DialogDescription>
           </DialogHeader>
           {connectivityResult && (
@@ -775,6 +778,7 @@ import {
 } from "@/components/ui/accordion";
 
 function AdvancedResetControls({ company }: { company: any }) {
+  const fa = useFiscalAuthority();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [globalNumber, setGlobalNumber] = useState(
@@ -848,7 +852,7 @@ function AdvancedResetControls({ company }: { company: any }) {
           onClick={() => {
             if (
               confirm(
-                "Are you sure you want to manually overwrite these counters? This can break ZIMRA chain validation if incorrect.",
+                `Are you sure you want to manually overwrite these counters? This can break ${fa.authorityShortName} chain validation if incorrect.`,
               )
             ) {
               resetMutation.mutate();

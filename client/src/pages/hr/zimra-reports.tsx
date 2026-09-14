@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { FileText, Download, Building, Users, Calendar, Calculator, Loader2, Landmark, CheckCircle2, XCircle } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 type P2Result = {
   month: string;
@@ -31,6 +32,7 @@ type ZimdefResult = {
 };
 
 export default function ZimraReports() {
+  const fa = useFiscalAuthority();
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
@@ -151,9 +153,9 @@ export default function ZimraReports() {
       <div className="flex flex-col gap-6 h-full max-w-5xl mx-auto">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            ZIMRA Compliance Reports
+            {fa.authorityShortName} Compliance Reports
           </h1>
-          <p className="text-slate-500">Generate statutory exports and remittance schedules for Zimbabwe.</p>
+          <p className="text-slate-500">Generate statutory exports and remittance schedules for your jurisdiction.</p>
         </div>
 
         {error && (

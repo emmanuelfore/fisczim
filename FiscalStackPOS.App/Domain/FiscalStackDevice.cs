@@ -244,8 +244,8 @@ namespace FiscalStackPOS
             {
                 n++;
                 sb.Append("<ITEM>");
-                sb.Append("<HH>").Append(n).Append("</HH>");
-                sb.Append("<ITEMCODE>").Append(Esc(it.HsCode)).Append("</ITEMCODE>");
+                sb.Append("<HH>").Append(HsCode8(it.HsCode)).Append("</HH>");
+                sb.Append("<ITEMCODE>").Append(Esc(!string.IsNullOrEmpty(it.Code) ? it.Code : it.HsCode)).Append("</ITEMCODE>");
                 sb.Append("<ITEMNAME1>").Append(Esc(it.Name)).Append("</ITEMNAME1>");
                 sb.Append("<ITEMNAME2>").Append(Esc(it.Name)).Append("</ITEMNAME2>");
                 sb.Append("<QTY>").Append(it.Quantity.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append("</QTY>");
@@ -257,6 +257,18 @@ namespace FiscalStackPOS
             }
             sb.Append("</ITEMS>");
             return sb.ToString();
+        }
+
+        /// <summary>ZIMRA requires an exactly-8-char HS code in &lt;HH&gt;.</summary>
+        internal static string HsCode8(string hs)
+        {
+            if (string.IsNullOrEmpty(hs)) return "00000000";
+            StringBuilder sb = new StringBuilder();
+            foreach (char ch in hs)
+                if (char.IsLetterOrDigit(ch)) sb.Append(ch);
+            while (sb.Length < 8) sb.Append('0');
+            if (sb.Length > 8) sb.Remove(8, sb.Length - 8);
+            return sb.ToString().ToUpperInvariant();
         }
 
         public static string BuildCurrenciesXml(PosSale sale)

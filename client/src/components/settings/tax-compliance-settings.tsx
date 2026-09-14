@@ -45,13 +45,13 @@ export function TaxComplianceSettings({
         `/api/companies/${companyId}/zimra/config/sync`,
         { method: "POST" },
       );
-      if (!res.ok) throw new Error("Failed to sync ZIMRA configuration");
+      if (!res.ok) throw new Error(`Failed to sync ${authorityShortName} configuration`);
       return res.json();
     },
     onSuccess: () => {
       toast({
         title: "Sync Successful",
-        description: "ZIMRA tax levels updated.",
+        description: `${authorityShortName} tax levels updated.`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
     },

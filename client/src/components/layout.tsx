@@ -63,6 +63,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -146,6 +147,7 @@ export function Layout({
     user?.id ?? null,
   );
   const { brand, currentBrand } = useBranding();
+  const fa = useFiscalAuthority();
   const { toast } = useToast();
   const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -493,12 +495,12 @@ export function Layout({
       icon: ShieldCheck,
       label: "Tax & Compliance",
       children: [
-        { icon: Server, label: "ZIMRA Device Settings", href: "/settings?tab=zimra" },
+        { icon: Server, label: `${fa.deviceLabel} Settings`, href: `/settings?tab=${fa.isLesotho ? "lekuka" : "zimra"}` },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
         { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
         { icon: Activity, label: "API Logs", href: "/api-logs" },
         { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
-        { icon: FileText, label: "Tax & ZIMRA Report", href: "/reports/tax" },
+        { icon: FileText, label: `Tax & ${fa.authorityShortName} Report`, href: "/reports/tax" },
         { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
         {
           icon: ShieldCheck,
@@ -602,7 +604,7 @@ export function Layout({
       children: [
         { icon: LayoutDashboard, label: "Reports Dashboard", href: "/reports" },
         { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
-        { icon: ShieldCheck, label: "Tax & ZIMRA Report", href: "/reports/tax" },
+        { icon: ShieldCheck, label: `Tax & ${fa.authorityShortName} Report`, href: "/reports/tax" },
       ],
     },
     { icon: UserCog, label: "User Management", href: "/team-settings" },
@@ -898,7 +900,7 @@ export function Layout({
     if (location.startsWith("/hr/reports"))
       return {
         title: "HR Reports",
-        subtitle: "Generate ZIMRA and HR compliance reports.",
+        subtitle: `Generate ${fa.authorityShortName} and HR compliance reports.`,
       };
     if (location.startsWith("/hr"))
       return {
@@ -908,7 +910,7 @@ export function Layout({
     if (location.startsWith("/tax-config"))
       return {
         title: "Tax Configuration",
-        subtitle: "Manage ZIMRA fiscalisation and tax categories.",
+        subtitle: `Manage ${fa.authorityShortName} fiscalisation and tax categories.`,
       };
     if (location.startsWith("/pos-settings"))
       return {
@@ -918,7 +920,7 @@ export function Layout({
     if (location.startsWith("/settings")) {
       if (search.includes("tab=zimra"))
         return {
-          title: "ZIMRA Device",
+          title: fa.deviceLabel,
           subtitle:
             "Configure fiscal device credentials and FDMS connectivity.",
         };
@@ -1002,7 +1004,7 @@ export function Layout({
     if (location.startsWith("/subscription"))
       return {
         title: "Subscription & Licensing",
-        subtitle: "Manage hardware bindings for ZIMRA production access.",
+        subtitle: `Manage hardware bindings for ${fa.authorityShortName} production access.`,
       };
     if (location.startsWith("/profile"))
       return {
@@ -1026,8 +1028,8 @@ export function Layout({
       };
     if (location.startsWith("/zimra-settings"))
       return {
-        title: "ZIMRA Settings",
-        subtitle: "Manage fiscal device and ZIMRA configuration.",
+        title: fa.settingsLabel,
+        subtitle: `Manage fiscal device and ${fa.authorityShortName} configuration.`,
       };
     if (location.startsWith("/fdms-test"))
       return {
@@ -1187,7 +1189,7 @@ export function Layout({
       };
     if (location.startsWith("/reports/tax"))
       return {
-        title: "Tax & ZIMRA Reports",
+        title: `Tax & ${fa.authorityShortName} Reports`,
         subtitle: "Review fiscal, tax, and compliance reporting.",
       };
     if (location.startsWith("/reports/customer-statements"))

@@ -16,6 +16,7 @@ import {
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup, SelectLabel } from "@/components/ui/select";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 const hrNavigation = [
   { name: "Home", href: "/hr", icon: PieChart },
@@ -30,13 +31,14 @@ const hrSetupNav = [
   { name: "Settings", href: "/hr/setup", icon: Settings },
 ];
 
-const hrReportsNav = [
-  { name: "ZIMRA Compliance", href: "/hr/reports/zimra", icon: FileBarChart2 },
-  { name: "Statutory Remittances", href: "/hr/reports/remittances", icon: Landmark },
-];
-
 export function HRLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const fa = useFiscalAuthority();
+
+  const hrReportsNav = [
+    { name: `${fa.authorityShortName} Compliance`, href: "/hr/reports/zimra", icon: FileBarChart2 },
+    { name: "Statutory Remittances", href: "/hr/reports/remittances", icon: Landmark },
+  ];
 
   function NavItem({ item }: { item: { name: string; href: string; icon: any } }) {
     const isActive = location === item.href || (item.href !== "/hr" && location.startsWith(item.href + "/"));
@@ -122,7 +124,7 @@ export function HRLayout({ children }: { children: React.ReactNode }) {
               <Briefcase className="h-5 w-5 text-indigo-600 dark:text-indigo-400 mb-2" />
               <h3 className="font-semibold text-indigo-900 dark:text-indigo-300 text-xs">Need help?</h3>
               <p className="text-xs text-indigo-700/70 dark:text-indigo-400/70 mt-1 leading-relaxed">
-                Zimbabwe statutory defaults (PAYE tables, NSSA, NEC) are pre-loaded. Review them in Settings before the first payroll run.
+                Statutory defaults (PAYE tables, NSSA, NEC) are pre-loaded. Review them in Settings before the first payroll run.
               </p>
             </div>
           </div>

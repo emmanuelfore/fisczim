@@ -11361,7 +11361,7 @@ export async function registerRoutes(
         const invoiceId = Number(req.params.id);
         const invoice = Number.isFinite(invoiceId) ? await storage.getInvoice(invoiceId) : undefined;
         return res.status(409).json({
-          code: "ZIMRA_PREFLIGHT_FAILED",
+          code: "FISCAL_PREFLIGHT_FAILED",
           message,
           issues: err.issues,
           invoiceId,

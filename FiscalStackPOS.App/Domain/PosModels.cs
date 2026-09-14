@@ -8,6 +8,7 @@ namespace FiscalStackPOS
     public class PosItem
     {
         public string Name = "";
+        public string Code = "";
         public string HsCode = "";
         public decimal Quantity = 1m;
         public decimal Price = 0m;        // unit price, VAT-inclusive
@@ -43,6 +44,7 @@ namespace FiscalStackPOS
         public string InvoiceComment = "";
         public string OriginalInvoiceNumber = "";
         public string InvoiceFlag = "01";     // 01 sale, 02 credit note
+        public string Cashier = "";
         public List<PosItem> Items = new List<PosItem>();
         public decimal Tendered = 0m;
         public DateTime Created = DateTime.Now;
@@ -67,6 +69,7 @@ namespace FiscalStackPOS
         public decimal Amount = 0m;
         public decimal Vat = 0m;
         public string Flag = "01";
+        public string Cashier = "";
         public string CustomerName = "";
         public int ItemsCount = 0;
         public string QrUrl = "";

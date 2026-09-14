@@ -16,7 +16,7 @@ export function useDeviceStatus(companyId: number, isLesotho = false) {
         queryKey: ["device-status", companyId, isLesotho ? "lekuka" : "zimra"],
         queryFn: async () => {
             try {
-                // Lesotho companies check LEKAKU config (local check, no
+                // Lesotho companies check LEKUKA config (local check, no
                 // live RSL round-trip); Zimbabwe hits the FDMS status.
                 const res = await apiFetch(
                     isLesotho

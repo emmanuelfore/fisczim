@@ -24,7 +24,10 @@ const allowedOrigins = [
   "https://www.fiscalstack.co.zw",
   "https://fiscalzone.co.zw",
   "https://www.fiscalzone.co.zw",
+  "https://fiscalstack.co.ls",
+  "https://www.fiscalstack.co.ls",
   "http://localhost:5000",
+  "http://localhost:5002",
   "http://localhost:3000",
 ];
 

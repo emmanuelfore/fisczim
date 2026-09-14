@@ -110,9 +110,9 @@ Helmet sets headers:
 **Why:** Without this, any user could overwrite a manager's or owner's PIN, escalating privileges.
 
 ---
+### HIGH #9 — LEKUKA Advisory Lock
 
-### HIGH #9 — LEKAKU Advisory Lock
-**File:** `server/lib/fiscalization.ts` (`processInvoiceFiscalizationLEKAKU`)
+**File:** `server/lib/fiscalization.ts` (`processInvoiceFiscalizationLEKUKA`)
 
 **Before:** No concurrency guard. Multiple simultaneous fiscalization requests could race and corrupt the receipt counter.
 **After:** Wrapped with `acquireFiscalDeviceLock()` / `releaseFiscalDeviceLock()` using PostgreSQL `pg_advisory_lock`.
@@ -358,7 +358,7 @@ SSL auto-renewal configured for all domains via certbot.
 | Commit | Hash | Description |
 |---|---|---|
 | CRITICAL fixes | `95d6cd6` | CORS, rate-limiting, key leak, IDOR, helmet |
-| LEKAKU lock + auth cleanup | `3fbb7f5` | Advisory lock, auth logging, PIN auth, Sage OAuth |
+| LEKUKA lock + auth cleanup | `3fbb7f5` | Advisory lock, auth logging, PIN auth, Sage OAuth |
 
 **Note:** Git push to remote times out due to repo size. All deployments done via direct SFTP file upload + server-side build.
 
@@ -384,3 +384,72 @@ SSH credentials stored only in deploy scripts (cleaned up after use).
 | `ALLOW_REGISTRATION` | Enable open registration (`true`/`false`) | Not set (defaults to blocked in production) |
 | `SWAGGER_API_KEY` | API key for Swagger docs (if guard were active) | Not needed (guard reverted) |
 | `SWAGGER_OPEN` | Bypass Swagger guard (if guard were active) | Not needed (guard reverted) |
+| `COUNTRY_SCOPE` | Country filter for Lesotho deployment (`lesotho`) | Yes (PM2 ecosystem) |
+
+---
+
+## Lekuka Spelling Fix
+
+**Date:** 13 September 2026
+
+All instances of misspelled "Lekaku" renamed to correct "Lekuka" (Revenue Services Lesotho product name).
+
+### Code Renames (all `.ts` and `.tsx` files)
+- PascalCase: `LekakuDevice` → `LekukaDevice`, `LekakuReceipt` → `LekukaReceipt`, etc.
+- camelCase: `lekakuGatewayUrl` → `lekukaGatewayUrl`, `lekakuTaxId` → `lekukaTaxId`, etc.
+- UPPER_CASE: `LEKAKU_TEST_GATEWAY` → `LEKUKA_TEST_GATEWAY`, etc.
+- String literals: `"LEKAKU"` → `"LEKUKA"` in fiscalProvider values, UI text, comments
+- Route paths: `/lekaku/` → `/lekuka/`
+- Query keys: `"lekaku-product-levies"` → `"lekuka-product-levies"`
+
+### File Renames
+| Old Name | New Name |
+|---|---|
+| `server/lekaku.ts` | `server/lekuka.ts` |
+| `shared/lekaku.ts` | `shared/lekuka.ts` |
+| `client/src/components/settings/lekaku-configuration.tsx` | `client/src/components/settings/lekuka-configuration.tsx` |
+| `server/tests/lekaku.test.ts` | `server/tests/lekuka.test.ts` |
+| `server/tests/lekaku-taxes.test.ts` | `server/tests/lekuka-taxes.test.ts` |
+
+### Database Migration
+- `migrations/0069_lekuka_column_rename.sql` — Renames 8 columns from `lekaku_*` to `lekuka_*` in `companies` and `tax_types` tables
+- Ran on production: all 8 ALTER TABLE statements succeeded
+
+### Old Migration Files (unchanged — historical)
+- `migrations/0067_lekaku_lesotho_configuration.sql` — Comments updated to LEKUKA
+- `migrations/0068_lekaku_tax_authority.sql` — Comments updated to LEKUKA
+
+---
+
+## FiscalStack Lesotho Deployment
+
+**Date:** 13 September 2026
+**URL:** `https://fiscalstack.co.ls`
+**Port:** 5002
+**DB:** Same as Zimbabwe (`fisczim`), filtered by `COUNTRY_SCOPE=lesotho`
+
+### Architecture
+- Same codebase, same database — country-scope filtering via `COUNTRY_SCOPE=lesotho` env var
+- `storage.ts` and `routes.ts` filter companies by country when `COUNTRY_SCOPE` is set
+- `zimra.ts` routes fiscal gateway to Lekuka (RSL) when `COUNTRY_SCOPE=lesotho`
+- All POS, HR/Payroll, invoicing modules identical to Zimbabwe
+
+### Changes Made
+1. **CORS** (`server/index.ts`): Added `fiscalstack.co.ls` and `www.fiscalstack.co.ls` to allowed origins
+2. **PM2 Ecosystem** (`ecosystem.config.cjs` and `.json`): Added `fiscalstack_lesotho` app entry (PORT=5002, COUNTRY_SCOPE=lesotho)
+3. **start.sh**: Saves/restores PM2-injected env vars (PORT, COUNTRY_SCOPE) around `.env` sourcing
+4. **Nginx** (`/etc/nginx/sites-available/fiscalstack.co.ls`): Proxy to localhost:5002 with SSL (Certbot)
+5. **Build**: Rebuilt `dist/index.cjs` on server with updated CORS and Lekuka references
+
+### Server State
+```
+│ id │ name                 │ status │ port │ pid    │
+│ 0  │ fiscalstack          │ online │ 5000 │ 3597762 │
+│ 6  │ fiscalstack_lesotho  │ online │ 5002 │ 3601208 │
+│ 1  │ fiscalzone           │ online │ 5001 │ 3529665 │
+```
+
+### Verification
+- `https://fiscalstack.co.ls` → HTTP 200 ✓
+- `localhost:5002/api/ping` → HTTP 200 ✓
+- PM2 status: all 3 apps online ✓

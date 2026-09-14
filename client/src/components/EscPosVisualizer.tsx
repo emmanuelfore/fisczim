@@ -7,7 +7,7 @@ interface EscPosVisualizerProps {
   verifyLabel?: string;
 }
 
-export const EscPosVisualizer: React.FC<EscPosVisualizerProps> = ({ data, authorityName = "ZIMRA", verifyLabel }) => {
+export const EscPosVisualizer: React.FC<EscPosVisualizerProps> = ({ data, authorityName = "Fiscal", verifyLabel }) => {
   const lines: any[] = [];
   let currentAlign = "left";
   let isDoubleHeight = false;

@@ -37,10 +37,10 @@
         <GradientStop Color="#E0F2FE" Offset="1"/>
     </LinearGradientBrush>
 
-    <!-- Shadows -->
-    <DropShadowEffect x:Key="CardShadow" BlurRadius="18" ShadowDepth="2" Direction="270" Opacity="0.10" Color="#0F172A" />
-    <DropShadowEffect x:Key="CardShadowHover" BlurRadius="24" ShadowDepth="5" Direction="270" Opacity="0.16" Color="#0F172A" />
-    <DropShadowEffect x:Key="ModalShadow" BlurRadius="40" ShadowDepth="10" Direction="270" Opacity="0.30" Color="#0F172A" />
+    <!-- Shadows (kept light: heavy blur effects stall restore-from-minimized on low-end GPUs) -->
+    <DropShadowEffect x:Key="CardShadow" BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.08" Color="#0F172A" />
+    <DropShadowEffect x:Key="CardShadowHover" BlurRadius="10" ShadowDepth="2" Direction="270" Opacity="0.12" Color="#0F172A" />
+    <DropShadowEffect x:Key="ModalShadow" BlurRadius="12" ShadowDepth="4" Direction="270" Opacity="0.25" Color="#0F172A" />
 
     <!-- ============ layout constants ============ -->
     <GridLength x:Key="NavRailWidth">64</GridLength>

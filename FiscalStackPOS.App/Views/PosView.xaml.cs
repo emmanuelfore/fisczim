@@ -122,7 +122,7 @@ namespace FiscalStackPOS.Views
             if (line != null) line.Quantity += qty;
             else
             {
-                var it = new PosItem { Name = p.Name, HsCode = p.HsCode, Quantity = qty, Price = p.Price, TaxRate = p.TaxRate };
+                var it = new PosItem { Name = p.Name, Code = p.Code, HsCode = p.HsCode, Quantity = qty, Price = p.Price, TaxRate = p.TaxRate };
                 cart.Add(new CartLineVm(it, AppServices.CurrencySymbol));
             }
         }

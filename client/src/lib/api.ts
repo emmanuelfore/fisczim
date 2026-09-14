@@ -78,10 +78,13 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
         const urlStr = url.toString();
         const isAuthEndpoint = urlStr.includes('/api/auth/');
         const alreadyRetried = (init as any)?._authRetried === true;
+        // Don't cascade 401s from upstream fiscal authority endpoints — those are
+        // ZIMRA/Lekuka server rejections, NOT our auth system failing.
+        const isFiscalProxy = urlStr.includes('/zimra/') || urlStr.includes('/lekuka/');
 
         // 401 received: silently try ONE token refresh then retry the original request.
-        // Never retry auth endpoints themselves, and never retry more than once.
-        if (response.status === 401 && !isAuthEndpoint && !alreadyRetried) {
+        // Never retry auth endpoints themselves, never retry fiscal proxy 401s, and never retry more than once.
+        if (response.status === 401 && !isAuthEndpoint && !alreadyRetried && !isFiscalProxy) {
             let refreshSucceeded = false;
             try {
                 const refreshed = await auth.refreshTokens();

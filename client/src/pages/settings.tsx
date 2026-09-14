@@ -1,5 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { getDefaultCountry, isLesothoDomain } from "@/lib/country-detect";
 import { useUpdateCompany } from "@/hooks/use-companies";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -59,6 +61,7 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
+  const fa = useFiscalAuthority();
   const updateCompany = useUpdateCompany(activeCompany?.id || 0);
 
   // Deep-linking support via URL query params
@@ -90,8 +93,8 @@ export default function SettingsPage() {
         accountNumber: activeCompany.accountNumber || "",
         branchCode: activeCompany.branchCode || "",
         currency: activeCompany.currency || "USD",
-        country: activeCompany.country || "Zimbabwe",
-        fiscalProvider: (activeCompany as any).fiscalProvider || "ZIMRA",
+        country: activeCompany.country || getDefaultCountry(),
+        fiscalProvider: (activeCompany as any).fiscalProvider || (isLesothoDomain() ? "LEKUKA" : "ZIMRA"),
         lekukaGatewayUrl: (activeCompany as any).lekukaGatewayUrl || "",
         fdmsDeviceId: activeCompany.fdmsDeviceId || "",
         zimraPrivateKey: activeCompany.zimraPrivateKey || "",
@@ -193,7 +196,7 @@ export default function SettingsPage() {
     {
       title: t("Fiscal (Tax)"),
       items: [
-        { id: "zimra", label: t("ZIMRA Device") },
+        { id: "zimra", label: t(`${fa.deviceLabel}`) },
         { id: "tax", label: t("Tax Config") },
       ]
     },
@@ -315,7 +318,7 @@ const getTabMeta = (id: string) => {
       case "sales-orders": return { title: t("Sales Orders Configuration"), subtitle: t("Configure deposit percentages, preorder rules, and lay-by default durations.") };
       case "inventory": return { title: t("Inventory Controls"), subtitle: t("Configure inventory valuation methods and default controls.") };
       case "currencies": return { title: t("Currencies"), subtitle: t("Set default currencies and manage exchange rates.") };
-      case "zimra": return { title: t("ZIMRA Device Settings"), subtitle: t("Configure fiscal device connectivity and ZIMRA settings.") };
+      case "zimra": return { title: t(`${fa.deviceLabel} Settings`), subtitle: t(`Configure fiscal device connectivity and ${fa.authorityShortName} settings.`) };
       case "tax": return { title: t("Tax Configuration"), subtitle: t("Manage tax categories and VAT configuration.") };
       case "app-mode": return { title: t("App Mode Configuration"), subtitle: t("Switch between standard retail, restaurant, or bus modes.") };
       case "pos": return { title: t("POS Terminal Settings"), subtitle: t("Configure registers, printing, receipts, and tills.") };

@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { 
   ClipboardList, 
   Truck, 
@@ -20,6 +21,7 @@ interface Props {
 
 export function FeatureSettings({ formData, setFormData }: Props) {
   const { t } = useI18n();
+  const fa = useFiscalAuthority();
   const features = formData.featureSettings || {};
 
   const toggleFeature = (key: string, value: boolean) => {
@@ -78,7 +80,7 @@ export function FeatureSettings({ formData, setFormData }: Props) {
     {
       key: "tax",
       label: t("Tax & Compliance"),
-      description: t("ZIMRA integration logs, VAT returns, and audit trails."),
+      description: `${fa.authorityShortName} integration logs, VAT returns, and audit trails.`,
       icon: ShieldCheck
     }
   ];

@@ -293,7 +293,7 @@ router.post("/close-day", async (req, res) => {
     }
     if (err instanceof ZimraPreflightError) {
       return res.status(400).json({
-        error: "ZIMRA_PREFLIGHT_ERROR",
+        error: "FISCAL_PREFLIGHT_ERROR",
         message: err.message,
         issues: err.issues,
         recovery: "Fix the listed local receipt/day issues, then retry closing the fiscal day.",

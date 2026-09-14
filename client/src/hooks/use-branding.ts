@@ -1,4 +1,4 @@
-import { brand, currentBrand } from "@/lib/branding";
+import { currentBrand, brand } from "@/lib/branding";
 
 export function useBranding() {
   return {

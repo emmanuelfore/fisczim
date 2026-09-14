@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 const styles = StyleSheet.create({
     page: {
@@ -212,6 +213,7 @@ interface InvoicePDFProps {
 }
 
 export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, templateSettings }: InvoicePDFProps) => {
+    const fa = useFiscalAuthority();
 
     const pageFont = pdfFontFamily('Helvetica');
     const designerSettings = templateSettings || getStoredInvoiceTemplateSettings(company?.id || invoice?.companyId);
@@ -317,7 +319,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     </Text>
                     <View style={{ width: 60, height: 2, backgroundColor: accentColor, marginTop: 5, marginBottom: 3 }} />
                     <Text style={{ fontSize: 8, color: '#64748b' }}>
-                        {invoice.status === 'quote' ? "Prepared quotation" : (invoice.fiscalCode ? "ZIMRA fiscal document" : "Customer document")}
+                        {invoice.status === 'quote' ? "Prepared quotation" : (invoice.fiscalCode ? `${fa.authorityShortName} fiscal document` : "Customer document")}
                     </Text>
                 </View>
                 
@@ -518,7 +520,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             vatAmt = displayTotalIncl - (displayTotalIncl / (1 + taxRate / 100));
                         }
 
-                        // ZIMRA Spec: "Price" column. Is it Unit Price? Yes usually.
+                        // Fiscal Spec: "Price" column. Is it Unit Price? Yes usually.
                         const matchingTax = taxTypes?.find(t => t.id == item.taxTypeId);
 
                         // Strict check for Exempt vs Zero Rated
@@ -728,7 +730,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     <View style={{ marginTop: 12, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
                         <Image style={{ width: 70, height: 70, marginRight: 12 }} src={qrCodeUrl} />
                         <View>
-                            <Text style={{ fontSize: 9, fontWeight: 700, color: accentColor, marginBottom: 2 }}>ZIMRA Verification QR</Text>
+                            <Text style={{ fontSize: 9, fontWeight: 700, color: accentColor, marginBottom: 2 }}>{fa.authorityShortName} Verification QR</Text>
                             <Text style={{ fontSize: 7, color: '#64748b' }}>Scan to verify this fiscal document.</Text>
                             {verificationCode ? <Text style={{ fontSize: 7, color: '#64748b', marginTop: 2 }}>Code: {verificationCode}</Text> : null}
                         </View>

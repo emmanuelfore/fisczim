@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Printing;
 using System.Drawing.Text;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -19,11 +20,20 @@ namespace FiscalStackPOS
     public static class ThermalPrinter
     {
         private const float MM = 25.4f;
+        private const char BoldText = '\u0002';
+        private static string Bold(string s) { return BoldText + s; }
 
         public static void Print(PosSale sale, FiscalResult res, CardInfo card, string printerName, string width, bool preview, string logoFile = "")
         {
-            Bitmap bmp = Render(sale, res, card, width, logoFile);
-            PrintBitmap(bmp, printerName, preview, "FISCAL RECEIPT");
+            PrintEscPos(sale, res, card, width, printerName);
+        }
+
+        /// <summary>Sends the receipt straight to the ESC/POS printer as raw bytes.</summary>
+        public static void PrintEscPos(PosSale sale, FiscalResult res, CardInfo card, string width, string printerName)
+        {
+            int charMode = width.Contains("48") ? 48 : 42;
+            var lines = ReceiptBuilder.Build(sale, res, card, charMode);
+            RawPrinter.SendBytes(printerName, EscPos.Encode(lines, charMode, res.QrUrl), "FISCAL RECEIPT");
         }
 
         public static void PrintResult(FiscalResult res, CardInfo card, string printerName, string width, bool preview, string logoFile = "")
@@ -52,9 +62,9 @@ namespace FiscalStackPOS
 
         public static Bitmap Render(PosSale sale, FiscalResult res, CardInfo card, string width, string logoFile = "")
         {
-            int wmm = 80;
-            var lines = BuildReceiptLines(sale, res, card, width);
-            return Compose(lines, card, res, wmm, width, logoFile);
+            int charMode = width.Contains("48") ? 48 : 42;
+            var lines = ReceiptBuilder.Build(sale, res, card, charMode);
+            return ReceiptPreview.Render(lines, res.QrUrl, charMode, logoFile);
         }
 
         public static Bitmap RenderResult(FiscalResult res, CardInfo card, string width, string logoFile = "")
@@ -115,62 +125,96 @@ namespace FiscalStackPOS
             return Compose(lines, card, new FiscalResult(), 80, width, logoFile);
         }
 
-        private static List<string> BuildReceiptLines(PosSale sale, FiscalResult res, CardInfo card, string width)
+        private static string Center(string s, int width)
         {
-            var lines = new List<string>();
-            bool cn = sale.InvoiceFlag == "02";
-            lines.Add("");
-            lines.Add("    " + (cn ? "CREDIT NOTE" : "TAX INVOICE / RECEIPT"));
-            lines.Add("------------------------------------------");
-            lines.Add("");
-            lines.Add("Invoice #   : " + sale.InvoiceNumber);
-            if (cn && !string.IsNullOrEmpty(sale.OriginalInvoiceNumber))
-                lines.Add("Original    : " + sale.OriginalInvoiceNumber);
-            lines.Add("Date        : " + sale.Created.ToString("yyyy-MM-dd HH:mm:ss"));
-            if (!string.IsNullOrEmpty(card.CompanyName)) lines.Add("Fiscal dev  : " + card.CompanyName);
-            if (!string.IsNullOrEmpty(card.SerialNumber)) lines.Add("Device      : " + card.SerialNumber);
-            if (res.FiscalDayNo.Length > 0) lines.Add("Fiscal day  : " + res.FiscalDayNo);
-            if (res.ReceiptGlobalNo.Length > 0) lines.Add("Receipt GNo : " + res.ReceiptGlobalNo);
-            lines.Add("Currency    : " + sale.Currency);
-            lines.Add("Payment     : " + (string.IsNullOrEmpty(sale.PaymentMethod) ? "CASH" : sale.PaymentMethod));
-            if (!string.IsNullOrEmpty(sale.CustomerName) || !string.IsNullOrEmpty(sale.CustomerTin))
+            if (string.IsNullOrEmpty(s)) return "";
+            if (s.Length >= width) return s;
+            return s.PadLeft(s.Length + (width - s.Length) / 2);
+        }
+
+        private static string Row(string left, string right, int width)
+        {
+            if (left == null) left = "";
+            if (right == null) right = "";
+            if (right.Length >= width) return left + " " + right;
+            string l = Trunc(left, width - right.Length - 1);
+            return l.PadRight(width - right.Length) + right;
+        }
+
+        private static string Trunc(string s, int len)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.Length <= len ? s : s.Substring(0, len);
+        }
+
+        /// <summary>
+        /// Formats the trailing 16-hex QR datum as a human-readable verification
+        /// code (XXXX-XXXX-XXXX-XXXX). For a query-form link the MD5 of the "h"
+        /// parameter is used, matching the ZIMRA printout behaviour.
+        /// </summary>
+        internal static string VerificationCode(string qrText)
+        {
+            string qrData = "";
+            Uri u;
+            if (!string.IsNullOrEmpty(qrText) && Uri.TryCreate(qrText, UriKind.Absolute, out u))
             {
-                lines.Add("");
-                if (!string.IsNullOrEmpty(sale.CustomerName)) lines.Add("Buyer       : " + sale.CustomerName);
-                if (!string.IsNullOrEmpty(sale.CustomerTin)) lines.Add("Buyer TIN   : " + sale.CustomerTin);
-                if (!string.IsNullOrEmpty(sale.CustomerVat)) lines.Add("Buyer VAT   : " + sale.CustomerVat);
-                if (!string.IsNullOrEmpty(sale.CustomerAddress)) lines.Add("     " + sale.CustomerAddress);
+                string h = QueryValue(u, "h");
+                if (h.Length > 0) qrData = Md5Hex16(h);
             }
-            lines.Add("");
-            lines.Add("ITEM");
-            int n = 0;
-            foreach (var it in sale.Items)
+            if (qrData.Length != 16 && !string.IsNullOrEmpty(qrText) && qrText.Length >= 16)
+                qrData = qrText.Substring(qrText.Length - 16);
+            if (qrData.Length != 16) return "";
+            string c = qrData.ToUpper();
+            return c.Substring(0, 4) + "-" + c.Substring(4, 4) + "-" + c.Substring(8, 4) + "-" + c.Substring(12, 4);
+        }
+
+        private static string QueryValue(Uri url, string key)
+        {
+            if (string.IsNullOrEmpty(url.Query)) return "";
+            foreach (string q in url.Query.TrimStart('?').Split('&'))
             {
-                n++;
-                string itemLine = (n.ToString() + " " + it.Name).Trim();
-                lines.Add(itemLine);
-                lines.Add("  " + it.Quantity.ToString("0.##") + " x " + it.Price.ToString("0.00") +
-                    "  " + it.TaxRate.ToString("0.#%").Replace(" %", "%") + "  = " + it.Amount.ToString("0.00"));
+                string[] kv = q.Split(new char[] { '=' }, 2);
+                if (kv.Length == 2 && kv[0] == key) return kv[1];
             }
-            lines.Add("------------------------------------------");
-            lines.Add("Subtotal    : " + sale.Subtotal.ToString("0.00") + " " + sale.Currency);
-            lines.Add("VAT         : " + sale.VatTotal.ToString("0.00"));
-            lines.Add("TOTAL       : " + sale.Subtotal.ToString("0.00") + " " + sale.Currency);
-            if (sale.Tendered > 0)
+            return "";
+        }
+
+        private static string Md5Hex16(string hex)
+        {
+            try
             {
-                lines.Add("Tendered    : " + sale.Tendered.ToString("0.00"));
-                lines.Add("Change      : " + sale.Change.ToString("0.00"));
+                if (string.IsNullOrEmpty(hex) || hex.Length % 2 != 0) return "";
+                byte[] bytes = new byte[hex.Length / 2];
+                for (int i = 0; i < bytes.Length; i++) bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+                    return BitConverter.ToString(md5.ComputeHash(bytes)).Replace("-", "").Substring(0, 16);
             }
-            if (!string.IsNullOrEmpty(sale.InvoiceComment) && !sale.InvoiceComment.StartsWith("Original"))
+            catch { return ""; }
+        }
+
+        internal static string RuntimeIni(string key)
+        {
+            try
             {
-                lines.Add("");
-                lines.Add(sale.InvoiceComment);
+                string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "FiscalStack", "config.ini");
+                if (!File.Exists(path)) return "";
+                foreach (string line in File.ReadAllLines(path))
+                {
+                    string t = line.Trim();
+                    if (t.StartsWith(key, StringComparison.OrdinalIgnoreCase) && t.Contains("="))
+                        return t.Substring(t.IndexOf('=') + 1).Trim().Trim('"');
+                }
             }
-            lines.Add("");
-            lines.Add("Device signature:" + (res.DeviceHash.Length > 0 ? "" : ""));
-            if (res.DeviceHash.Length > 0) lines.Add(res.DeviceHash);
-            lines.Add("");
-            return lines;
+            catch { }
+            return "";
+        }
+
+        internal static string VerifyUrl()
+        {
+            string b = RuntimeIni("QRURL");
+            if (b.Length == 0) b = RuntimeIni("VERIFICATIONSERVER");
+            return b.Length > 0 ? b.TrimEnd('/') + "/" : "";
         }
 
         private static string El(System.Xml.Linq.XElement x, string name)
@@ -202,7 +246,22 @@ namespace FiscalStackPOS
                 float qrArea = 0;
                 if (res != null && !string.IsNullOrEmpty(res.QrUrl)) qrArea = qrSide;
 
-                int h = (int)Math.Ceiling((lines.Count + (qrArea > 0 ? qrLines : 0) + 2) * lineH);
+                List<string> qrFooter = new List<string>();
+                if (qrArea > 0)
+                {
+                    string vc = VerificationCode(res.QrUrl);
+                    if (vc.Length > 0)
+                    {
+                        qrFooter.Add("Verification code:");
+                        qrFooter.Add(Center(vc, charMode));
+                        qrFooter.Add("");
+                        qrFooter.Add("You can verify this receipt manually at");
+                        string vu = VerifyUrl().TrimEnd('/');
+                        if (vu.Length > 0) qrFooter.Add(Center(vu, charMode));
+                    }
+                }
+
+                int h = (int)Math.Ceiling((lines.Count + (qrArea > 0 ? qrLines : 0) + qrFooter.Count + 2) * lineH);
                 if (h < qrSide + 40) h = qrSide + 40;
 
                 Bitmap bmp = new Bitmap(w, h);
@@ -235,24 +294,27 @@ namespace FiscalStackPOS
                     {
                         DrawCentered(g, card.CompanyName, bold, charW, maxChars, w, ref y);
                     }
-                    if (card != null && !string.IsNullOrEmpty(card.Address))
-                        DrawCentered(g, card.Address, mono, charW, maxChars, w, ref y);
                     if (card != null)
                     {
-                        string line2 = "";
-                        if (!string.IsNullOrEmpty(card.TIN)) line2 += "TIN " + card.TIN;
-                        if (!string.IsNullOrEmpty(card.VAT)) line2 += (line2.Length > 0 ? "  " : "") + "VAT " + card.VAT;
-                        if (line2.Length > 0) DrawCentered(g, line2, mono, charW, maxChars, w, ref y);
+                        if (!string.IsNullOrEmpty(card.TIN)) DrawCentered(g, "TIN: " + card.TIN, mono, charW, maxChars, w, ref y);
+                        if (!string.IsNullOrEmpty(card.VAT)) DrawCentered(g, "VAT No: " + card.VAT, mono, charW, maxChars, w, ref y);
+                        if (!string.IsNullOrEmpty(card.Address)) DrawCentered(g, card.Address, mono, charW, maxChars, w, ref y);
                     }
-                    y += lineH * 0.6f;
+                    string email = RuntimeIni("COMPANYEMAIL");
+                    if (email.Length > 0) DrawCentered(g, email, mono, charW, maxChars, w, ref y);
+                    string phone = RuntimeIni("COMPANYPHONE");
+                    if (phone.Length > 0) DrawCentered(g, phone, mono, charW, maxChars, w, ref y);
+                    y += lineH * 0.5f;
 
                     float textBottomY = y + lines.Count * lineH;
                     foreach (var raw in lines)
                     {
-                        DrawWrapped(g, raw, mono, charW, maxChars, w, ref y);
+                        bool isBold = raw.Length > 0 && raw[0] == BoldText;
+                        string text = isBold ? raw.Substring(1) : raw;
+                        DrawWrapped(g, text, isBold ? bold : mono, charW, maxChars, w, ref y);
                     }
 
-                    // QR at the bottom (aligned to the left-margin block, text flows around)
+                    // QR + verification footer at the bottom (centered)
                     if (qrArea > 0 && !string.IsNullOrEmpty(res.QrUrl))
                     {
                         try
@@ -262,17 +324,22 @@ namespace FiscalStackPOS
                             using (QRCode code = new QRCode(qd))
                             using (Bitmap qr = code.GetGraphic((int)Math.Ceiling(qrSide / 25f), Color.Black, Color.White, true))
                             {
-                                g.DrawImage(qr, 6, (int)Math.Ceiling(textBottomY) + 4, qrSide, qrSide);
+                                float qrY = (int)Math.Ceiling(textBottomY) + 4;
+                                g.DrawImage(qr, (w - qrSide) / 2f, qrY, qrSide, qrSide);
+                                float fy = qrY + qrSide + 8f;
+                                foreach (string f in qrFooter)
+                                {
+                                    SizeF sz = g.MeasureString(f, mono);
+                                    g.DrawString(f, mono, Brushes.Black, (w - sz.Width) / 2f, fy);
+                                    fy += sz.Height + 4f;
+                                }
                             }
-                            g.DrawString("Scan to verify", mono, Brushes.Black, qrSide + 10, textBottomY + 6);
                         }
                         catch (Exception ex)
                         {
                             g.DrawString("QR error: " + ex.Message, mono, Brushes.Black, 6, textBottomY + 4);
                         }
                     }
-                    g.DrawString("------------------------------------------", mono, Brushes.Black, 6, h - lineH * 1);
-                    g.DrawString("FiscalStack POS", bold, Brushes.Black, 6, h - lineH * 1.7f);
                 }
                 return bmp;
             }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { HRLayout } from "@/pages/hr/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Loader2, ArrowLeft, Download, Printer, FileBarChart2, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -16,6 +17,7 @@ export default function HrRunReport() {
   const { runId } = useParams();
   const { activeCompany: company } = useActiveCompany();
   const companyId = company?.id;
+  const fa = useFiscalAuthority();
 
   const { data, isLoading, isError } = useQuery<any>({
     queryKey: [`/api/companies/${companyId}/payroll/runs/${runId}/report`],
@@ -100,7 +102,7 @@ export default function HrRunReport() {
             <Link href="/hr/reports/zimra">
               <Button variant="outline">
                 <Landmark className="mr-2 h-4 w-4" />
-                ZIMRA Reports
+                {fa.authorityShortName} Reports
               </Button>
             </Link>
             <Button
@@ -118,7 +120,7 @@ export default function HrRunReport() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 print:hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-4 py-3">
-          <span className="text-sm font-medium text-slate-500 mr-1">ZIMRA exports for this run:</span>
+          <span className="text-sm font-medium text-slate-500 mr-1">{fa.authorityShortName} exports for this run:</span>
           <Button
             variant="ghost"
             size="sm"
@@ -223,7 +225,7 @@ export default function HrRunReport() {
               <CardContent className="p-0">
                 <Table>
                   <TableBody>
-                    <SummaryRow label="PAYE (ZIMRA)" value={totals.paye} />
+                    <SummaryRow label={`PAYE (${fa.authorityShortName})`} value={totals.paye} />
                     <SummaryRow label="AIDS Levy" value={totals.aids} />
                     <SummaryRow label="NSSA (Employee)" value={totals.nssaEmp} />
                     <SummaryRow label="NSSA (Employer)" value={totals.nssaEr} />

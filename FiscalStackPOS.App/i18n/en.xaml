@@ -219,6 +219,35 @@
     <sys:String x:Key="hist.refundQ">Create a fiscal credit note for {0}  ({1} {2})?</sys:String>
     <sys:String x:Key="hist.offline">Offline - receipts will be submitted automatically when the network is back.</sys:String>
     <sys:String x:Key="hist.submitFail">Submit failed: {0}</sys:String>
+    <sys:String x:Key="hist.from">From</sys:String>
+    <sys:String x:Key="hist.to">To</sys:String>
+    <sys:String x:Key="hist.cashier">Cashier</sys:String>
+    <sys:String x:Key="hist.payment">Payment</sys:String>
+    <sys:String x:Key="hist.rate">VAT rate</sys:String>
+    <sys:String x:Key="hist.flag">Type</sys:String>
+    <sys:String x:Key="hist.all">All</sys:String>
+    <sys:String x:Key="hist.reset">Reset filters</sys:String>
+    <sys:String x:Key="hist.colCashier">CASHIER</sys:String>
+    <sys:String x:Key="hist.colVat">VAT</sys:String>
+    <sys:String x:Key="hist.colNet">NET</sys:String>
+    <sys:String x:Key="hist.colItems">ITEMS</sys:String>
+    <sys:String x:Key="hist.sale">Sale</sys:String>
+    <sys:String x:Key="hist.credit">Credit note</sys:String>
+    <sys:String x:Key="hist.debit">Debit note</sys:String>
+    <sys:String x:Key="hist.gross">GROSS</sys:String>
+    <sys:String x:Key="hist.taxTotal">TOTAL VAT</sys:String>
+    <sys:String x:Key="hist.netTotal">NET</sys:String>
+    <sys:String x:Key="hist.count">RECEIPTS</sys:String>
+    <sys:String x:Key="hist.byCashier">Sales by cashier</sys:String>
+    <sys:String x:Key="hist.byTax">Tax by VAT rate</sys:String>
+    <sys:String x:Key="hist.byPayment">Sales by payment</sys:String>
+    <sys:String x:Key="hist.colWho">WHO</sys:String>
+    <sys:String x:Key="hist.colSales">SALES</sys:String>
+    <sys:String x:Key="hist.colRate">RATE</sys:String>
+    <sys:String x:Key="hist.colTax">TAX</sys:String>
+    <sys:String x:Key="hist.colGross">GROSS</sys:String>
+    <sys:String x:Key="hist.colMethod">METHOD</sys:String>
+    <sys:String x:Key="hist.colType">TYPE</sys:String>
 
     <!-- reports -->
     <sys:String x:Key="rep.title">Reports &amp; fiscal day</sys:String>

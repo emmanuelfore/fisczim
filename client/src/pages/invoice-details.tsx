@@ -96,9 +96,11 @@ import {
 } from "@/components/ui/popover";
 import { DateRange } from "react-day-picker";
 import { useAuth } from "@/hooks/use-auth";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 export default function InvoiceDetailsPage() {
   const { user } = useAuth();
+  const fa = useFiscalAuthority();
   const [, params] = useRoute("/invoices/:id");
   const [, setLocation] = useLocation();
   const invoiceId = parseInt(params?.id || "0");
@@ -934,7 +936,7 @@ export default function InvoiceDetailsPage() {
                       )}
                     >
                       <span className="font-bold">
-                        ZIMRA {invoice.validationStatus.toUpperCase()}:{" "}
+                        {fa.authorityShortName} {invoice.validationStatus.toUpperCase()}:{" "}
                       </span>
                       {invoice.validationStatus === "red" &&
                         "Major validation errors — cannot close fiscal day until resolved."}
@@ -1052,7 +1054,7 @@ export default function InvoiceDetailsPage() {
                             value="zimra"
                             className="rounded-lg text-xs"
                           >
-                            ZIMRA
+                            {fa.authorityShortName}
                           </TabsTrigger>
                         </TabsList>
 

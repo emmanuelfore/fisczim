@@ -14,6 +14,7 @@ import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { useCompany } from "@/hooks/use-companies";
 import { useUpdateCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import {
   defaultInvoiceTemplateSettings,
   getStoredInvoiceTemplateSettings,
@@ -21,6 +22,7 @@ import {
   type InvoiceTemplateDesignerSettings,
   type InvoiceTemplateId,
 } from "@/lib/invoice-templates";
+import { getDefaultCountry } from "@/lib/country-detect";
 import { cn } from "@/lib/utils";
 import { Check, Loader2, Palette, Save } from "lucide-react";
 import { pdf } from "@react-pdf/renderer";
@@ -32,6 +34,7 @@ export default function InvoiceTemplateDesignerPage() {
   const { data: company } = useCompany(companyId);
   const updateCompany = useUpdateCompany(companyId);
   const { taxTypes } = useTaxConfig(companyId);
+  const fa = useFiscalAuthority();
   const [settings, setSettings] = useState<InvoiceTemplateDesignerSettings>(
     defaultInvoiceTemplateSettings,
   );
@@ -84,7 +87,7 @@ export default function InvoiceTemplateDesignerPage() {
     async function renderPreview() {
       setPreviewLoading(true);
       const sampleQr = await QRCode.toDataURL(
-        "https://receipt.zimra.org/sample-template-preview",
+        fa?.qrVerificationUrl || "https://sample.example.com/qr",
       );
       const sampleCompany = {
         ...(company || {}),
@@ -93,7 +96,7 @@ export default function InvoiceTemplateDesignerPage() {
         tradingName: company?.tradingName || company?.name || "Your Company",
         address: company?.address || "12 Samora Machel Avenue",
         city: company?.city || "Harare",
-        country: company?.country || "Zimbabwe",
+        country: company?.country || getDefaultCountry(),
         tin: company?.tin || "1234567890",
         vatNumber: company?.vatNumber || "VAT000000",
         vatRegistered: company?.vatRegistered ?? true,
@@ -109,7 +112,7 @@ export default function InvoiceTemplateDesignerPage() {
           "Your Company",
         accountNumber: company?.accountNumber || "00123456789",
         branchCode: company?.branchCode || "6101",
-        qrUrl: company?.qrUrl || "https://receipt.zimra.org",
+        qrUrl: company?.qrUrl || fa?.qrVerificationUrl || "",
       };
       const sampleInvoice = {
         id: 0,
@@ -119,7 +122,7 @@ export default function InvoiceTemplateDesignerPage() {
         dueDate: new Date("2026-06-23").toISOString(),
         status: "issued",
         fiscalCode: "SAMPLE-FISCAL-CODE",
-        qrCodeData: "SAMPLE-ZIMRA-QR-DATA-1234567890ABCDEF",
+        qrCodeData: "SAMPLE-QR-DATA-1234567890ABCDEF",
         fiscalDayNo: 12,
         receiptCounter: 245,
         receiptGlobalNo: 2450,
@@ -164,7 +167,7 @@ export default function InvoiceTemplateDesignerPage() {
         name: "Acme Trading Pvt Ltd",
         address: "45 Enterprise Road",
         city: "Harare",
-        country: "Zimbabwe",
+        country: getDefaultCountry(),
         tin: "1098765432",
         vatNumber: "VAT987654",
         email: "accounts@acme.co.zw",

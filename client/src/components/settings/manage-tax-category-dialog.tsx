@@ -25,6 +25,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -45,6 +46,7 @@ export function ManageTaxCategoryDialog({ category, trigger }: Props) {
   const isEditing = !!category;
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId;
+  const fa = useFiscalAuthority();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -110,7 +112,7 @@ export function ManageTaxCategoryDialog({ category, trigger }: Props) {
           <DialogDescription>
             {isEditing
               ? `Modify ${category.name}`
-              : "Create a new ZIMRA tax category."}
+              : `Create a new ${fa.authorityShortName} tax category.`}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -133,7 +135,7 @@ export function ManageTaxCategoryDialog({ category, trigger }: Props) {
               name="zimraCategoryCode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>ZIMRA Code</FormLabel>
+                  <FormLabel>{fa.authorityShortName} Code</FormLabel>
                   <FormControl>
                     <Input placeholder="e.g. FOOD_BASIC" {...field} />
                   </FormControl>

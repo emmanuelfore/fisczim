@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 export interface ValidationError {
   id: number;
@@ -79,6 +80,7 @@ export function ValidationErrorsDisplay({
   onEdit,
   isResubmitting = false,
 }: ValidationErrorsDisplayProps) {
+  const fa = useFiscalAuthority();
   // Filter out minor RCPT041 warning
   const displayErrors = errors?.filter(e => e.errorCode !== "RCPT041") || [];
 
@@ -120,7 +122,7 @@ export function ValidationErrorsDisplay({
           ) : (
             <AlertTriangle className="w-5 h-5" />
           )}
-          ZIMRA Validation Errors
+          {fa.authorityShortName} Validation Errors
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

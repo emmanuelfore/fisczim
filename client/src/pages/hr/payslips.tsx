@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { HRLayout } from "@/pages/hr/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Loader2, ArrowLeft, Download, FileText, ChevronDown, ChevronRight, Banknote, Landmark, MapPin, FileBarChart2, Printer, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -16,6 +17,7 @@ export default function HRPayslips() {
   const { runId } = useParams();
   const { activeCompany: company } = useActiveCompany();
   const companyId = company?.id;
+  const fa = useFiscalAuthority();
 
   const { data, isLoading } = useQuery<any>({
     queryKey: [`/api/companies/${companyId}/payroll/runs/${runId}/payslips`],
@@ -110,7 +112,7 @@ export default function HRPayslips() {
           </thead>
           <tbody>
             <tr>
-              <td>PAYE (ZIMRA)</td>
+              <td>PAYE (${fa.authorityShortName})</td>
               <td class="amount">$${parseFloat(p.runData.paye).toFixed(2)}</td>
             </tr>
             <tr>
@@ -444,7 +446,7 @@ export default function HRPayslips() {
                               </h4>
                               <div className="space-y-3">
                                 <div className="flex justify-between text-sm">
-                                  <span className="text-slate-600 dark:text-slate-400">ZIMRA PAYE</span>
+                                  <span className="text-slate-600 dark:text-slate-400">{fa.authorityShortName} PAYE</span>
                                   <span className="font-medium text-red-600">${parseFloat(p.runData.paye).toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between text-sm">

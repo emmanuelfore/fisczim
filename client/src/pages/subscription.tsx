@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +41,7 @@ import { PageHeader } from "@/components/page-header";
 export default function SubscriptionPage() {
   const { user } = useAuth();
   const { activeCompany, isLoading: loadingCompany } = useActiveCompany();
+  const fa = useFiscalAuthority();
   const { toast } = useToast();
   const [targetSerialNo, setTargetSerialNo] = useState("");
   const [macAddress, setMacAddress] = useState("");
@@ -221,7 +223,7 @@ export default function SubscriptionPage() {
     <Layout>
       <PageHeader
         title="Subscription & Licensing"
-        subtitle="Manage physical hardware bindings for ZIMRA production access."
+        subtitle={`Manage physical hardware bindings for ${fa.authorityShortName} production access.`}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -234,7 +236,7 @@ export default function SubscriptionPage() {
                 Subscribed Devices
               </CardTitle>
               <CardDescription>
-                Devices listed below are authorized to use Production ZIMRA
+                Devices listed below are authorized to use Production {fa.authorityShortName}
                 services.
               </CardDescription>
             </CardHeader>
@@ -291,13 +293,13 @@ export default function SubscriptionPage() {
                   : "Activate New Device"}
               </CardTitle>
               <CardDescription>
-                Bind a physical machine to your ZIMRA account.
+                Bind a physical machine to your {fa.authorityShortName} account.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="serial">ZIMRA Device Serial Number</Label>
+                  <Label htmlFor="serial">{fa.deviceLabel} Serial Number</Label>
                   <Input
                     id="serial"
                     placeholder="e.g. FDMS000000"
@@ -306,7 +308,7 @@ export default function SubscriptionPage() {
                     disabled={initiateMutation.isPending}
                   />
                   <p className="text-[10px] text-slate-400">
-                    Must match the Production Serial Number provided by ZIMRA.
+                    Must match the Production Serial Number provided by {fa.authorityShortName}.
                   </p>
                 </div>
                 <div className="space-y-2">

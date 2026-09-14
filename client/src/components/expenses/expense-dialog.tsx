@@ -8,6 +8,7 @@ import {
 import { EXPENSE_CATEGORIES } from "@shared/expense-categories";
 import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useSuppliers } from "@/hooks/use-suppliers";
+import { isLesothoDomain } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -240,9 +241,15 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className="rounded-xl shadow-xl">
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="ZWG">ZWG</SelectItem>
-                        <SelectItem value="ZAR">ZAR</SelectItem>
+                        {isLesothoDomain() ? (
+                          <SelectItem value="LSL">LSL</SelectItem>
+                        ) : (
+                          <>
+                            <SelectItem value="USD">USD</SelectItem>
+                            <SelectItem value="ZWG">ZWG</SelectItem>
+                            <SelectItem value="ZAR">ZAR</SelectItem>
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />

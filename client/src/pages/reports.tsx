@@ -9,6 +9,7 @@ import { CashCollectionReport, PaymentsReceivedReport } from "@/components/repor
 import { ExpenseDetailsReport, ExpensesByCategoryReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useState, useEffect } from "react";
 import { Link, useRoute, useLocation } from "wouter";
 import {
@@ -36,12 +37,13 @@ interface ReportDefinition {
   externalHref?: string;
 }
 
-const REPORT_CATEGORIES: {
+function getReportCategories(fa: ReturnType<typeof useFiscalAuthority>): {
   key: string;
   label: string;
   icon: React.ElementType;
   reports: ReportDefinition[];
-}[] = [
+}[] {
+  return [
   {
     key: "operational",
     label: "Operational Reports",
@@ -115,7 +117,7 @@ const REPORT_CATEGORIES: {
     icon: Receipt,
     reports: [
       { key: "tax-summary", label: "Tax Summary", category: "taxes", description: "Summarize collected and paid sales taxes across categories for reporting.", endpoint: "tax-summary" },
-      { key: "tax-zimra", label: "Tax & ZIMRA Report", category: "taxes", description: "Monitor ZIMRA fiscal submissions, signature statuses, and device reports.", externalHref: "/reports/tax" },
+      { key: "tax-zimra", label: `Tax & ${fa.authorityShortName} Report`, category: "taxes", description: `Monitor ${fa.authorityShortName} fiscal submissions, signature statuses, and device reports.`, externalHref: "/reports/tax" },
       { key: "vat-return", label: "VAT Returns", category: "taxes", description: "Generate localized tax calculation returns for revenue authority compliance.", externalHref: "/accounting/reports/vat-return" },
     ],
   },
@@ -146,10 +148,11 @@ const REPORT_CATEGORIES: {
     icon: ShieldCheck,
     reports: [
       { key: "audit-trail", label: "Posting Audit Trail", category: "audit", description: "Audit general ledger postings, trace transactions, and identify system creators.", externalHref: "/accounting/audit-trail" },
-      { key: "zimra-logs", label: "ZIMRA Logs Audit", category: "audit", description: "Deep-dive technical logs of messages exchanged with ZIMRA servers.", externalHref: "/zimra-logs" },
+      { key: "zimra-logs", label: `${fa.authorityShortName} Logs Audit`, category: "audit", description: `Deep-dive technical logs of messages exchanged with ${fa.authorityShortName} servers.`, externalHref: "/zimra-logs" },
     ],
   },
-];
+  ];
+}
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -198,9 +201,10 @@ interface ReportsOverviewProps {
 }
 
 function ReportsOverview({ onSelectReport }: ReportsOverviewProps) {
+  const fa = useFiscalAuthority();
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredCategories = REPORT_CATEGORIES.map((category) => {
+  const filteredCategories = getReportCategories(fa).map((category) => {
     const matchingReports = category.reports.filter(
       (r) =>
         r.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -227,7 +231,7 @@ function ReportsOverview({ onSelectReport }: ReportsOverviewProps) {
               Reports &amp; Analytics
             </h1>
             <p className="text-sm text-slate-500 font-medium">
-              Access comprehensive financial statements, transaction histories, inventory audits, and localized ZIMRA compliance reports from one single dashboard.
+              Access comprehensive financial statements, transaction histories, inventory audits, and localized {fa.authorityShortName} compliance reports from one single dashboard.
             </p>
           </div>
 
@@ -333,6 +337,7 @@ interface ReportSidebarProps {
 }
 
 function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategory }: ReportSidebarProps) {
+  const fa = useFiscalAuthority();
   return (
     <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-72 shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {/* Sidebar header */}
@@ -358,7 +363,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
 
       {/* Category groups */}
       <div className="flex-1 overflow-y-auto py-2">
-        {REPORT_CATEGORIES.map((category) => {
+        {getReportCategories(fa).map((category) => {
           const isOpen = openCategories.has(category.key);
           const CategoryIcon = category.icon;
 
@@ -678,6 +683,7 @@ export default function ReportsPage() {
   const reportKeyFromRoute = params?.reportKey || "overview";
 
   const { user } = useAuth();
+  const fa = useFiscalAuthority();
   const { activeCompanyId, isLoading } = useActiveCompany(!!user);
 
   const activeReport = reportKeyFromRoute;
@@ -694,7 +700,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (activeReport && activeReport !== "overview") {
-      const category = REPORT_CATEGORIES.find(c => c.reports.some(r => r.key === activeReport));
+      const category = getReportCategories(fa).find(c => c.reports.some(r => r.key === activeReport));
       if (category) {
         setOpenCategories((prev) => {
           if (prev.has(category.key)) return prev;
@@ -721,7 +727,7 @@ export default function ReportsPage() {
   const handleSelectReport = (key: string) => {
     setLocation(key === "overview" ? "/reports" : `/reports/${key}`);
     // Auto-expand the category containing this report
-    const category = REPORT_CATEGORIES.find(c => c.reports.some(r => r.key === key));
+    const category = getReportCategories(fa).find(c => c.reports.some(r => r.key === key));
     if (category) {
       setOpenCategories(prev => new Set([...prev, category.key]));
     }
@@ -780,7 +786,7 @@ export default function ReportsPage() {
             className="w-full h-11 bg-slate-50 border border-slate-200 rounded-lg px-3 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-sm"
           >
             <option value="overview">Overview Dashboard</option>
-            {REPORT_CATEGORIES.map((category) => (
+              {getReportCategories(fa).map((category) => (
               <optgroup key={category.key} label={category.label}>
                 {category.reports.map((report) => (
                   <option key={report.key} value={report.key}>

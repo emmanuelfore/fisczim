@@ -65,11 +65,11 @@ export const companies = pgTable("companies", {
   city: text("city").notNull(),
   country: text("country").default("Zimbabwe"),
   currency: text("currency").default("USD"),
-  fiscalProvider: text("fiscal_provider").default("ZIMRA"), // ZIMRA or LEKUKA
-  lekukaGatewayUrl: text("lekuka_gateway_url"),
-  // LEKUKA receipt arithmetic mode (spec TaxRoundingType). Must stay stable
+  fiscalProvider: text("fiscal_provider").default("ZIMRA"), // ZIMRA or LEKAKU
+  lekakuGatewayUrl: text("lekuka_gateway_url"),
+  // LEKAKU receipt arithmetic mode (spec TaxRoundingType). Must stay stable
   // within a fiscal day — the device signature hashes the rounded amounts.
-  lekukaTaxRoundingType: text("lekuka_tax_rounding_type").default("PerReceipt"), // "PerReceipt" | "PerReceiptLine"
+  lekakuTaxRoundingType: text("lekuka_tax_rounding_type").default("PerReceipt"), // "PerReceipt" | "PerReceiptLine"
   phone: text("phone").notNull(),
   email: text("email").notNull(),
   website: text("website"),
@@ -456,19 +456,19 @@ export const taxTypes = pgTable("tax_types", {
   effectiveTo: date("effective_to"),
   zimraCode: text("zimra_code"), // A, B, E, C
   zimraTaxId: text("zimra_tax_id"), // Optional ZIMRA ID e.g. "3"
-  // Revenue Services Lesotho / LEKUKA mapping.  Levy tax types are assigned
+  // Revenue Services Lesotho / LEKAKU mapping.  Levy tax types are assigned
   // to products through productTaxLevies rather than replacing the main tax.
   //
   // IMPORTANT: test and production gateways issue DIFFERENT taxIDs for the
   // same semantic tax. Rows are therefore scoped per environment
-  // (lekukaEnvironment) and products are remapped on env switch — never
+  // (lekakuEnvironment) and products are remapped on env switch — never
   // reuse one env's taxID against the other gateway (RCPT025).
-  lekukaTaxId: text("lekuka_tax_id"),
-  lekukaTaxType: text("lekuka_tax_type"), // VAT, NonVAT, Exempt, PercentageLevy, FixedValueLevy, WithholdingTax
-  lekukaTaxCode: text("lekuka_tax_code"), // gateway taxCode (all-or-nothing per receipt)
-  lekukaEnvironment: text("lekuka_environment").default("test"), // "test" | "production"
-  lekukaValidFrom: date("lekuka_valid_from"), // gateway taxValidFrom
-  lekukaValidTill: date("lekuka_valid_till"), // gateway taxValidTill (null = no expiry)
+  lekakuTaxId: text("lekuka_tax_id"),
+  lekakuTaxType: text("lekuka_tax_type"), // VAT, NonVAT, Exempt, PercentageLevy, FixedValueLevy, WithholdingTax
+  lekakuTaxCode: text("lekuka_tax_code"), // gateway taxCode (all-or-nothing per receipt)
+  lekakuEnvironment: text("lekuka_environment").default("test"), // "test" | "production"
+  lekakuValidFrom: date("lekuka_valid_from"), // gateway taxValidFrom
+  lekakuValidTill: date("lekuka_valid_till"), // gateway taxValidTill (null = no expiry)
   defaultHsCode: text("default_hs_code"), // Default HS code used for this tax type
   calculationMethod: text("calculation_method").default("INCLUSIVE"), // INCLUSIVE, EXCLUSIVE
 }, (table) => {
@@ -946,8 +946,8 @@ export const insertCompanyBaseSchema = createInsertSchema(companies).omit({ id: 
 });
 export const insertCompanySchema = insertCompanyBaseSchema.superRefine((data, ctx) => {
   // Tax-number formats are authority-specific: ZIMRA wants 10-digit TINs,
-  // RSL/LEKUKA TINs look like 200153280-9 and VAT numbers are free-form.
-  const isLesotho = (data.country || "") === "Lesotho" || (data as any).fiscalProvider === "LEKUKA";
+  // RSL/LEKAKU TINs look like 200153280-9 and VAT numbers are free-form.
+  const isLesotho = (data.country || "") === "Lesotho" || (data as any).fiscalProvider === "LEKAKU";
   const tin = (data.tin || "") as string;
   if (tin) {
     const ok = isLesotho ? /^\d{9}-\d$/.test(tin) : /^\d{10}$/.test(tin);
@@ -3122,8 +3122,6 @@ export const employees = pgTable("employees", {
   status: text("status").default("ACTIVE").notNull(), // ACTIVE, INACTIVE, SUSPENDED, TERMINATED
   joiningDate: date("joining_date").notNull(),
   terminationDate: date("termination_date"),
-  terminationType: text("termination_type"), // RESIGNATION, DISMISSAL, RETRENCHMENT, CONTRACT_EXPIRY, DEATH, OTHER
-  terminationReason: text("termination_reason"),
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -3138,10 +3136,9 @@ export const employees = pgTable("employees", {
 export const employeeContracts = pgTable("employee_contracts", {
   id: serial("id").primaryKey(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
-  contractType: text("contract_type").default("PERMANENT").notNull(), // PERMANENT, FIXED_TERM, CASUAL, PROBATIONARY
+  contractType: text("contract_type").default("PERMANENT").notNull(), // PERMANENT, FIXED_TERM, CASUAL
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
-  probationEndDate: date("probation_end_date"),
   payFrequency: text("pay_frequency").default("MONTHLY").notNull(), // MONTHLY, WEEKLY, FORTNIGHTLY, DAILY
   baseSalary: decimal("base_salary", { precision: 15, scale: 2 }).notNull(), // Total base salary in base contract currency
   currency: text("currency").default("USD").notNull(), // USD, ZiG, or SPLIT
@@ -3464,7 +3461,7 @@ export const leaveRequests = pgTable("leave_requests", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
-  leaveType: text("leave_type").default("ANNUAL").notNull(), // ANNUAL, SICK, MATERNITY, PATERNITY, COMPASSIONATE, UNPAID, CUSTOM
+  leaveType: text("leave_type").default("ANNUAL").notNull(), // ANNUAL, SICK, MATERNITY, COMPASSIONATE, UNPAID, CUSTOM
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
   totalDays: integer("total_days").notNull(),

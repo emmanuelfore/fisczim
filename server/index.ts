@@ -42,10 +42,21 @@ app.use(cors({
   credentials: true,
 }));
 
-// CRITICAL #2: Rate limiting
+// CRITICAL #2: Rate limiting — generous for POS operations
+// Specific limiters FIRST (before global) so they take precedence
+const fiscalizationLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests, please try again later" },
+});
+app.use("/api/invoices/fiscalize", fiscalizationLimiter);
+app.use("/api/fiscal", fiscalizationLimiter);
+
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 5000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many requests, please try again later" },

@@ -33,7 +33,7 @@ export function useIsOnline(): boolean {
         handleOnline();
 
         // Periodic heartbeat every 30s
-        const timer = setInterval(handleOnline, 30000);
+        const timer = setInterval(handleOnline, 120000); // 120s was 30s
 
         return () => {
             window.removeEventListener('online', handleOnline);

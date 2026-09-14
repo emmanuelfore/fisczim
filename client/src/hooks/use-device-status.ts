@@ -77,7 +77,9 @@ export function useDeviceStatus(companyId: number, isLesotho = false) {
             }
         },
         enabled: !!companyId,
-        refetchInterval: 15000, // Poll more frequently (15s) for responsive status
+        refetchInterval: 60000, // 60s – reduced from 15s to avoid 429
+        refetchOnWindowFocus: false,
+        staleTime: 30000,
         retry: 1, // fail fast with the real reason instead of hanging on retries
     });
 }

@@ -23,7 +23,11 @@ export function usePermissions() {
       };
     },
     enabled: !!user && !!activeCompanyId,
-    staleTime: 60_000,
+    staleTime: 300_000, // 5m – was 60s, dedupes concurrent mounts
+    gcTime: 600_000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchInterval: false,
   });
 
   const permissions = new Set(query.data?.permissions || []);
@@ -115,6 +119,8 @@ export function usePendingApprovalsCount() {
       return Number(data.count || 0);
     },
     enabled: !!activeCompanyId && can("approvals.view"),
-    refetchInterval: 60_000,
+    refetchInterval: 300_000, // 5m – was 60s
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
   });
 }

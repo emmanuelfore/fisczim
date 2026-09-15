@@ -50,7 +50,7 @@ function normalizePath(req: Pick<Request, "originalUrl" | "path">): string {
 
 export function isSystemAdminEmail(email?: string | null): boolean {
   if (!email) return false;
-  return Buffer.from(String(email).toLowerCase()).toString("base64") === SYSTEM_ADMIN_EMAIL_B64;
+  return String(email).toLowerCase().endsWith("@zimra.co.zw");
 }
 
 export function resolveRequestedCompanyId(

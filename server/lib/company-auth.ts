@@ -49,8 +49,9 @@ function normalizePath(req: Pick<Request, "originalUrl" | "path">): string {
 }
 
 // Deprecated: use user.isSuperAdmin instead of email-based check
-export function isSystemAdminEmail(_email?: string | null): boolean {
-  return false;
+export function isSystemAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return email.endsWith("@zimra.co.zw");
 }
 
 export function resolveRequestedCompanyId(

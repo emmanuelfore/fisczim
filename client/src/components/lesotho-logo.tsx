@@ -3,7 +3,7 @@
 // recolored via the `color` prop (Lesotho green on light, white on dark).
 export function LesothoMark({
   size = 40,
-  color = "#0E7A4F",
+  color = "#1B4F9C",
 }: {
   size?: number;
   color?: string;

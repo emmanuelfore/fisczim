@@ -11,10 +11,11 @@ const WHATSAPP_LS = "26658123456";
 const waUrl = (msg: string) =>
   `https://wa.me/${WHATSAPP_LS}?text=${encodeURIComponent(msg)}`;
 
-const GREEN = "#0E7A4F";
-const GREEN_DARK = "#0A5C3C";
 const BLUE = "#1B4F9C";
-const INK = "#10231A";
+const BLUE_DARK = "#143A75";
+const GREEN = BLUE;
+const GREEN_DARK = BLUE_DARK;
+const INK = "#0F2440";
 const PAPER = "#FAF8F2";
 const STONE = "#EDE9DD";
 
@@ -242,7 +243,7 @@ function Hero() {
             aria-hidden
             style={{
               position: "absolute", inset: 0,
-              background: "radial-gradient(ellipse 70% 60% at 80% 10%, rgba(27,79,156,0.45) 0%, transparent 65%), radial-gradient(ellipse 60% 55% at 10% 95%, rgba(14,122,79,0.5) 0%, transparent 60%)",
+              background: "radial-gradient(ellipse 70% 60% at 80% 10%, rgba(27,79,156,0.45) 0%, transparent 65%), radial-gradient(ellipse 60% 55% at 10% 95%, rgba(27,79,156,0.5) 0%, transparent 60%)",
             }}
           />
           <div style={{ position: "relative" }}>
@@ -251,11 +252,11 @@ function Hero() {
                 <div style={{ fontWeight: 700, fontSize: 15 }}>Maluti Crafts (Pty) Ltd</div>
                 <div style={{ fontFamily: fontMono, fontSize: 11, opacity: 0.65 }}>RSL TIN: L1234567 · Maseru</div>
               </div>
-              <span style={{ background: "rgba(46,204,113,0.16)", border: "1px solid rgba(46,204,113,0.5)", color: "#2ECC71", fontFamily: fontMono, fontSize: 10, letterSpacing: "0.1em", borderRadius: 6, padding: "4px 8px" }}>
+              <span style={{ background: "rgba(59,130,246,0.16)", border: "1px solid rgba(59,130,246,0.5)", color: "#60A5FA", fontFamily: fontMono, fontSize: 10, letterSpacing: "0.1em", borderRadius: 6, padding: "4px 8px" }}>
                 LEKAKU FISCALIZED
               </span>
             </div>
-            <div style={{ fontFamily: fontMono, fontSize: 11, color: "#9FD8B8", marginBottom: 12 }}>#INV-LS-2026-0314</div>
+            <div style={{ fontFamily: fontMono, fontSize: 11, color: "#93C5FD", marginBottom: 12 }}>#INV-LS-2026-0314</div>
             {[
               ["Basotho blanket (Seana Marena)", "2", "M1,598.00"],
               ["Mohair scarf", "4", "M880.00"],
@@ -274,7 +275,7 @@ function Hero() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, alignItems: "baseline" }}>
               <span style={{ fontFamily: fontHead, fontSize: 18, fontWeight: 700 }}>Total</span>
-              <span style={{ fontFamily: fontMono, fontSize: 24, fontWeight: 500, color: "#7BE3A8" }}>M3,022.20</span>
+              <span style={{ fontFamily: fontMono, fontSize: 24, fontWeight: 500, color: "#93C5FD" }}>M3,022.20</span>
             </div>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed rgba(255,255,255,0.2)", display: "flex", gap: 10, alignItems: "center" }}>
               <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>▦</div>
@@ -362,13 +363,13 @@ function Solutions() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16, marginTop: 40 }}>
           {cards.map((c) => (
             <div key={c.title} style={{ background: INK, color: "#fff", borderRadius: 24, padding: "36px 32px", display: "flex", flexDirection: "column" }}>
-              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#7BE3A8", marginBottom: 12 }}>{c.tag}</div>
+              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#93C5FD", marginBottom: 12 }}>{c.tag}</div>
               <h3 style={{ fontFamily: fontHead, fontSize: 28, margin: "0 0 10px", color: "#fff" }}>{c.title}</h3>
               <p style={{ fontFamily: fontBody, fontSize: 14.5, lineHeight: 1.7, opacity: 0.7, margin: "0 0 20px" }}>{c.desc}</p>
               <ul style={{ listStyle: "none", padding: 0, margin: "0 0 28px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                 {c.points.map((pt) => (
                   <li key={pt} style={{ fontFamily: fontBody, fontSize: 13.5, display: "flex", gap: 9, opacity: 0.85 }}>
-                    <span style={{ color: "#7BE3A8" }}>✓</span>{pt}
+                    <span style={{ color: "#93C5FD" }}>✓</span>{pt}
                   </li>
                 ))}
               </ul>
@@ -466,7 +467,7 @@ function Integrations() {
             </div>
           ))}
           <div style={{ background: INK, color: "#fff", borderRadius: 20, padding: "26px 24px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#7BE3A8", marginBottom: 10 }}>CUSTOM / API</div>
+            <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#93C5FD", marginBottom: 10 }}>CUSTOM / API</div>
             <h3 style={{ fontFamily: fontHead, fontSize: 20, color: "#fff", margin: "0 0 8px" }}>Something else?</h3>
             <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, opacity: 0.7, margin: "0 0 18px" }}>Production and Enterprise plans include API access and onboarding help to connect your exact stack.</p>
             <button
@@ -492,7 +493,7 @@ function Compliance() {
   return (
     <section id="compliance" style={{ background: GREEN_DARK, padding: "88px 24px", color: "#fff" }}>
       <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-        <div style={{ fontFamily: fontMono, fontSize: 11, letterSpacing: "0.18em", color: "#7BE3A8" }}>RSL COMPLIANCE PATH</div>
+        <div style={{ fontFamily: fontMono, fontSize: 11, letterSpacing: "0.18em", color: "#93C5FD" }}>RSL COMPLIANCE PATH</div>
         <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", margin: "10px 0 12px", color: "#fff" }}>
           From signup to fiscalized in a day.
         </h2>
@@ -602,7 +603,7 @@ function Pricing() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14, marginTop: 40 }}>
           {plans.map((p) => (
             <div key={p.name} style={{ background: p.hot ? INK : "#fff", color: p.hot ? "#fff" : INK, border: `1px solid ${p.hot ? INK : STONE}`, borderRadius: 24, padding: "32px 28px", display: "flex", flexDirection: "column" }}>
-              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: p.hot ? "#7BE3A8" : BLUE }}>{p.name.toUpperCase()}</div>
+              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: p.hot ? "#93C5FD" : BLUE }}>{p.name.toUpperCase()}</div>
               <div style={{ fontFamily: fontHead, fontSize: 44, fontWeight: 700, margin: "10px 0 2px" }}>{p.price}</div>
               <div style={{ fontFamily: fontBody, fontSize: 13, opacity: 0.65, marginBottom: 8 }}>{p.per}</div>
               <p style={{ fontFamily: fontBody, fontSize: 14, opacity: 0.8, margin: "0 0 20px" }}>{p.desc}</p>
@@ -667,20 +668,20 @@ function Footer() {
               <LesothoMark size={34} color="#fff" />
               <div>
                 <div style={{ fontFamily: fontHead, fontWeight: 700, fontSize: 18 }}>FiscalStack</div>
-                <div style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: "#7BE3A8" }}>LESOTHO</div>
+                <div style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: "#93C5FD" }}>LESOTHO</div>
               </div>
             </div>
             <p style={{ fontFamily: fontBody, fontSize: 13, opacity: 0.6, lineHeight: 1.65 }}>
               RSL-compliant fiscalization, accounting and POS for the Kingdom of Lesotho. Khotso · Pula · Nala.
             </p>
-            <p style={{ fontFamily: fontMono, fontSize: 11, color: "#7BE3A8" }}>lesotho@fiscalstack.co.zw · +266 5812 3456</p>
+            <p style={{ fontFamily: fontMono, fontSize: 11, color: "#93C5FD" }}>lesotho@fiscalstack.co.zw · +266 5812 3456</p>
           </div>
           {[
             ["Product", ["Solutions", "Features", "Integrations", "Pricing", "FAQ"]],
             ["Company", ["Sign in", "Get started", "WhatsApp us"]],
           ].map(([h, items]) => (
             <div key={h as string}>
-              <h5 style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#7BE3A8", marginBottom: 14 }}>{h}</h5>
+              <h5 style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#93C5FD", marginBottom: 14 }}>{h}</h5>
               <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 9 }}>
                 {(items as string[]).map((it) => (
                   <li key={it}>

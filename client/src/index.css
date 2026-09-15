@@ -28,10 +28,10 @@
   --lk-weight-bold: 700;
 
   /* Colour tokens */
-  --lk-ink: #10231A;
+  --lk-ink: #0F2440;
   --lk-body: #3D4A43;
   --lk-muted: #5A6660;
-  --lk-green: #0E7A4F;
+  --lk-green: #1B4F9C;
   --lk-paper: #FAF8F2;
   --lk-stone: #EDE9DD;
 
@@ -59,7 +59,7 @@
   /* Slightly tinted cool white */
   --foreground: 222 47% 11%;
 
-  --primary: 156 79% 27%;
+  --primary: 216 70% 36%;
   /* Lesotho green */
   --primary-foreground: 0 0% 100%;
 
@@ -70,24 +70,24 @@
   --muted-foreground: 215 16% 47%;
 
   --accent: 156 79% 95%;
-  --accent-foreground: 156 79% 27%;
+  --accent-foreground: 216 70% 36%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
 
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 156 79% 27%;
+  --ring: 216 70% 36%;
 
   /* Sidebar colors - Light mode */
   --sidebar: 210 40% 96%;
   --sidebar-foreground: 222 47% 11%;
   --sidebar-border: 214 32% 91%;
-  --sidebar-ring: 156 79% 27%;
-  --sidebar-primary: 156 79% 27%;
+  --sidebar-ring: 216 70% 36%;
+  --sidebar-primary: 216 70% 36%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 156 79% 95%;
-  --sidebar-accent-foreground: 156 79% 27%;
+  --sidebar-accent-foreground: 216 70% 36%;
 
   --radius: 0.75rem;
 }
@@ -260,18 +260,18 @@
 .lekaku-branch .bg-indigo-600,
 .lekaku-branch .bg-blue-600,
 .lekaku-branch .bg-purple-600,
-.lekaku-branch .bg-indigo-500 { background-color: #0E7A4F !important; }
+.lekaku-branch .bg-indigo-500 { background-color: #1B4F9C !important; }
 .lekaku-branch .text-violet-600,
 .lekaku-branch .text-indigo-600,
 .lekaku-branch .text-blue-600,
-.lekaku-branch .text-purple-600 { color: #0E7A4F !important; }
+.lekaku-branch .text-purple-600 { color: #1B4F9C !important; }
 .lekaku-branch .border-violet-200,
 .lekaku-branch .border-indigo-200,
-.lekaku-branch .border-blue-200 { border-color: #a7f3d0 !important; }
+.lekaku-branch .border-blue-200 { border-color: #bfdbfe !important; }
 .lekaku-branch .bg-violet-50,
 .lekaku-branch .bg-indigo-50,
 .lekaku-branch .bg-blue-50,
-.lekaku-branch .bg-purple-50 { background-color: #ecfdf5 !important; }
+.lekaku-branch .bg-purple-50 { background-color: #eff6ff !important; }
 .lekaku-branch .bg-slate-50 { background-color: #FAF8F2 !important; }
 .lekaku-branch .border-slate-200 { border-color: #EDE9DD !important; }
 .dark {
@@ -279,8 +279,8 @@
   --sidebar: 20 25% 15%;
   --sidebar-foreground: 0 0% 95%;
   --sidebar-border: 20 20% 25%;
-  --sidebar-ring: 156 79% 27%;
-  --sidebar-primary: 156 79% 27%;
+  --sidebar-ring: 216 70% 36%;
+  --sidebar-primary: 216 70% 36%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 20 20% 25%;
   --sidebar-accent-foreground: 0 0% 95%;

@@ -1493,7 +1493,7 @@ export function Layout({
         }
         ::-webkit-scrollbar-thumb,
         .lekaku-branch ::-webkit-scrollbar-thumb {
-          background-image: linear-gradient(to bottom, #0E7A4F, #10b981) !important;
+          background-image: linear-gradient(to bottom, #1B4F9C, #10b981) !important;
         }
         /* Global accent recolor: all violet/indigo/blue → LEKAKU green */
         .bg-violet-600, .bg-indigo-600, .bg-blue-600,
@@ -1571,7 +1571,7 @@ export function Layout({
           aria-hidden
           style={{
             height: 10,
-            background: `linear-gradient(90deg, #0E7A4F 0%, #FFFFFF 22%, #1B4F9C 26%, #111111 48%, #1B4F9C 52%, #FFFFFF 74%, #0E7A4F 100%)`,
+            background: `linear-gradient(90deg, #1B4F9C 0%, #FFFFFF 22%, #1B4F9C 26%, #111111 48%, #1B4F9C 52%, #FFFFFF 74%, #1B4F9C 100%)`,
             position: 'fixed',
             top: 0, left: 0, right: 0, zIndex: 100
           }}
@@ -1595,7 +1595,7 @@ export function Layout({
             style={{
               height: 10,
               background:
-                "linear-gradient(90deg, #0E7A4F 0% 22%, #FFFFFF 22% 26%, #1B4F9C 26% 48%, #111111 48% 52%, #1B4F9C 52% 74%, #FFFFFF 74% 78%, #0E7A4F 78% 100%)",
+                "linear-gradient(90deg, #1B4F9C 0% 22%, #FFFFFF 22% 26%, #1B4F9C 26% 48%, #111111 48% 52%, #1B4F9C 52% 74%, #FFFFFF 74% 78%, #1B4F9C 78% 100%)",
             }}
           />
         )}
@@ -1630,7 +1630,7 @@ export function Layout({
               isSidebarCollapsed ? "px-3 justify-center" : "px-4",
             )}
           >
-            {isLekaku && <div aria-hidden className="absolute top-0 left-0 right-0 h-[4px]" style={{ background: "linear-gradient(90deg, #0E7A4F 0 22%, #fff 22% 26%, #1B4F9C 26% 48%, #111 48% 52%, #1B4F9C 52% 74%, #fff 74% 78%, #0E7A4F 78% 100%)" }} />}
+            {isLekaku && <div aria-hidden className="absolute top-0 left-0 right-0 h-[4px]" style={{ background: "linear-gradient(90deg, #1B4F9C 0 22%, #fff 22% 26%, #1B4F9C 26% 48%, #111 48% 52%, #1B4F9C 52% 74%, #fff 74% 78%, #1B4F9C 78% 100%)" }} />}
             <div
               className={cn(
                 "flex items-center gap-2 transition-all w-full",

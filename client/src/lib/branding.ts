@@ -22,7 +22,7 @@ export const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     whatsappMessage: "Hi FiscalStack Lesotho! I'd like to learn more about your fiscalization platform.",
     heroTitle: "RSL Compliant Fiscalisation for Lesotho.",
     heroSubtitle: "Manage customers, products, and LEKAKU fiscalization in one secure platform.",
-    primaryColor: "156 79% 27%", // Lesotho green
+    primaryColor: "216 70% 36%", // FiscalStack blue
   },
   fiscalzone: {
     name: "FiscalZone",

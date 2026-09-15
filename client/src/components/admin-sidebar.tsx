@@ -18,7 +18,7 @@ const SIDEBAR_BG = "#FAF8F2";
 const SIDEBAR_BORDER = "#EDE9DD";
 const SIDEBAR_TEXT = "#10231A";
 const SIDEBAR_MUTED = "#5A6660";
-const SIDEBAR_ACTIVE = "#0E7A4F";
+const SIDEBAR_ACTIVE = "#1B4F9C";
 
 type NavItem = {
   label: string;
@@ -184,7 +184,7 @@ export function AdminSidebar({
         className="fixed left-0 bottom-0 z-10 hidden lg:flex flex-col"
         style={{ width: 72, top: 10, height: "calc(100vh - 10px)", background: SIDEBAR_BG, borderRight: `1px solid ${SIDEBAR_BORDER}` }}
       >
-        <div className="h-[80px] flex items-center justify-center shrink-0 relative overflow-hidden" style={{ borderBottom: `1px solid rgba(255,255,255,0.12)`, background: "linear-gradient(135deg, #0E7A4F 0%, #0A5C3C 100%)" }}>
+        <div className="h-[80px] flex items-center justify-center shrink-0 relative overflow-hidden" style={{ borderBottom: `1px solid rgba(255,255,255,0.12)`, background: "linear-gradient(135deg, #1B4F9C 0%, #143A75 100%)" }}>
           <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#064E3B" }} />
           <div className="w-10 h-10 rounded-[10px] bg-white flex items-center justify-center shadow-sm">
             <img src={brand.logo} alt={brand.name} className="h-6 w-6 object-contain rounded" />
@@ -228,7 +228,7 @@ export function AdminSidebar({
           top: 10,
           width: 300,
           height: 80,
-          background: "linear-gradient(135deg, #0E7A4F 0%, #0A5C3C 100%)",
+          background: "linear-gradient(135deg, #1B4F9C 0%, #143A75 100%)",
           borderBottom: `1px solid rgba(255,255,255,0.12)`,
           borderRadius: "0 0 14px 0",
           boxShadow: "0 8px 24px rgba(10,92,60,0.28), 0 2px 6px rgba(16,35,26,0.12)",

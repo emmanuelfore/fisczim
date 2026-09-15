@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 interface POSReceiptProps {
   invoice: any;
   company: any;
+  branch?: any;
   customer?: any;
   items?: any[];
   paperSize?: "80mm" | "58mm" | "A4";
@@ -12,6 +13,7 @@ interface POSReceiptProps {
 export function POSReceipt({
   invoice,
   company,
+  branch,
   customer,
   items,
   paperSize: paperSizeProp,
@@ -33,19 +35,19 @@ export function POSReceipt({
       {/* Header */}
       <div className="text-center space-y-1 mb-4">
         <h1 className="text-lg font-black uppercase text-center w-full">
-          {company.name}
+          {branch?.name || company.name}
         </h1>
-        {company.tradingName && (
-          <p className="font-bold">{company.tradingName}</p>
-        )}
-        <p>{company.address}</p>
-        <p>{company.city}</p>
-        <p>Tel: {company.phone}</p>
+        {branch?.tradingName || company.tradingName ? (
+          <p className="font-bold">{branch?.tradingName || company.tradingName}</p>
+        ) : null}
+        <p>{branch?.address || company.address}</p>
+        <p>{branch?.city || company.city}</p>
+        <p>Tel: {branch?.phone || company.phone}</p>
         <div className="border-y border-dashed py-1 my-2">
-          <p className="font-bold">TIN: {company.tin}</p>
-          {company.vatNumber && (
-            <p className="font-bold">VAT: {company.vatNumber}</p>
-          )}
+          <p className="font-bold">TIN: {branch?.tin || company.tin}</p>
+          {branch?.vatNumber || company.vatNumber ? (
+            <p className="font-bold">VAT: {branch?.vatNumber || company.vatNumber}</p>
+          ) : null}
         </div>
       </div>
 

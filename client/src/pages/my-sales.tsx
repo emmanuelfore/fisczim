@@ -135,6 +135,7 @@ function ReprintManager({
       <POSReceipt
         invoice={invoice}
         company={company}
+        branch={company?.branches?.find((b: any) => b.id === invoice.branchId)}
         customer={invoice.customer}
         items={invoice.items}
       />

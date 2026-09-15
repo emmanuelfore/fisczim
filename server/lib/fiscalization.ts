@@ -1479,7 +1479,7 @@ export const processInvoiceFiscalizationLEKAKU = async (
     }
 
     const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        baseUrl: (company.lekukaGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: company.fdmsDeviceId,
         privateKey: company.zimraPrivateKey,
         certificate: company.zimraCertificate,
@@ -1550,7 +1550,7 @@ export const processInvoiceFiscalizationLEKAKU = async (
                 ? (creditDebitNote ? `${invoice.notes} (Ref: ${invoice.relatedInvoiceId})` : invoice.notes)
                 : (receiptType !== "FiscalInvoice" ? `Correction of data entry error` : undefined),
             // Spec TaxRoundingType — stored per company, stable per fiscal day.
-            taxRoundingType: (company.lekakuTaxRoundingType === "PerReceiptLine" ? "PerReceiptLine" : "PerReceipt"),
+            taxRoundingType: (company.lekukaTaxRoundingType === "PerReceiptLine" ? "PerReceiptLine" : "PerReceipt"),
         };
         const prepared = prepareLekakuReceipt(receipt);
         return { prepared, signed: device.signReceipt(prepared, prevHash || undefined) };

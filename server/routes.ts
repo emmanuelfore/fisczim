@@ -2657,7 +2657,7 @@ export async function registerRoutes(
           const fresh: any = await storage.getCompany(companyId);
           const { getLekakuGatewayUrl } = await import("../shared/lekaku.js");
           const syncDevice = new LekakuDevice({
-            baseUrl: (fresh.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+            baseUrl: (fresh.lekukaGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
             deviceId: String(fresh.fdmsDeviceId || "").trim(),
             privateKey: fresh.zimraPrivateKey || undefined,
             certificate: fresh.zimraCertificate || undefined,
@@ -2726,7 +2726,7 @@ export async function registerRoutes(
         const fresh: any = await storage.getCompany(companyId);
         const { getLekakuGatewayUrl } = await import("../shared/lekaku.js");
         const syncDevice = new LekakuDevice({
-          baseUrl: (fresh.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+          baseUrl: (fresh.lekukaGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
           deviceId: String(fresh.fdmsDeviceId || "").trim(),
           privateKey: fresh.zimraPrivateKey || undefined,
           certificate: fresh.zimraCertificate || undefined,
@@ -10312,7 +10312,7 @@ export async function registerRoutes(
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       const device = new LekakuDevice({
-        baseUrl: (gatewayUrl || company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        baseUrl: (gatewayUrl || company.lekukaGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: String(deviceId).trim(),
       });
       const info = await device.verifyTaxpayerInformation(
@@ -10340,7 +10340,7 @@ export async function registerRoutes(
       }
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
-      const baseUrl = (gatewayUrl || company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim();
+      const baseUrl = (gatewayUrl || company.lekukaGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim();
       const cleanDeviceId = String(deviceId).trim();
       const cleanSerialNo = String(deviceSerialNo).trim();
 
@@ -10415,7 +10415,7 @@ export async function registerRoutes(
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
       const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        baseUrl: (company.lekukaGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10442,7 +10442,7 @@ export async function registerRoutes(
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
       const environment = (company.zimraEnvironment === "production" ? "production" : "test") as "test" | "production";
       const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+        baseUrl: (company.lekukaGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10488,7 +10488,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Company not registered with RSL" });
       }
       const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        baseUrl: (company.lekukaGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10516,7 +10516,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Company not registered with RSL" });
       }
       const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        baseUrl: (company.lekukaGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10561,7 +10561,7 @@ export async function registerRoutes(
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
       const environment = (company.zimraEnvironment === "production" ? "production" : "test") as "test" | "production";
       const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+        baseUrl: (company.lekukaGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,

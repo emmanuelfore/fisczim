@@ -374,7 +374,9 @@ export function useOrderStatus(companyId: number) {
       return api.invoices.orderStatus.responses[200].parse(await res.json());
     },
     enabled: !!companyId,
-    refetchInterval: 10000,
+    refetchInterval: false, // was 10s – on-demand only to avoid 429
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

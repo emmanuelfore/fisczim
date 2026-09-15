@@ -888,7 +888,9 @@ export function CashCollectionReport({
       );
     },
     enabled: !!companyId,
-    refetchInterval: 10_000,
+    refetchInterval: false, // was 10s
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
   });
 
   const filtered = filterRecords(data, search, [

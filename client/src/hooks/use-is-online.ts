@@ -32,8 +32,8 @@ export function useIsOnline(): boolean {
         // Initial check
         handleOnline();
 
-        // Periodic heartbeat every 30s
-        const timer = setInterval(handleOnline, 30000);
+        // Periodic heartbeat every 120s (was 30s) – saves ~75% /api/health calls
+        const timer = setInterval(handleOnline, 120000);
 
         return () => {
             window.removeEventListener('online', handleOnline);

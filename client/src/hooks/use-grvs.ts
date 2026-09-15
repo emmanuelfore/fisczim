@@ -133,7 +133,9 @@ export function usePendingGdns(companyId: number) {
   return useQuery({
     queryKey: ["gdns", companyId, "DRAFT"],
     enabled: !!companyId,
-    refetchInterval: 60000,
+    refetchInterval: false, // was 60s – manual refresh only
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
     queryFn: async (): Promise<GdnListItem[]> => {
       const res = await apiFetch(`/api/companies/${companyId}/gdns?status=DRAFT`);
       return readJsonOrThrow<GdnListItem[]>(res, "Failed to fetch pending GDNs");

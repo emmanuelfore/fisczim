@@ -17,9 +17,9 @@ import { useI18n } from "@/lib/i18n";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { LesothoMark } from "@/components/lesotho-logo";
 
-const GREEN_DARK = "#0A5C3C";
-const GREEN = "#0E7A4F";
-const INK = "#10231A";
+const GREEN_DARK = "#143A75";
+const GREEN = "#1B4F9C";
+const INK = "#0F2440";
 
 export default function LekakuAuth() {
   const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
@@ -148,7 +148,7 @@ export default function LekakuAuth() {
       {/* Left — Lesotho brand panel */}
       <div
         className="hidden lg:flex flex-col justify-between"
-        style={{ width: "44%", background: GREEN_DARK, color: "#fff", padding: 48, position: "relative", overflow: "hidden" }}
+        style={{ width: "44%", background: GREEN, color: "#fff", padding: 48, position: "relative", overflow: "hidden" }}
       >
         <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 70% 50% at 85% 10%, rgba(27,79,156,0.5) 0%, transparent 65%), radial-gradient(ellipse 60% 50% at 5% 95%, rgba(255,255,255,0.08) 0%, transparent 60%)" }} />
         <div style={{ position: "relative" }}>
@@ -172,7 +172,7 @@ export default function LekakuAuth() {
           <ul style={{ listStyle: "none", padding: 0, marginTop: 28, display: "flex", flexDirection: "column", gap: 12 }}>
             {["LEKAKU fiscalized receipts with RSL QR", "LSL-first books · 15% VAT handled", "Cash, card & bank payments", "Offline POS for the highlands"].map((f) => (
               <li key={f} style={{ display: "flex", gap: 10, fontSize: 14, opacity: 0.9 }}>
-                <span style={{ color: "#7BE3A8" }}>✓</span>{f}
+                <span style={{ color: "#93C5FD" }}>✓</span>{f}
               </li>
             ))}
           </ul>
@@ -190,7 +190,7 @@ export default function LekakuAuth() {
         <div className="w-full max-w-[440px] flex flex-col items-center">
           <Link href="/">
             <span className="lg:hidden mb-6 inline-flex items-center gap-2 cursor-pointer" style={{ color: INK, fontWeight: 800, fontFamily: "Georgia, serif", fontSize: 22 }}>
-              <LesothoMark size={30} color={GREEN_DARK} />
+              <LesothoMark size={30} color={GREEN} />
               FiscalStack
             </span>
           </Link>
@@ -199,7 +199,7 @@ export default function LekakuAuth() {
             <CardHeader className="text-center pb-4 pt-8">
               <div
                 className="mx-auto mb-3"
-                style={{ fontFamily: "monospace", fontSize: 10, letterSpacing: "0.16em", color: GREEN, background: "rgba(14,122,79,0.08)", border: "1px solid rgba(14,122,79,0.2)", borderRadius: 999, padding: "4px 12px", display: "inline-block" }}
+                style={{ fontFamily: "monospace", fontSize: 10, letterSpacing: "0.16em", color: GREEN, background: "rgba(27,79,156,0.08)", border: "1px solid rgba(27,79,156,0.2)", borderRadius: 999, padding: "4px 12px", display: "inline-block" }}
               >
                 RSL · KINGDOM OF LESOTHO
               </div>
@@ -250,7 +250,7 @@ export default function LekakuAuth() {
                       onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} required className="h-11" />
                   </div>
                   <Button type="submit" className="w-full h-11 text-[15px] font-semibold mt-2 text-white"
-                    style={{ background: GREEN_DARK }} disabled={isLoggingIn}>
+                    style={{ background: GREEN }} disabled={isLoggingIn}>
                     {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                     {t("Sign In")}
                   </Button>
@@ -285,7 +285,7 @@ export default function LekakuAuth() {
                       onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })} required minLength={6} className="h-11" />
                   </div>
                   <Button type="submit" className="w-full h-11 text-[15px] font-semibold mt-2 text-white"
-                    style={{ background: GREEN_DARK }} disabled={isLoggingIn}>
+                    style={{ background: GREEN }} disabled={isLoggingIn}>
                     {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                     {t("Create Account")}
                   </Button>

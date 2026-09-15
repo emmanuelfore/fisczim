@@ -27,6 +27,7 @@ const allowedOrigins = [
   "https://fiscalstack.co.ls",
   "https://www.fiscalstack.co.ls",
   "http://localhost:5000",
+  "http://localhost:5001",
   "http://localhost:5002",
   "http://localhost:3000",
 ];

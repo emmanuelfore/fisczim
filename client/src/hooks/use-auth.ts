@@ -201,7 +201,7 @@ export function useAuth() {
     const storedId = localStorage.getItem("selectedCompanyId");
     if (!storedId || storedId === "0") {
       const { getCachedCompaniesList } = await import("@/lib/offline-db");
-      const cachedCompanies = await getCachedCompaniesList();
+      const cachedCompanies = await getCachedCompaniesList(user.id);
       if (cachedCompanies && cachedCompanies.length > 0) {
         const best =
           cachedCompanies.find((c: any) => c.role === "owner") ||
@@ -237,7 +237,7 @@ export function useAuth() {
     const storedId = localStorage.getItem("selectedCompanyId");
     if (!storedId || storedId === "0") {
       const { getCachedCompaniesList } = await import("@/lib/offline-db");
-      const cachedCompanies = await getCachedCompaniesList();
+      const cachedCompanies = await getCachedCompaniesList(user.id);
       if (cachedCompanies && cachedCompanies.length > 0) {
         const best =
           cachedCompanies.find((c: any) => c.role === "owner") ||
@@ -260,7 +260,7 @@ export function useAuth() {
     const companiesRes = await apiFetch("/api/companies");
     if (!companiesRes.ok) return;
     const companies = await companiesRes.json();
-    await cacheCompaniesList(companies);
+    await cacheCompaniesList(companies, _user?.id);
 
     if (!localStorage.getItem("selectedCompanyId") || localStorage.getItem("selectedCompanyId") === "0") {
       const best = companies.find((c: any) => c.role === "owner") ||

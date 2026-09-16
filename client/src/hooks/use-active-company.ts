@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { useCompanies } from "./use-companies";
+import { useAuth } from "./use-auth";
 
 export function useActiveCompany(
     enabled: boolean = true,
     userScopeKey: string | number | null = null
 ) {
-    const { data: companies, isLoading } = useCompanies(enabled, userScopeKey);
+    // Most consumers do not pass a scope explicitly. Scope the company query
+    // to the signed-in user so a previous user's cached memberships can never
+    // become the active company for this session.
+    const { user } = useAuth();
+    const resolvedUserScopeKey = userScopeKey ?? user?.id ?? null;
+    const { data: companies, isLoading, refetch } = useCompanies(enabled, resolvedUserScopeKey);
     const [activeCompanyId, setActiveCompanyId] = useState<number | null>(() => {
         const stored = localStorage.getItem("selectedCompanyId");
         return stored ? parseInt(stored) : null;
@@ -35,6 +41,18 @@ export function useActiveCompany(
             }
         }
     }, [companies, isLoading]); // removed activeCompanyId — read via ref to avoid loop
+
+    useEffect(() => {
+        const handleAccessDenied = () => {
+            // The selection was already cleared by apiFetch. Clearing local
+            // state immediately prevents any more requests for that company;
+            // refetching removes stale memberships from the React Query cache.
+            setActiveCompanyId(null);
+            void refetch();
+        };
+        window.addEventListener("company-access-denied", handleAccessDenied);
+        return () => window.removeEventListener("company-access-denied", handleAccessDenied);
+    }, [refetch]);
 
     const setCompany = (id: number) => {
         setActiveCompanyId(id);

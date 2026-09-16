@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { getCachedSession } from "./api";
+import { getCachedSession, recoverFromStaleCompanyAccess } from "./api";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -33,6 +33,8 @@ export async function apiRequest(
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+
+  recoverFromStaleCompanyAccess(url, res.status);
 
   await throwIfResNotOk(res);
   return res;
@@ -78,6 +80,8 @@ export const getQueryFn: <T>(options: {
       headers,
       credentials: "include",
     });
+
+    recoverFromStaleCompanyAccess(url, res.status);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

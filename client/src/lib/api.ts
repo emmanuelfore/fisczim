@@ -30,6 +30,35 @@ export function invalidateSessionCache() {
     // Do NOT reset sessionInitialized to false here, as we don't want to re-trigger getSession races on logout
 }
 
+const COMPANY_PATH = /^\/api\/companies\/(\d+)(?:\/|$)/;
+
+/**
+ * A 403 for the currently selected company means the browser is holding an
+ * old company selection (for example after a user's access was changed in a
+ * different session).  Authentication is still valid, so do not log the user
+ * out.  Clear only that stale selection and let the active-company hook select
+ * from the freshly authorized company list.
+ */
+export function recoverFromStaleCompanyAccess(url: string, status: number) {
+    if (status !== 403 || typeof window === "undefined") return;
+
+    let pathname: string;
+    try {
+        pathname = new URL(url, window.location.origin).pathname;
+    } catch {
+        return;
+    }
+
+    const companyId = COMPANY_PATH.exec(pathname)?.[1];
+    if (!companyId || localStorage.getItem("selectedCompanyId") !== companyId) return;
+
+    localStorage.removeItem("selectedCompanyId");
+    localStorage.removeItem("selectedBranchId");
+    window.dispatchEvent(new CustomEvent("company-access-denied", {
+        detail: { companyId: Number(companyId) },
+    }));
+}
+
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     let session = await getCachedSession();
 
@@ -74,6 +103,8 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
             headers,
             signal: init?.signal ?? controller?.signal,
         });
+
+        recoverFromStaleCompanyAccess(url.toString(), response.status);
 
         const urlStr = url.toString();
         const isAuthEndpoint = urlStr.includes('/api/auth/');

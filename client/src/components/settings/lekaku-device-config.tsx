@@ -131,11 +131,12 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
     queryFn: async () => {
       const res = await apiFetch(`/api/companies/${company.id}/subscriptions`);
       if (!res.ok) return [];
-      return res.json();
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
   });
   const macAddress = company.registeredMacAddress || "";
-  const hasActiveSubForThisMachine = (subscriptions as any[]).some((s: any) => s.status === "paid" && s.deviceMacAddress === macAddress && new Date(s.endDate) > new Date());
+  const hasActiveSubForThisMachine = (Array.isArray(subscriptions) ? subscriptions : []).some((s: any) => s.status === "paid" && s.deviceMacAddress === macAddress && new Date(s.endDate) > new Date());
   const effectiveGateway = (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim();
 
   return (

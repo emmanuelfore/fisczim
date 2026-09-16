@@ -268,14 +268,18 @@ export async function getOfflineUsers(): Promise<any[]> {
 
 // ─── Companies List ──────────────────────────────────────────────────────────
 
-export async function cacheCompaniesList(companies: any[]): Promise<void> {
+export async function cacheCompaniesList(companies: any[], userId?: string | number | null): Promise<void> {
     const db = await getDb();
-    await db.put('companies_list', companies, 'current_list');
+    // Company memberships are user-specific. Never let one user's offline
+    // company list become another user's selected company after a relogin.
+    const key = userId ? `user:${userId}` : 'current_list';
+    await db.put('companies_list', companies, key);
 }
 
-export async function getCachedCompaniesList(): Promise<any[] | undefined> {
+export async function getCachedCompaniesList(userId?: string | number | null): Promise<any[] | undefined> {
     const db = await getDb();
-    return db.get('companies_list', 'current_list');
+    const key = userId ? `user:${userId}` : 'current_list';
+    return db.get('companies_list', key);
 }
 
 // ─── Products ───────────────────────────────────────────────────────────────

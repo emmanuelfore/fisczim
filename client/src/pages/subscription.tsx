@@ -74,7 +74,9 @@ export default function SubscriptionPage() {
       const res = await apiFetch(
         `/api/companies/${activeCompany?.id}/subscriptions`,
       );
-      return res.json();
+      if (!res.ok) throw new Error("Failed to fetch subscriptions");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!activeCompany?.id,
   });
@@ -212,7 +214,7 @@ export default function SubscriptionPage() {
       </Layout>
     );
 
-  const activeSubs = subscriptions.filter(
+  const activeSubs = (Array.isArray(subscriptions) ? subscriptions : []).filter(
     (s: any) => s.status === "paid" && new Date(s.endDate) > new Date(),
   );
   const isThisDeviceSubscribed = activeSubs.some(

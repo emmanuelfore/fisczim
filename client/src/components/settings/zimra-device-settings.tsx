@@ -323,14 +323,16 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
     queryKey: [`/api/companies/${company.id}/subscriptions`],
     queryFn: async () => {
       const res = await apiFetch(`/api/companies/${company.id}/subscriptions`);
-      return res.json();
+      if (!res.ok) throw new Error("Failed to fetch subscriptions");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
   });
 
   const isOnline = testConnectivityMutation.data?.overallStatus === "Online";
   const isPinging = testConnectivityMutation.isPending;
   const hasActiveSub =
-    subscriptions.some(
+    (Array.isArray(subscriptions) ? subscriptions : []).some(
       (s: any) => s.status === "paid" && new Date(s.endDate) > new Date(),
     ) || company.subscriptionStatus === "active";
 

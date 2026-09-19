@@ -123,6 +123,89 @@ export default function HREmployees() {
     startDate: new Date().toISOString().slice(0, 10),
   });
 
+  const parseApiError = (error: any, fallback: string) => {
+    const raw = error?.message ?? String(error ?? fallback);
+    const jsonStart = raw.indexOf("{");
+    if (jsonStart >= 0) {
+      try {
+        const parsed = JSON.parse(raw.slice(jsonStart));
+        if (parsed.message) return String(parsed.message);
+        if (Array.isArray(parsed.details) && parsed.details.length > 0) {
+          return parsed.details
+            .slice(0, 3)
+            .map((d: any) => `${(d.path || []).join(".") || "field"}: ${d.message}`)
+            .join("; ");
+        }
+        if (parsed.error) return String(parsed.error);
+      } catch {
+        // fall through to raw text
+      }
+    }
+    return raw || fallback;
+  };
+
+  // Empty form inputs arrive as "". Convert to undefined so the API can apply
+  // defaults, and nest contract fields under `contract` as the API expects.
+  const cleanText = (v: any) => {
+    const s = typeof v === "string" ? v.trim() : v;
+    return s === "" || s === undefined ? undefined : s;
+  };
+
+  const buildEmployeePayload = () => {
+    const nationalId = cleanText(statutoryData.nationalId) ?? cleanText(formData.nationalId);
+    return {
+      firstName: cleanText(formData.firstName),
+      lastName: cleanText(formData.lastName),
+      employeeNumber: cleanText(formData.employeeNumber),
+      nationalId,
+      email: cleanText(formData.email),
+      phone: cleanText(formData.phone),
+      bankName: cleanText(formData.bankName),
+      bankBranch: cleanText(formData.bankBranch),
+      bankAccountNumber: cleanText(formData.bankAccountNumber),
+      ecocashNumber: cleanText(formData.ecocashNumber),
+      title: cleanText(formData.title),
+      dateOfBirth: cleanText(formData.dateOfBirth),
+      gender: cleanText(formData.gender),
+      maritalStatus: cleanText(formData.maritalStatus),
+      physicalAddress: cleanText(formData.physicalAddress),
+      postalAddress: cleanText(formData.postalAddress),
+      nextOfKinName: cleanText(formData.nextOfKinName),
+      nextOfKinRelationship: cleanText(formData.nextOfKinRelationship),
+      nextOfKinPhone: cleanText(formData.nextOfKinPhone),
+      nextOfKinAddress: cleanText(formData.nextOfKinAddress),
+      emergencyContactName: cleanText(formData.emergencyContactName),
+      emergencyContactPhone: cleanText(formData.emergencyContactPhone),
+      emergencyContactRelation: cleanText(formData.emergencyContactRelation),
+      nssaNumber: cleanText(statutoryData.nssaNumber),
+      zimraTaxNumber: cleanText(statutoryData.zimraTaxNumber),
+      contract: {
+        contractType: contractData.contractType || "PERMANENT",
+        startDate: cleanText(contractData.startDate) || new Date().toISOString().slice(0, 10),
+        endDate: cleanText(contractData.endDate),
+        baseSalary: cleanText(contractData.baseSalary) ?? "0",
+        currency: contractData.currency || "USD",
+        usdPercentage: cleanText(contractData.usdPercentage) ?? "100",
+        zigPercentage: cleanText(contractData.zigPercentage) ?? "0",
+        payGradeId: contractData.payGradeId === "" || contractData.payGradeId === "none" || contractData.payGradeId === undefined
+          ? undefined
+          : Number(contractData.payGradeId),
+      },
+    };
+  };
+
+  const validateEmployeePayload = (payload: ReturnType<typeof buildEmployeePayload>) => {
+    if (!payload.firstName || !payload.lastName) return "First name and last name are required.";
+    if (!payload.employeeNumber) return "Employee number is required.";
+    if (!payload.nationalId) return "National ID is required (Statutory tab).";
+    if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(payload.email))) return `"${payload.email}" is not a valid email address.`;
+    const usd = Number(payload.contract.usdPercentage || 0);
+    const zig = Number(payload.contract.zigPercentage || 0);
+    if (Math.abs(usd + zig - 100) > 0.01) return "USD and ZiG salary split percentages must total 100.";
+    if (Number.isNaN(Number(payload.contract.baseSalary))) return "Base salary must be a valid number.";
+    return null;
+  };
+
   const { data: employees = [] as any[], isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/employees`],
     enabled: !!companyId,
@@ -145,13 +228,25 @@ export default function HREmployees() {
       toast({ title: "Employee created successfully" });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to create employee", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to create employee", description: parseApiError(error, "Could not create employee."), variant: "destructive" });
     }
   });
 
   const updateContractMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/contract`, data);
+      const cleaned = {
+        contractType: data.contractType || "PERMANENT",
+        startDate: data.startDate || new Date().toISOString().slice(0, 10),
+        endDate: data.endDate || null,
+        baseSalary: data.baseSalary ?? "0",
+        currency: data.currency || "USD",
+        usdPercentage: data.usdPercentage ?? "100",
+        zigPercentage: data.zigPercentage ?? "0",
+        payGradeId: data.payGradeId === "" || data.payGradeId === "none" || data.payGradeId === undefined
+          ? null
+          : Number(data.payGradeId),
+      };
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/contract`, cleaned);
       return res.json();
     },
     onSuccess: () => {
@@ -160,7 +255,7 @@ export default function HREmployees() {
       toast({ title: "Contract updated successfully" });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to update contract", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to update contract", description: parseApiError(error, "Could not update contract."), variant: "destructive" });
     }
   });
 
@@ -175,7 +270,7 @@ export default function HREmployees() {
       toast({ title: "Employee updated successfully" });
     },
     onError: (error: any) => {
-      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+      toast({ title: "Update failed", description: parseApiError(error, "Could not update employee."), variant: "destructive" });
     }
   });
 
@@ -327,17 +422,28 @@ export default function HREmployees() {
 
   const handleSaveEmployee = (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = buildEmployeePayload();
+    const validationError = validateEmployeePayload(payload);
+    if (validationError) {
+      toast({ title: "Check the form", description: validationError, variant: "destructive" });
+      return;
+    }
     if (selectedEmployeeId) {
-      updateEmployeeMutation.mutate({ ...formData, ...statutoryData, ...contractData });
+      updateEmployeeMutation.mutate(payload);
     } else {
-      const selectedBranchId = Number(localStorage.getItem("selectedBranchId")) || 1;
-      createEmployeeMutation.mutate({ ...formData, ...statutoryData, ...contractData, branchId: selectedBranchId });
+      const storedBranch = Number(localStorage.getItem("selectedBranchId"));
+      createEmployeeMutation.mutate({
+        ...payload,
+        // Backend verifies the branch belongs to this company and falls back
+        // to the company's first branch when missing/invalid.
+        ...(Number.isInteger(storedBranch) && storedBranch > 0 ? { branchId: storedBranch } : {}),
+      });
     }
   };
 
   const handleUpdateContract = (e: React.FormEvent) => {
     e.preventDefault();
-    updateContractMutation.mutate({ employeeId: selectedEmployeeId, contractData });
+    updateContractMutation.mutate({ ...contractData });
   };
 
   const handleUpdateStatutory = (e: React.FormEvent) => {
@@ -629,8 +735,8 @@ export default function HREmployees() {
               <TabsContent value="statutory" className="space-y-4 pt-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>National ID Number</Label>
-                    <Input value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} placeholder="12-345678X90" />
+                    <Label>National ID Number *</Label>
+                    <Input required value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} placeholder="12-345678X90" />
                   </div>
                   <div className="space-y-2">
                     <Label>NSSA Number</Label>
@@ -682,13 +788,13 @@ export default function HREmployees() {
                   </div>
                   <div className="space-y-2">
                     <Label>Pay Grade</Label>
-                    <Select 
-                      value={String(contractData.payGradeId)} 
-                      onValueChange={(v) => setContractData({...contractData, payGradeId: v})}
+                    <Select
+                      value={contractData.payGradeId === "" ? "none" : String(contractData.payGradeId)}
+                      onValueChange={(v) => setContractData({...contractData, payGradeId: v === "none" ? "" : v})}
                     >
                       <SelectTrigger><SelectValue placeholder="Select pay grade" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No Pay Grade (Custom)</SelectItem>
+                        <SelectItem value="none">No Pay Grade (Custom)</SelectItem>
                         {payGrades.map((grade: any) => (
                           <SelectItem key={grade.id} value={String(grade.id)}>
                             {grade.code} - {grade.name} ({grade.currency})
@@ -775,15 +881,15 @@ export default function HREmployees() {
                 </div>
                 <div className="space-y-2">
                   <Label>Pay Grade</Label>
-                  <Select 
-                    value={String(contractData.payGradeId)} 
-                    onValueChange={(v) => setContractData({...contractData, payGradeId: v})}
+                  <Select
+                    value={contractData.payGradeId === "" ? "none" : String(contractData.payGradeId)}
+                    onValueChange={(v) => setContractData({...contractData, payGradeId: v === "none" ? "" : v})}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select pay grade" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No Pay Grade (Custom)</SelectItem>
+                      <SelectItem value="none">No Pay Grade (Custom)</SelectItem>
                       {payGrades.map((grade: any) => (
                         <SelectItem key={grade.id} value={String(grade.id)}>
                           {grade.code} - {grade.name} ({grade.currency})

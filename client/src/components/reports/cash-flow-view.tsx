@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -64,9 +65,8 @@ export function CashFlowView({
       { from: fromQuery, to: toQuery, branchId },
     ],
     queryFn: async () => {
-      const res = await fetch(
-        `/api/accounting/reports/cash-flow?from=${fromQuery}&to=${toQuery}${branchParam}`,
-        { credentials: "include" }
+      const res = await apiFetch(
+        `/api/accounting/reports/cash-flow?from=${fromQuery}&to=${toQuery}${branchParam}`
       );
       if (!res.ok) throw new Error("Failed to load cash flow report");
       return res.json();

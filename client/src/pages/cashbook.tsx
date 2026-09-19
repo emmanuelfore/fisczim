@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 const debitAmount = (entry: any) =>
@@ -69,8 +70,13 @@ export default function CashbookPage() {
   const companyId = activeCompanyId || 0;
 
   const { data: accounts } = useQuery<any[]>({
-    queryKey: ["/api/accounting/accounts", companyId],
+    queryKey: ["/api/accounting/accounts", { companyId }],
     enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/accounting/accounts`);
+      if (!res.ok) throw new Error("Failed to load accounts");
+      return res.json();
+    },
   });
 
   // Filter for Cash and Bank equivalents
@@ -84,8 +90,13 @@ export default function CashbookPage() {
   ) || [];
 
   const { data: ledgerEntries, isLoading, isError, refetch } = useQuery<any[]>({
-    queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }, companyId],
+    queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId, companyId }],
     enabled: !!companyId && !!selectedAccountId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/accounting/ledger?accountId=${encodeURIComponent(selectedAccountId)}`);
+      if (!res.ok) throw new Error("Failed to load ledger entries");
+      return res.json();
+    },
   });
 
   const transferMutation = useMutation({
@@ -111,6 +122,8 @@ export default function CashbookPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/accounting/ledger"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounting/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/trial-balance"] });
     },
     onError: (err: any) => {
       toast({

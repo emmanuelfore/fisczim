@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
@@ -24,7 +25,7 @@ export function BalanceSheetView({
   const { data, isLoading, isError, refetch } = useQuery<any>({
     queryKey: [`/api/accounting/reports/balance-sheet`, { date: asOfDate, branchId }],
     queryFn: async () => {
-      const res = await fetch(`/api/accounting/reports/balance-sheet?date=${asOfDate}${branchParam}`, { credentials: "include" });
+      const res = await apiFetch(`/api/accounting/reports/balance-sheet?date=${asOfDate}${branchParam}`);
       if (!res.ok) throw new Error("Failed to load balance sheet");
       return res.json();
     },

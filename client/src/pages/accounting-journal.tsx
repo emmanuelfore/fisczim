@@ -115,11 +115,41 @@ export default function AccountingJournalPage() {
   const { activeCompanyId: companyId } = useActiveCompany();
 
   const { data: segments } = useQuery<any[]>({
-    queryKey: ["/api/accounting/segments", companyId],
+    queryKey: ["/api/accounting/segments", { companyId }],
     enabled: !!companyId,
     queryFn: async () => {
       const res = await apiFetch(`/api/accounting/segments`);
       if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const { data: entries, isLoading, isError, refetch } = useQuery<any[]>({
+    queryKey: ["/api/accounting/journal", { companyId }],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/accounting/journal`);
+      if (!res.ok) throw new Error("Failed to load journal entries");
+      return res.json();
+    },
+  });
+
+  const { data: accounts } = useQuery<Account[]>({
+    queryKey: ["/api/accounting/accounts", { companyId }],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/accounting/accounts`);
+      if (!res.ok) throw new Error("Failed to load accounts");
+      return res.json();
+    },
+  });
+
+  const { data: drafts } = useQuery<JournalDraft[]>({
+    queryKey: ["/api/accounting/journal-drafts", { companyId }],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/accounting/journal-drafts`);
+      if (!res.ok) throw new Error("Failed to load journal drafts");
       return res.json();
     },
   });
@@ -142,21 +172,6 @@ export default function AccountingJournalPage() {
       </Layout>
     );
   }
-
-  const { data: entries, isLoading, isError, refetch } = useQuery<any[]>({
-    queryKey: ["/api/accounting/journal", companyId],
-    enabled: !!companyId,
-  });
-
-  const { data: accounts } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts", companyId],
-    enabled: !!companyId,
-  });
-
-  const { data: drafts } = useQuery<JournalDraft[]>({
-    queryKey: ["/api/accounting/journal-drafts", companyId],
-    enabled: !!companyId,
-  });
 
   const totals = voucher.lines.reduce(
     (acc, line) => {
@@ -260,6 +275,7 @@ export default function AccountingJournalPage() {
       queryClient.invalidateQueries({
         queryKey: ["/api/accounting/trial-balance"],
       });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/dashboard"] });
     },
     onError: (error: any) => {
       toast({
@@ -288,6 +304,7 @@ export default function AccountingJournalPage() {
       queryClient.invalidateQueries({
         queryKey: ["/api/accounting/trial-balance"],
       });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/dashboard"] });
     },
     onError: (error: any) => {
       toast({

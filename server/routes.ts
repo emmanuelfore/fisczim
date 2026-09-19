@@ -15814,8 +15814,40 @@ export async function registerRoutes(
 
   app.patch("/api/accounting/periods/:id/toggle", requireAuth, async (req: any, res: any) => {
     try {
-      const updates = req.body;
-      const period = await storage.toggleFinancialPeriod(Number(req.params.id), updates);
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "Only owner/admin can update financial periods." });
+      }
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) return res.status(400).json({ message: "Invalid period id." });
+      const [existing] = await db.select().from(financialPeriods)
+        .where(and(eq(financialPeriods.id, id), eq(financialPeriods.companyId, companyId)));
+      if (!existing) return res.status(404).json({ message: "Financial period not found for this company." });
+
+      const allowedStatus = new Set(["OPEN", "CLOSED", "LOCKED"]);
+      const updates: Record<string, any> = {};
+      if (req.body?.status !== undefined) {
+        const s = String(req.body.status).toUpperCase();
+        if (!allowedStatus.has(s)) return res.status(400).json({ message: "Invalid period status." });
+        updates.status = s;
+      }
+      for (const key of ["apLocked", "arLocked", "inventoryLocked", "glLocked"] as const) {
+        if (req.body?.[key] !== undefined) updates[key] = !!req.body[key];
+      }
+      if (req.body?.reopenJustification !== undefined) {
+        updates.reopenJustification = String(req.body.reopenJustification).slice(0, 500);
+      }
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update." });
+      }
+      if (updates.status === "OPEN" && (existing as any).status !== "OPEN" && !updates.reopenJustification && !(existing as any).reopenJustification) {
+        return res.status(400).json({ message: "A justification is required to reopen a closed period." });
+      }
+      const [period] = await db.update(financialPeriods).set(updates)
+        .where(and(eq(financialPeriods.id, id), eq(financialPeriods.companyId, companyId)))
+        .returning();
       res.json(period);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

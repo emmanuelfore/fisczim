@@ -1239,87 +1239,190 @@ router.get("/employees", async (req, res) => {
 });
 
 router.post("/employees", requirePayrollWrite, async (req, res) => {
+  // Helpers: the HR form submits "" for untouched optional fields. Normalize
+  // those to null/undefined BEFORE validation so zod doesn't reject them
+  // (e.g. "".email() fails, "" for a date column breaks PG).
+  const blankToNull = (v: unknown) =>
+    typeof v === "string" && v.trim() === "" ? null : v;
+  const optText = z.preprocess(blankToNull, z.string().nullable().optional());
+  const optEmail = z.preprocess(
+    blankToNull,
+    z.string().email("Invalid email address").nullable().optional()
+  );
+  const optDate = z.preprocess(blankToNull, z.string().nullable().optional());
+  const optIntId = z.preprocess((v: unknown) => {
+    if (v === "" || v === undefined || v === null) return null;
+    const n = Number(v);
+    return Number.isInteger(n) ? n : v;
+  }, z.number().int().nullable().optional());
+  const optBranchId = z.preprocess((v: unknown) => {
+    if (v === "" || v === undefined || v === null) return undefined;
+    const n = Number(v);
+    return Number.isInteger(n) ? n : v;
+  }, z.number().int().optional());
+
+  const contractShape = {
+    contractType: z.string().default("PERMANENT"),
+    baseSalary: z.preprocess((v: unknown) => (v === "" ? undefined : v), z.coerce.string()),
+    currency: z.string().default("USD"),
+    usdPercentage: z.coerce.string().default("100.00"),
+    zigPercentage: z.coerce.string().default("0.00"),
+    payFrequency: z.string().default("MONTHLY"),
+    payGradeId: optIntId,
+    necSectorId: optIntId,
+    probationEndDate: optDate,
+  };
+
   const schema = z.object({
-    employeeNumber: z.string().trim().min(1),
-    title: z.string().optional().nullable(),
-    firstName: z.string().trim().min(1),
-    lastName: z.string().trim().min(1),
-    dateOfBirth: z.string().optional().nullable(),
-    gender: z.string().optional().nullable(),
-    maritalStatus: z.string().optional().nullable(),
-    email: z.string().email().optional().nullable(),
-    phone: z.string().optional().nullable(),
-    physicalAddress: z.string().optional().nullable(),
-    postalAddress: z.string().optional().nullable(),
-    nationalId: z.string().trim().min(1),
-    nssaNumber: z.string().optional().nullable(),
-    zimraTaxNumber: z.string().optional().nullable(),
-    branchId: z.coerce.number().int(),
-    departmentId: z.coerce.number().int().optional().nullable(),
-    positionId: z.coerce.number().int().optional().nullable(),
+    employeeNumber: z.string().trim().min(1, "Employee number is required"),
+    title: optText,
+    firstName: z.string().trim().min(1, "First name is required"),
+    lastName: z.string().trim().min(1, "Last name is required"),
+    dateOfBirth: optDate,
+    gender: optText,
+    maritalStatus: optText,
+    email: optEmail,
+    phone: optText,
+    physicalAddress: optText,
+    postalAddress: optText,
+    nationalId: z.string().trim().min(1, "National ID is required"),
+    nssaNumber: optText,
+    zimraTaxNumber: optText,
+    branchId: optBranchId,
+    departmentId: optIntId,
+    positionId: optIntId,
     status: z.string().default("ACTIVE"),
-    joiningDate: z.string().optional().nullable(),
-    terminationDate: z.string().optional().nullable(),
-    bankName: z.string().optional().nullable(),
-    bankBranch: z.string().optional().nullable(),
-    bankAccountNumber: z.string().optional().nullable(),
-    ecocashNumber: z.string().optional().nullable(),
-    emergencyContactName: z.string().optional().nullable(),
-    emergencyContactPhone: z.string().optional().nullable(),
-    nextOfKinName: z.string().optional().nullable(),
-    nextOfKinRelationship: z.string().optional().nullable(),
-    nextOfKinPhone: z.string().optional().nullable(),
-    nextOfKinAddress: z.string().optional().nullable(),
-    contract: z.object({
-      contractType: z.string().default("PERMANENT"),
-      baseSalary: z.coerce.string(),
-      currency: z.string().default("USD"),
-      usdPercentage: z.coerce.string().default("100.00"),
-      zigPercentage: z.coerce.string().default("0.00"),
-      payFrequency: z.string().default("MONTHLY"),
-      payGradeId: z.coerce.number().int().optional().nullable(),
-      necSectorId: z.coerce.number().int().optional().nullable(),
-      probationEndDate: z.string().optional().nullable(),
-    }).optional()
+    joiningDate: optDate,
+    terminationDate: optDate,
+    bankName: optText,
+    bankBranch: optText,
+    bankAccountNumber: optText,
+    ecocashNumber: optText,
+    emergencyContactName: optText,
+    emergencyContactPhone: optText,
+    nextOfKinName: optText,
+    nextOfKinRelationship: optText,
+    nextOfKinPhone: optText,
+    nextOfKinAddress: optText,
+    contract: z.object(contractShape).optional(),
+    // Back-compat: the HR form historically sent contract fields FLAT
+    // (contractType/baseSalary/currency/... at top level) instead of nested
+    // under `contract`. Accept both shapes.
+    contractType: z.string().optional().nullable(),
+    baseSalary: z.preprocess((v: unknown) => (v === "" || v === undefined ? undefined : v), z.coerce.string().optional()),
+    currency: z.string().optional().nullable(),
+    usdPercentage: z.preprocess((v: unknown) => (v === "" || v === undefined ? undefined : v), z.coerce.string().optional()),
+    zigPercentage: z.preprocess((v: unknown) => (v === "" || v === undefined ? undefined : v), z.coerce.string().optional()),
+    payFrequency: z.string().optional().nullable(),
+    payGradeId: optIntId,
+    necSectorId: optIntId,
+    startDate: optDate,
+    endDate: optDate,
   });
 
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  if (parsed.data.contract) {
-    const usdPercentage = Number(parsed.data.contract.usdPercentage || 0);
-    const zigPercentage = Number(parsed.data.contract.zigPercentage || 0);
+  if (!parsed.success) {
+    const first = parsed.error.errors[0];
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: first ? `${first.path.join(".") || "field"}: ${first.message}` : "Invalid employee data",
+      details: parsed.error.errors,
+    });
+  }
+
+  // Merge nested `contract` with legacy flat contract fields.
+  const body = parsed.data as Record<string, any>;
+  let contract = body.contract as Record<string, any> | undefined;
+  const flatKeys = ["contractType", "baseSalary", "currency", "usdPercentage", "zigPercentage", "payFrequency", "payGradeId", "necSectorId"] as const;
+  const hasFlatContract = flatKeys.some((k) => body[k] !== undefined && body[k] !== null);
+  if (!contract && hasFlatContract) {
+    contract = {
+      contractType: body.contractType || "PERMANENT",
+      baseSalary: body.baseSalary ?? "0",
+      currency: body.currency || "USD",
+      usdPercentage: body.usdPercentage ?? "100.00",
+      zigPercentage: body.zigPercentage ?? "0.00",
+      payFrequency: body.payFrequency || "MONTHLY",
+      payGradeId: body.payGradeId ?? null,
+      necSectorId: body.necSectorId ?? null,
+    };
+  }
+  if (contract) {
+    if (contract.payGradeId === undefined) contract.payGradeId = null;
+    if (contract.necSectorId === undefined) contract.necSectorId = null;
+    const usdPercentage = Number(contract.usdPercentage || 0);
+    const zigPercentage = Number(contract.zigPercentage || 0);
     if (Math.abs((usdPercentage + zigPercentage) - 100) > 0.01) {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
         message: "USD and ZiG salary split percentages must total 100.",
       });
     }
+    if (Number.isNaN(Number(contract.baseSalary))) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "contract.baseSalary: must be a valid number",
+      });
+    }
   }
 
   try {
     const companyId = getTargetCompanyId(req);
-    const { contract, ...empData } = parsed.data;
+    // Strip legacy flat contract keys so only real employee columns are inserted.
+    const { contract: parsedContract, contractType: _ct, baseSalary: _bs, currency: _cu,
+      usdPercentage: _up, zigPercentage: _zp, payFrequency: _pf, payGradeId: _pg,
+      necSectorId: _ns, startDate: _sd, endDate: _ed, ...empData } = parsed.data as Record<string, any>;
+    void _ct; void _bs; void _cu; void _up; void _zp; void _pf; void _pg; void _ns; void _sd; void _ed;
     if (!empData.joiningDate) {
       empData.joiningDate = new Date().toISOString().slice(0, 10);
     }
-    if (!empData.branchId) {
-      empData.branchId = 1;
+
+    // Resolve branch: must belong to this company. Fall back to the
+    // company's first branch instead of hard-coding id 1 (FK violation).
+    const companyBranches = await db.select({ id: branches.id })
+      .from(branches)
+      .where(eq(branches.companyId, companyId));
+    if (companyBranches.length === 0) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "No branches found for this company. Create a branch first." });
+    }
+    if (!empData.branchId || !companyBranches.some((b) => b.id === empData.branchId)) {
+      empData.branchId = companyBranches[0].id;
+    }
+
+    // Validate optional FK references up-front for friendly errors.
+    if (empData.departmentId) {
+      const [dept] = await db.select({ id: departments.id }).from(departments)
+        .where(and(eq(departments.id, empData.departmentId), eq(departments.companyId, companyId))).limit(1);
+      if (!dept) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Selected department does not belong to this company." });
+    }
+    if (empData.positionId) {
+      const [pos] = await db.select({ id: positions.id }).from(positions)
+        .where(and(eq(positions.id, empData.positionId), eq(positions.companyId, companyId))).limit(1);
+      if (!pos) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Selected position does not belong to this company." });
+    }
+    if (contract?.payGradeId) {
+      const [grade] = await db.select({ id: payrollPayGrades.id }).from(payrollPayGrades)
+        .where(and(eq(payrollPayGrades.id, contract.payGradeId), eq(payrollPayGrades.companyId, companyId))).limit(1);
+      if (!grade) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Selected pay grade does not belong to this company." });
     }
 
     const result = await db.transaction(async (tx) => {
       // 1. Create employee
       const [emp] = await tx.insert(employees)
-        .values({ ...empData, joiningDate: empData.joiningDate || new Date().toISOString().slice(0, 10), companyId })
+        .values({ ...empData, joiningDate: empData.joiningDate || new Date().toISOString().slice(0, 10), companyId } as any)
         .returning();
 
-      // 2. Create contract if provided
+      // 2. Create contract if provided (flat startDate wins, else joining date)
       let createdContract = null;
       if (contract) {
+        const contractStart = (body.startDate as string | null) || empData.joiningDate || new Date().toISOString().slice(0, 10);
+        const contractEnd = (body.endDate as string | null) || null;
         [createdContract] = await tx.insert(employeeContracts)
           .values({
             employeeId: emp.id,
             contractType: contract.contractType,
-            startDate: empData.joiningDate || new Date().toISOString().slice(0, 10),
+            startDate: contractStart,
+            endDate: contractEnd,
             baseSalary: contract.baseSalary,
             currency: contract.currency,
             usdPercentage: contract.usdPercentage,
@@ -1377,6 +1480,12 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
     });
     res.status(201).json(result);
   } catch (err: any) {
+    if (err?.code === "23505") {
+      return res.status(409).json({ error: "CONFLICT", message: "This employee number already exists for the company." });
+    }
+    if (err?.code === "23503") {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "Referenced record (branch/department/position/pay grade) is invalid for this company." });
+    }
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
 });
@@ -1667,20 +1776,35 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
     if (!emp) return res.status(404).json({ message: "Employee not found" });
 
     const ALLOWED = [
-      "title", "firstName", "lastName", "dateOfBirth", "gender", "maritalStatus", 
-      "email", "phone", "physicalAddress", "postalAddress", 
+      "title", "firstName", "lastName", "dateOfBirth", "gender", "maritalStatus",
+      "email", "phone", "physicalAddress", "postalAddress",
       "nationalId", "nssaNumber", "zimraTaxNumber",
-      "bankName", "bankBranch", "bankAccountNumber", "ecocashNumber", 
-      "emergencyContactName", "emergencyContactPhone", 
+      "bankName", "bankBranch", "bankAccountNumber", "ecocashNumber",
+      "emergencyContactName", "emergencyContactPhone",
       "nextOfKinName", "nextOfKinRelationship", "nextOfKinPhone", "nextOfKinAddress",
       "status", "joiningDate", "terminationDate", "terminationType", "terminationReason",
       "departmentId", "positionId",
     ];
+    // Contract fields may arrive nested (`contract: {...}`) or flat alongside
+    // employee fields (legacy HR form). Collect them instead of dropping.
+    const CONTRACT_KEYS = ["contractType", "baseSalary", "currency", "usdPercentage", "zigPercentage", "payFrequency", "payGradeId", "necSectorId", "startDate", "endDate"];
+    const rawBody = (req.body || {}) as Record<string, any>;
+    const nestedContract = (rawBody.contract && typeof rawBody.contract === "object" ? rawBody.contract : null) as Record<string, any> | null;
+    const flatContract: Record<string, any> = {};
+    for (const k of CONTRACT_KEYS) {
+      if (rawBody[k] !== undefined && rawBody[k] !== "" && rawBody[k] !== null) flatContract[k] = rawBody[k];
+    }
+    const contractUpdate = nestedContract ? { ...flatContract, ...nestedContract } : (Object.keys(flatContract).length > 0 ? flatContract : null);
+    if (contractUpdate) {
+      if (contractUpdate.payGradeId === "" || contractUpdate.payGradeId === undefined) contractUpdate.payGradeId = null;
+      if (contractUpdate.necSectorId === "" || contractUpdate.necSectorId === undefined) contractUpdate.necSectorId = null;
+      if (contractUpdate.endDate === "") contractUpdate.endDate = null;
+    }
 
     const updates: Record<string, unknown> = {};
-    for (const key of Object.keys(req.body || {})) {
+    for (const key of Object.keys(rawBody)) {
       if (!ALLOWED.includes(key)) continue;
-      const value = req.body[key] === "" ? null : req.body[key];
+      const value = rawBody[key] === "" ? null : rawBody[key];
       if (key === "email" && value != null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value))) {
         return res.status(400).json({ error: "VALIDATION_ERROR", message: `"${value}" is not a valid email address` });
       }
@@ -1691,7 +1815,69 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "employeeNumber cannot be changed" });
     }
 
-    if (Object.keys(updates).length === 0) return res.json(emp);
+    // Apply contract changes bundled with the profile edit (HR edit modal
+    // sends Contract-tab fields together with employee fields).
+    let appliedContract: Record<string, any> | null = null;
+    if (contractUpdate && contractUpdate.baseSalary !== undefined) {
+      const [active] = await db.select().from(employeeContracts)
+        .where(and(eq(employeeContracts.employeeId, id), eq(employeeContracts.isActive, true)))
+        .limit(1);
+      const merged = {
+        contractType: contractUpdate.contractType ?? active?.contractType ?? "PERMANENT",
+        baseSalary: String(contractUpdate.baseSalary),
+        currency: contractUpdate.currency ?? active?.currency ?? "USD",
+        usdPercentage: String(contractUpdate.usdPercentage ?? active?.usdPercentage ?? "100.00"),
+        zigPercentage: String(contractUpdate.zigPercentage ?? active?.zigPercentage ?? "0.00"),
+        payFrequency: contractUpdate.payFrequency ?? (active as any)?.payFrequency ?? "MONTHLY",
+        payGradeId: contractUpdate.payGradeId ?? active?.payGradeId ?? null,
+        necSectorId: contractUpdate.necSectorId ?? active?.necSectorId ?? null,
+        startDate: contractUpdate.startDate ?? new Date().toISOString().slice(0, 10),
+        endDate: contractUpdate.endDate ?? null,
+      };
+      if (Number.isNaN(Number(merged.baseSalary))) {
+        return res.status(400).json({ error: "VALIDATION_ERROR", message: "contract.baseSalary: must be a valid number" });
+      }
+      if (Math.abs((Number(merged.usdPercentage || 0) + Number(merged.zigPercentage || 0)) - 100) > 0.01) {
+        return res.status(400).json({ error: "VALIDATION_ERROR", message: "USD and ZiG salary split percentages must total 100." });
+      }
+      if (merged.payGradeId) {
+        const [grade] = await db.select({ id: payrollPayGrades.id }).from(payrollPayGrades)
+          .where(and(eq(payrollPayGrades.id, Number(merged.payGradeId)), eq(payrollPayGrades.companyId, companyId))).limit(1);
+        if (!grade) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Selected pay grade does not belong to this company." });
+      }
+      appliedContract = await db.transaction(async (tx) => {
+        await tx.update(employeeContracts).set({ isActive: false }).where(eq(employeeContracts.employeeId, id));
+        const [nc] = await tx.insert(employeeContracts).values({
+          employeeId: id,
+          contractType: merged.contractType,
+          startDate: merged.startDate,
+          endDate: merged.endDate,
+          baseSalary: merged.baseSalary,
+          currency: merged.currency,
+          usdPercentage: merged.usdPercentage,
+          zigPercentage: merged.zigPercentage,
+          payFrequency: merged.payFrequency,
+          payGradeId: merged.payGradeId ? Number(merged.payGradeId) : null,
+          necSectorId: merged.necSectorId ? Number(merged.necSectorId) : null,
+          isActive: true,
+        }).returning();
+        await applySalaryHistoryChange(tx, companyId, id, {
+          salaryAmount: merged.baseSalary,
+          currency: merged.currency,
+          payFrequency: merged.payFrequency,
+          usdPercentage: merged.usdPercentage,
+          zigPercentage: merged.zigPercentage,
+          effectiveFrom: merged.startDate,
+          reason: "Contract updated via employee profile",
+        });
+        return nc;
+      });
+    }
+
+    if (Object.keys(updates).length === 0) {
+      if (appliedContract) return res.json({ ...emp, appliedContract });
+      return res.json(emp);
+    }
 
     const [updated] = await db.update(employees)
       .set({ ...updates, updatedAt: new Date() })
@@ -2025,21 +2211,42 @@ router.post("/salary-changes/:id/reject", requirePayrollApproval, async (req, re
 router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const companyId = getTargetCompanyId(req);
+  const blankToNullContract = (v: unknown) =>
+    v === "" || v === undefined ? null : v;
   const schema = z.object({
     contractType: z.string().default("PERMANENT"),
     startDate: z.string(),
-    endDate: z.string().optional().nullable(),
-    probationEndDate: z.string().optional().nullable(),
+    endDate: z.preprocess(blankToNullContract, z.string().nullable().optional()),
+    probationEndDate: z.preprocess(blankToNullContract, z.string().nullable().optional()),
     payFrequency: z.string().default("MONTHLY"),
-    baseSalary: z.coerce.string(),
+    baseSalary: z.preprocess((v: unknown) => (v === "" ? undefined : v), z.coerce.string()),
     currency: z.string().default("USD"),
     usdPercentage: z.coerce.string().default("100.00"),
     zigPercentage: z.coerce.string().default("0.00"),
-    payGradeId: z.coerce.number().int().optional().nullable(),
-    necSectorId: z.coerce.number().int().optional().nullable(),
+    payGradeId: z.preprocess((v: unknown) => {
+      if (v === "" || v === undefined || v === null) return null;
+      const n = Number(v);
+      return Number.isInteger(n) ? n : v;
+    }, z.number().int().nullable().optional()),
+    necSectorId: z.preprocess((v: unknown) => {
+      if (v === "" || v === undefined || v === null) return null;
+      const n = Number(v);
+      return Number.isInteger(n) ? n : v;
+    }, z.number().int().nullable().optional()),
   });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  // Tolerate the HR form's `{ employeeId, contractData: {...} }` wrapper.
+  const body = (req.body as any)?.contractData && typeof (req.body as any).contractData === "object"
+    ? { ...(req.body as any), ...(req.body as any).contractData }
+    : req.body;
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    const first = parsed.error.errors[0];
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: first ? `${first.path.join(".") || "field"}: ${first.message}` : "Invalid contract data",
+      details: parsed.error.errors,
+    });
+  }
 
   try {
     // Verify employee exists for company

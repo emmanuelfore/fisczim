@@ -25,7 +25,7 @@ export function BalanceSheetView({
   const { data, isLoading, isError, refetch } = useQuery<any>({
     queryKey: [`/api/accounting/reports/balance-sheet`, { date: asOfDate, branchId }],
     queryFn: async () => {
-      const res = await apiFetch(`/api/accounting/reports/balance-sheet?date=${asOfDate}${branchParam}`, { credentials: "include" });
+      const res = await apiFetch(`/api/accounting/reports/balance-sheet?date=${asOfDate}${branchParam}`);
       if (!res.ok) throw new Error("Failed to load balance sheet");
       return res.json();
     },

@@ -33,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { useActiveCompany } from "@/hooks/use-active-company";
@@ -93,6 +94,11 @@ export default function FinancialPeriodsPage() {
   const { data: periods, isLoading } = useQuery<FinancialPeriod[]>({
     queryKey: periodQueryKey(activeCompanyId),
     enabled: !!activeCompanyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/accounting/periods`);
+      if (!res.ok) throw new Error("Failed to load financial periods");
+      return res.json();
+    },
   });
 
   const sortedPeriods = useMemo(
@@ -252,6 +258,7 @@ export default function FinancialPeriodsPage() {
       toast({ title: "Year-end close completed", description: data.message });
       setIsSweepOpen(false);
       setYearChecks({});
+      invalidatePeriods();
     },
     onError: (err: any) =>
       toast({

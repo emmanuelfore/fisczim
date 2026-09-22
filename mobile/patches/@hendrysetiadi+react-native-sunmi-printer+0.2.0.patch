@@ -1,0 +1,48 @@
+diff --git a/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/src/main/java/com/hendrysetiadi/reactnative/sunmiprinter/SunmiPrinterModule.kt b/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/src/main/java/com/hendrysetiadi/reactnative/sunmiprinter/SunmiPrinterModule.kt
+--- a/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/src/main/java/com/hendrysetiadi/reactnative/sunmiprinter/SunmiPrinterModule.kt
++++ b/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/src/main/java/com/hendrysetiadi/reactnative/sunmiprinter/SunmiPrinterModule.kt
+@@ -3,4 +3,6 @@ package com.hendrysetiadi.reactnative.sunmiprinter
+ import android.graphics.Bitmap
+ import android.os.RemoteException
++import android.os.Handler
++import android.os.Looper
+ import android.util.Base64
+ import android.widget.Toast
+@@ -30,5 +32,6 @@ class SunmiPrinterModule(reactContext: ReactApplicationContext) :
+ 
+   private val mReactContext: ReactApplicationContext = reactContext
+   private var sunmiPrinterService: SunmiPrinterService? = null
++  private val mainHandler = Handler(Looper.getMainLooper())
+ 
+   private val innerPrinterCallback: InnerPrinterCallback = object : InnerPrinterCallback() {
+@@ -72,8 +75,28 @@ class SunmiPrinterModule(reactContext: ReactApplicationContext) :
+ 
+ 
+   override fun initPrinter(promise: Promise) {
+-    if (sunmiPrinterService == null) promise.reject("0", "Printer Service is not Connected")
++    initializeWhenConnected(promise, 0)
++  }
++
++  /**
++   * Binding to SUNMI's InnerPrinter service is asynchronous. A receipt can be
++   * requested before InnerPrinterCallback.onConnected fires, particularly just
++   * after the application starts. Wait for the connection instead of rejecting
++   * that valid request immediately.
++   */
++  private fun initializeWhenConnected(promise: Promise, attempt: Int) {
++    val service = sunmiPrinterService
++    if (service == null) {
++      if (attempt == 0) connectSunmiPrinterService()
++      if (attempt >= 50) {
++        promise.reject("SUNMI_SERVICE_UNAVAILABLE", "SUNMI InnerPrinter service did not connect within 5 seconds")
++        return
++      }
++      mainHandler.postDelayed({ initializeWhenConnected(promise, attempt + 1) }, 100)
++      return
++    }
++
+     try {
+-      sunmiPrinterService!!.printerInit(null /* object : InnerResultCallback() {
++      service.printerInit(null /* object : InnerResultCallback() {
+         override fun onRunResult(isSuccess: Boolean) {
+           if (isSuccess) {

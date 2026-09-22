@@ -39,3 +39,13 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+// Tell the inline HTML shell + Electron native splash that React has loaded
+// in the background. The splash stays visible until BootSplash sends the
+// final "I'm ready" (app-ready) — so there is never a blank moment.
+requestAnimationFrame(() => {
+  try {
+    (window as any).__bootSplashSet?.(12, "Loading modules…");
+    (window as any).electronAPI?.notifyRendererAlive?.();
+  } catch {}
+});

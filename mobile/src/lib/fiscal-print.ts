@@ -14,6 +14,7 @@ export function isInvoiceReadyForPrint(invoice: any): boolean {
     invoice.syncedWithFdms ||
     invoice._offline ||
     invoice._simulation ||
+    invoice._localSigned ||   // locally signed before server round-trip
     fdmsStatus === "fiscalized" ||
     fdmsStatus === "failed"
   );
@@ -55,7 +56,7 @@ export async function ensureInvoiceReadyForPrint(
     items: items || invoice?.items || invoice?.lineItems || invoice?.invoiceItems,
   };
 
-  if (invoice?._offline || invoice?._simulation) {
+  if (invoice?._offline || invoice?._simulation || invoice?._localSigned) {
     return current;
   }
 

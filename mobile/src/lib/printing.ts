@@ -738,6 +738,33 @@ export const isSunmiDevice = async (): Promise<boolean> => {
   }
 };
 
+// Cache init state — only call initPrinter() once at startup, not on every print
+let _sunmiInitialised = false;
+let _sunmiInitPromise: Promise<void> | null = null;
+
+/**
+ * Pre-warm the Sunmi printer service so the first print is instant.
+ * Call this once during app startup (e.g. from PrinterContext).
+ */
+export const warmUpSunmiPrinter = (): Promise<void> => {
+  if (!SunmiPrinter) return Promise.resolve();
+  if (_sunmiInitialised) return Promise.resolve();
+  if (_sunmiInitPromise) return _sunmiInitPromise;
+  _sunmiInitPromise = SunmiPrinter.initPrinter()
+    .then(() => {
+      _sunmiInitialised = true;
+      // Pre-cache font settings too
+      SunmiPrinter.setAlignment(0).catch(() => {});
+      SunmiPrinter.setFontSize(24).catch(() => {});
+      console.log("[Printing] Sunmi printer warmed up.");
+    })
+    .catch((e: unknown) => {
+      console.warn("[Printing] Sunmi warm-up failed:", e);
+      _sunmiInitPromise = null; // allow retry
+    });
+  return _sunmiInitPromise;
+};
+
 /**
  * Print a fiscal receipt on a SUNMI device's built-in printer.
  * Uses the Sunmi InnerPrinter AIDL service via @hendrysetiadi/react-native-sunmi-printer.
@@ -750,12 +777,18 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
 
   const { invoice, company, customer, items, cashierName, paidAmount, suppressTaxDetails } = data;
 
-  const initOk = await SunmiPrinter.initPrinter().catch((e: unknown) => {
-    console.warn("[Printing] Sunmi initPrinter failed:", e);
-    return null;
-  });
-  if (initOk === null) {
-    throw new Error("Sunmi inner printer could not be initialized. Check that you are running on a Sunmi device.");
+  // Use cached init — warm-up already ran at startup, so this is instant
+  if (!_sunmiInitialised) {
+    // Fallback: init inline if warm-up wasn't called (e.g. first launch edge case)
+    let initFailed = false;
+    await SunmiPrinter.initPrinter().catch((e: unknown) => {
+      console.warn("[Printing] Sunmi initPrinter failed:", e);
+      initFailed = true;
+    });
+    if (initFailed) {
+      throw new Error("Sunmi inner printer could not be initialized. Check that you are running on a Sunmi device.");
+    }
+    _sunmiInitialised = true;
   }
 
   const width = config?.printerWidth || 48;
@@ -955,11 +988,16 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
   pushCenter(invoice.notes || invoice.receiptNotes || "Thank you for your business!");
   pushCenter("Powered by FiscalStack");
 
+  // Batch all lines into one string → single bridge call, drastically faster
+  const fullText = textLines.join("\n") + "\n";
+
+  // Set font and alignment first (outside buffer so they take effect on commit)
+  await SunmiPrinter.setAlignment(0);   // Left align
+  await SunmiPrinter.setFontSize(24);   // ~normal size on 58 mm paper
+
   try {
     await SunmiPrinter.enterPrintBuffer(true);
-    for (const textLine of textLines) {
-      await SunmiPrinter.printText(textLine);
-    }
+    await SunmiPrinter.printText(fullText);
     if (qrData) {
       await SunmiPrinter.printLineWrap(1);
       await SunmiPrinter.printQrCode(qrData, 8, 2);
@@ -968,10 +1006,8 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
     await SunmiPrinter.exitPrinterBuffer(true);
   } catch (e: any) {
     console.warn("[Printing] Sunmi buffer print failed, falling back to direct print:", e);
-    await SunmiPrinter.printText("\n".repeat(2));
-    for (const textLine of textLines) {
-      await SunmiPrinter.printText(textLine);
-    }
+    // Fallback: direct print, still single call
+    await SunmiPrinter.printText(fullText);
     if (qrData) {
       await SunmiPrinter.printQrCode(qrData, 8, 2);
     }

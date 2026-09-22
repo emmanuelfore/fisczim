@@ -125,6 +125,8 @@ export async function refreshOfflineFiscalCache(companyId: number): Promise<{
           zimraEnvironment: ctx.zimraEnvironment,
         };
         await cacheZimraConfig(companyId, config);
+      } else {
+        console.warn(`[FiscalStorage] /fiscal-context returned OK but zimraPrivateKey is missing!`, ctx);
       }
 
       if (typeof ctx?.lastReceiptGlobalNo === "number") {
@@ -141,6 +143,8 @@ export async function refreshOfflineFiscalCache(companyId: number): Promise<{
         config: config || (await getCachedZimraConfig(companyId)),
         sequence: sequence || (await getCachedFiscalSequence(companyId)),
       };
+    } else {
+      console.warn(`[FiscalStorage] /fiscal-context returned ${res.status}: await res.text()`, await res.text());
     }
   } catch (e) {
     console.warn("[FiscalStorage] Failed to refresh offline fiscal cache:", e);

@@ -14,7 +14,7 @@ import { Redirect, useLocation } from "wouter";
 import { Loader2, Store, Lock, Mail, WifiOff } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useIsOnline } from "@/hooks/use-is-online";
-import { isStorageBroken } from "@/lib/offline-db";
+import { checkStorageHealth, repairStorage } from "@/lib/offline-db";
 
 export default function PosLoginPage() {
   const { user, isLoading, loginWithPassword, loginWithOfflinePin, getOfflineUsers } = useAuth();
@@ -36,40 +36,52 @@ export default function PosLoginPage() {
   const [isBrokenStorage, setIsBrokenStorage] = useState(false);
 
   useEffect(() => {
-    if (isStorageBroken()) {
-      setIsBrokenStorage(true);
-      setError(
-        "Terminal storage is corrupted. Offline features and login caching may not work.",
-      );
-    } else {
-      // Fetch offline users for the PIN login dropdown
-      if (getOfflineUsers) {
-        getOfflineUsers().then((users) => {
-          if (users && users.length > 0) {
-            setOfflineUsers(users);
-            if (!isOnline) {
-              setLoginMode("pin");
-              setLoginData(prev => ({ ...prev, email: users[0].email }));
-            }
-          }
-        }).catch(console.error);
+    let cancelled = false;
+    // Async probe with silent self-heal — only shows the banner if repair truly fails.
+    checkStorageHealth().then((ok) => {
+      if (cancelled) return;
+      if (!ok) {
+        setIsBrokenStorage(true);
+        setError(
+          "Terminal storage is corrupted. Offline features and login caching may not work.",
+        );
       }
+    }).catch(() => {});
+    // Fetch offline users for the PIN login dropdown
+    if (getOfflineUsers) {
+      getOfflineUsers().then((users) => {
+        if (cancelled) return;
+        if (users && users.length > 0) {
+          setOfflineUsers(users);
+          if (!isOnline) {
+            setLoginMode("pin");
+            setLoginData(prev => ({ ...prev, email: users[0].email }));
+          }
+        }
+      }).catch(() => {});
     }
+    return () => { cancelled = true; };
   }, [getOfflineUsers, isOnline]);
 
   const handleFixStorage = async () => {
-    if (!window.electronAPI?.clearStorage) return;
     try {
       if (
-        confirm(
+        !confirm(
           "This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?",
         )
-      ) {
+      ) return;
+      if (window.electronAPI?.clearStorage) {
         await window.electronAPI.clearStorage();
-        window.location.reload();
+      } else {
+        const ok = await repairStorage();
+        if (!ok) {
+          setError("Storage repair failed. Please clear site data in your browser settings.");
+          return;
+        }
       }
+      window.location.reload();
     } catch (err: any) {
-      setError("Failed to reset storage: " + err.message);
+      setError("Failed to reset storage: " + (err?.message || err));
     }
   };
 

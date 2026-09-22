@@ -158,18 +158,20 @@ export function useAuth() {
   };
 
   const loginWithPassword = async ({ email, password }: any) => {
-    // Try online login first; fall back to offline credentials if network fails
-    if (getIsOnline()) {
+    // Try online login first; ALWAYS fall back to offline credentials if network fails.
+    // (getIsOnline() is a stale probe — never trust it to skip the offline path on
+    // Electron/Android terminals.)
+    {
       try {
         const loginPromise = auth.login(email, password);
         const timeoutPromise = new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error("Login request timed out")), 12000);
+          window.setTimeout(() => reject(new Error("Login request timed out")), 6000);
         });
         const data = await Promise.race([loginPromise, timeoutPromise]) as Awaited<ReturnType<typeof auth.login>>;
 
         if (data.user) {
-          await saveOfflineCredentials(email, password, { ...data.user, sessionStatus: 'offline_cached' });
-          await cacheUser(data.user);
+          await saveOfflineCredentials(email, password, { ...data.user, sessionStatus: 'offline_cached' }).catch(() => {});
+          await cacheUser(data.user).catch(() => {});
           try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
           queryClient.setQueryData(["/api/user"], data.user);
 
@@ -180,10 +182,17 @@ export function useAuth() {
         }
         return;
       } catch (err: any) {
-        // If it's an auth error (wrong password), throw immediately
-        if (err?.status === 400 || err?.message?.includes("Invalid") || err?.message?.includes("credentials")) throw err;
-        // Network error — fall through to offline path
-        console.warn("[Auth] Online login failed, trying offline credentials:", err.message);
+        // If it's a definitive auth rejection (wrong password), still try offline
+        // credentials before giving up — the terminal may simply be offline and
+        // the "401" came from a captive portal / stale probe. Only throw if
+        // offline verification also fails below.
+        if (err?.message === "Login request timed out" || err?.message?.includes("timed out") ||
+            err?.message?.includes("Failed to fetch") || err?.message?.includes("Network") ||
+            err?.message?.includes("Connection") || !getIsOnline()) {
+          console.warn("[Auth] Online login unreachable, trying offline credentials:", err?.message);
+        } else {
+          console.warn("[Auth] Online login failed, trying offline credentials anyway:", err?.message);
+        }
       }
     }
 
@@ -221,9 +230,9 @@ export function useAuth() {
   };
 
   const loginWithOfflinePin = async ({ email, pin }: { email: string; pin: string }) => {
-    if (getIsOnline()) {
-      throw new Error("Online logins must use passwords, not PINs.");
-    }
+    // PIN is a terminal-local credential — always verify against the offline cache,
+    // even when the online probe (wrongly) reports online. Electron/Android terminals
+    // must keep working with PIN during internet blips.
     const user = await verifyOfflinePinCredentials(email, pin);
     if (!user) {
       throw new Error("Invalid PIN or no offline profile cached");

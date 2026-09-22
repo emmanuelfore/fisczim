@@ -4,8 +4,7 @@ import { Redirect } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { isElectron } from "@/lib/utils";
-import { isStorageBroken } from "@/lib/offline-db";
+import { checkStorageHealth, repairStorage } from "@/lib/offline-db";
 
 export default function AuthPage() {
   const { user, isLoading, loginWithPassword, registerWithPassword } =
@@ -39,26 +38,36 @@ export default function AuthPage() {
   const [isBrokenStorage, setIsBrokenStorage] = useState(false);
 
   useEffect(() => {
-    // Check if the offline database failed to initialize
-    if (isStorageBroken()) {
-      setIsBrokenStorage(true);
-      setError(
-        "Local storage is corrupted. Some offline features and login caching may not work.",
-      );
-    }
+    let cancelled = false;
+    // Async probe with silent self-heal — banner only if truly unrecoverable
+    checkStorageHealth().then((ok) => {
+      if (!cancelled && !ok) {
+        setIsBrokenStorage(true);
+        setError(
+          "Local storage is corrupted. Some offline features and login caching may not work.",
+        );
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const handleFixStorage = async () => {
-    if (!window.electronAPI?.clearStorage) return;
     try {
       if (
-        confirm(
+        !confirm(
           "This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?",
         )
-      ) {
+      ) return;
+      if (window.electronAPI?.clearStorage) {
         await window.electronAPI.clearStorage();
-        window.location.reload();
+      } else {
+        const ok = await repairStorage();
+        if (!ok) {
+          setError("Storage repair failed. Please clear site data in your browser settings.");
+          return;
+        }
       }
+      window.location.reload();
     } catch (err: any) {
       setError("Failed to reset storage: " + err.message);
     }
@@ -350,7 +359,7 @@ export default function AuthPage() {
             {error && <div className="auth-err">{error}</div>}
             {successMsg && <div className="auth-ok">{successMsg}</div>}
 
-            {isElectron() && isBrokenStorage && (
+            {isBrokenStorage && (
               <div style={{ marginBottom: "20px" }}>
                 <button
                   onClick={handleFixStorage}

@@ -17,8 +17,7 @@ import { Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useBranding } from "@/hooks/use-branding";
-import { isElectron } from "@/lib/utils";
-import { isStorageBroken } from "@/lib/offline-db";
+import { checkStorageHealth, repairStorage } from "@/lib/offline-db";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSwitcher } from "@/components/language-switcher";
 
@@ -58,25 +57,36 @@ export default function AuthPage() {
   const [isBrokenStorage, setIsBrokenStorage] = useState(false);
 
   useEffect(() => {
-    if (isStorageBroken()) {
+    let cancelled = false;
+    checkStorageHealth().then((ok) => {
+      if (cancelled) return;
+      if (!ok) {
       setIsBrokenStorage(true);
       setError(
         t("Local storage is corrupted. Some offline features and login caching may not work."),
       );
-    }
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const handleFixStorage = async () => {
-    if (!window.electronAPI?.clearStorage) return;
     try {
       if (
-        confirm(
+        !confirm(
           t("This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?"),
         )
-      ) {
+      ) return;
+      if (window.electronAPI?.clearStorage) {
         await window.electronAPI.clearStorage();
-        window.location.reload();
+      } else {
+        const ok = await repairStorage();
+        if (!ok) {
+          setError("Storage repair failed. Please clear site data in your browser settings.");
+          return;
+        }
       }
+      window.location.reload();
     } catch (err: any) {
       setError(t("Failed to reset storage: ") + err.message);
     }
@@ -233,7 +243,7 @@ export default function AuthPage() {
               </div>
             )}
 
-            {isElectron() && isBrokenStorage && (
+            {isBrokenStorage && (
               <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
                 <p className="text-amber-800 text-xs font-medium mb-3">
                   {t("Local database access failed. This is often caused by unexpected app closure.")}

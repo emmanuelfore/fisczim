@@ -85,7 +85,7 @@ export default defineConfig({
         short_name: 'FiscalStack',
         description: 'POS',
         theme_color: '#0f172a',
-        background_color: '#f8fafc',
+        background_color: '#0f172a',
         display: 'standalone',
         orientation: 'portrait',
         scope: '/',

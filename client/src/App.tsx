@@ -184,10 +184,17 @@ function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   return loading && !timedOut;
 }
 
-function LoadingScreen() {
+function LoadingScreen({ message = "Loading…" }: { message?: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 gap-4">
+      <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
+      <p className="text-sm text-slate-300">{message}</p>
+      {/* Skeleton blocks: perceived as "content is loading", not "broken". */}
+      <div className="w-full max-w-sm space-y-2" aria-hidden="true">
+        <div className="h-10 rounded-xl bg-white/5 animate-pulse" />
+        <div className="h-10 rounded-xl bg-white/5 animate-pulse [animation-delay:150ms]" />
+        <div className="h-10 rounded-xl bg-white/5 animate-pulse [animation-delay:300ms]" />
+      </div>
     </div>
   );
 }
@@ -877,9 +884,11 @@ function BrandingMeta() {
 
 import { BranchProvider } from "./lib/branch-context";
 import { LanguageProvider } from "@/lib/i18n";
+import { BootSplash } from "@/components/boot-splash";
 
 function App() {
   useSwAuthBridge();
+  const [booted, setBooted] = useState(false);
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
@@ -888,7 +897,9 @@ function App() {
           <BranchProvider>
             <BrandingMeta />
             <Toaster />
-            <Router />
+            {/* Boot gate: splash stays until React is actually ready —
+                never a blank moment between splash and app. */}
+            {!booted ? <BootSplash onReady={() => setBooted(true)} /> : <Router />}
           </BranchProvider>
         </TooltipProvider>
       </LanguageProvider>

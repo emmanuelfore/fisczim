@@ -2195,7 +2195,47 @@ export async function registerRoutes(
       if (req.body.vatNumber === "") req.body.vatNumber = null;
       if (req.body.bpNumber === "") req.body.bpNumber = null;
 
-      const updated = await storage.updateCompany(companyId, req.body);
+      // Only allow safe fields to be updated via this endpoint.
+      // Must stay in sync with client/src/pages/settings.tsx formData plus
+      // organization-profile logo updates (logoUrl). Sensitive/operational
+      // fields (apiKey, fdms keys/certs, zimraEnvironment, fiscal counters,
+      // subscription, registeredMacAddress, superadminVisible, etc.) stay
+      // blocked and have dedicated endpoints.
+      const ALLOWED_COMPANY_FIELDS = [
+        "name", "tradingName", "tin", "vatNumber", "bpNumber", "nssaEmployerNumber",
+        "vatRegistered", "vatEnabled",
+        "address", "city", "country", "currency", "phone", "email",
+        "website", "logoUrl", "logo", "primaryColor", "branchName", "invoiceTemplate",
+        "bankName", "accountName", "accountNumber", "branchCode", "bankDetails",
+        "defaultPaymentTerms",
+        "fiscalProvider", "lekukaGatewayUrl",
+        "emailSettings", "posSettings", "accountingSettings",
+        "inventoryValuationMethod", "restaurantSettings", "pharmacySettings",
+        "busSettings", "appMode", "featureSettings",
+        // legacy aliases still accepted by old clients
+        "invoicePrefix", "quotationPrefix", "receiptPrefix",
+        "salesOrderPrefix", "paymentTerms", "notes", "bankAccount", "bankBranch",
+        "swiftCode", "defaultTaxRate", "invoiceFooter", "invoiceHeader", "theme",
+      ];
+      const safeData: Record<string, any> = {};
+      for (const key of ALLOWED_COMPANY_FIELDS) {
+        if (key in req.body) safeData[key] = req.body[key];
+      }
+      // Map legacy aliases to real columns
+      if (safeData.logo !== undefined && safeData.logoUrl === undefined) {
+        safeData.logoUrl = safeData.logo;
+      }
+      delete safeData.logo;
+      if (safeData.bankAccount !== undefined && safeData.accountNumber === undefined) {
+        safeData.accountNumber = safeData.bankAccount;
+      }
+      delete safeData.bankAccount;
+      if (safeData.bankBranch !== undefined && safeData.branchCode === undefined) {
+        safeData.branchCode = safeData.bankBranch;
+      }
+      delete safeData.bankBranch;
+
+      const updated = await storage.updateCompany(companyId, safeData);
       res.json(updated);
     } catch (err: any) {
       console.error("Update Company Error:", err);

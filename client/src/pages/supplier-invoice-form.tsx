@@ -117,6 +117,7 @@ export default function SupplierInvoiceFormPage() {
 
   // Pre-load from GRV if grvId is provided in URL query string
   const grvIdParam = searchParams.get("grvId") || "";
+  const isLinkedNote = !!defaultRefId && (defaultType === "CreditNote" || defaultType === "DebitNote");
   const { data: grvDetail } = useQuery<any>({
     queryKey: ["grv", companyId, grvIdParam],
     enabled: !!companyId && !!grvIdParam,
@@ -126,6 +127,72 @@ export default function SupplierInvoiceFormPage() {
       return res.json();
     }
   });
+
+  // Pre-load original bill when creating a linked Debit/Credit note (?type=..&referenceId=..)
+  const { data: referenceBill, isLoading: isRefLoading } = useQuery<any>({
+    queryKey: [`/api/companies/${companyId}/supplier-invoices/${defaultRefId}`],
+    enabled: !!companyId && isLinkedNote,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/supplier-invoices/${defaultRefId}`);
+      if (!res.ok) throw new Error("Failed to load original bill");
+      return res.json();
+    },
+  });
+
+  // All bills/notes for remaining-balance computation
+  const { data: allBills = [] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/supplier-invoices`],
+    enabled: !!companyId && isLinkedNote,
+  });
+
+  const linkedNotes = (allBills as any[]).filter(
+    (b: any) => String(b.referenceInvoiceId || "") === String(defaultRefId) && b.id !== Number(defaultRefId)
+  );
+  const totalCredited = linkedNotes
+    .filter((b: any) => b.transactionType === "CreditNote")
+    .reduce((s: number, b: any) => s + Number(b.totalAmount || 0), 0);
+  const totalDebited = linkedNotes
+    .filter((b: any) => b.transactionType === "DebitNote")
+    .reduce((s: number, b: any) => s + Number(b.totalAmount || 0), 0);
+  const originalTotal = referenceBill ? Number(referenceBill.totalAmount || 0) : 0;
+  const remainingBalance = referenceBill ? originalTotal + totalDebited - totalCredited : 0;
+  const originalBalanceDue = referenceBill
+    ? Number(referenceBill.totalAmount || 0) - Number(referenceBill.paidAmount || 0)
+    : 0;
+
+  const [prefilledRef, setPrefilledRef] = useState<string>("");
+
+  useEffect(() => {
+    if (referenceBill && prefilledRef !== String(referenceBill.id)) {
+      setPrefilledRef(String(referenceBill.id));
+      setSupplierId(String(referenceBill.supplierId || referenceBill.supplier?.id || ""));
+      setCurrency(referenceBill.currency || activeCompany?.currency || "USD");
+      setTaxInclusive(referenceBill.taxInclusive !== false);
+      setPurchaseOrderId(referenceBill.purchaseOrderId ? String(referenceBill.purchaseOrderId) : "");
+      setGrvReference(referenceBill.grvReference || "");
+      setTransactionType(defaultType);
+      setReferenceInvoiceId(String(referenceBill.id));
+      const label = defaultType === "CreditNote" ? "Credit note" : "Debit note";
+      setNotes(`${label} linked to bill ${referenceBill.invoiceNumber}`);
+      if (referenceBill.items && referenceBill.items.length > 0) {
+        setLines(
+          referenceBill.items.map((item: any) => ({
+            isFreetext: !item.productId,
+            productId: item.productId ? String(item.productId) : "",
+            description: item.description || item.product?.name || "",
+            accountCode: item.accountCode || "",
+            quantity: String(item.quantity ?? 1),
+            unitCost: String(item.unitPrice ?? item.unitCost ?? 0),
+            taxTypeId: item.taxTypeId ? String(item.taxTypeId) : "",
+            taxRate: String(item.taxRate ?? 0),
+            taxAmount: String(item.taxAmount ?? 0),
+            isRecoverable: item.isRecoverable !== false,
+            notes: "",
+          }))
+        );
+      }
+    }
+  }, [referenceBill, prefilledRef, defaultType, activeCompany]);
 
   useEffect(() => {
     if (grvDetail) {
@@ -204,6 +271,11 @@ export default function SupplierInvoiceFormPage() {
       if (!supplierId) throw new Error("Select a supplier");
       if (!invoiceNumber.trim()) throw new Error("Enter the supplier invoice number");
       if (total <= 0) throw new Error("Total amount must be greater than zero");
+      if (isLinkedNote && referenceBill && transactionType === "CreditNote" && total - remainingBalance > 0.005) {
+        throw new Error(
+          `Credit note total (${total.toFixed(2)}) exceeds the remaining bill balance (${remainingBalance.toFixed(2)}). Reduce quantities or prices.`
+        );
+      }
 
       const items = lines
         .filter((line) => (line.productId || (line.isFreetext && line.description)) && Number(line.quantity) > 0)
@@ -253,9 +325,14 @@ export default function SupplierInvoiceFormPage() {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/supplier-invoices`] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounting/ledger"] });
       const isCN = transactionType === "CreditNote";
+      const isDN = transactionType === "DebitNote";
       toast({
-        title: isCN ? "Supplier credit note created" : "Supplier bill created",
-        description: isCN ? "The AP credit note has been registered." : "The payable and ledger entry were posted.",
+        title: isCN ? "Supplier credit note created" : isDN ? "Supplier debit note created" : "Supplier bill created",
+        description: isCN
+          ? "AP reduced; inventory/expense and VAT reversed."
+          : isDN
+            ? "AP increased; inventory/expense and VAT posted."
+            : "The payable and ledger entry were posted.",
       });
       if (data?.id) {
         setLocation(`/supplier-invoices/${data.id}`);
@@ -265,7 +342,7 @@ export default function SupplierInvoiceFormPage() {
     },
     onError: (error: any) => {
       toast({
-        title: transactionType === "CreditNote" ? "Could not create credit note" : "Could not create bill",
+        title: transactionType === "CreditNote" ? "Could not create credit note" : transactionType === "DebitNote" ? "Could not create debit note" : "Could not create bill",
         description: error.message,
         variant: "destructive",
       });
@@ -273,6 +350,8 @@ export default function SupplierInvoiceFormPage() {
   });
 
   const isCN = transactionType === "CreditNote";
+  const isDN = transactionType === "DebitNote";
+  const exceedsRemaining = isLinkedNote && !!referenceBill && isCN && total - remainingBalance > 0.005;
 
   return (
     <Layout>
@@ -283,21 +362,58 @@ export default function SupplierInvoiceFormPage() {
           </Button>
           <div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              {isCN ? "New Supplier Credit Note" : "New Supplier Bill"}
+              {isCN ? "New Supplier Credit Note" : isDN ? "New Supplier Debit Note" : "New Supplier Bill"}
             </h1>
             <p className="text-sm text-slate-500">
-              {isCN ? "Record a new credit note from a supplier" : "Record a new invoice or bill from a supplier"}
+              {isCN ? "Record a new credit note from a supplier" : isDN ? "Record a new debit note against a supplier bill" : "Record a new invoice or bill from a supplier"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" className="rounded-xl" onClick={() => setLocation(isCN ? "/supplier-credit-notes" : "/supplier-invoices")}>Cancel</Button>
-          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || isCompanyLoading} className="font-bold gap-2 rounded-xl bg-primary hover:bg-primary/90 text-white">
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || isCompanyLoading || !!exceedsRemaining || (isLinkedNote && isRefLoading)} className="font-bold gap-2 rounded-xl bg-primary hover:bg-primary/90 text-white">
             {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {createMutation.isPending ? "Creating..." : (isCN ? "Create Credit Note" : "Create Bill")}
+            {createMutation.isPending ? "Creating..." : (isCN ? "Create Credit Note" : isDN ? "Create Debit Note" : "Create Bill")}
           </Button>
         </div>
       </div>
+
+      {isLinkedNote && (
+        <Card className={`rounded-[18px] shadow-sm overflow-hidden ${exceedsRemaining ? "border-red-300 bg-red-50" : "border-blue-200 bg-blue-50"}`}>
+          <CardContent className="p-4 text-sm">
+            {isRefLoading ? (
+              <span className="text-slate-600 font-medium">Loading original bill…</span>
+            ) : referenceBill ? (
+              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+                <span className="font-bold text-slate-800">
+                  {isCN ? "Credit note" : "Debit note"} linked to bill {referenceBill.invoiceNumber}
+                  {" "}({referenceBill.supplier?.name || ""})
+                </span>
+                <span className="text-slate-600">
+                  Original total: <strong>{Number(originalTotal).toFixed(2)} {referenceBill.currency || currency}</strong>
+                </span>
+                <span className="text-slate-600">
+                  Already credited: <strong>{totalCredited.toFixed(2)}</strong>
+                  {" "}| Already debited: <strong>{totalDebited.toFixed(2)}</strong>
+                </span>
+                <span className={`font-bold ${exceedsRemaining ? "text-red-700" : "text-emerald-700"}`}>
+                  Remaining adjustable: {remainingBalance.toFixed(2)} {referenceBill.currency || currency}
+                </span>
+                <span className="text-slate-500 text-xs">
+                  Balance due on bill: {originalBalanceDue.toFixed(2)} | Supplier, items, VAT and accounts prefilled — adjust quantities/prices as needed.
+                </span>
+                {exceedsRemaining && (
+                  <span className="text-red-700 font-bold text-xs">
+                    Total exceeds remaining balance — reduce quantities or prices before saving.
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="text-red-700 font-medium">Original bill not found. Check the reference link.</span>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-6">
         <Card className="rounded-[18px] border-slate-200 shadow-sm overflow-hidden">
@@ -327,7 +443,7 @@ export default function SupplierInvoiceFormPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="space-y-2">
                 <Label>Supplier <span className="text-red-500">*</span></Label>
-                <Select value={supplierId} onValueChange={setSupplierId} disabled={!!grvIdParam}>
+                <Select value={supplierId} onValueChange={setSupplierId} disabled={!!grvIdParam || isLinkedNote}>
                   <SelectTrigger className="h-11 bg-slate-50"><SelectValue placeholder="Select supplier" /></SelectTrigger>
                   <SelectContent>
                     {suppliers.map((s) => (
@@ -335,6 +451,7 @@ export default function SupplierInvoiceFormPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {isLinkedNote && <p className="text-[11px] text-slate-500">Locked to original bill supplier.</p>}
               </div>
               <div className="space-y-2">
                 <Label>Invoice Number <span className="text-red-500">*</span></Label>
@@ -377,7 +494,7 @@ export default function SupplierInvoiceFormPage() {
               </div>
               <div className="space-y-2">
                 <Label>Transaction Type</Label>
-                <Select value={transactionType} onValueChange={setTransactionType}>
+                <Select value={transactionType} onValueChange={setTransactionType} disabled={isLinkedNote}>
                   <SelectTrigger className="h-11 bg-slate-50"><SelectValue placeholder="Invoice" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Invoice">Standard Bill</SelectItem>
@@ -385,6 +502,9 @@ export default function SupplierInvoiceFormPage() {
                     <SelectItem value="CreditNote">Credit Note</SelectItem>
                   </SelectContent>
                 </Select>
+                {isLinkedNote && referenceInvoiceId && (
+                  <p className="text-[11px] text-slate-500">Linked to bill #{referenceBill?.invoiceNumber || referenceInvoiceId}.</p>
+                )}
               </div>
             </div>
             <div className="mt-6 space-y-2">

@@ -5991,11 +5991,59 @@ export class DatabaseStorage implements IStorage {
       const { items, createdBy, ...invoiceData } = data;
       const invoiceTotal = Number(invoiceData.totalAmount || 0);
       const invoiceTax = Number(invoiceData.taxAmount || 0);
+      const transactionType = (invoiceData as any).transactionType || "Invoice";
+      const referenceInvoiceId = (invoiceData as any).referenceInvoiceId
+        ? Number((invoiceData as any).referenceInvoiceId)
+        : null;
       if (invoiceTotal <= 0) {
         throw new Error("Supplier invoice total must be greater than zero");
       }
       if (invoiceTax < 0 || invoiceTax > invoiceTotal) {
         throw new Error("Supplier invoice VAT cannot exceed the total amount");
+      }
+
+      // Validate linked original bill for Debit/Credit notes and enforce remaining balance
+      if (referenceInvoiceId) {
+        const [original] = await tx
+          .select()
+          .from(supplierInvoices)
+          .where(and(eq(supplierInvoices.id, referenceInvoiceId), eq(supplierInvoices.companyId, invoiceData.companyId)));
+        if (!original) {
+          throw new Error("Linked supplier bill not found for this company");
+        }
+        if ((original as any).transactionType === "CreditNote") {
+          throw new Error("Cannot link a note to a credit note. Link notes to the original supplier bill.");
+        }
+        if ((original as any).status === "void" || (original as any).status === "cancelled") {
+          throw new Error("Cannot create a note against a voided or cancelled bill");
+        }
+        if (Number((original as any).supplierId) !== Number((invoiceData as any).supplierId)) {
+          throw new Error("Note supplier must match the original bill supplier");
+        }
+        if (transactionType === "CreditNote" || transactionType === "DebitNote") {
+          const linked = await tx
+            .select({ id: supplierInvoices.id, totalAmount: supplierInvoices.totalAmount, transactionType: supplierInvoices.transactionType })
+            .from(supplierInvoices)
+            .where(and(eq(supplierInvoices.companyId, invoiceData.companyId), eq(supplierInvoices.referenceInvoiceId, referenceInvoiceId)));
+          let totalCredited = 0;
+          let totalDebited = 0;
+          for (const row of linked) {
+            if (row.transactionType === "CreditNote") totalCredited += Number(row.totalAmount || 0);
+            else if (row.transactionType === "DebitNote") totalDebited += Number(row.totalAmount || 0);
+          }
+          const originalTotal = Number((original as any).totalAmount || 0);
+          if (transactionType === "CreditNote") {
+            const remaining = originalTotal + totalDebited - totalCredited;
+            if (invoiceTotal - remaining > 0.005) {
+              throw new Error(
+                `Credit note total (${invoiceTotal.toFixed(2)}) exceeds the remaining bill balance (${remaining.toFixed(2)}). Adjust quantities or prices.`
+              );
+            }
+          }
+        }
+      } else if (transactionType === "CreditNote" || transactionType === "DebitNote") {
+        // Standalone notes without a linked bill are allowed (e.g. opening adjustments),
+        // but they must still post correct ledger entries below.
       }
 
       const [invoice] = await tx.insert(supplierInvoices).values(invoiceData).returning();
@@ -6015,7 +6063,9 @@ export class DatabaseStorage implements IStorage {
 
       const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [];
       let totalRecoverableTax = 0;
-      let totalAP = invoiceTotal;
+      const isCreditNote = transactionType === "CreditNote";
+      // Debit notes increase the payable (same direction as a standard bill).
+      // Credit notes reduce AP and reverse inventory/expense + VAT.
 
       if (items && items.length > 0) {
         for (const item of items) {
@@ -6044,7 +6094,7 @@ export class DatabaseStorage implements IStorage {
             }
           }
 
-          lines.push({ accountCode: lineAccountCode, type: 'DEBIT', amount: Number(amountToCapitalize.toFixed(2)) });
+          lines.push({ accountCode: lineAccountCode, type: isCreditNote ? 'CREDIT' : 'DEBIT', amount: Number(amountToCapitalize.toFixed(2)) });
         }
       } else {
          // Fallback if no items were provided (legacy invoices)
@@ -6056,21 +6106,22 @@ export class DatabaseStorage implements IStorage {
             const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
             if (acc) debitAccountCode = acc.code;
          }
-         lines.push({ accountCode: debitAccountCode, type: 'DEBIT', amount: Number(subtotal.toFixed(2)) });
+         lines.push({ accountCode: debitAccountCode, type: isCreditNote ? 'CREDIT' : 'DEBIT', amount: Number(subtotal.toFixed(2)) });
          if (invoiceTax > 0) {
            totalRecoverableTax += invoiceTax;
          }
       }
 
       if (totalRecoverableTax > 0) {
-        lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: Number(totalRecoverableTax.toFixed(2)) });
+        lines.push({ accountCode: vatInputAccountCode, type: isCreditNote ? 'CREDIT' : 'DEBIT', amount: Number(totalRecoverableTax.toFixed(2)) });
       }
 
-      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: Number(invoiceTotal.toFixed(2)) });
+      lines.push({ accountCode: apAccountCode, type: isCreditNote ? 'DEBIT' : 'CREDIT', amount: Number(invoiceTotal.toFixed(2)) });
 
+      const ledgerLabel = isCreditNote ? "Supplier Credit Note" : transactionType === "DebitNote" ? "Supplier Debit Note" : "Supplier Invoice";
       await this.postToLedger(invoiceData.companyId, {
         entryDate: invoiceData.date || new Date(),
-        description: `Supplier Invoice: ${invoiceData.invoiceNumber}`,
+        description: `${ledgerLabel}: ${invoiceData.invoiceNumber}${referenceInvoiceId ? ` (linked to bill #${referenceInvoiceId})` : ""}`,
         referenceType: 'SupplierInvoice',
         referenceId: invoice.id.toString(),
         createdBy: createdBy,

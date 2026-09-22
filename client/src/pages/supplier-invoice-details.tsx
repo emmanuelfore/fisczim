@@ -44,6 +44,38 @@ export default function SupplierInvoiceDetailsPage() {
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
+  const isNote = invoice?.transactionType === "CreditNote" || invoice?.transactionType === "DebitNote";
+  const isBill = invoice?.transactionType === "Invoice";
+
+  const { data: allBills = [] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/supplier-invoices`],
+    enabled: !!companyId && !!invoice && (isBill || isNote),
+  });
+
+  const linkedNotes = isBill
+    ? (allBills as any[]).filter((b: any) => String(b.referenceInvoiceId || "") === String(invoice.id))
+    : [];
+  const totalCredited = linkedNotes
+    .filter((b: any) => b.transactionType === "CreditNote")
+    .reduce((s: number, b: any) => s + Number(b.totalAmount || 0), 0);
+  const totalDebited = linkedNotes
+    .filter((b: any) => b.transactionType === "DebitNote")
+    .reduce((s: number, b: any) => s + Number(b.totalAmount || 0), 0);
+  const remainingAdjustable = isBill
+    ? Number(invoice.totalAmount || 0) + totalDebited - totalCredited
+    : 0;
+
+  const referenceId = invoice?.referenceInvoiceId ? Number(invoice.referenceInvoiceId) : 0;
+  const { data: referenceBill } = useQuery<any>({
+    queryKey: [`/api/companies/${companyId}/supplier-invoices/${referenceId}`],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/supplier-invoices/${referenceId}`);
+      if (!res.ok) throw new Error("Failed to load linked bill");
+      return res.json();
+    },
+    enabled: !!companyId && !!referenceId && isNote,
+  });
+
   if (isLoading) {
     return (
       <Layout>
@@ -202,6 +234,66 @@ export default function SupplierInvoiceDetailsPage() {
                   <p className="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">{invoice.notes}</p>
                 </div>
               )}
+
+              {isNote && (
+                <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-1">
+                    Linked to original bill
+                  </p>
+                  {referenceBill ? (
+                    <button
+                      className="font-bold text-blue-700 hover:underline"
+                      onClick={() => setLocation(`/supplier-invoices/${referenceBill.id}`)}
+                    >
+                      {referenceBill.invoiceNumber} — {formatCurrency(Number(referenceBill.totalAmount), referenceBill.currency)}
+                    </button>
+                  ) : invoice.referenceInvoiceId ? (
+                    <button
+                      className="font-bold text-blue-700 hover:underline"
+                      onClick={() => setLocation(`/supplier-invoices/${invoice.referenceInvoiceId}`)}
+                    >
+                      View original bill #{invoice.referenceInvoiceId}
+                    </button>
+                  ) : (
+                    <span className="text-slate-600">No linked bill.</span>
+                  )}
+                  <p className="text-xs text-blue-900/70 mt-1">
+                    {invoice.transactionType === "CreditNote"
+                      ? "This credit note reduced Accounts Payable and reversed inventory/expense + VAT."
+                      : "This debit note increased Accounts Payable with inventory/expense + VAT."}
+                  </p>
+                </div>
+              )}
+
+              {isBill && linkedNotes.length > 0 && (
+                <div className="mt-6 rounded-xl border border-slate-100 overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Linked Debit / Credit Notes ({linkedNotes.length})
+                  </div>
+                  {linkedNotes.map((n: any) => (
+                    <button
+                      key={n.id}
+                      onClick={() => setLocation(`/supplier-invoices/${n.id}`)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 border-t border-slate-50 hover:bg-slate-50 text-left"
+                    >
+                      <span className="text-sm font-bold text-slate-700">
+                        {n.invoiceNumber}{" "}
+                        <span className={cn(
+                          "ml-1 text-[10px] px-1.5 py-0.5 rounded border",
+                          n.transactionType === "CreditNote"
+                            ? "bg-cyan-50 text-cyan-700 border-cyan-100"
+                            : "bg-purple-50 text-purple-700 border-purple-100"
+                        )}>
+                          {n.transactionType === "CreditNote" ? "CREDIT" : "DEBIT"}
+                        </span>
+                      </span>
+                      <span className="text-sm font-mono text-slate-800">
+                        {formatCurrency(Number(n.totalAmount), n.currency)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -262,6 +354,14 @@ export default function SupplierInvoiceDetailsPage() {
                     {formatCurrency(balanceDue, invoice.currency)}
                   </span>
                 </div>
+                {isBill && (
+                  <div className="flex justify-between items-center text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    <span className="font-medium">Remaining adjustable (net of notes):</span>
+                    <span className="font-bold">
+                      {formatCurrency(remainingAdjustable, invoice.currency)}
+                    </span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

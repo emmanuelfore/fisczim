@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { assertEnv, ENV } from "./lib/env";
 import { supabase } from "./lib/supabase";
+import { auth as offlineCapableAuth } from "./lib/auth";
 import { apiJson } from "./lib/api";
 import { PremiumColors } from "./ui/PremiumColors";
 import { LoginScreen } from "./screens/LoginScreen";
@@ -364,17 +365,40 @@ export function AppRoot() {
         const sessionError = sessionResult.error;
         
         // DETERMINING AUTH STATUS:
-        // We consider the user "authed" if they have a session OR if they have a session that failed to refresh
-        // but hasn't been explicitly revoked (e.g. they are offline).
+        // Authed if Supabase session exists OR a cached offline login exists
+        // (custom auth vault / AsyncStorage auth_user). Offline terminals must
+        // boot straight into POS without a network round-trip.
         let authed = !!session?.access_token;
-        
+
+        let offlineCachedUser: any = null;
+        if (!authed) {
+          try {
+            offlineCachedUser = offlineCapableAuth.getUser();
+          } catch {}
+          if (!offlineCachedUser) {
+            try {
+              const raw = await AsyncStorage.getItem('auth_user');
+              if (raw) offlineCachedUser = JSON.parse(raw);
+            } catch {}
+          }
+          if (offlineCachedUser?.email) {
+            authed = true;
+            setUserName(
+              offlineCachedUser.name ||
+              offlineCachedUser.email?.split('@')[0] ||
+              'Cashier'
+            );
+            if (offlineCachedUser.id) setUserId(String(offlineCachedUser.id));
+          }
+        }
+
         // If we are offline and have an error/no session but we HAVE evidence of a previous session,
         // we should try to look at what's actually in storage directly as a last resort.
         if (!authed && isOnline === false) {
           // This is a "Basement" scenario. We check if there's *any* token string in storage.
-          // Since we use the SecureStorageAdapter, we can't easily peek, but Supabase usually 
+          // Since we use the SecureStorageAdapter, we can't easily peek, but Supabase usually
           // returns the expired session in getSession() even if it fails to refresh.
-          if (session) authed = true; 
+          if (session) authed = true;
         }
 
         // Handle explicitly revoked sessions (Only happens when online)
@@ -497,7 +521,8 @@ export function AppRoot() {
   const handleLogout = async () => {
     setShowDrawer(false);
     explicitLogoutRef.current = true;
-    await supabase.auth.signOut();
+    await supabase.auth.signOut().catch(() => {});
+    await offlineCapableAuth.logout().catch(() => {});
     await setSelectedCompanyId(null);
     setCompanyId(null);
     setStage("login");

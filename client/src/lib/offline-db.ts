@@ -35,21 +35,88 @@ interface OfflineHold {
 }
 
 let dbInstance: IDBPDatabase | null = null;
+let dbOpenPromise: Promise<IDBPDatabase> | null = null;
 let isDbBroken = false;
+let storageHealth: 'unknown' | 'healthy' | 'repaired' | 'broken' = 'unknown';
+let persistRequested = false;
+const healthListeners = new Set<(health: typeof storageHealth) => void>();
+
+function setHealth(h: typeof storageHealth) {
+    storageHealth = h;
+    if (h === 'broken') isDbBroken = true;
+    if (h === 'healthy' || h === 'repaired') isDbBroken = false;
+    for (const cb of healthListeners) {
+        try { cb(h); } catch {}
+    }
+}
+
+export function onStorageHealthChange(cb: (health: typeof storageHealth) => void) {
+    healthListeners.add(cb);
+    return () => { healthListeners.delete(cb); };
+}
+
+export function getStorageHealth() {
+    return storageHealth;
+}
+
+/** Flush + close IndexedDB before Electron quits — prevents LevelDB corruption. */
+export function closeDb(): void {
+    try { dbInstance?.close(); } catch {}
+    dbInstance = null;
+    dbOpenPromise = null;
+}
+
+try {
+    const api: any = typeof window !== 'undefined' ? (window as any).electronAPI : null;
+    if (api?.onAppClosing) {
+        api.onAppClosing(() => closeDb());
+    }
+} catch {}
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => closeDb());
+}
 
 /**
  * Returns true if IndexedDB failed to initialize (e.g. "Internal error opening backing store").
- * This allows the UI to show a "Reset Storage" button in Electron.
+ * Kept synchronous for existing callers — prefer `await checkStorageHealth()` on boot
+ * because this flag is only set AFTER a failed open attempt.
  */
 export function isStorageBroken() {
     return isDbBroken;
 }
 
-export async function getDb(): Promise<IDBPDatabase> {
-    if (dbInstance) return dbInstance;
-
+/** Ask the browser/Electron not to evict our origin storage. Best-effort. */
+export async function ensurePersistentStorage(): Promise<boolean> {
+    if (persistRequested) return true;
+    persistRequested = true;
     try {
-        dbInstance = await openDB(DB_NAME, DB_VERSION, {
+        const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+        if (nav?.storage?.persist) {
+            await nav.storage.persist();
+            return true;
+        }
+    } catch {}
+    return false;
+}
+
+function deleteIdbDatabase(): Promise<void> {
+    return new Promise((resolve) => {
+        try {
+            if (typeof indexedDB === 'undefined') return resolve();
+            const req = indexedDB.deleteDatabase(DB_NAME);
+            req.onsuccess = () => resolve();
+            req.onerror = () => resolve();
+            req.onblocked = () => resolve();
+            // Safety: never hang boot longer than 3s on a wedged delete
+            setTimeout(() => resolve(), 3000);
+        } catch {
+            resolve();
+        }
+    });
+}
+
+function openDbOnce(): Promise<IDBPDatabase> {
+    return openDB(DB_NAME, DB_VERSION, {
         upgrade(db, oldVersion, newVersion) {
             console.log(`[DB] Upgrading from ${oldVersion} to ${newVersion}`);
 
@@ -109,49 +176,217 @@ export async function getDb(): Promise<IDBPDatabase> {
         },
         blocking() {
             console.warn('[DB] New version available, closing this connection to allow upgrade.');
-            dbInstance?.close();
+            try { dbInstance?.close(); } catch {}
             dbInstance = null;
-        }
+            dbOpenPromise = null;
+        },
+        terminated() {
+            console.warn('[DB] Connection terminated — will reopen on next access.');
+            dbInstance = null;
+            dbOpenPromise = null;
+        },
     });
+}
 
-    return dbInstance;
-    } catch (err: any) {
-        console.error('[DB] Critical IndexedDB error:', err);
-        isDbBroken = true;
-        
-        // Return a mock object to prevent the entire app from crashing.
-        // Callers will get 'undefined' for reads and 'nothing' for writes.
-        return {
-            get: async () => undefined,
-            put: async () => undefined,
-            add: async () => undefined,
-            delete: async () => undefined,
-            clear: async () => undefined,
-            getAll: async () => [],
-            getAllFromIndex: async () => [],
-            count: async () => 0,
-            transaction: () => ({
-                objectStore: () => ({
+function mockDb(): IDBPDatabase {
+    // Returned only when storage is truly unusable (private mode / quota / wedged LevelDB).
+    // Login-critical reads fall back to localStorage / Electron vault below, so auth still works.
+    return {
+        get: async () => undefined,
+        put: async () => undefined,
+        add: async () => undefined,
+        delete: async () => undefined,
+        clear: async () => undefined,
+        getAll: async () => [],
+        getAllFromIndex: async () => [],
+        getAllKeys: async () => [],
+        count: async () => 0,
+        transaction: () => ({
+            objectStore: () => ({
+                get: async () => undefined,
+                put: async () => undefined,
+                add: async () => undefined,
+                delete: async () => undefined,
+                getAll: async () => [],
+                index: () => ({
                     get: async () => undefined,
-                    put: async () => undefined,
-                    add: async () => undefined,
-                    delete: async () => undefined,
-                    index: () => ({
-                        get: async () => undefined,
-                        getAll: async () => [],
-                    }),
+                    getAll: async () => [],
                 }),
-                done: Promise.resolve(),
-                abort: () => {},
             }),
-            close: () => {},
-            objectStoreNames: { 
-                contains: () => true,
-                item: () => null,
-                length: 0
-            },
-        } as unknown as IDBPDatabase;
+            done: Promise.resolve(),
+            abort: () => {},
+        }),
+        close: () => {},
+        objectStoreNames: {
+            contains: () => true,
+            item: () => null,
+            length: 0
+        },
+    } as unknown as IDBPDatabase;
+}
+
+export async function getDb(): Promise<IDBPDatabase> {
+    if (dbInstance) return dbInstance;
+    if (dbOpenPromise) return dbOpenPromise;
+
+    void ensurePersistentStorage();
+
+    dbOpenPromise = (async () => {
+        // Attempt 1: normal open
+        try {
+            dbInstance = await openDbOnce();
+            setHealth(storageHealth === 'unknown' ? 'healthy' : storageHealth);
+            return dbInstance;
+        } catch (err: any) {
+            console.error('[DB] IndexedDB open failed (attempt 1):', err?.message || err);
+        }
+
+        // Attempt 2: self-heal — delete the (possibly half-upgraded / corrupt LevelDB) and reopen.
+        // This is what makes the "corrupted" banner effectively never appear: a wedged
+        // backing store is wiped and recreated silently. Login-critical data survives
+        // via the localStorage mirror + Electron native vault (see below).
+        try {
+            try { dbInstance?.close(); } catch {}
+            dbInstance = null;
+            await deleteIdbDatabase();
+            dbInstance = await openDbOnce();
+            console.warn('[DB] Storage self-healed via delete+recreate.');
+            setHealth('repaired');
+            return dbInstance;
+        } catch (err: any) {
+            console.error('[DB] Critical IndexedDB error (unrecoverable):', err?.message || err);
+            setHealth('broken');
+            return mockDb();
+        }
+    })();
+
+    try {
+        return await dbOpenPromise;
+    } catch {
+        setHealth('broken');
+        return mockDb();
     }
+}
+
+/** Async health probe: open + read/write round-trip. Repairs silently when possible. */
+export async function checkStorageHealth(): Promise<boolean> {
+    try {
+        const db = await getDb();
+        if (isDbBroken) return false;
+        const probeKey = '__health_probe';
+        await db.put('metadata', Date.now(), probeKey);
+        await db.get('metadata', probeKey);
+        await db.delete('metadata', probeKey).catch(() => {});
+        setHealth(storageHealth === 'repaired' ? 'repaired' : 'healthy');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Manual repair: close, delete, reopen, re-probe. Returns true when usable. */
+export async function repairStorage(): Promise<boolean> {
+    try { dbInstance?.close(); } catch {}
+    dbInstance = null;
+    dbOpenPromise = null;
+    setHealth('unknown');
+    await deleteIdbDatabase();
+    const ok = await checkStorageHealth();
+    if (!ok) setHealth('broken');
+    return ok;
+}
+
+// ─── localStorage mirror (login-critical fallback) ───────────────────────────
+// IndexedDB can be wedged while localStorage still works (and vice versa).
+// Offline login MUST survive either one failing, on Electron + Android WebView
+// + private-mode browsers. So credentials + cached user are mirrored here.
+const LS_PREFIX = 'pos-offline-mirror:';
+
+function lsGet<T>(key: string): T | undefined {
+    try {
+        if (typeof localStorage === 'undefined') return undefined;
+        const raw = localStorage.getItem(LS_PREFIX + key);
+        if (!raw) return undefined;
+        return JSON.parse(raw) as T;
+    } catch {
+        return undefined;
+    }
+}
+
+function lsSet(key: string, value: any): void {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.setItem(LS_PREFIX + key, JSON.stringify(value));
+    } catch {
+        // Quota / private mode — ignore, IDB is primary
+    }
+}
+
+function lsDel(key: string): void {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.removeItem(LS_PREFIX + key);
+    } catch {}
+}
+
+function lsList(prefix: string): any[] {
+    try {
+        if (typeof localStorage === 'undefined') return [];
+        const out: any[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(LS_PREFIX + prefix)) {
+                const v = lsGet<any>(k.slice(LS_PREFIX.length));
+                if (v !== undefined) out.push(v);
+            }
+        }
+        return out;
+    } catch {
+        return [];
+    }
+}
+
+// ─── Electron native vault fallback ──────────────────────────────────────────
+// Main-process encrypted file (safeStorage) survives even a full
+// `clear-storage` / IndexedDB wipe. Renderer calls are fire-and-forget safe.
+async function vaultSaveCredential(record: any): Promise<void> {
+    try {
+        const api: any = (window as any)?.electronAPI;
+        if (api?.saveOfflineCredential) await api.saveOfflineCredential(record);
+    } catch {}
+}
+
+async function vaultVerify(email: string, password: string): Promise<any | null> {
+    try {
+        const api: any = (window as any)?.electronAPI;
+        if (api?.verifyOfflineCredential) {
+            const user = await api.verifyOfflineCredential(email, password);
+            return user || null;
+        }
+    } catch {}
+    return null;
+}
+
+async function vaultVerifyPin(email: string, pin: string): Promise<any | null> {
+    try {
+        const api: any = (window as any)?.electronAPI;
+        if (api?.verifyOfflinePin) {
+            const user = await api.verifyOfflinePin(email, pin);
+            return user || null;
+        }
+    } catch {}
+    return null;
+}
+
+async function vaultUsers(): Promise<any[]> {
+    try {
+        const api: any = (window as any)?.electronAPI;
+        if (api?.getOfflineUsers) {
+            const users = await api.getOfflineUsers();
+            if (Array.isArray(users)) return users;
+        }
+    } catch {}
+    return [];
 }
 
 // ─── Metadata ───────────────────────────────────────────────────────────────
@@ -169,18 +404,28 @@ export async function getLastCacheTime(companyId: number): Promise<number | unde
 // ─── User Cache ─────────────────────────────────────────────────────────────
 
 export async function cacheUser(user: any): Promise<void> {
-    const db = await getDb();
-    await db.put('user_cache', user, 'current_user');
+    try {
+        const db = await getDb();
+        await db.put('user_cache', user, 'current_user');
+    } catch {}
+    lsSet('user_cache:current_user', user);
 }
 
 export async function getCachedUser(): Promise<any | undefined> {
-    const db = await getDb();
-    return db.get('user_cache', 'current_user');
+    try {
+        const db = await getDb();
+        const cached = await db.get('user_cache', 'current_user');
+        if (cached) return cached;
+    } catch {}
+    return lsGet<any>('user_cache:current_user');
 }
 
 export async function clearCachedUser(): Promise<void> {
-    const db = await getDb();
-    await db.delete('user_cache', 'current_user');
+    try {
+        const db = await getDb();
+        await db.delete('user_cache', 'current_user');
+    } catch {}
+    lsDel('user_cache:current_user');
     // Note: We intentionally do NOT clear 'offline_credentials' or 'companies_list' here.
     // This allows cashiers to log back into the POS terminal even if
     // the internet drops after they've explicitly logged out, and ensures
@@ -192,73 +437,147 @@ export async function clearCachedUser(): Promise<void> {
 // Simple hashing for local offline verification. NOT meant for production backend storage,
 // but sufficient for preventing plain-text storage of local caching.
 async function hashPassword(password: string, salt: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + salt);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    // crypto.subtle requires a secure context — missing on http LAN, file://, old WebViews.
+    // Fall back to a deterministic salted iterative hash so offline login still works there.
+    try {
+        const subtle: SubtleCrypto | undefined = (globalThis as any)?.crypto?.subtle;
+        if (subtle) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password + salt);
+            const hashBuffer = await subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+    } catch {}
+    let h1 = 0x811c9dc5;
+    let h2 = 0x01000193;
+    const str = `${salt}::${password}::${salt.length}`;
+    for (let round = 0; round < 8; round++) {
+        for (let i = 0; i < str.length; i++) {
+            const c = str.charCodeAt(i) + round;
+            h1 = Math.imul(h1 ^ c, 16777619);
+            h2 = Math.imul(h2 ^ (c + (h1 & 0xff)), 16777619);
+        }
+    }
+    return `fb-${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function newSalt(): string {
+    try {
+        const c: any = (globalThis as any)?.crypto;
+        if (c?.randomUUID) return c.randomUUID();
+        if (c?.getRandomValues) {
+            const b = new Uint8Array(16);
+            c.getRandomValues(b);
+            return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
+        }
+    } catch {}
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+async function readCredentialRecord(email: string): Promise<any | undefined> {
+    const key = email.toLowerCase();
+    try {
+        const db = await getDb();
+        const rec = await db.get('offline_credentials', key);
+        if (rec) return rec;
+    } catch {}
+    // Fallback: localStorage mirror survives IndexedDB wipes/corruption
+    return lsGet<any>(`offline_cred:${key}`);
 }
 
 export async function saveOfflineCredentials(email: string, password: string, user: any): Promise<void> {
-    const db = await getDb();
-    // Fallback for crypto.randomUUID() which is not available in older WebViews (Android < 7 and some Android 7)
-    const salt = (typeof crypto.randomUUID === 'function') 
-        ? crypto.randomUUID() 
-        : Math.random().toString(36).substring(2) + Date.now().toString(36);
-    
+    const key = email.toLowerCase();
+    const salt = newSalt();
     const hash = await hashPassword(password, salt);
     let pinHash = undefined;
     let pinSalt = undefined;
 
-    // If the user has a PIN in their profile, securely hash it as well
-    if (user?.pin) {
-        pinSalt = (typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
-        pinHash = await hashPassword(user.pin, pinSalt);
+    // Cache PIN from any known shape so PIN login works offline on terminals
+    const pinValue: any = user?.pin ?? user?.cashierPin ?? user?.offlinePin ?? user?.user_metadata?.pin;
+    if (pinValue !== undefined && pinValue !== null && String(pinValue).length >= 4) {
+        pinSalt = newSalt();
+        pinHash = await hashPassword(String(pinValue), pinSalt);
     }
-    
-    await db.put('offline_credentials', {
-        email: email.toLowerCase(),
+
+    const record = {
+        email: key,
         hash,
         salt,
         pinHash,
         pinSalt,
         user,
         lastOnlineLogin: new Date().toISOString()
-    });
+    };
+
+    // Preserve existing PIN hash when the fresh user object has no PIN (e.g. /api/user omits it)
+    try {
+        const prev = await readCredentialRecord(key);
+        if ((!pinHash || !pinSalt) && prev?.pinHash && prev?.pinSalt) {
+            (record as any).pinHash = prev.pinHash;
+            (record as any).pinSalt = prev.pinSalt;
+        }
+    } catch {}
+
+    try {
+        const db = await getDb();
+        await db.put('offline_credentials', record);
+    } catch {}
+    lsSet(`offline_cred:${key}`, record);
+    await vaultSaveCredential({ ...record }).catch(() => {});
 }
 
 export async function verifyOfflineCredentials(email: string, password: string): Promise<any | null> {
-    const db = await getDb();
-    const record = await db.get('offline_credentials', email.toLowerCase());
-    
-    if (!record) return null;
-    
-    const computedHash = await hashPassword(password, record.salt);
-    if (computedHash === record.hash) {
-        return record.user;
+    const key = email.toLowerCase();
+    const record = await readCredentialRecord(key);
+    if (record?.hash && record?.salt) {
+        try {
+            const computedHash = await hashPassword(password, record.salt);
+            if (computedHash === record.hash) return record.user;
+        } catch {}
     }
-    
+    // Last resort: Electron native encrypted vault (survives clear-storage)
+    try {
+        const vaultUser = await vaultVerify(email, password);
+        if (vaultUser) return vaultUser;
+    } catch {}
     return null;
 }
 
 export async function verifyOfflinePinCredentials(email: string, pin: string): Promise<any | null> {
-    const db = await getDb();
-    const record = await db.get('offline_credentials', email.toLowerCase());
-    
-    if (!record || !record.pinHash || !record.pinSalt) return null;
-    
-    const computedHash = await hashPassword(pin, record.pinSalt);
-    if (computedHash === record.pinHash) {
-        return record.user;
+    const record = await readCredentialRecord(email.toLowerCase());
+    if (record?.pinHash && record?.pinSalt) {
+        try {
+            const computedHash = await hashPassword(String(pin), record.pinSalt);
+            if (computedHash === record.pinHash) return record.user;
+        } catch {}
     }
-    
+    try {
+        const vaultUser = await vaultVerifyPin(email, String(pin));
+        if (vaultUser) return vaultUser;
+    } catch {}
     return null;
 }
 
 export async function getOfflineUsers(): Promise<any[]> {
-    const db = await getDb();
-    const allRecords = await db.getAll('offline_credentials');
-    return allRecords.map(r => r.user);
+    const seen = new Map<string, any>();
+    try {
+        const db = await getDb();
+        const allRecords = await db.getAll('offline_credentials');
+        for (const r of allRecords || []) {
+            if (r?.user?.email) seen.set(String(r.user.email).toLowerCase(), r.user);
+            else if (r?.email && r?.user) seen.set(String(r.email).toLowerCase(), r.user);
+        }
+    } catch {}
+    for (const r of lsList('offline_cred:')) {
+        const email = String(r?.user?.email || r?.email || '').toLowerCase();
+        if (email && !seen.has(email) && r?.user) seen.set(email, r.user);
+    }
+    for (const u of await vaultUsers()) {
+        const email = String((u as any)?.email || '').toLowerCase();
+        if (email && !seen.has(email)) seen.set(email, u);
+    }
+    return Array.from(seen.values());
 }
 
 // ─── Companies List ──────────────────────────────────────────────────────────

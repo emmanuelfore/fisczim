@@ -41,4 +41,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Storage
   clearStorage: () => ipcRenderer.invoke('clear-storage'),
+  // Startup handshake — keeps the native splash visible until React is ready.
+  notifyAppReady: () => ipcRenderer.invoke('app-ready'),
+  notifyRendererAlive: () => ipcRenderer.invoke('renderer-alive'),
+  // Native splash window channels (splash is self-contained + branded).
+  onSplashStatus: (callback) => ipcRenderer.on('splash-status', (_, s) => callback(s)),
+  splashRetry: () => ipcRenderer.invoke('splash-retry'),
+  splashContinue: () => ipcRenderer.invoke('splash-continue'),
+  // Offline credential vault (survives IndexedDB corruption / clear-storage)
+  saveOfflineCredential: (record) => ipcRenderer.invoke('offline-credentials-save', record),
+  verifyOfflineCredential: (email, password) => ipcRenderer.invoke('offline-credentials-verify', email, password),
+  verifyOfflinePin: (email, pin) => ipcRenderer.invoke('offline-credentials-verify-pin', email, pin),
+  getOfflineUsers: () => ipcRenderer.invoke('offline-credentials-users'),
+  onAppClosing: (callback) => ipcRenderer.on('app-closing', () => callback()),
 });

@@ -20,6 +20,16 @@ interface ElectronAPI {
   verifyManagerPin: (pin: string, companyId: number) => Promise<boolean>;
   cacheManagerPins: (companyId: number, hashes: Array<{ id: string; name: string; pinHash: string }>) => Promise<void>;
   clearStorage: () => Promise<boolean>;
+  notifyAppReady?: () => Promise<void>;
+  notifyRendererAlive?: () => Promise<void>;
+  onSplashStatus?: (callback: (s: { pct?: number; msg?: string }) => void) => void;
+  splashRetry?: () => Promise<void>;
+  splashContinue?: () => Promise<void>;
+  saveOfflineCredential?: (record: { email: string; hash: string; salt: string; pinHash?: string; pinSalt?: string; user: any; lastOnlineLogin: string }) => Promise<boolean>;
+  verifyOfflineCredential?: (email: string, password: string) => Promise<any | null>;
+  verifyOfflinePin?: (email: string, pin: string) => Promise<any | null>;
+  getOfflineUsers?: () => Promise<any[]>;
+  onAppClosing?: (callback: () => void) => void;
 }
 
 declare global {

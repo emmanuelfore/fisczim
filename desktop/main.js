@@ -22,6 +22,81 @@ const { SerialPort } = require('serialport');
 const PROD_URL = 'https://fiscalstack.co.zw/pos-login';
 const DEV_URL = 'http://localhost:5001/pos-login';
 
+// Prevent two writers on the same IndexedDB LevelDB (top corruption cause)
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  log.warn('[Main] Second instance detected — quitting.');
+  app.quit();
+}
+
+// ─── Offline credential vault ───────────────────────────────────────────────
+// Encrypted file in userData that survives IndexedDB corruption AND
+// `clear-storage`. This is what lets Electron terminals log in offline even
+// when the renderer IndexedDB backing store is wedged.
+const OFFLINE_CREDS_FILE = 'offline-creds.enc';
+
+function offlineCredsPath() {
+  return path.join(app.getPath('userData'), OFFLINE_CREDS_FILE);
+}
+
+function loadOfflineCreds() {
+  try {
+    const p = offlineCredsPath();
+    if (!fs.existsSync(p)) return {};
+    const buf = fs.readFileSync(p);
+    let json;
+    if (safeStorage.isEncryptionAvailable()) {
+      json = safeStorage.decryptString(buf);
+    } else {
+      json = Buffer.from(buf.toString('utf8'), 'base64').toString('utf8');
+    }
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    log.error('[offline-creds] Load failed:', err.message);
+    return {};
+  }
+}
+
+function saveOfflineCreds(map) {
+  try {
+    const json = JSON.stringify(map);
+    if (safeStorage.isEncryptionAvailable()) {
+      fs.writeFileSync(offlineCredsPath(), safeStorage.encryptString(json));
+    } else {
+      log.warn('[offline-creds] Encryption unavailable — storing obfuscated (still hashed).');
+      fs.writeFileSync(offlineCredsPath(), Buffer.from(json, 'utf8').toString('base64'), 'utf8');
+    }
+  } catch (err) {
+    log.error('[offline-creds] Save failed:', err.message);
+  }
+}
+
+function sha256Hex(input) {
+  return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
+}
+
+// Must mirror the non-secure-context fallback in client/src/lib/offline-db.ts
+function fallbackHash(password, salt) {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  const str = `${salt}::${password}::${salt.length}`;
+  for (let round = 0; round < 8; round++) {
+    for (let i = 0; i < str.length; i++) {
+      const c = str.charCodeAt(i) + round;
+      h1 = Math.imul(h1 ^ c, 16777619);
+      h2 = Math.imul(h2 ^ (c + (h1 & 0xff)), 16777619);
+    }
+  }
+  return `fb-${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function hashMatches(value, salt, stored) {
+  if (!salt || !stored) return false;
+  if (stored.startsWith('fb-')) return fallbackHash(String(value), salt) === stored;
+  return sha256Hex(String(value) + salt) === stored;
+}
+
 // Manager PIN cache helpers (Task 8.1)
 const PIN_CACHE_KEY = 'manager-pin-cache';
 
@@ -564,7 +639,66 @@ Write-Output $result
     return false;
   });
 
+  // Offline credential vault — renderer fallback when IndexedDB is wedged
+  ipcMain.handle('offline-credentials-save', async (_event, record) => {
+    try {
+      if (!record || !record.email || !record.hash || !record.salt) return false;
+      const map = loadOfflineCreds();
+      const key = String(record.email).toLowerCase();
+      const prev = map[key];
+      // Preserve PIN hash across logins where the fresh user object omits the PIN
+      if ((!record.pinHash || !record.pinSalt) && prev?.pinHash && prev?.pinSalt) {
+        record.pinHash = prev.pinHash;
+        record.pinSalt = prev.pinSalt;
+      }
+      map[key] = { ...record, email: key, savedAt: new Date().toISOString() };
+      saveOfflineCreds(map);
+      return true;
+    } catch (err) {
+      log.error('[offline-creds] Save IPC failed:', err.message);
+      return false;
+    }
+  });
+
+  ipcMain.handle('offline-credentials-verify', async (_event, email, password) => {
+    try {
+      const map = loadOfflineCreds();
+      const rec = map[String(email || '').toLowerCase()];
+      if (!rec) return null;
+      if (hashMatches(password, rec.salt, rec.hash)) return rec.user || null;
+      return null;
+    } catch (err) {
+      log.error('[offline-creds] Verify IPC failed:', err.message);
+      return null;
+    }
+  });
+
+  ipcMain.handle('offline-credentials-verify-pin', async (_event, email, pin) => {
+    try {
+      const map = loadOfflineCreds();
+      const rec = map[String(email || '').toLowerCase()];
+      if (!rec?.pinHash || !rec?.pinSalt) return null;
+      if (hashMatches(pin, rec.pinSalt, rec.pinHash)) return rec.user || null;
+      return null;
+    } catch (err) {
+      log.error('[offline-creds] Verify-PIN IPC failed:', err.message);
+      return null;
+    }
+  });
+
+  ipcMain.handle('offline-credentials-users', async () => {
+    try {
+      const map = loadOfflineCreds();
+      return Object.values(map).map(r => r.user).filter(Boolean);
+    } catch (err) {
+      log.error('[offline-creds] Users IPC failed:', err.message);
+      return [];
+    }
+  });
+
   // Task: clear-storage — clear all local data (IndexedDB, Cache, etc.) to fix corruption
+  // NOTE: intentionally does NOT delete offline-creds.enc / pin-cache.enc so the
+  // terminal can still log in offline immediately after a repair.
   ipcMain.handle('clear-storage', async () => {
     log.warn('[clear-storage] Clearing all session storage data...');
     const session = mainWindow.webContents.session;
@@ -572,7 +706,7 @@ Write-Output $result
       await session.clearStorageData({
         storages: ['indexeddb', 'cache', 'localstorage', 'websql', 'serviceworkers']
       });
-      log.info('[clear-storage] Storage cleared successfully');
+      log.info('[clear-storage] Storage cleared successfully (credential vault preserved)');
       return true;
     } catch (err) {
       log.error('[clear-storage] Failed to clear storage:', err.message);
@@ -655,12 +789,153 @@ function setupAutoUpdater(mainWindow) {
   }
 }
 
+// ─── Branded splash: never a blank moment ───────────────────────────────────
+// The splash is a small frameless window shown INSTANTLY (before the main
+// window even starts loading a URL). The main window stays hidden
+// (show:false + dark backgroundColor) until the renderer sends "app-ready"
+// — i.e. React has mounted AND the boot sequence finished. Then we fade
+// the splash out (250ms) and reveal the app. No white flash, ever.
+let splashWindow = null;
+let appReadyReceived = false;
+
+function splashHtml() {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;padding:0;background:#0f172a;}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:center;transition:opacity .25s ease;}
+body.fade{opacity:0;}
+.dots span{display:inline-block;width:7px;height:7px;margin:0 3px;border-radius:99px;background:#6366f1;animation:bl 1.2s infinite ease-in-out;}
+.dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+@keyframes bl{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+.status{font-size:13px;color:#cbd5e1;min-height:20px;margin:12px 0 0;padding:0 24px;}
+.bar{width:280px;height:6px;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:12px;}
+.fill{height:100%;width:4%;border-radius:99px;background:linear-gradient(90deg,#6366f1,#22d3ee);transition:width .3s ease;}
+.pct{font-size:11px;color:#64748b;margin-top:6px;font-variant-numeric:tabular-nums;}
+.slow{font-size:11px;color:#94a3b8;margin-top:10px;display:none;padding:0 24px;}
+.err{display:none;margin-top:14px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);border-radius:12px;padding:10px 14px;font-size:12px;color:#fca5a5;max-width:320px;}
+.btns{display:none;margin-top:12px;gap:8px;}
+.btns button{border:0;border-radius:10px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer;}
+.retry{background:#6366f1;color:#fff;}
+.offline{background:rgba(255,255,255,.12);color:#fff;}
+</style></head><body>
+<div class="dots"><span></span><span></span><span></span></div>
+<p class="status" id="st">Preparing your workspace…</p>
+<div class="bar"><div class="fill" id="fl"></div></div>
+<div class="pct" id="pc">4%</div>
+<p class="slow" id="sl">Still preparing… large databases may take longer on first launch.</p>
+<div class="err" id="er"></div>
+<div class="btns" id="bt"><button class="retry" id="rt">Retry</button><button class="offline" id="co">Continue Offline</button></div>
+<script>
+var pct=4,fill=document.getElementById('fl'),pc=document.getElementById('pc'),st=document.getElementById('st');
+var msgs=['Initializing application…','Loading inventory…','Preparing sales engine…','Connecting to FiscalStack…','Checking printer service…','Finalizing startup…'];var mi=0;
+function set(p,m){pct=Math.max(pct,Math.min(100,p));fill.style.width=pct+'%';pc.textContent=Math.round(pct)+'%';if(m)st.textContent=m;}
+var t=setInterval(function(){if(pct<24)pct+=2.5;else if(pct<60)pct+=.9;else if(pct<90)pct+=.35;else{mi=(mi+1)%msgs.length;st.textContent=msgs[mi];return;}fill.style.width=pct+'%';pc.textContent=Math.round(pct)+'%';},120);
+setTimeout(function(){document.getElementById('sl').style.display='block';},8000);
+try{window.electronAPI&&window.electronAPI.onSplashStatus&&window.electronAPI.onSplashStatus(function(s){clearInterval(t);set(s.pct||pct,s.msg);});}catch(e){}
+function showErr(m){clearInterval(t);var e=document.getElementById('er');e.textContent=m;e.style.display='block';document.getElementById('bt').style.display='flex';}
+document.getElementById('rt').onclick=function(){try{window.electronAPI.splashRetry();}catch(e){location.reload();}};
+document.getElementById('co').onclick=function(){try{window.electronAPI.splashContinue();}catch(e){}};
+window.__splashError=showErr;
+window.__splashDone=function(){clearInterval(t);set(100,'Ready');document.body.classList.add('fade');};
+</script></body></html>`)}`;
+}
+
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 420,
+    height: 560,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#0f172a',
+    show: true,
+    center: true,
+    title: 'FieldPOS',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  splashWindow.loadURL(splashHtml());
+  splashWindow.on('closed', () => { splashWindow = null; });
+}
+
+function pushSplash(pct, msg) {
+  try { splashWindow?.webContents.send('splash-status', { pct, msg }); } catch {}
+}
+
+function revealMain(mainWindow) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  // Fade the splash out (250ms), then reveal — never a POP or white gap.
+  try { splashWindow?.webContents.executeJavaScript('window.__splashDone&&window.__splashDone()'); } catch {}
+  setTimeout(() => {
+    try {
+      if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+    } catch {}
+    splashWindow = null;
+    try {
+      mainWindow.maximize();
+      mainWindow.show();
+      mainWindow.focus();
+    } catch {}
+  }, 260);
+}
+
+function registerStartupHandshake(mainWindow, posUrl) {
+  // Re-entrant (macOS activate re-creates windows) — drop stale handlers first.
+  for (const ch of ['renderer-alive', 'app-ready', 'splash-retry', 'splash-continue']) {
+    try { ipcMain.removeHandler(ch); } catch {}
+  }
+  // Renderer mounted at least one frame (React loading in background).
+  ipcMain.handle('renderer-alive', () => {
+    pushSplash(18, 'Loading modules…');
+    return true;
+  });
+  // React boot sequence finished → fade splash, show app.
+  ipcMain.handle('app-ready', () => {
+    if (appReadyReceived) return true;
+    appReadyReceived = true;
+    log.info('[Startup] app-ready received — revealing main window.');
+    revealMain(mainWindow);
+    return true;
+  });
+  ipcMain.handle('splash-retry', async () => {
+    log.info('[Startup] splash retry — reloading main window.');
+    pushSplash(10, 'Retrying…');
+    try { await mainWindow.loadURL(posUrl); } catch {}
+    return true;
+  });
+  ipcMain.handle('splash-continue', () => {
+    log.info('[Startup] splash continue-offline — revealing main window.');
+    appReadyReceived = true;
+    revealMain(mainWindow);
+    return true;
+  });
+  // Safety valve: never hang on the splash forever. After 30s, surface
+  // Retry / Continue Offline instead of looking frozen.
+  setTimeout(() => {
+    if (!appReadyReceived && splashWindow && !splashWindow.isDestroyed()) {
+      log.warn('[Startup] app-ready timeout (30s) — showing recovery options.');
+      splashWindow.webContents
+        .executeJavaScript(`window.__splashError&&window.__splashError('Startup is taking longer than expected. You can retry, or continue offline — essentials work without internet.')`)
+        .catch(() => {});
+    }
+  }, 30000);
+}
+
 function createWindow() {
   // Requirement 3.6: disable the default application menu
   Menu.setApplicationMenu(null);
 
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const config = readConfig();
+
+  // Splash appears immediately — before any URL load.
+  createSplashWindow();
 
   // IndexedDB: no CSP or session partition overrides are set here, so the renderer
   // has full access to IndexedDB for offline credential caching, pending sales, and shift data.
@@ -669,6 +944,7 @@ function createWindow() {
     height: height,
     // Requirement 3.5: apply kiosk mode when enabled in config
     kiosk: config.kioskMode === true,
+    backgroundColor: '#0f172a', // dark paint — never a white flash while loading
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -676,11 +952,8 @@ function createWindow() {
     },
     title: "POS Desktop Terminal",
     icon: path.join(__dirname, 'icon.png'), // Placeholder if icon exists
-    show: false // We will show it and maximize it to prevent flickering
+    show: false // hidden until renderer sends app-ready
   });
-
-  mainWindow.maximize();
-  mainWindow.show();
 
   // Open DevTools with Ctrl+Shift+I (toggle)
   mainWindow.webContents.on('before-input-event', (_event, input) => {
@@ -699,15 +972,40 @@ function createWindow() {
   initBarcodeScanner(mainWindow, config.scannerPort);
 
   const posUrl = resolveStartUrl();
+  appReadyReceived = false;
+  registerStartupHandshake(mainWindow, posUrl);
+
+  // Surface load progress on the splash (never a frozen look).
+  mainWindow.webContents.on('did-start-loading', () => pushSplash(30, 'Checking local database…'));
+  mainWindow.webContents.on('did-finish-load', () => pushSplash(50, 'Loading user settings…'));
+  mainWindow.webContents.on('did-fail-load', (_e, _code, desc) => {
+    log.error(`[Startup] did-fail-load: ${desc}`);
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.webContents
+        .executeJavaScript(`window.__splashError&&window.__splashError('Unable to connect. Offline mode is available — tried ${posUrl} (${String(desc).slice(0, 120)}).')`)
+        .catch(() => {});
+    }
+  });
   mainWindow.loadURL(posUrl).catch(err => {
-    mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
-      <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
-        <h2 style="color: #e53e3e;">POS Application Failed to Load</h2>
-        <p><strong>Attempted to start at:</strong> ${posUrl}</p>
-        <p><strong>Error:</strong> ${err.message}</p>
-        <p>If you are testing the packaged application locally, please create a <code>config.json</code> file in <code>%APPDATA%\\fisczim-pos\\</code> with <code>{"startUrl": "http://localhost:5001/pos-login"}</code>, or ensure your production domain is reachable.</p>
-      </body>
-    </html>`);
+    log.error('[Startup] loadURL failed:', err.message);
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.webContents
+        .executeJavaScript(`window.__splashError&&window.__splashError('POS application failed to load: ${String(err.message).slice(0, 160)}')`)
+        .catch(() => {});
+    }
+    // Last-resort page inside the main window — dark branded, never white.
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0;padding:0;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif;}
+body{display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem;}
+.card{max-width:520px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:2rem;}
+h2{color:#fca5a5;margin-top:0;}code{color:#93c5fd;word-break:break-all;}
+</style></head><body><div class="card">
+<h2>POS Application Failed to Load</h2>
+<p><strong>Attempted to start at:</strong> <code>${posUrl}</code></p>
+<p><strong>Error:</strong> ${err.message}</p>
+<p>If testing locally, create <code>config.json</code> in the app userData folder with <code>{"startUrl": "http://localhost:5001/pos-login"}</code>, or ensure your production domain is reachable. Offline mode is available once the app loads.</p>
+</div></body></html>`)}`).catch(() => {});
   });
 
   // Requirement 3.4: intercept will-navigate and block external URLs (same-origin check).
@@ -757,8 +1055,27 @@ function createWindow() {
   setupAutoUpdater(mainWindow);
 }
 
+app.on('second-instance', () => {
+  const wins = BrowserWindow.getAllWindows();
+  const win = wins[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
 app.on('ready', () => {
   createWindow();
+});
+
+// Let the renderer flush IndexedDB writes before the LevelDB lock is released.
+// Killing mid-write is the #1 cause of "Internal error opening backing store".
+app.on('before-quit', () => {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try { win.webContents.send('app-closing'); } catch {}
+    }
+  } catch {}
 });
 
 app.on('window-all-closed', function () {

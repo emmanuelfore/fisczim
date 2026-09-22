@@ -31,7 +31,24 @@ const SecureStorageAdapter = {
   },
 };
 
-let supabaseInstance: SupabaseClient | null = null;
+// A safe no-op stub so callers never have to null-check supabase.
+// All auth methods resolve with empty/null data so the app falls through
+// to the API-based auth flow gracefully.
+const noopStub = {
+  auth: {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    getUser: async () => ({ data: { user: null }, error: null }),
+    signOut: async () => ({ error: null }),
+    onAuthStateChange: (_event: any, _session: any) => ({ data: { subscription: { unsubscribe: () => {} } } }),
+    updateUser: async () => ({ data: null, error: null }),
+    resetPasswordForEmail: async () => ({ data: null, error: null }),
+  },
+  functions: {
+    invoke: async () => ({ data: null, error: null }),
+  },
+} as unknown as SupabaseClient;
+
+let supabaseInstance: SupabaseClient = noopStub;
 
 try {
   if (ENV.supabaseUrl && ENV.supabaseAnonKey) {
@@ -45,12 +62,10 @@ try {
       }
     });
   } else {
-    console.warn("[Supabase] Missing environment variables for initialization.");
+    console.warn("[Supabase] Missing environment variables for initialization. Using no-op stub.");
   }
 } catch (e) {
   console.error("[Supabase] Fatal initialization error:", e);
 }
 
-export const supabase = supabaseInstance as SupabaseClient;
-
-
+export const supabase = supabaseInstance;

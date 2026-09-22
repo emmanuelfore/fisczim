@@ -259,7 +259,7 @@ export function AppRoot() {
 
       const [metadataResult, freshCompanies] = await Promise.all([
         Promise.race([
-          supabase.auth.getUser(),
+          supabase ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
           new Promise<{ data: { user: null } }>((resolve) => 
             setTimeout(() => resolve({ data: { user: null } }), metadataTimeout)
           )
@@ -339,10 +339,6 @@ export function AppRoot() {
         setBootError(null);
         assertEnv();
 
-        if (!supabase) {
-          throw new Error("Supabase client not initialized.");
-        }
-
         // Check network state before starting
         const networkState = await NetInfo.fetch();
         setIsOnline(networkState.isConnected);
@@ -350,12 +346,12 @@ export function AppRoot() {
         // Get cached company ID and check session in parallel
         const [cachedCompanyId, sessionResult] = await Promise.all([
           getSelectedCompanyId().catch(() => null),
-          Promise.race([
+          supabase ? Promise.race([
             supabase.auth.getSession(),
             new Promise<{ data: { session: null }, error: any }>((resolve) => 
               setTimeout(() => resolve({ data: { session: null }, error: null }), 8000)
             )
-          ]).catch(e => ({ data: { session: null }, error: e }))
+          ]).catch(e => ({ data: { session: null }, error: e })) : Promise.resolve({ data: { session: null }, error: null })
         ]);
 
         if (cancelled) return;
@@ -407,7 +403,7 @@ export function AppRoot() {
 
         if (isRevoked) {
           console.warn("[Auth] Session explicitly revoked by server, resetting...");
-          await supabase.auth.signOut().catch(() => {});
+          await supabase?.auth.signOut().catch(() => {});
           setStage("login");
           isBooting = false;
           return;
@@ -475,7 +471,9 @@ export function AppRoot() {
 
     initialize();
 
-    if (!supabase) return;
+    if (!supabase) {
+      return () => { cancelled = true; };
+    }
 
     const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (cancelled || isBooting) return;
@@ -521,7 +519,7 @@ export function AppRoot() {
   const handleLogout = async () => {
     setShowDrawer(false);
     explicitLogoutRef.current = true;
-    await supabase.auth.signOut().catch(() => {});
+    await supabase?.auth.signOut().catch(() => {});
     await offlineCapableAuth.logout().catch(() => {});
     await setSelectedCompanyId(null);
     setCompanyId(null);

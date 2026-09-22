@@ -17,12 +17,12 @@ let cachedToken: string | null = null;
 let sessionInitialized = false;
 
 // 1. Kick off an initial token fetch
-auth.getAccessToken().then((token) => {
-  cachedToken = token;
+try {
+  cachedToken = auth.getAccessToken();
   sessionInitialized = true;
-}).catch(() => {
+} catch (e) {
   sessionInitialized = true;
-});
+}
 
 // 2. Keep the cache perfectly synced with auth events (login, logout, token refresh)
 auth.onAuthStateChange((user) => {

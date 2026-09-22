@@ -7,8 +7,7 @@ export const ENV = {
 
 export function assertEnv() {
   const missing: string[] = [];
-  if (!ENV.supabaseUrl || !ENV.supabaseUrl.startsWith("http")) missing.push("EXPO_PUBLIC_SUPABASE_URL");
-  if (!ENV.supabaseAnonKey) missing.push("EXPO_PUBLIC_SUPABASE_ANON_KEY");
+  // Only the API base URL is required. Supabase is optional (legacy / not used in all builds).
   if (!ENV.apiBaseUrl || !ENV.apiBaseUrl.startsWith("http")) missing.push("EXPO_PUBLIC_API_BASE_URL");
   
   if (missing.length) {

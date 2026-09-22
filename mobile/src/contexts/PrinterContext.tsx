@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
-import { TicketData, printReceipt as printStandard, printToBluetooth } from "../lib/printing";
+import { TicketData, printReceipt as printStandard, printToBluetooth, warmUpSunmiPrinter } from "../lib/printing";
 import { getPrintQueue, addPrintToQueue, removePrintFromQueue, QueuedPrint } from "../lib/printQueue";
 import { Alert, Platform } from "react-native";
 
@@ -67,7 +67,7 @@ const SUNMI_DEFAULT_CONFIG: PrinterConfig = {
   isInternal: true,
   isSunmi: true,
   paperWidth: 58,
-  printerWidth: 48,
+  printerWidth: 32,
   sunmiDefaultsApplied: true,
 };
 
@@ -111,7 +111,7 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
+    supabase?.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
   }, []);
 
   const detectZ100Device = useCallback(async () => {
@@ -166,7 +166,7 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
       isInternal: true,
       isSunmi: true,
       paperWidth: 58,
-      printerWidth: 48,
+      printerWidth: 32,
       sunmiDefaultsApplied: true,
     };
   }, []);
@@ -193,6 +193,12 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
 
     console.log(`[PrinterContext] Device detection: Z100=${isZ100Device} Sunmi=${isSunmiDeviceFound} IPos=${isIPosDeviceFound}`);
 
+    // Kick off Sunmi warm-up immediately in the background — by the time the user
+    // taps Print the service will already be initialised and printing will be instant.
+    if (isSunmiDeviceFound) {
+      warmUpSunmiPrinter().catch(() => {}); // fire-and-forget, errors handled inside
+    }
+
     let nextConfig = isSunmiDeviceFound
       ? SUNMI_DEFAULT_CONFIG
       : isZ100Device
@@ -210,6 +216,10 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
             applyZ100DefaultsOnce({ ...DEFAULT_CONFIG, ...parsed }, isZ100Device),
             isSunmiDeviceFound
           );
+          // Force Sunmi width to 32 even if cached as 48 from old builds
+          if (isSunmiDeviceFound) {
+            nextConfig.printerWidth = 32;
+          }
           // Apply iPOS defaults if not already set and device is detected
           if (isIPosDeviceFound && !nextConfig.iposDefaultsApplied && !nextConfig.isZ100 && !nextConfig.isSunmi) {
             nextConfig = { ...IPOS_DEFAULT_CONFIG, ...nextConfig, isIPos: true, iposDefaultsApplied: true };
@@ -251,7 +261,7 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
         silentPrint: (newConfig.isZ100 || newConfig.isSunmi) ? true : (newConfig.enabled ? newConfig.silentPrint : false),
         isInternal: !!newConfig.isSunmi,
         paperWidth: newConfig.isZ100 || newConfig.isSunmi ? 58 : newConfig.paperWidth,
-        printerWidth: newConfig.isZ100 || newConfig.isSunmi ? 48 : (newConfig.printerWidth || (newConfig.paperWidth === 80 ? 42 : 32)),
+        printerWidth: newConfig.isZ100 ? 48 : newConfig.isSunmi ? 32 : (newConfig.printerWidth || (newConfig.paperWidth === 80 ? 42 : 32)),
         autoCut: newConfig.autoCut !== false,
         feedLines: Number.isFinite(Number(newConfig.feedLines)) ? Math.max(0, Number(newConfig.feedLines)) : 1,
         openDrawerOnPrint: !!newConfig.openDrawerOnPrint,

@@ -42,13 +42,16 @@ export const ZIMRA_ERROR_MAP: Record<string, { title: string, message: string }>
 };
 
 /**
- * Get a human-readable error from a ZIMRA error code
+ * Get a human-readable error from a fiscal gateway error code.
+ * Pass authority ("RSL" for Lesotho/LEKAKU) so users never see the
+ * wrong revenue authority's name. Defaults to ZIMRA for legacy callers.
  */
-export function getZimraErrorMessage(errorCode: string | undefined, fallback?: string) {
-    if (!errorCode) return { title: "ZIMRA Error", message: fallback || "An unknown ZIMRA error occurred." };
+export function getZimraErrorMessage(errorCode: string | undefined, fallback?: string, authority: string = "ZIMRA") {
+    const withAuthority = (text: string) => text.split("ZIMRA").join(authority);
+    if (!errorCode) return { title: withAuthority("ZIMRA Error"), message: withAuthority(fallback || "An unknown ZIMRA error occurred.") };
 
     const mapped = ZIMRA_ERROR_MAP[errorCode];
-    if (mapped) return mapped;
+    if (mapped) return { title: withAuthority(mapped.title), message: withAuthority(mapped.message) };
 
-    return { title: `ZIMRA Error (${errorCode})`, message: fallback || "A specific ZIMRA error occurred." };
+    return { title: withAuthority(`ZIMRA Error (${errorCode})`), message: withAuthority(fallback || "A specific ZIMRA error occurred.") };
 }

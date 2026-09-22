@@ -84,10 +84,12 @@ export function useCreateInvoice(companyId: number) {
 }
 
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
+import { useFiscalAuthority } from "./use-fiscal-authority";
 
 export function useUpdateInvoice() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { authorityName } = useFiscalAuthority();
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<CreateInvoiceRequest> }) => {
@@ -115,7 +117,7 @@ export function useUpdateInvoice() {
       });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, authorityName);
       toast({
         title: zimraErr.title,
         description: err.message || zimraErr.message,
@@ -128,6 +130,7 @@ export function useUpdateInvoice() {
 export function useFiscalizeInvoice() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { authorityName } = useFiscalAuthority();
 
   return useMutation({
     mutationFn: async (id: number) => {
@@ -188,7 +191,7 @@ export function useFiscalizeInvoice() {
         return;
       }
 
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, authorityName);
       toast({
         title: zimraErr.title,
         description: err.message || zimraErr.message,

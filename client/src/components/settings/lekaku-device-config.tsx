@@ -59,7 +59,7 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
       toast({ title: "Taxpayer Verified", description: `Name: ${data.taxPayerName}, TIN: ${data.taxPayerTIN}` });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, "RSL");
       toast({ title: zimraErr.title, description: err.message || zimraErr.message, variant: "destructive" });
     },
   });
@@ -80,7 +80,7 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
       toast({ title: "Device Registered Successfully!", className: "bg-green-100 text-green-900" });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, "RSL");
       toast({ title: zimraErr.title, description: err.message || zimraErr.message, variant: "destructive" });
     },
   });
@@ -121,7 +121,7 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
       toast({ title: "RSL Tax Config Synced", description: `${parts.join(" • ")} (${data.environment || "test"})`, className: "bg-green-100 text-green-900" });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, "RSL");
       toast({ title: "Sync Failed", description: err.message || zimraErr.message, variant: "destructive" });
     },
   });

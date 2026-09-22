@@ -403,10 +403,10 @@ export default function SupplierInvoiceFormPage() {
               <div className="rounded-xl border border-slate-100 overflow-hidden">
                 <div className="grid grid-cols-12 gap-0 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <div className="col-span-4">Product / Expense</div>
-                  <div className="col-span-1 text-right">Qty</div>
+                  <div className="col-span-2 text-right">Qty</div>
                   <div className="col-span-2 text-right">Unit Cost</div>
                   <div className="col-span-2 text-right">Tax</div>
-                  <div className="col-span-2 text-right">Total</div>
+                  <div className="col-span-1 text-right">Total</div>
                   <div className="col-span-1" />
                 </div>
 
@@ -511,7 +511,7 @@ export default function SupplierInvoiceFormPage() {
                           </label>
                         </div>
                       </div>
-                      <div className="col-span-1">
+                      <div className="col-span-2">
                         <QuantityInput
                           type="number" min="0" value={line.quantity}
                           onChange={(e) => {
@@ -583,7 +583,7 @@ export default function SupplierInvoiceFormPage() {
                           </div>
                         )}
                       </div>
-                      <div className="col-span-2 text-right font-mono text-slate-700 py-1.5">
+                      <div className="col-span-1 text-right font-mono text-slate-700 py-1.5">
                         {((Number(line.quantity || 0) * Number(line.unitCost || 0)) + (taxInclusive ? 0 : Number(line.taxAmount || 0))).toFixed(2)}
                       </div>
                       <div className="col-span-1 text-right">

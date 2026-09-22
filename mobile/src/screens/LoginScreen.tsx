@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -13,7 +13,8 @@ import {
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Lock, Mail, ArrowRight, Eye, EyeOff, Moon, Sun } from "lucide-react-native";
+import NetInfo from "@react-native-community/netinfo";
+import { Lock, Mail, ArrowRight, Eye, EyeOff, Moon, Sun, WifiOff } from "lucide-react-native";
 import { auth } from "../lib/auth";
 import { useTheme } from "../ui/PremiumColors";
 import { LinearGradient } from "expo-linear-gradient";
@@ -31,19 +32,45 @@ export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [loginMode, setLoginMode] = useState<"password" | "pin">("password");
+  const [offlineUsers, setOfflineUsers] = useState<any[]>([]);
+  const [offlineNote, setOfflineNote] = useState<string | null>(null);
 
-  const canSubmit = useMemo(() => !!email.trim() && !!password, [email, password]);
+  useEffect(() => {
+    const unsub = NetInfo.addEventListener((s) => setIsOnline(!!s.isConnected));
+    NetInfo.fetch().then((s) => setIsOnline(!!s.isConnected)).catch(() => {});
+    auth.getOfflineUsers().then((users) => {
+      setOfflineUsers(users || []);
+      if (users?.length > 0) setEmail((prev) => prev || users[0].email || "");
+    }).catch(() => {});
+    return () => unsub();
+  }, []);
+
+  const canSubmit = useMemo(
+    () => (loginMode === "pin" ? !!email.trim() && pin.length >= 4 : !!email.trim() && !!password),
+    [email, password, pin, loginMode]
+  );
 
   const submit = async () => {
     if (!canSubmit || busy) return;
     setError(null);
+    setOfflineNote(null);
     setBusy(true);
     try {
-      await auth.login(email.trim(), password);
+      if (loginMode === "pin") {
+        await auth.loginWithPin(email.trim(), pin.replace(/\D/g, "").slice(0, 8));
+      } else {
+        await auth.login(email.trim(), password);
+      }
+      if (auth.isOfflineSession()) {
+        setOfflineNote("Logged in offline — sales will queue and sync when you reconnect.");
+      }
       await onLoggedIn();
     } catch (e: any) {
       setError(e?.message ?? "Authentication failed");
@@ -121,6 +148,30 @@ export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
               </TouchableOpacity>
             </View>
 
+            {!isOnline && (
+              <View style={styles.offlineBadge}>
+                <WifiOff size={14} color="#FFB045" />
+                <Text style={styles.offlineBadgeText}>Offline mode — password or PIN login</Text>
+              </View>
+            )}
+
+            {offlineUsers.length > 0 && (
+              <View style={styles.modeToggle}>
+                <TouchableOpacity
+                  style={[styles.modeBtn, loginMode === "password" && styles.modeBtnActive]}
+                  onPress={() => setLoginMode("password")}
+                >
+                  <Text style={[styles.modeBtnText, loginMode === "password" && styles.modeBtnTextActive]}>Password</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modeBtn, loginMode === "pin" && styles.modeBtnActive]}
+                  onPress={() => setLoginMode("pin")}
+                >
+                  <Text style={[styles.modeBtnText, loginMode === "pin" && styles.modeBtnTextActive]}>Offline PIN</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View style={styles.inputWrapper}>
               <Text style={styles.label}>Email address</Text>
               <View style={[styles.inputContainer, focusedInput === "email" && styles.inputFocused]}>
@@ -139,36 +190,73 @@ export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
                   returnKeyType="next"
                 />
               </View>
+              {offlineUsers.length > 1 && (
+                <View style={styles.cachedUsers}>
+                  {offlineUsers.slice(0, 3).map((u) => (
+                    <TouchableOpacity key={u.email} onPress={() => setEmail(u.email)} style={styles.cachedUserChip}>
+                      <Text style={styles.cachedUserText}>{u.name || u.email}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
-            <View style={styles.inputWrapper}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Password</Text>
-                {onForgotPassword && (
-                  <TouchableOpacity onPress={onForgotPassword}>
-                    <Text style={styles.forgotText}>Forgot password?</Text>
+            {loginMode === "password" ? (
+              <View style={styles.inputWrapper}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Password</Text>
+                  {onForgotPassword && (
+                    <TouchableOpacity onPress={onForgotPassword}>
+                      <Text style={styles.forgotText}>Forgot password?</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={[styles.inputContainer, focusedInput === "password" && styles.inputFocused]}>
+                  <Lock size={18} color={focusedInput === "password" ? C.amber.primary : C.text.secondary} />
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor={C.text.secondary}
+                    secureTextEntry={!showPassword}
+                    style={styles.input}
+                    onFocus={() => setFocusedInput("password")}
+                    onBlur={() => setFocusedInput(null)}
+                    returnKeyType="done"
+                    onSubmitEditing={submit}
+                  />
+                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
+                    {showPassword ? <EyeOff size={18} color={C.text.secondary} /> : <Eye size={18} color={C.text.secondary} />}
                   </TouchableOpacity>
-                )}
+                </View>
               </View>
-              <View style={[styles.inputContainer, focusedInput === "password" && styles.inputFocused]}>
-                <Lock size={18} color={focusedInput === "password" ? C.amber.primary : C.text.secondary} />
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor={C.text.secondary}
-                  secureTextEntry={!showPassword}
-                  style={styles.input}
-                  onFocus={() => setFocusedInput("password")}
-                  onBlur={() => setFocusedInput(null)}
-                  returnKeyType="done"
-                  onSubmitEditing={submit}
-                />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                  {showPassword ? <EyeOff size={18} color={C.text.secondary} /> : <Eye size={18} color={C.text.secondary} />}
-                </TouchableOpacity>
+            ) : (
+              <View style={styles.inputWrapper}>
+                <Text style={styles.label}>4-digit PIN (works offline)</Text>
+                <View style={[styles.inputContainer, focusedInput === "pin" && styles.inputFocused]}>
+                  <Lock size={18} color={focusedInput === "pin" ? C.amber.primary : C.text.secondary} />
+                  <TextInput
+                    value={pin}
+                    onChangeText={(t) => setPin(t.replace(/\D/g, "").slice(0, 8))}
+                    placeholder="••••"
+                    placeholderTextColor={C.text.secondary}
+                    secureTextEntry
+                    keyboardType="numeric"
+                    style={styles.input}
+                    onFocus={() => setFocusedInput("pin")}
+                    onBlur={() => setFocusedInput(null)}
+                    returnKeyType="done"
+                    onSubmitEditing={submit}
+                  />
+                </View>
               </View>
-            </View>
+            )}
+
+            {offlineNote && (
+              <View style={styles.offlineNote}>
+                <Text style={styles.offlineNoteText}>{offlineNote}</Text>
+              </View>
+            )}
 
             {error && (
               <View style={styles.errorContainer}>
@@ -323,6 +411,80 @@ const makeStyles = (C: any) => StyleSheet.create({
   },
   eyeButton: {
     padding: 8,
+  },
+  offlineBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "rgba(255, 176, 69, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 176, 69, 0.3)",
+    borderRadius: 12,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  offlineBadgeText: {
+    color: "#FFB045",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: C.bg.panel2,
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  modeBtnActive: {
+    backgroundColor: C.amber.primary,
+  },
+  modeBtnText: {
+    color: C.text.secondary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modeBtnTextActive: {
+    color: "#1a1a1a",
+  },
+  cachedUsers: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  cachedUserChip: {
+    backgroundColor: C.bg.panel2,
+    borderWidth: 1,
+    borderColor: C.bg.glassBorder,
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  cachedUserText: {
+    color: C.text.primary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  offlineNote: {
+    backgroundColor: "rgba(255, 176, 69, 0.1)",
+    padding: 12,
+    borderRadius: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 176, 69, 0.25)",
+  },
+  offlineNoteText: {
+    color: "#FFB045",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
   },
   errorContainer: {
     backgroundColor: "rgba(248, 113, 113, 0.1)",

@@ -1134,7 +1134,9 @@ export async function registerRoutes(
       res.json({
         fdmsDeviceId: contextSource.fdmsDeviceId,
         fdmsDeviceSerialNo: contextSource.fdmsDeviceSerialNo,
-        // Removed: fdmsApiKey, zimraPrivateKey, zimraCertificate — server-side only
+        // Included for offline invoice signing on mobile devices
+        zimraPrivateKey: contextSource.zimraPrivateKey ?? null,
+        zimraCertificate: contextSource.zimraCertificate ?? null,
         zimraEnvironment: contextSource.zimraEnvironment,
         currentFiscalDayNo: contextSource.currentFiscalDayNo,
         fiscalDayOpen: contextSource.fiscalDayOpen,

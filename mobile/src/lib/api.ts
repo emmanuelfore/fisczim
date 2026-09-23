@@ -107,7 +107,12 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
     if (response.status === 401) {
       console.warn("[API] Got 401, attempting token refresh and retry...");
       try {
-        const refreshed = await auth.refreshTokens();
+        let refreshed = await auth.refreshTokens();
+        // refreshTokens() will silently re-login if refresh token is expired
+        if (!refreshed) {
+          // Give silent re-login one explicit attempt
+          refreshed = await (auth as any).silentReLogin?.();
+        }
         if (refreshed) {
           cachedToken = refreshed.accessToken;
           sessionInitialized = true;
@@ -158,10 +163,7 @@ export async function apiJson<T = Json>(path: string, init?: RequestInit & { tim
       } catch(e) {}
       
       if (res.status === 401) {
-        // Check if token is completely invalid (refresh token also expired)
-        if (!cachedToken) {
-          throw new Error("Your session has expired. Please log out and log back in to continue.");
-        }
+        // Don't surface auth errors to the user — the retry logic above handles it
         throw new Error("Authentication failed. Please check your connection and try again.");
       }
       throw new Error(errorMsg);

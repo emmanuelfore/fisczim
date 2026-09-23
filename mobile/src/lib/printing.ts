@@ -593,7 +593,7 @@ export const printToZ100 = async (data: TicketData) => {
     if (branch && branch.name !== company.name) await centerWrapped(branch.name);
 
     const addressParts = [activeCompany?.address, activeCompany?.city, activeCompany?.province].filter(Boolean);
-    for (const part of addressParts) await centerWrapped(part);
+    if (addressParts.length > 0) await centerWrapped(addressParts.join(", "));
     if (activeCompany?.phone) await centerWrapped(`TEL: ${activeCompany.phone}`);
     if (activeCompany?.email) await centerWrapped(`EMAIL: ${activeCompany.email}`);
 
@@ -603,8 +603,7 @@ export const printToZ100 = async (data: TicketData) => {
     await line(separator);
     await centerWrapped(documentTitle);
     if (invoice._offline) {
-      await centerWrapped("PENDING SYNC - NOT FISCALIZED");
-      await centerWrapped("KEEP FOR CASH HANDOVER");
+      await centerWrapped("PENDING SYNC - KEEP RECEIPT");
     }
     await line(separator);
 
@@ -660,7 +659,7 @@ export const printToZ100 = async (data: TicketData) => {
           ? `${qty.toFixed(2).padEnd(20)}${total.toFixed(2)}`
           : `${qty.toFixed(2).padEnd(10)}${vatAmount.toFixed(2).padEnd(10)}${total.toFixed(2)}`
       ).slice(0, width));
-      await line(".".repeat(width));
+      
     }
 
     await line(separator);
@@ -674,11 +673,8 @@ export const printToZ100 = async (data: TicketData) => {
     if (isVatPayer) {
       await centerWrapped("TAX SUMMARY");
       for (const group of Object.values(taxGroups) as any[]) {
-        await line(`TAX CODE ${group.name} (${group.rate}%)`);
-        await row("  NET AMT:", group.net.toFixed(2));
-        await row("  VAT AMT:", group.tax.toFixed(2));
-        await row("  TOTAL AMT:", group.gross.toFixed(2));
-        await line(".".repeat(width));
+        await line(`${group.name}(${group.rate}%): Net:${group.net.toFixed(2)} Tax:${group.tax.toFixed(2)}`);
+        
       }
     }
 
@@ -885,7 +881,7 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
   if (branch && branch.name !== company.name) pushCenter(branch.name);
 
   const addressParts = [activeCompany?.address, activeCompany?.city, activeCompany?.province].filter(Boolean);
-  for (const part of addressParts) pushCenter(part);
+  if (addressParts.length > 0) pushCenter(addressParts.join(", "));
   if (activeCompany?.phone) pushCenter(`TEL: ${activeCompany.phone}`);
   if (activeCompany?.email) pushCenter(`EMAIL: ${activeCompany.email}`);
 
@@ -895,8 +891,7 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
   pushLine(separator);
   pushCenter(documentTitle);
   if (invoice._offline) {
-    pushCenter("PENDING SYNC - NOT FISCALIZED");
-    pushCenter("KEEP FOR CASH HANDOVER");
+    pushCenter("PENDING SYNC - KEEP RECEIPT");
   }
   pushLine(separator);
 
@@ -951,7 +946,7 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
         ? `${qty.toFixed(2).padEnd(20)}${total.toFixed(2)}`
         : `${qty.toFixed(2).padEnd(10)}${vatAmount.toFixed(2).padEnd(10)}${total.toFixed(2)}`
     ).slice(0, width));
-    pushLine(".".repeat(width));
+    
   }
 
   pushLine(separator);
@@ -965,11 +960,8 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
   if (isVatPayer) {
     pushCenter("TAX SUMMARY");
     for (const group of Object.values(taxGroups) as any[]) {
-      pushLine(`TAX CODE ${group.name} (${group.rate}%)`);
-      pushRow("  NET AMT:", group.net.toFixed(2));
-      pushRow("  VAT AMT:", group.tax.toFixed(2));
-      pushRow("  TOTAL AMT:", group.gross.toFixed(2));
-      pushLine(".".repeat(width));
+      pushLine(`${group.name}(${group.rate}%): Net:${group.net.toFixed(2)} Tax:${group.tax.toFixed(2)}`);
+      
     }
   }
 

@@ -1352,136 +1352,41 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       // We use the same offline signing engine to generate a local QR code and
       // verification code immediately. This means every sale prints with a full
       // fiscal receipt instantly — no server round-trip needed before printing.
-      // The server call runs in the background to confirm the global receipt no
-      // and sync with ZIMRA.
+      // ── SEND TO SERVER FIRST, THEN PRINT ─────────────────────────────────────
       const isInternalPrinter = printerConfig.isSunmi || printerConfig.isZ100 || printerConfig.isIPos;
-      const { processOfflineFiscalization } = require('../lib/offline-fiscal');
-
-      // Sign locally and print right away
-      // Allow cache refresh (tryRefresh:true default) so first-time online sales
-      // can pull the ZIMRA config from the server before signing locally.
-      const { getCachedZimraConfig, getCachedFiscalSequence } = require('../lib/fiscalStorage');
-
-      // Debug: log what's in cache before signing
-      const [cachedConfig, cachedSeq] = await Promise.all([
-        getCachedZimraConfig(companyId).catch(() => null),
-        getCachedFiscalSequence(companyId).catch(() => null),
-      ]);
-      console.log('[POSPrint] Cached ZIMRA config:', cachedConfig ? `deviceId=${cachedConfig.fdmsDeviceId} hasKey=${!!cachedConfig.zimraPrivateKey}` : 'NONE');
-      console.log('[POSPrint] Cached fiscal sequence:', cachedSeq ? `globalNo=${cachedSeq.lastReceiptGlobalNo} dayNo=${cachedSeq.currentFiscalDayNo}` : 'NONE');
-
-      processOfflineFiscalization(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive)
-        .then(async (localFiscalData: any) => {
-          console.log('[POSPrint] Local fiscal data:', localFiscalData ? `globalNo=${localFiscalData.receiptGlobalNo} hasQR=${!!localFiscalData.qrCodeData} hasVC=${!!localFiscalData.verificationCode}` : 'NULL - no cached config');
-          // Merge in device fields from cached ZIMRA config so receipt has device ID,
-          // serial no, fiscal day no, verification code, and QR code all in one shot.
-          const zimraConfig = await getCachedZimraConfig(companyId).catch(() => null);
-          const invoiceToPrint = localFiscalData
-            ? {
-                ...optimisticInvoice,
-                ...localFiscalData,
-                // Invoice number shown on receipt: global receipt no / daily counter
-                invoiceNumber: localFiscalData.receiptGlobalNo
-                  ? `${localFiscalData.receiptGlobalNo}`
-                  : optimisticInvoice.invoiceNumber,
-                receiptCounter: localFiscalData.receiptCounter,
-                receiptGlobalNo: localFiscalData.receiptGlobalNo,
-                fiscalDayNo: localFiscalData.fiscalDayNo || zimraConfig?.currentFiscalDayNo,
-                // Device fields from cached ZIMRA config
-                fdmsDeviceId: zimraConfig?.fdmsDeviceId || company?.fdmsDeviceId,
-                fdmsDeviceSerialNo: zimraConfig?.fdmsDeviceSerialNo || company?.fdmsDeviceSerialNo,
-                deviceId: zimraConfig?.fdmsDeviceId || company?.deviceId,
-                deviceSerialNo: zimraConfig?.fdmsDeviceSerialNo || company?.deviceSerialNo,
-                // Fiscal signature fields
-                verificationCode: localFiscalData.verificationCode,
-                fiscalSignature: localFiscalData.fiscalSignature,
-                receiptDeviceSignature: localFiscalData.receiptDeviceSignature,
-                // QR code
-                qrCodeData: localFiscalData.qrCodeData,
-                // Mark as locally signed so ensureInvoiceReadyForPrint skips polling
-                _localSigned: true,
-                _offline: false,
-              }
-            : optimisticInvoice;
-
-          if (printerConfig.autoPrint && isInternalPrinter) {
-            setTimeout(() => { printTicket(invoiceToPrint).catch(console.error); }, 200);
+      
+      createInvoice(invoiceData)
+        .then((created: any) => {
+          const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
+          setLastInvoice(fiscalInvoice);
+          
+          if (printerConfig.autoPrint) {
+            setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 200);
           }
-
-          // Now send to server in the background
-          createInvoice(invoiceData)
-            .then((created: any) => {
-              const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
-              setLastInvoice(fiscalInvoice);
-              // For internal printers we already printed — only reprint if server
-              // returned a DIFFERENT global no (meaning our local counter was ahead/behind)
-              if (printerConfig.autoPrint) {
-                const serverGlobalNo = fiscalInvoice.receiptGlobalNo;
-                const localGlobalNo = localFiscalData?.receiptGlobalNo;
-                const serverHasBetterData = !!(fiscalInvoice.qrCodeData || fiscalInvoice.verificationCode);
-                if (!isInternalPrinter) {
-                  setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 200);
-                } else if (serverHasBetterData && serverGlobalNo && serverGlobalNo !== localGlobalNo) {
-                  // Server confirmed a different receipt number — reprint with authoritative data
-                  setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 300);
-                }
-              }
-              setTimeout(() => refreshProducts().catch(console.error), 500);
-            })
-            .catch(async (err: any) => {
-              const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
-              if (!isNetwork) {
-                Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
-              }
-              // Queue offline with the local fiscal signature we already generated
-              const finalInvoiceData = localFiscalData
-                ? { ...invoiceData, ...localFiscalData }
-                : { ...invoiceData, _offline: true };
-              const offlineId = await addPendingSale(companyId, finalInvoiceData, selectedBranchId);
-              const offlineInvoice = {
-                ...(localFiscalData ? { ...optimisticInvoice, ...localFiscalData } : { ...optimisticInvoice, _offline: true }),
-                id: offlineId,
-                items: printItems,
-              };
-              setLastInvoice(offlineInvoice);
-              // Already printed — no need to reprint on network failure for internal printers
-              if (printerConfig.autoPrint && !isInternalPrinter) {
-                setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
-              }
-            });
+          setTimeout(() => refreshProducts().catch(console.error), 500);
         })
-        .catch(() => {
-          // Local signing failed (no cached config) — fall back to waiting for server
-          if (printerConfig.autoPrint && isInternalPrinter) {
-            setTimeout(() => { printTicket(optimisticInvoice).catch(console.error); }, 200);
+        .catch(async (err: any) => {
+          const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
+          if (!isNetwork) {
+            Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
           }
-          createInvoice(invoiceData)
-            .then((created: any) => {
-              const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
-              setLastInvoice(fiscalInvoice);
-              if (printerConfig.autoPrint && !isInternalPrinter) {
-                setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 200);
-              }
-              setTimeout(() => refreshProducts().catch(console.error), 500);
-            })
-            .catch(async (err: any) => {
-              const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
-              if (!isNetwork) {
-                Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
-              }
-              const { processOfflineFiscalization: pof } = require('../lib/offline-fiscal');
-              const fiscalData = await pof(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive);
-              const finalInvoiceData = fiscalData ? { ...invoiceData, ...fiscalData } : { ...invoiceData, _offline: true };
-              const invoiceToPrint = fiscalData
-                ? { ...optimisticInvoice, ...fiscalData, invoiceNumber: `${fiscalData.receiptGlobalNo}`, _offline: true }
-                : { ...optimisticInvoice, _offline: true };
-              const offlineId = await addPendingSale(companyId, finalInvoiceData, selectedBranchId);
-              const offlineInvoice = { ...invoiceToPrint, id: offlineId, _offline: true, items: invoiceToPrint.items || printItems };
-              setLastInvoice(offlineInvoice);
-              if (printerConfig.autoPrint && !isInternalPrinter) {
-                setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
-              }
-            });
+          
+          // Network failure: fallback to offline fiscalization
+          const { processOfflineFiscalization: pof } = require('../lib/offline-fiscal');
+          const fiscalData = await pof(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive);
+          const finalInvoiceData = fiscalData ? { ...invoiceData, ...fiscalData } : { ...invoiceData, _offline: true };
+          
+          const invoiceToPrint = fiscalData
+            ? { ...optimisticInvoice, ...fiscalData, invoiceNumber: `${fiscalData.receiptGlobalNo}`, _offline: true }
+            : { ...optimisticInvoice, _offline: true };
+            
+          const offlineId = await addPendingSale(companyId, finalInvoiceData, selectedBranchId);
+          const offlineInvoice = { ...invoiceToPrint, id: offlineId, _offline: true, items: invoiceToPrint.items || printItems };
+          setLastInvoice(offlineInvoice);
+          
+          if (printerConfig.autoPrint) {
+            setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
+          }
         });
     }
   };

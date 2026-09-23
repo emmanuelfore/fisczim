@@ -606,28 +606,42 @@ export function AppRoot() {
           onLoggedIn={async () => {
             setStage("boot");
             try {
-              const companies = await fetchUser(true);
-              if (companies === null) {
-                 setBootError("Failed to load your organizations. Please check your connection.");
-                 setStage("boot");
-                 return;
+              const cachedId = await getSelectedCompanyId();
+
+              // Try to fetch companies from server; gracefully degrade offline
+              let companies: any[] | null = null;
+              try {
+                companies = await fetchUser(true);
+              } catch {
+                companies = null;
               }
 
-              const cachedId = await getSelectedCompanyId();
+              // Offline fallback: if we have a cached company, go straight to main
+              if (companies === null) {
+                if (cachedId) {
+                  setCompanyId(cachedId);
+                  setStage("main");
+                } else {
+                  setBootError("Failed to load your organizations. Please check your connection.");
+                  setStage("boot");
+                }
+                return;
+              }
+
               const validCompany = companies.find((c: any) => c.id === cachedId);
 
-            if (validCompany && cachedId) {
-              if (validCompany.role) setUserRole(validCompany.role);
-              setCompanyId(cachedId);
-              refreshSelectedCompany(cachedId).then((company) => {
-                if (getEffectiveCompanyMode(company) === "bus_ticketing") {
-                  setCurrentScreen("busTicketing");
-                }
-              }).catch((error) => {
-                console.warn("[Company] Login company refresh failed:", error?.message || error);
-              });
-              setStage("main");
-            } else {
+              if (validCompany && cachedId) {
+                if (validCompany.role) setUserRole(validCompany.role);
+                setCompanyId(cachedId);
+                refreshSelectedCompany(cachedId).then((company) => {
+                  if (getEffectiveCompanyMode(company) === "bus_ticketing") {
+                    setCurrentScreen("busTicketing");
+                  }
+                }).catch((error) => {
+                  console.warn("[Company] Login company refresh failed:", error?.message || error);
+                });
+                setStage("main");
+              } else {
                 await setSelectedCompanyId(null);
                 setCompanyId(null);
                 setStage(companies.length > 0 ? "company" : "onboarding");

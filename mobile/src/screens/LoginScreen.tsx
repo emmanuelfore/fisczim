@@ -18,6 +18,8 @@ import { auth } from "../lib/auth";
 import { useTheme } from "../ui/PremiumColors";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
+import * as SecureStore from "expo-secure-store";
+import NetInfo from "@react-native-community/netinfo";
 
 type Props = {
   onLoggedIn: () => void;
@@ -43,7 +45,30 @@ export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
     setError(null);
     setBusy(true);
     try {
-      await auth.login(email.trim(), password);
+      const net = await NetInfo.fetch();
+      const isOnline = net.isConnected && net.isInternetReachable !== false;
+
+      if (isOnline) {
+        // Online: verify via server and get fresh tokens
+        await auth.login(email.trim(), password);
+      } else {
+        // Offline: verify against locally cached credentials
+        const cachedEmail = await SecureStore.getItemAsync("cached_email");
+        const cachedPassword = await SecureStore.getItemAsync("cached_password");
+
+        if (!cachedEmail || !cachedPassword) {
+          throw new Error("You must log in online at least once before using offline mode.");
+        }
+        if (email.trim().toLowerCase() !== cachedEmail.toLowerCase() || password !== cachedPassword) {
+          throw new Error("Incorrect email or password.");
+        }
+        // Restore cached tokens/user so the app can proceed
+        const restored = await auth.restoreSession();
+        if (!restored) {
+          throw new Error("No cached session found. Please connect to the internet and log in once.");
+        }
+      }
+
       await onLoggedIn();
     } catch (e: any) {
       setError(e?.message ?? "Authentication failed");

@@ -4,17 +4,18 @@ import {
   Modal,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Pause, Play, ShieldCheck, User, Wifi, WifiOff, X } from "lucide-react-native";
+import { Eye, EyeOff, Lock, Pause, Play, ShieldCheck, User, Wifi, WifiOff, X } from "lucide-react-native";
 import { apiFetch } from "../lib/api";
 import { getPausedState, PausedState, setPausedState } from "../lib/storage";
-import { supabase } from "../lib/supabase";
+import { auth } from "../lib/auth";
 import { PremiumColors as C } from "../ui/PremiumColors";
 import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { Button } from "../ui/Button";
+import * as SecureStore from "expo-secure-store";
 
 type Props = {
   companyId: number | null;
@@ -37,9 +38,10 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
   const [online, setOnline] = useState<boolean>(true);
 
   const [showUnlock, setShowUnlock] = useState(false);
-  const [pin, setPin] = useState("");
-  const [pinBusy, setPinBusy] = useState(false);
-  const [pinError, setPinError] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
 
   const refresh = async () => {
     setError(null);
@@ -51,10 +53,18 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
       const health = await apiFetch("/api/health").catch(() => null);
       setOnline(!!health && health.ok);
 
-      const res = await apiFetch("/api/user");
-      if (!res.ok) throw new Error(`Failed to load user (${res.status})`);
-      const data = await res.json();
-      setUser(data?.user ?? null);
+      // Use cached user info if available (works offline)
+      const cachedUser = auth.getUser();
+      if (cachedUser) {
+        setUser({ id: cachedUser.id, email: cachedUser.email, name: cachedUser.name });
+      } else {
+        // Try to fetch from server if online
+        const res = await apiFetch("/api/user").catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          setUser(data?.user ?? null);
+        }
+      }
     } catch (e: any) {
       setError(e?.message ?? "Failed to refresh");
     } finally {
@@ -94,26 +104,41 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
   };
 
   const requestResume = () => {
-    setPin("");
-    setPinError(null);
+    setPassword("");
+    setUnlockError(null);
     setShowUnlock(true);
   };
 
-  const resumeWithPin = async () => {
-    if (!companyId) {
-      setPinError("No company selected");
-      return;
-    }
-    setPinError(null);
-    setPinBusy(true);
+  /**
+   * Resume using password — works both online and offline.
+   * Online: calls the login endpoint to verify.
+   * Offline: verifies against the locally cached credentials in SecureStore.
+   */
+  const resumeWithPassword = async () => {
+    if (!password.trim()) return;
+    setUnlockError(null);
+    setUnlockBusy(true);
     try {
-      const res = await apiFetch(`/api/companies/${companyId}/auth/verify-manager-pin`, {
-        method: "POST",
-        body: JSON.stringify({ pin })
-      });
-      if (!res.ok) {
-        const msg = await res.text().catch(() => "");
-        throw new Error(msg || "Invalid PIN");
+      const cachedEmail = await SecureStore.getItemAsync("cached_email");
+      if (!cachedEmail) {
+        setUnlockError("No cached credentials. Please log out and log back in while online first.");
+        return;
+      }
+
+      if (online) {
+        // Online: verify via server login (most secure)
+        await auth.login(cachedEmail, password);
+      } else {
+        // Offline: verify against locally cached password
+        const cachedPassword = await SecureStore.getItemAsync("cached_password");
+        if (!cachedPassword) {
+          setUnlockError("No cached credentials available for offline unlock.");
+          return;
+        }
+        if (password !== cachedPassword) {
+          setUnlockError("Incorrect password. Please try again.");
+          return;
+        }
       }
 
       const next: PausedState = { paused: false, pausedAt: null };
@@ -121,15 +146,14 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
       setPausedStateLocal(next);
       setShowUnlock(false);
     } catch (e: any) {
-      setPinError(e?.message ?? "Invalid PIN");
+      setUnlockError(e?.message ?? "Incorrect password. Please try again.");
     } finally {
-      setPinBusy(false);
+      setUnlockBusy(false);
     }
   };
 
   const signOut = async () => {
-    // Keep it simple for now; you can add offline protections like the web app later.
-    await supabase.auth.signOut();
+    await auth.logout().catch(() => {});
     onSignOut();
   };
 
@@ -279,13 +303,13 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
         </LinearGradient>
       </View>
 
-      {/* Unlock modal */}
+      {/* Password Unlock Modal */}
       <Modal visible={showUnlock} transparent animationType="fade" onRequestClose={() => setShowUnlock(false)}>
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.80)", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <View style={{ width: "100%", maxWidth: 420, borderRadius: 28, overflow: "hidden", borderWidth: 1, borderColor: C.border.default }}>
-            <LinearGradient colors={[C.bg.card, "#130e05"]} style={{ padding: 18 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "900" }}>Manager PIN</Text>
+            <LinearGradient colors={[C.bg.card, "#130e05"]} style={{ padding: 24 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "900" }}>Resume Terminal</Text>
                 <TouchableOpacity
                   activeOpacity={0.85}
                   onPress={() => setShowUnlock(false)}
@@ -295,34 +319,46 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: C.text.secondary, marginTop: 8, fontSize: 12, fontWeight: "700" }}>
-                Enter an owner/admin PIN to resume.
+              <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "700", marginBottom: 20 }}>
+                Enter your password to resume.{!online ? " (Offline mode)" : ""}
               </Text>
 
-              <View style={{ height: 14 }} />
-
-              <View style={{ backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 14 }}>
+              {/* Password input */}
+              <View style={{
+                backgroundColor: C.bg.hover,
+                borderWidth: 1,
+                borderColor: C.border.default,
+                borderRadius: 18,
+                paddingHorizontal: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                height: 56,
+                marginBottom: 16,
+              }}>
+                <Lock size={18} color={C.text.secondary} style={{ marginRight: 10 }} />
                 <TextInput
-                  value={pin}
-                  onChangeText={setPin}
-                  keyboardType="number-pad"
-                  secureTextEntry
-                  placeholder="••••"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  placeholder="Your password"
                   placeholderTextColor={C.text.secondary}
-                  style={{ color: C.text.primary, fontSize: 22, fontWeight: "900", letterSpacing: 6, textAlign: "center" }}
-                  maxLength={8}
+                  style={{ flex: 1, color: C.text.primary, fontSize: 16, fontWeight: "600" }}
+                  returnKeyType="done"
+                  onSubmitEditing={resumeWithPassword}
+                  autoFocus
                 />
+                <TouchableOpacity onPress={() => setShowPassword(p => !p)} style={{ padding: 6 }}>
+                  {showPassword ? <EyeOff size={18} color={C.text.secondary} /> : <Eye size={18} color={C.text.secondary} />}
+                </TouchableOpacity>
               </View>
 
-              {pinError && (
-                <Text style={{ color: C.status.error, fontSize: 12, fontWeight: "800", marginTop: 12 }}>
-                  {pinError}
+              {unlockError && (
+                <Text style={{ color: C.status.error, fontSize: 12, fontWeight: "800", marginBottom: 14, textAlign: "center" }}>
+                  {unlockError}
                 </Text>
               )}
 
-              <View style={{ height: 16 }} />
-
-              <Button title="Unlock" onPress={resumeWithPin} loading={pinBusy} disabled={!pin.trim()} />
+              <Button title="Unlock" onPress={resumeWithPassword} loading={unlockBusy} disabled={!password.trim()} />
             </LinearGradient>
           </View>
         </View>
@@ -330,4 +366,3 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
     </View>
   );
 }
-

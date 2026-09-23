@@ -47,6 +47,14 @@ class AuthClient {
     }
   }
 
+  /** Reload tokens and user from SecureStore — used after offline login verification. */
+  async restoreSession(): Promise<boolean> {
+    await this.loadFromStorage();
+    const restored = !!this.user;
+    if (restored) this.notifyListeners();
+    return restored;
+  }
+
   private async saveToStorage() {
     try {
       if (this.accessToken) {

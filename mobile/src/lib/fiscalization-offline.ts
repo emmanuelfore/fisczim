@@ -1,12 +1,23 @@
 import forge from 'node-forge';
 
+let parsedKeyCache: { pem: string; key: forge.pki.rsa.PrivateKey } | null = null;
+
 /**
  * Parses a PEM formatted private key and returns a node-forge private key object.
  */
 export function getPrivateKey(pem: string): forge.pki.rsa.PrivateKey {
+    if (parsedKeyCache && parsedKeyCache.pem === pem) {
+        return parsedKeyCache.key;
+    }
     try {
-        return forge.pki.privateKeyFromPem(pem);
+        const key = forge.pki.privateKeyFromPem(pem);
+        parsedKeyCache = { pem, key };
+        return key;
     } catch (error) {
+        console.error("Failed to parse private key:", error);
+        throw new Error("Invalid ZIMRA Private Key provided for offline signing.");
+    }
+} catch (error) {
         console.error("Failed to parse private key:", error);
         throw new Error("Invalid ZIMRA Private Key provided for offline signing.");
     }

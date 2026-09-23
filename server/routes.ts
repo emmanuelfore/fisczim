@@ -10953,7 +10953,7 @@ export async function registerRoutes(
           // Fast checkout path:
           // Try fiscalization synchronously for a short budget, then continue in background
           // so cashier can move on quickly even if FDMS is slow.
-          const POS_FISCAL_SYNC_BUDGET_MS = 2500;
+          const POS_FISCAL_SYNC_BUDGET_MS = 8000;
           vLog(`[Fiscal] Triggering POS fiscalization for invoice ${invoice.id} with ${POS_FISCAL_SYNC_BUDGET_MS}ms checkout budget`);
 
           // Claim the job first to avoid background worker picking it up immediately

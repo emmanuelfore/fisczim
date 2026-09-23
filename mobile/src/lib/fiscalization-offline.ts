@@ -17,10 +17,6 @@ export function getPrivateKey(pem: string): forge.pki.rsa.PrivateKey {
         console.error("Failed to parse private key:", error);
         throw new Error("Invalid ZIMRA Private Key provided for offline signing.");
     }
-} catch (error) {
-        console.error("Failed to parse private key:", error);
-        throw new Error("Invalid ZIMRA Private Key provided for offline signing.");
-    }
 }
 
 /**

@@ -6,7 +6,8 @@
 //   1. Explicit taxTypeId (canonical link set at product creation/edit).
 //   2. Legacy rate match for rows created before taxTypeId existed, with
 //      zero-rate vs exempt disambiguation.
-export type FiscalProvider = "ZIMRA" | "LEKAKU";
+import { isLekakuProvider } from "@shared/lekaku";
+export type FiscalProvider = "ZIMRA" | "LEKAKU" | "LEKUKA" | string;
 
 export interface TaxResolvable {
   taxTypeId?: number | string | null;
@@ -102,7 +103,7 @@ export function getAuthorityTaxId(
 ): number | undefined {
   if (!taxType) return undefined;
   const raw =
-    provider === "LEKAKU" ? taxType.lekakuTaxId : taxType.zimraTaxId;
+    isLekakuProvider(provider) ? taxType.lekakuTaxId : taxType.zimraTaxId;
   const parsed = parseInt(String(raw ?? ""), 10);
   return Number.isFinite(parsed) ? parsed : undefined;
 }

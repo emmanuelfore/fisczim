@@ -1,14 +1,13 @@
 import { useActiveCompany } from "./use-active-company";
+import { isLekakuProvider } from "@shared/lekaku";
 
 export type FiscalAuthority = "ZIMRA" | "LEKAKU";
 
 export function useFiscalAuthority() {
     const { activeCompany } = useActiveCompany(true);
-    
-    const fiscalProvider = activeCompany?.fiscalProvider as FiscalAuthority || 
-                          (activeCompany?.country === "Lesotho" ? "LEKAKU" : "ZIMRA");
-    
-    const isLesotho = fiscalProvider === "LEKAKU";
+
+    const isLesotho = isLekakuProvider(activeCompany?.fiscalProvider, activeCompany?.country);
+    const fiscalProvider: FiscalAuthority = isLesotho ? "LEKAKU" : "ZIMRA";
     
     return {
         fiscalProvider,

@@ -30,10 +30,10 @@ export default function SupplierCreditNotesPage() {
     enabled: !!companyId,
   });
 
-  // Filter only Credit Note records
-  const creditNotes = invoices?.filter((inv) => inv.transactionType === "CreditNote") || [];
+  // Debit + Credit notes (AP adjustments) live here together
+  const notes = invoices?.filter((inv) => inv.transactionType === "CreditNote" || inv.transactionType === "DebitNote") || [];
 
-  const filteredCreditNotes = creditNotes.filter(
+  const filteredNotes = notes.filter(
     (inv) =>
       inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (inv.supplier?.name || "")
@@ -52,7 +52,7 @@ export default function SupplierCreditNotesPage() {
             <div className="relative group min-w-[320px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
               <Input
-                placeholder="Search by credit note number or supplier..."
+                placeholder="Search by note number or supplier..."
                 className="pl-9 h-11 bg-white border-slate-200 rounded-xl shadow-sm focus:ring-primary/20"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -73,13 +73,13 @@ export default function SupplierCreditNotesPage() {
           <CardHeader className="bg-white border-b border-slate-100 px-6 py-5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg font-bold text-slate-800 font-display">
-                Supplier Credit Notes (Accounts Payable Credits)
+                Supplier Debit & Credit Notes (AP Adjustments)
               </CardTitle>
               <Badge
                 variant="outline"
                 className="bg-slate-50 text-slate-500 font-bold border-slate-200 px-3 py-1 rounded-lg"
               >
-                {filteredCreditNotes.length} Credit Notes
+                {filteredNotes.length} Notes
               </Badge>
             </div>
           </CardHeader>
@@ -88,7 +88,7 @@ export default function SupplierCreditNotesPage() {
               <TableHeader className="bg-slate-50/50">
                 <TableRow className="hover:bg-transparent border-slate-100">
                   <TableHead className="w-[150px] font-bold text-slate-500 uppercase text-[11px] tracking-wider pl-6">
-                    Credit Note #
+                    Note #
                   </TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
                     Date
@@ -100,6 +100,9 @@ export default function SupplierCreditNotesPage() {
                     Reference Bill
                   </TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Type
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
                     Status
                   </TableHead>
                   <TableHead className="text-right font-bold text-slate-500 uppercase text-[11px] tracking-wider">
@@ -109,7 +112,7 @@ export default function SupplierCreditNotesPage() {
                     VAT
                   </TableHead>
                   <TableHead className="text-right pr-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">
-                    Total Credit
+                    Total
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -117,20 +120,20 @@ export default function SupplierCreditNotesPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i} className="animate-pulse border-slate-50">
-                      <TableCell colSpan={8} className="h-16 bg-slate-50/20" />
+                      <TableCell colSpan={9} className="h-16 bg-slate-50/20" />
                     </TableRow>
                   ))
-                ) : filteredCreditNotes.length === 0 ? (
+                ) : filteredNotes.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="h-32 text-center text-slate-400 font-medium"
                     >
-                      No supplier credit notes found.
+                      No supplier debit or credit notes found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredCreditNotes.map((invoice) => (
+                  filteredNotes.map((invoice) => (
                     <TableRow
                       key={invoice.id}
                       className="hover:bg-slate-50/50 border-slate-50 transition-colors group cursor-pointer"
@@ -150,6 +153,18 @@ export default function SupplierCreditNotesPage() {
                         {invoice.referenceInvoiceId
                           ? `Bill #${invoices?.find((inv) => inv.id === invoice.referenceInvoiceId)?.invoiceNumber || invoice.referenceInvoiceId}`
                           : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            invoice.transactionType === "DebitNote"
+                              ? "bg-purple-50 text-purple-600 border-purple-100"
+                              : "bg-cyan-50 text-cyan-600 border-cyan-100"
+                          }
+                        >
+                          {invoice.transactionType === "DebitNote" ? "DEBIT" : "CREDIT"}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge

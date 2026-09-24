@@ -5,6 +5,8 @@ import { useBranding } from "@/hooks/use-branding";
 // ─── Country Detection ────────────────────────────────────────────────────────
 function _isLesotho(): boolean {
   if (typeof window === "undefined") return false;
+  const brandEnv = (import.meta.env.VITE_APP_BRAND as string)?.toLowerCase();
+  if (brandEnv === "lesotho" || brandEnv === "fiscalstack_lesotho") return true;
   return window.location.hostname.includes(".co.ls");
 }
 const AUTH_NAME = _isLesotho() ? "RSL" : "ZIMRA";
@@ -1214,12 +1216,12 @@ const Testimonials = () => {
             {
               quote: `FiscalStack completely automated our FDMS sync. We no longer worry about ${AUTH_NAME} penalties.`,
               author: "Tendai M.",
-              role: "Retail Owner, Harare",
+              role: _isLesotho() ? "Retail Owner, Maseru" : "Retail Owner, Harare",
             },
             {
               quote: `The only system that handles ${CURRENCY}/USD splits perfectly while keeping our ledgers ${AUTH_NAME}-compliant. A lifesaver.`,
               author: "Sarah J.",
-              role: "Tax Agent, Bulawayo",
+              role: _isLesotho() ? "Tax Agent, Maseru" : "Tax Agent, Bulawayo",
             },
             {
               quote: "Offline-first means our POS never stops, even during power cuts. It just syncs when the internet comes back.",
@@ -1519,7 +1521,7 @@ const Pricing = () => {
           ))}
         </div>
         <div style={{ marginTop: 32, textAlign: "center", fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, color: C.steel, background: "rgba(73, 37, 238, 0.05)", padding: "16px", borderRadius: 16 }}>
-          <strong>Accepted Payment Methods:</strong> We accept ZWL, USD, EcoCash, and local bank transfers at the prevailing rate.
+          <strong>Accepted Payment Methods:</strong> {_isLesotho() ? `We accept LSL, USD, mobile money, and local bank transfers at the prevailing rate.` : `We accept ZWL, USD, EcoCash, and local bank transfers at the prevailing rate.`}
         </div>
       </div>
     </section>

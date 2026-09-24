@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { isElectron } from "@/lib/utils";
 import { isStorageBroken } from "@/lib/offline-db";
+import { currentBrand, brand } from "@/lib/branding";
 
 export default function AuthPage() {
   const { user, isLoading, loginWithPassword, registerWithPassword } =
@@ -168,6 +169,28 @@ export default function AuthPage() {
       />
     );
 
+  const isLesotho = currentBrand === "fiscalstack_lesotho";
+
+  const heroTitle = isLesotho
+    ? "Lesotho's\nSmartest\nFiscal Platform."
+    : "Zimbabwe's\nSmartest\nFiscal Platform.";
+  const heroSubtitle = isLesotho
+    ? "Automate your LEKUKA compliance, issue fiscal invoices, run your POS, and manage your business — all from one dashboard."
+    : "Automate your ZIMRA compliance, issue fiscal invoices, run your POS, and manage your business — all from one dashboard.";
+  const heroFeatures = isLesotho
+    ? [
+        { t: "Instant RSL Submission", s: "Real-time sync with Revenue Services Lesotho" },
+        { t: "Fully Virtual System", s: "No hardware needed, server-to-server" },
+        { t: "Seamless POS Integration", s: "Connects to existing POS, ERP, e-commerce" },
+        { t: "Local Lesotho Support", s: "Dedicated support for Lesotho businesses" },
+      ]
+    : [
+        { t: "Instant FDMS Submission", s: "Real-time sync with ZIMRA — certified API" },
+        { t: "Fully Virtual System", s: "No hardware needed, server-to-server" },
+        { t: "Seamless POS Integration", s: "Connects to existing POS, ERP, e-commerce" },
+        { t: "Local Zimbabwe Support", s: "Call 0779532012 or 0779555522" },
+      ];
+
   return (
     <>
       <style>{`
@@ -203,7 +226,7 @@ export default function AuthPage() {
         .auth-live { display:inline-flex; align-items:center; gap:8px; padding:7px 14px; border-radius:4px; background:rgba(21,101,255,0.1); border:1px solid rgba(21,101,255,0.25); font-family:'DM Mono',monospace; font-size:10px; font-weight:500; color:var(--blue-light); letter-spacing:0.14em; text-transform:uppercase; margin-bottom:36px; width:fit-content; }
         .auth-live-dot { width:6px; height:6px; border-radius:50%; background:var(--blue-light); animation:ldot 2s ease-in-out infinite; }
         @keyframes ldot { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        .auth-left-title { font-family:'Bricolage Grotesque',sans-serif; font-size:clamp(34px,3.2vw,50px); font-weight:800; letter-spacing:-0.04em; color:var(--text); line-height:0.95; margin-bottom:22px; }
+        .auth-left-title { font-family:'Bricolage Grotesque',sans-serif; font-size:clamp(34px,3.2vw,50px); font-weight:800; letter-spacing:-0.04em; color:var(--text); line-height:0.95; margin-bottom:22px; white-space:pre-line; }
         .auth-left-title .grad { background:linear-gradient(135deg,#5B9BFF,#00D4FF); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
         .auth-left-sub { font-size:14px; color:var(--muted); line-height:1.7; max-width:350px; margin-bottom:44px; }
         .auth-feat { display:flex; gap:13px; align-items:flex-start; margin-bottom:16px; }
@@ -276,34 +299,16 @@ export default function AuthPage() {
               Live Platform
             </div>
             <h2 className="auth-left-title">
-              Zimbabwe's
+              {isLesotho ? "Lesotho's" : "Zimbabwe's"}
               <br />
               Smartest
               <br />
               <span className="grad">Fiscal Platform.</span>
             </h2>
             <p className="auth-left-sub">
-              Automate your ZIMRA compliance, issue fiscal invoices, run your
-              POS, and manage your business — all from one dashboard.
+              {heroSubtitle}
             </p>
-            {[
-              {
-                t: "Instant FDMS Submission",
-                s: "Real-time sync with ZIMRA — certified API",
-              },
-              {
-                t: "Fully Virtual System",
-                s: "No hardware needed, server-to-server",
-              },
-              {
-                t: "Seamless POS Integration",
-                s: "Connects to existing POS, ERP, e-commerce",
-              },
-              {
-                t: "Local Zimbabwe Support",
-                s: "Call 0779532012 or 0779555522",
-              },
-            ].map((f, i) => (
+            {heroFeatures.map((f, i) => (
               <div key={i} className="auth-feat">
                 <div className="auth-feat-chk">✓</div>
                 <div className="auth-feat-txt">
@@ -334,7 +339,7 @@ export default function AuthPage() {
           <div className="auth-card">
             <a href="/" className="auth-logo-wrap">
               <div className="auth-logo-icon">
-                <img src="/fiscalstack-full-logo.png" alt="FiscalStack logo" />
+                <img src={brand.logo} alt={`${brand.name} logo`} />
               </div>
             </a>
 
@@ -343,7 +348,7 @@ export default function AuthPage() {
             </h1>
             <p className="auth-s">
               {mode === "login"
-                ? "Sign in to your FiscalZone account"
+                ? `Sign in to your ${brand.name} account`
                 : "Start your free trial — no credit card needed"}
             </p>
 
@@ -495,7 +500,7 @@ export default function AuthPage() {
 
             <div className="auth-or">or</div>
             <a
-              href="https://wa.me/263779532012"
+              href={isLesotho ? "https://wa.me/266" : "https://wa.me/263779532012"}
               target="_blank"
               rel="noreferrer"
               className="wa-btn"

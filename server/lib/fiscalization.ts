@@ -1686,8 +1686,32 @@ export const processInvoiceFiscalizationLEKUKA = async (
     try {
         fiscalLock = await acquireFiscalDeviceLock(companyId, null);
 
-    const nextReceiptCounter = (company.dailyReceiptCount || 0) + 1;
-    const nextGlobalNo = (company.lastReceiptGlobalNo || 0) + 1;
+    // Sync counters from RSL before assigning — prevents RCPT052/053
+    // when local DB counters are stale (e.g. after a failed post-submit DB write).
+    let nextReceiptCounter = (company.dailyReceiptCount || 0) + 1;
+    let nextGlobalNo = (company.lastReceiptGlobalNo || 0) + 1;
+    try {
+        const rslStatus = await device.getStatus();
+        const rslDayNo = rslStatus?.fiscalDayNo || rslStatus?.FiscalDayNo;
+        const rslReceiptCount = rslStatus?.receiptCounter ?? rslStatus?.ReceiptCounter;
+        const rslGlobalNo = rslStatus?.globalCounter ?? rslStatus?.GlobalCounter ?? rslStatus?.lastReceiptGlobalNo;
+        console.log(`[LEKUKA] RSL status for counter sync: dayNo=${rslDayNo} receiptCount=${rslReceiptCount} globalNo=${rslGlobalNo}`);
+        if (typeof rslReceiptCount === "number" && rslReceiptCount >= nextReceiptCounter) {
+            console.log(`[LEKUKA] Bumping receiptCounter from ${nextReceiptCounter} to ${rslReceiptCount + 1} (RSL has ${rslReceiptCount})`);
+            nextReceiptCounter = rslReceiptCount + 1;
+        }
+        if (typeof rslGlobalNo === "number" && rslGlobalNo >= nextGlobalNo) {
+            console.log(`[LEKUKA] Bumping globalNo from ${nextGlobalNo} to ${rslGlobalNo + 1} (RSL has ${rslGlobalNo})`);
+            nextGlobalNo = rslGlobalNo + 1;
+        }
+        if (typeof rslDayNo === "number" && rslDayNo > (company.currentFiscalDayNo || 0)) {
+            console.log(`[LEKUKA] Updating fiscalDayNo from ${company.currentFiscalDayNo} to ${rslDayNo}`);
+            await storage.updateCompany(companyId, { currentFiscalDayNo: rslDayNo } as any);
+            company = await storage.getCompany(companyId);
+        }
+    } catch (statusErr: any) {
+        console.warn(`[LEKUKA] Could not sync counters from RSL status: ${statusErr?.message} — using local values`);
+    }
     const activeFiscalDayNo = company.currentFiscalDayNo || 1;
     const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
 
@@ -1709,6 +1733,7 @@ export const processInvoiceFiscalizationLEKUKA = async (
     let prepared: LekukaReceipt;
     let signed: LekukaReceipt;
     let result: any;
+    let alreadyRetriedTax = false;
     try {
         ({ prepared, signed, result } = await submitOnce(receiptLines));
     } catch (err: any) {
@@ -1778,12 +1803,49 @@ export const processInvoiceFiscalizationLEKUKA = async (
     }
     console.log(`[LEKUKA] RSL response — receiptID: ${result.receiptID} serverHash: ${serverHash?.slice(0, 20)}..., certThumbprint: ${certThumbprint?.slice(0, 16)}...`);
 
-    // Check for Red validation errors — these mean the receipt was NOT accepted
+    // Check for Red validation errors
     const redErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
     if (redErrors.length > 0) {
         const errMsgs = redErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; ");
-        console.error(`[LEKUKA] Red validation errors — receipt NOT accepted: ${errMsgs}`);
-        throw new Error(`RSL rejected receipt: ${errMsgs}`);
+        const hasRCPT025 = redErrors.some((e: any) => e.validationErrorCode === "RCPT025");
+
+        // RCPT025 = tax mismatch. Re-sync tax config from RSL and retry once.
+        if (hasRCPT025 && !alreadyRetriedTax) {
+            console.log(`[LEKUKA] RCPT025 in validation errors — re-syncing taxes and retrying...`);
+            try {
+                const fresh = await device.getConfig();
+                const freshTaxes = fresh?.applicableTaxes || [];
+                if (freshTaxes.length) {
+                    await storage.syncLekukaTaxes(companyId, freshTaxes, lekukaEnv);
+                    taxMapping = await buildTaxMapping();
+                    assertLekukaTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
+                    alreadyRetriedTax = true;
+                    ({ prepared, result } = await submitOnce(buildLekukaReceiptLines(items, leviesMap, taxMapping, taxInclusive)));
+                    // Re-check after retry
+                    const retryRedErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
+                    if (retryRedErrors.length === 0) {
+                        console.log(`[LEKUKA] Retry succeeded — no red errors.`);
+                    } else {
+                        const retryMsgs = retryRedErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; ");
+                        console.warn(`[LEKUKA] Retry still has red errors: ${retryMsgs}`);
+                    }
+                }
+            } catch (retryErr: any) {
+                console.warn(`[LEKUKA] RCPT025 retry failed: ${retryErr?.message}`);
+            }
+        }
+
+        // Re-evaluate red errors after potential retry
+        const finalRedErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
+        if (finalRedErrors.length > 0) {
+            const finalMsgs = finalRedErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; ");
+            console.warn(`[LEKUKA] Red validation warnings — receipt processed but flagged: ${finalMsgs}`);
+            if (!result.receiptID || !serverHash) {
+                console.error(`[LEKUKA] No receiptID/hash from RSL — cannot save. Throwing.`);
+                throw new Error(`RSL rejected receipt: ${finalMsgs}`);
+            }
+            console.log(`[LEKUKA] RSL assigned receiptID=${result.receiptID} despite red errors — saving fiscal data.`);
+        }
     }
 
     // Verification / QR data per LEKUKA spec section 11: first 16 hex chars of

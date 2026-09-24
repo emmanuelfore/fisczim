@@ -163,17 +163,22 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
       const calc = (rate: number) => money(p.base * rate / 100);
       for (const tax of p.percentageTaxes) {
         const taxAmount = tax.taxType === "Exempt" ? 0 : calc(tax.taxRate);
+        // Spec: salesAmountWithTax = sum of receiptLineTotal for inclusive receipts
         const salesAmountWithTax = receipt.receiptLinesTaxInclusive
-          ? money(p.base + taxAmount)
+          ? money(p.line.receiptLineTotal)
           : money(p.line.receiptLineTotal + taxAmount);
-        add({ ...tax, taxAmount, salesAmountWithTax });
+        // Spec: Exempt taxes must NOT include taxRate
+        const taxEntry = tax.taxType === "Exempt"
+          ? { ...tax, taxRate: undefined as number | undefined, taxAmount, salesAmountWithTax }
+          : { ...tax, taxAmount, salesAmountWithTax };
+        add(taxEntry);
       }
       for (const levy of p.fixedLevies) {
         const taxAmount = money(levy.taxRate * (levy.appliedForQuantity || p.line.receiptLineQuantity));
         add({
           taxID: levy.taxID, taxCode: levy.taxCode, taxType: levy.taxType, taxRate: levy.taxRate,
           taxAmount,
-          salesAmountWithTax: receipt.receiptLinesTaxInclusive ? money(p.base + taxAmount) : money(p.line.receiptLineTotal + taxAmount),
+          salesAmountWithTax: receipt.receiptLinesTaxInclusive ? money(p.line.receiptLineTotal) : money(p.line.receiptLineTotal + taxAmount),
         });
       }
     }
@@ -210,10 +215,15 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
     for (const b of buckets.values()) {
       const isFixed = b.fixedRaw > 0 || (b.tax.taxType === "FixedValueLevy");
       const taxAmount = b.tax.taxType === "Exempt" ? 0 : isFixed ? money(b.fixedRaw) : money(b.baseSum * b.tax.taxRate / 100);
+      // Spec: salesAmountWithTax = sum of receiptLineTotal for inclusive receipts
       const salesAmountWithTax = receipt.receiptLinesTaxInclusive
-        ? money(b.baseSum + taxAmount)
+        ? money(b.lineSum)
         : money(b.lineSum + taxAmount);
-      taxes.set(taxKey(b.tax), { ...b.tax, taxAmount, salesAmountWithTax });
+      // Spec: Exempt taxes must NOT include taxRate
+      const taxEntry = b.tax.taxType === "Exempt"
+        ? { ...b.tax, taxRate: undefined as number | undefined, taxAmount, salesAmountWithTax }
+        : { ...b.tax, taxAmount, salesAmountWithTax };
+      taxes.set(taxKey(b.tax), taxEntry);
     }
   }
 

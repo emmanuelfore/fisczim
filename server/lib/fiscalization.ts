@@ -1601,15 +1601,25 @@ export const processInvoiceFiscalizationLEKAKU = async (
         };
     }
 
-    let buyerData: any = undefined;
+    // LEKUKA spec: buyer data is mandatory (RCPT043/RCPT046). Walk-in
+    // customers always send a buyer object so the gateway never rejects
+    // "Buyer data is not provided".
+    let buyerData: any = {
+        buyerRegisterName: "WALK-IN CUSTOMER",
+        buyerTradeName: undefined,
+        buyerTIN: "00000000000", // 11 zeros per RSL spec placeholder
+        VATNumber: undefined,
+        buyerContacts: undefined,
+        buyerAddress: undefined,
+    };
     const customerTin = invoice.customer?.tin?.trim();
     if (invoice.customer && customerTin) {
         buyerData = {
-            buyerRegisterName: invoice.customer.name,
-            buyerTradeName: invoice.customer.name,
-            buyerTIN: customerTin,
+            buyerRegisterName: invoice.customer.name || "WALK-IN CUSTOMER",
+            buyerTradeName: (invoice.customer as any).tradingName || undefined,
+            buyerTIN: String(customerTin).replace(/\D/g, "").padStart(11, "0").slice(0, 11),
         };
-        if (invoice.customer.vatNumber?.trim()) buyerData.vatNumber = invoice.customer.vatNumber.trim();
+        if (invoice.customer.vatNumber?.trim()) buyerData.VATNumber = invoice.customer.vatNumber.trim().slice(0, 8);
         if (invoice.customer.phone?.trim() || invoice.customer.email?.trim()) {
             buyerData.buyerContacts = {};
             if (invoice.customer.phone?.trim()) buyerData.buyerContacts.phoneNo = invoice.customer.phone.trim();

@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'pos-offline';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 
 interface PendingSale {
     id: string;
@@ -9,9 +9,13 @@ interface PendingSale {
     branchId?: number | null;
     invoiceData: any;
     createdAt: string;
-    status: 'pending' | 'syncing' | 'failed';
+    status: 'pending' | 'syncing' | 'failed' | 'dead';
     error?: string;
     attempts: number;
+    /** Server rejections (HTTP 4xx/5xx with a response). Network outages don't count. */
+    serverAttempts: number;
+    /** Next eligible sync time (ISO) — exponential backoff for failed sales. */
+    retryAt?: string | null;
 }
 
 interface PendingShiftAction {
@@ -170,6 +174,11 @@ function openDbOnce(): Promise<IDBPDatabase> {
                 store.createIndex('byCompany', 'companyId');
                 store.createIndex('byStatus', 'status');
             }
+
+            // Product Serials (for serial-tracked items offline)
+            if (!db.objectStoreNames.contains('productSerials')) {
+                db.createObjectStore('productSerials');
+            }
         },
         blocked() {
             console.warn('[DB] Upgrade blocked by older version open in another tab. Please close all tabs.');
@@ -191,6 +200,7 @@ function openDbOnce(): Promise<IDBPDatabase> {
 function mockDb(): IDBPDatabase {
     // Returned only when storage is truly unusable (private mode / quota / wedged LevelDB).
     // Login-critical reads fall back to localStorage / Electron vault below, so auth still works.
+    // Callers will get 'undefined' for reads and 'nothing' for writes.
     return {
         get: async () => undefined,
         put: async () => undefined,
@@ -787,6 +797,8 @@ export async function addPendingSale(companyId: number, invoiceData: any, branch
         createdAt: new Date().toISOString(),
         status: 'pending',
         attempts: 0,
+        serverAttempts: 0,
+        retryAt: null,
     };
     await db.put('pendingSales', sale);
     return id;
@@ -818,6 +830,59 @@ export async function updatePendingSaleStatus(
     }
 }
 
+/** Replace the queued payload (used when a sale is re-issued with fresh fiscal numbers). */
+export async function updatePendingSalePayload(id: string, invoiceData: any): Promise<void> {
+    const db = await getDb();
+    const sale = await db.get('pendingSales', id);
+    if (sale) {
+        sale.invoiceData = invoiceData;
+        await db.put('pendingSales', sale);
+    }
+}
+
+/**
+ * Record a server-side rejection with exponential backoff. After
+ * MAX_SERVER_ATTEMPTS consecutive rejections the sale is quarantined as
+ * 'dead' — auto-sync skips it until a manager retries or discards it.
+ */
+export const MAX_SERVER_ATTEMPTS = 5;
+
+export function computeBackoffRetryAt(serverAttempts: number): string {
+    const minutes = Math.pow(2, Math.min(serverAttempts, 6));
+    return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+export async function recordPendingSaleServerFailure(id: string, error: string): Promise<PendingSale | undefined> {
+    const db = await getDb();
+    const sale = (await db.get('pendingSales', id)) as PendingSale | undefined;
+    if (!sale) return undefined;
+    sale.serverAttempts = (sale.serverAttempts || 0) + 1;
+    sale.attempts = (sale.attempts || 0) + 1;
+    sale.error = error;
+    if (sale.serverAttempts >= MAX_SERVER_ATTEMPTS) {
+        sale.status = 'dead';
+        sale.retryAt = null;
+    } else {
+        sale.status = 'failed';
+        sale.retryAt = computeBackoffRetryAt(sale.serverAttempts);
+    }
+    await db.put('pendingSales', sale);
+    return sale;
+}
+
+/** Manager action: requeue a dead/failed sale for the next sync run. */
+export async function resetPendingSaleRetry(id: string): Promise<void> {
+    const db = await getDb();
+    const sale = await db.get('pendingSales', id);
+    if (sale) {
+        sale.status = 'pending';
+        sale.serverAttempts = 0;
+        sale.retryAt = null;
+        delete sale.error;
+        await db.put('pendingSales', sale);
+    }
+}
+
 export async function removePendingSale(id: string): Promise<void> {
     const db = await getDb();
     await db.delete('pendingSales', id);
@@ -825,7 +890,7 @@ export async function removePendingSale(id: string): Promise<void> {
 
 export async function getPendingSalesCount(companyId: number): Promise<number> {
     const sales = await getPendingSales(companyId);
-    return sales.filter(s => s.status === 'pending' || s.status === 'failed').length;
+    return sales.filter(s => s.status === 'pending' || s.status === 'failed' || s.status === 'dead').length;
 }
 
 export async function getPendingShiftsCount(companyId: number): Promise<number> {
@@ -951,6 +1016,20 @@ export async function removePendingCustomer(id: string): Promise<void> {
     await db.delete('pendingCustomers', id);
 }
 
+// ─── Product Serials ────────────────────────────────────────────────────────
+
+export async function cacheProductSerials(companyId: number, serials: any[]): Promise<void> {
+    const db = await getDb();
+    await db.put('productSerials', serials, companyId);
+}
+
+export async function getCachedProductSerials(companyId: number): Promise<any[] | undefined> {
+    const db = await getDb();
+    const result = await db.get('productSerials', companyId);
+    if (result) return result;
+    return db.get('productSerials', String(companyId));
+}
+
 // ─── Local Stock Adjustments ─────────────────────────────────────────────────
 
 export async function adjustProductStock(companyId: number, items: any[], isReturn = false): Promise<void> {
@@ -959,8 +1038,6 @@ export async function adjustProductStock(companyId: number, items: any[], isRetu
     if (!cachedProducts || cachedProducts.length === 0) return;
 
     let modified = false;
-    const tx = db.transaction('products', 'readwrite');
-
     for (const item of items) {
         // Search by ID or Name
         const product = cachedProducts.find((p: any) => p.id === item.productId || p.name === item.name);
@@ -971,13 +1048,47 @@ export async function adjustProductStock(companyId: number, items: any[], isRetu
             } else {
                 product.stockQuantity -= qty;
             }
-            // Put updated product back into cache
-            await tx.store.put({ companyId, data: cachedProducts });
             modified = true;
         }
     }
-    
-    await tx.done;
+
+    // Single write-back of the products array (same shape as cacheProducts).
+    if (modified) {
+        await db.put('products', cachedProducts, companyId);
+    }
+}
+
+export interface StockShortfall {
+    productId: number | string;
+    name: string;
+    available: number;
+    requested: number;
+}
+
+/**
+ * Checks requested quantities against the locally cached stock levels.
+ * Items without a numeric stockQuantity (services, untracked goods) are
+ * skipped. Returns the list of shortfalls — empty means the sale can proceed.
+ */
+export async function checkStockAvailability(companyId: number, items: any[]): Promise<StockShortfall[]> {
+    const cachedProducts = await getCachedProducts(companyId);
+    if (!cachedProducts || cachedProducts.length === 0) return [];
+    const shortfalls: StockShortfall[] = [];
+    for (const item of items) {
+        const product = cachedProducts.find((p: any) => p.id === item.productId || p.name === (item.name || item.description));
+        if (product && typeof product.stockQuantity === 'number') {
+            const requested = Number(item.quantity) || 0;
+            if (requested > product.stockQuantity) {
+                shortfalls.push({
+                    productId: product.id ?? item.productId,
+                    name: product.name || item.name || item.description || 'Item',
+                    available: product.stockQuantity,
+                    requested,
+                });
+            }
+        }
+    }
+    return shortfalls;
 }
 
 export type { PendingSale, PendingShiftAction, OfflineHold };

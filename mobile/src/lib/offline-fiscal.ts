@@ -11,7 +11,7 @@ export async function processOfflineFiscalization(
   invoiceData: any,
   currencyCode: string,
   taxInclusive: boolean = true,
-  options?: { tryRefresh?: boolean }
+  options?: { tryRefresh?: boolean; isOnlineSale?: boolean }
 ) {
   try {
     let zimraConfig = await getCachedZimraConfig(companyId);
@@ -83,7 +83,12 @@ export async function processOfflineFiscalization(
         receiptDeviceSignature: offlineSig.hash,
         verificationCode: offlineSig.verificationCode,
         qrCodeData: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null,
-        _offline: true,
+        // Echoed back on the server POST so ZIMRA chain validation uses the
+        // exact previous hash / timestamp this receipt was signed against.
+        offlinePreviousHash: fiscalSequence.lastFiscalHash || null,
+        offlineDate: receiptDate,
+        _localSigned: true,
+        _offline: !options?.isOnlineSale,
       };
 
       await cacheFiscalSequence(companyId, {
@@ -93,6 +98,12 @@ export async function processOfflineFiscalization(
         lastFiscalHash: offlineSig.hash,
         currentFiscalDayNo: fiscalDayNo,
       });
+
+      // Anchor for the offline clock monotonic check (never blocks the sale).
+      try {
+        const { recordReceiptTimestamp } = require("./fiscal-guards");
+        recordReceiptTimestamp().catch(() => {});
+      } catch { /* ignore */ }
 
       return fiscalData;
     }

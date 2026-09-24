@@ -70,7 +70,8 @@ import { useFrequentItems } from "../hooks/useFrequentItems";
 import { useProducts, useCreateInvoice, useCustomers, useCompany, useCurrencies, useTaxTypes, useBranches } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 import { ensureInvoiceReadyForPrint } from "../lib/fiscal-print";
-import { refreshOfflineFiscalCache, mergeCompanyWithCachedZimraConfig } from "../lib/fiscalStorage";
+import { refreshOfflineFiscalCache, mergeCompanyWithCachedZimraConfig, getCachedZimraConfig, refreshCachedFiscalSequence } from "../lib/fiscalStorage";
+import { sampleServerClock } from "../lib/fiscal-guards";
 import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { getSelectedBranchId, setSelectedBranchId } from "../lib/storage";
 import { supabase } from "../lib/supabase";
@@ -351,6 +352,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     fetchFiscalStatus();
     if (isOnline) {
       refreshOfflineFiscalCache(companyId).catch(() => {});
+      sampleServerClock(companyId).catch(() => {});
     }
     const interval = setInterval(fetchFiscalStatus, 30000); // 30s
     return () => clearInterval(interval);
@@ -435,6 +437,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       if (online) {
         syncQueuedRef.current(false);
         refreshOfflineFiscalCache(companyId).catch(() => {});
+        sampleServerClock(companyId).catch(() => {});
       }
     });
     return () => unsubscribe();
@@ -1048,6 +1051,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     }
 
     let successCount = 0;
+    let failedCount = 0;
     try {
       for (const action of shiftActions) {
         try {
@@ -1073,11 +1077,51 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       }
       for (const sale of sales) {
         try {
-          const res = await apiFetch(`/api/companies/${companyId}/invoices`, { method: "POST", body: JSON.stringify(sale.payload) });
-          if (res.ok) { await removePendingSale(sale.id); successCount++; }
-        } catch (err) {
-          console.error("Sale sync error:", err);
-          break;
+          const postSale = async (payload: any) => {
+            const res = await apiFetch(`/api/companies/${companyId}/invoices`, {
+              method: "POST",
+              body: JSON.stringify({ ...payload, isOfflineSync: true }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+              throw new Error(err.message || `HTTP ${res.status}`);
+            }
+            return res;
+          };
+          const isSequenceMismatch = (msg: string) =>
+            /not the next in sequence|previous hash|outdated or skipped|RCPT012/i.test(msg || "");
+          try {
+            await postSale(sale.payload);
+            await removePendingSale(sale.id); successCount++;
+          } catch (err: any) {
+            const msg = err?.message || "Sync failed";
+            // Stale fiscal numbers (another terminal moved the chain):
+            // re-issue once with fresh numbers and retry immediately.
+            if (isSequenceMismatch(msg) && !(sale as any)._reissued) {
+              (sale as any)._reissued = true;
+              console.warn(`[Sync] Sale ${sale.id} claimed stale numbers — re-issuing.`);
+              const { processOfflineFiscalization } = require('../lib/offline-fiscal');
+              const { updatePendingSalePayload } = require('../lib/offlineQueue');
+              const fiscalData = await processOfflineFiscalization(
+                companyId, sale.payload, sale.payload?.currency || "USD",
+                sale.payload?.taxInclusive ?? true, { tryRefresh: true, isOnlineSale: true },
+              );
+              if (fiscalData) {
+                const newPayload = { ...sale.payload, ...fiscalData, _localSigned: true };
+                await updatePendingSalePayload(sale.id, newPayload);
+                await postSale(newPayload);
+                await removePendingSale(sale.id); successCount++;
+                continue;
+              }
+              throw new Error(msg);
+            }
+            throw new Error(msg);
+          }
+        } catch (err: any) {
+          console.error("Sale sync error:", err?.message);
+          failedCount++;
+          if (!isOnlineRef.current) break; // offline again — keep the rest queued
+          // otherwise keep going: one bad sale must not block the rest
         }
       }
       // Flush pending notes
@@ -1107,8 +1151,12 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       }
     } finally {
       setIsSyncing(false);
-      if (successCount > 0 && isManual) {
-        Alert.alert("Sync Complete", `Successfully synced ${successCount} items.`);
+      if (isManual) {
+        if (failedCount > 0) {
+          Alert.alert("Sync Incomplete", `${successCount} synced, ${failedCount} still queued (see logs). They will retry automatically.`);
+        } else if (successCount > 0) {
+          Alert.alert("Sync Complete", `Successfully synced ${successCount} items.`);
+        }
       }
     }
   };
@@ -1186,7 +1234,28 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
         setSelectedCustomerId(defaultCustomerId);
       } else {
         try {
-          setIsSubmitting(true);
+    setIsSubmitting(true);
+
+    // ── PRE-SALE GUARDS: clock skew, stale fiscal day, stock levels ──
+    // Blocks sales that would produce receipts ZIMRA rejects on sync.
+    if (company?.vatRegistered) {
+      try {
+        const { runPreSaleGuards } = require('../lib/fiscal-guards');
+        const guard = await runPreSaleGuards(companyId, invoiceData.items);
+        if (guard) {
+          Alert.alert(
+            guard.type === "stock" ? "Insufficient Stock"
+              : guard.type === "fiscalDay" ? "Fiscal Day Closed"
+              : "Device Clock Wrong",
+            guard.message,
+          );
+          setIsSubmitting(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('[POS] Pre-sale guards failed, allowing sale:', e);
+      }
+    }
           const body = {
             name: "Walk-in Customer",
             customerType: "individual",
@@ -1345,144 +1414,118 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
         addPendingSale(companyId, finalInvoiceData, selectedBranchId).then((offlineId) => {
           setLastInvoice((prev: any) => ({ ...invoiceToPrint, id: offlineId, _offline: true, items: prev?.items || printItems }));
         });
+        try {
+          const { adjustCachedStock } = require('../lib/fiscal-guards');
+          adjustCachedStock(companyId, invoiceData.items).catch(() => {});
+        } catch { /* ignore */ }
         setTimeout(() => refreshProducts().catch(console.error), 500);
       });
     } else {
-      // ── SIGN LOCALLY FIRST then print, then sync to server in background ────
-      // We use the same offline signing engine to generate a local QR code and
-      // verification code immediately. This means every sale prints with a full
-      // fiscal receipt instantly — no server round-trip needed before printing.
-      // The server call runs in the background to confirm the global receipt no
-      // and sync with ZIMRA.
-      const isInternalPrinter = printerConfig.isSunmi || printerConfig.isZ100 || printerConfig.isIPos;
-      const { processOfflineFiscalization } = require('../lib/offline-fiscal');
+      // ── LOCAL-FIRST SIGNING: sign instantly with cached RSA key, then sync ──
+      // The private key is pre-warmed when the app loads fiscal context, so
+      // the RSA signing here takes < 100ms. We print immediately with full
+      // fiscal data, then POST to the server in the background so ZIMRA gets
+      // the confirmed receipt.
+      const { processOfflineFiscalization: signLocally } = require('../lib/offline-fiscal');
+      // Fresh numbers for every online sale — kills most multi-terminal
+      // collisions before they happen (re-issue on sync heals the rest).
+      // One fetch only: light sequence refresh when the key is cached,
+      // full fiscal-context (incl. private key) when the cache is cold.
+      try {
+        const cachedCfg: any = await getCachedZimraConfig(companyId).catch(() => null);
+        if (cachedCfg?.zimraPrivateKey) {
+          await refreshCachedFiscalSequence(companyId).catch(() => {});
+        } else {
+          await refreshOfflineFiscalCache(companyId).catch(() => {});
+        }
+      } catch { /* fall through to cache below */ }
 
-      // Sign locally and print right away
-      // Allow cache refresh (tryRefresh:true default) so first-time online sales
-      // can pull the ZIMRA config from the server before signing locally.
-      const { getCachedZimraConfig, getCachedFiscalSequence } = require('../lib/fiscalStorage');
+      signLocally(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive, {
+        // Cache just refreshed above; don't pay for a second fetch.
+        tryRefresh: false,
+        isOnlineSale: true,
+      }).then(async (fiscalData: any) => {
+        // Build the invoice to print — with or without fiscal fields
+        const localFiscalInvoice = fiscalData
+          ? { ...optimisticInvoice, ...fiscalData, invoiceNumber: `${fiscalData.receiptGlobalNo}`, _localSigned: true }
+          : { ...optimisticInvoice };
 
-      // Debug: log what's in cache before signing
-      const [cachedConfig, cachedSeq] = await Promise.all([
-        getCachedZimraConfig(companyId).catch(() => null),
-        getCachedFiscalSequence(companyId).catch(() => null),
-      ]);
-      console.log('[POSPrint] Cached ZIMRA config:', cachedConfig ? `deviceId=${cachedConfig.fdmsDeviceId} hasKey=${!!cachedConfig.zimraPrivateKey}` : 'NONE');
-      console.log('[POSPrint] Cached fiscal sequence:', cachedSeq ? `globalNo=${cachedSeq.lastReceiptGlobalNo} dayNo=${cachedSeq.currentFiscalDayNo}` : 'NONE');
+        setLastInvoice(localFiscalInvoice);
 
-      processOfflineFiscalization(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive)
-        .then(async (localFiscalData: any) => {
-          console.log('[POSPrint] Local fiscal data:', localFiscalData ? `globalNo=${localFiscalData.receiptGlobalNo} hasQR=${!!localFiscalData.qrCodeData} hasVC=${!!localFiscalData.verificationCode}` : 'NULL - no cached config');
-          // Merge in device fields from cached ZIMRA config so receipt has device ID,
-          // serial no, fiscal day no, verification code, and QR code all in one shot.
-          const zimraConfig = await getCachedZimraConfig(companyId).catch(() => null);
-          const invoiceToPrint = localFiscalData
-            ? {
-                ...optimisticInvoice,
-                ...localFiscalData,
-                // Invoice number shown on receipt: global receipt no / daily counter
-                invoiceNumber: localFiscalData.receiptGlobalNo
-                  ? `${localFiscalData.receiptGlobalNo}`
-                  : optimisticInvoice.invoiceNumber,
-                receiptCounter: localFiscalData.receiptCounter,
-                receiptGlobalNo: localFiscalData.receiptGlobalNo,
-                fiscalDayNo: localFiscalData.fiscalDayNo || zimraConfig?.currentFiscalDayNo,
-                // Device fields from cached ZIMRA config
-                fdmsDeviceId: zimraConfig?.fdmsDeviceId || company?.fdmsDeviceId,
-                fdmsDeviceSerialNo: zimraConfig?.fdmsDeviceSerialNo || company?.fdmsDeviceSerialNo,
-                deviceId: zimraConfig?.fdmsDeviceId || company?.deviceId,
-                deviceSerialNo: zimraConfig?.fdmsDeviceSerialNo || company?.deviceSerialNo,
-                // Fiscal signature fields
-                verificationCode: localFiscalData.verificationCode,
-                fiscalSignature: localFiscalData.fiscalSignature,
-                receiptDeviceSignature: localFiscalData.receiptDeviceSignature,
-                // QR code
-                qrCodeData: localFiscalData.qrCodeData,
-                // Mark as locally signed so ensureInvoiceReadyForPrint skips polling
-                _localSigned: true,
-                _offline: false,
-              }
-            : optimisticInvoice;
+        // Decrement cached stock so the next offline sale sees fresh levels.
+        if (fiscalData) {
+          try {
+            const { adjustCachedStock } = require('../lib/fiscal-guards');
+            adjustCachedStock(companyId, invoiceData.items).catch(() => {});
+          } catch { /* ignore */ }
+        }
 
-          if (printerConfig.autoPrint && isInternalPrinter) {
-            setTimeout(() => { printTicket(invoiceToPrint).catch(console.error); }, 200);
-          }
+        // Print immediately — fiscal data is already embedded
+        if (printerConfig.autoPrint) {
+          setTimeout(() => { printTicket(localFiscalInvoice).catch(console.error); }, 100);
+        }
 
-          // Now send to server in the background
-          createInvoice(invoiceData)
-            .then((created: any) => {
-              const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
-              setLastInvoice(fiscalInvoice);
-              // For internal printers we already printed — only reprint if server
-              // returned a DIFFERENT global no (meaning our local counter was ahead/behind)
-              if (printerConfig.autoPrint) {
-                const serverGlobalNo = fiscalInvoice.receiptGlobalNo;
-                const localGlobalNo = localFiscalData?.receiptGlobalNo;
-                const serverHasBetterData = !!(fiscalInvoice.qrCodeData || fiscalInvoice.verificationCode);
-                if (!isInternalPrinter) {
-                  setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 200);
-                } else if (serverHasBetterData && serverGlobalNo && serverGlobalNo !== localGlobalNo) {
-                  // Server confirmed a different receipt number — reprint with authoritative data
-                  setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 300);
-                }
-              }
-              setTimeout(() => refreshProducts().catch(console.error), 500);
-            })
-            .catch(async (err: any) => {
-              const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
-              if (!isNetwork) {
-                Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
-              }
-              // Queue offline with the local fiscal signature we already generated
-              const finalInvoiceData = localFiscalData
-                ? { ...invoiceData, ...localFiscalData }
-                : { ...invoiceData, _offline: true };
-              const offlineId = await addPendingSale(companyId, finalInvoiceData, selectedBranchId);
-              const offlineInvoice = {
-                ...(localFiscalData ? { ...optimisticInvoice, ...localFiscalData } : { ...optimisticInvoice, _offline: true }),
-                id: offlineId,
-                items: printItems,
-              };
-              setLastInvoice(offlineInvoice);
-              // Already printed — no need to reprint on network failure for internal printers
-              if (printerConfig.autoPrint && !isInternalPrinter) {
-                setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
-              }
-            });
-        })
-        .catch(() => {
-          // Local signing failed (no cached config) — fall back to waiting for server
-          if (printerConfig.autoPrint && isInternalPrinter) {
-            setTimeout(() => { printTicket(optimisticInvoice).catch(console.error); }, 200);
-          }
-          createInvoice(invoiceData)
-            .then((created: any) => {
-              const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
-              setLastInvoice(fiscalInvoice);
-              if (printerConfig.autoPrint && !isInternalPrinter) {
-                setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 200);
-              }
-              setTimeout(() => refreshProducts().catch(console.error), 500);
-            })
-            .catch(async (err: any) => {
-              const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
-              if (!isNetwork) {
-                Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
-              }
-              const { processOfflineFiscalization: pof } = require('../lib/offline-fiscal');
-              const fiscalData = await pof(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive);
-              const finalInvoiceData = fiscalData ? { ...invoiceData, ...fiscalData } : { ...invoiceData, _offline: true };
-              const invoiceToPrint = fiscalData
-                ? { ...optimisticInvoice, ...fiscalData, invoiceNumber: `${fiscalData.receiptGlobalNo}`, _offline: true }
-                : { ...optimisticInvoice, _offline: true };
-              const offlineId = await addPendingSale(companyId, finalInvoiceData, selectedBranchId);
-              const offlineInvoice = { ...invoiceToPrint, id: offlineId, _offline: true, items: invoiceToPrint.items || printItems };
-              setLastInvoice(offlineInvoice);
-              if (printerConfig.autoPrint && !isInternalPrinter) {
-                setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
-              }
-            });
-        });
+        // ── Background: POST to server so ZIMRA gets the official receipt ──
+        // Include the pre-computed signature so server doesn't re-sign.
+        const serverPayload = {
+          ...invoiceData,
+          ...(fiscalData ? {
+            _localSigned: true,
+            fiscalSignature: fiscalData.fiscalSignature,
+            receiptDeviceSignature: fiscalData.receiptDeviceSignature,
+            verificationCode: fiscalData.verificationCode,
+            receiptGlobalNo: fiscalData.receiptGlobalNo,
+            receiptCounter: fiscalData.receiptCounter,
+            fiscalDayNo: fiscalData.fiscalDayNo,
+            qrCodeData: fiscalData.qrCodeData,
+            offlinePreviousHash: fiscalData.offlinePreviousHash,
+            offlineDate: fiscalData.offlineDate,
+          } : {}),
+        };
+
+        createInvoice(serverPayload)
+          .then((created: any) => {
+            // Update state with server-confirmed invoice (may have updated global no)
+            const confirmed = { ...localFiscalInvoice, ...created, items: created?.items || localFiscalInvoice.items };
+            setLastInvoice(confirmed);
+            setTimeout(() => refreshProducts().catch(console.error), 500);
+          })
+          .catch((err: any) => {
+            // Server sync failed — sale already printed locally, queue for retry
+            console.warn('[POS] Background server sync failed after local sign:', err?.message);
+            addPendingSale(companyId, serverPayload, selectedBranchId).catch(console.error);
+          });
+      }).catch(async (signErr: any) => {
+        // Local signing failed (no cached key) — fall back to server-first
+        console.warn('[POS] Local signing failed, falling back to server:', signErr?.message);
+        createInvoice(invoiceData)
+          .then((created: any) => {
+            const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
+            setLastInvoice(fiscalInvoice);
+            if (printerConfig.autoPrint) {
+              setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 100);
+            }
+            setTimeout(() => refreshProducts().catch(console.error), 500);
+          })
+          .catch(async (err: any) => {
+            const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
+            if (!isNetwork) {
+              Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
+            }
+            // Full offline fallback
+            const { processOfflineFiscalization: pof } = require('../lib/offline-fiscal');
+            const fiscalData = await pof(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive);
+            const invoiceToPrint = fiscalData
+              ? { ...optimisticInvoice, ...fiscalData, invoiceNumber: `${fiscalData.receiptGlobalNo}`, _offline: true }
+              : { ...optimisticInvoice, _offline: true };
+            const offlineId = await addPendingSale(companyId, fiscalData ? { ...invoiceData, ...fiscalData } : { ...invoiceData, _offline: true }, selectedBranchId);
+            const offlineInvoice = { ...invoiceToPrint, id: offlineId, _offline: true, items: invoiceToPrint.items || printItems };
+            setLastInvoice(offlineInvoice);
+            if (printerConfig.autoPrint) {
+              setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
+            }
+          });
+      });
     }
   };
 

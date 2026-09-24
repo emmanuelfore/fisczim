@@ -1,6 +1,8 @@
 import {
     getPendingSales,
     updatePendingSaleStatus,
+    updatePendingSalePayload,
+    recordPendingSaleServerFailure,
     removePendingSale,
     getPendingShifts,
     updatePendingShiftStatus,
@@ -170,7 +172,13 @@ export async function syncPendingSales(
 
     // 2. Sync sales
     const pending = await getPendingSales(companyId);
-    const toSync = pending.filter(s => s.status === 'pending' || s.status === 'failed');
+    const now = Date.now();
+    const toSync = pending
+        // Dead-letter is quarantined for manager review; backoff skips sales
+        // that aren't due yet. FIFO order preserves the fiscal chain.
+        .filter(s => (s.status === 'pending' || s.status === 'failed')
+            && (!s.retryAt || new Date(s.retryAt).getTime() <= now))
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     if (toSync.length === 0) {
         return {
@@ -188,57 +196,131 @@ export async function syncPendingSales(
         errors: shiftResult.errors.map(e => ({ error: e })),
     };
 
+    // POST one sale. Returns the synced invoice, or throws with the message.
+    const postSale = async (sale: PendingSale): Promise<any> => {
+        const url = buildUrl(api.invoices.create.path, { companyId });
+        const res = await authFetch(url, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': sale.id },
+            body: JSON.stringify({
+                ...sale.invoiceData,
+                isOfflineSync: true // Mark as synced offline sale to bypass shift validation
+            }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ message: 'Unknown error' }));
+            throw new Error(err.message || `HTTP ${res.status}`);
+        }
+        return res.json().catch(() => null);
+    };
+
+    const recordSynced = async (sale: PendingSale, syncedInvoice: any) => {
+        // Sale synced successfully — remove from queue
+        await removePendingSale(sale.id);
+        result.synced++;
+        onProgress?.(result.synced, result.total);
+
+        if (syncedInvoice) {
+            try {
+                const { addSalesHistory } = await import('./offline-db');
+                // Add items back if missing from response
+                if (!syncedInvoice.items || syncedInvoice.items.length === 0) {
+                    syncedInvoice.items = sale.invoiceData.items;
+                }
+                await addSalesHistory(companyId, [syncedInvoice]);
+            } catch (e) {
+                console.error('Failed to add synced sale to history', e);
+            }
+        }
+    };
+
+    // True when the server rejected our claimed fiscal numbers — another
+    // terminal (or a race) moved the chain. Fixable by re-issuing locally.
+    const isSequenceMismatch = (msg: string): boolean =>
+        /not the next in sequence|previous hash|outdated or skipped|RCPT012/i.test(msg || '');
+
+    // Re-signs a queued sale against the live chain and updates it in place.
+    // Returns true when the sale now carries fresh numbers.
+    const reissueWithFreshNumbers = async (sale: PendingSale): Promise<boolean> => {
+        try {
+            const { processOfflineFiscalization } = await import('./offline-fiscal');
+            const fiscalData = await processOfflineFiscalization(
+                companyId,
+                sale.invoiceData,
+                sale.invoiceData?.currency || 'USD',
+                sale.invoiceData?.taxInclusive ?? true,
+                { tryRefresh: true, isOnlineSale: true },
+            );
+            if (!fiscalData) return false;
+            const newPayload = {
+                ...sale.invoiceData,
+                _localSigned: true,
+                fiscalSignature: fiscalData.fiscalSignature,
+                receiptDeviceSignature: fiscalData.receiptDeviceSignature,
+                verificationCode: fiscalData.verificationCode,
+                receiptGlobalNo: fiscalData.receiptGlobalNo,
+                receiptCounter: fiscalData.receiptCounter,
+                fiscalDayNo: fiscalData.fiscalDayNo,
+                qrCodeData: fiscalData.qrCodeData,
+                offlinePreviousHash: fiscalData.offlinePreviousHash,
+                offlineDate: fiscalData.offlineDate,
+            };
+            await updatePendingSalePayload(sale.id, newPayload);
+            sale.invoiceData = newPayload;
+            return true;
+        } catch (e) {
+            console.warn('[Sync] Re-issue failed:', (e as any)?.message);
+            return false;
+        }
+    };
+
     // Process sequentially to preserve fiscal sequence ordering
     for (const sale of toSync) {
         try {
             await updatePendingSaleStatus(sale.id, 'syncing');
-
-            // Build correct URL including companyId substitution
-            const url = buildUrl(api.invoices.create.path, { companyId });
-            const res = await authFetch(url, {
-                method: 'POST',
-                headers: { 'Idempotency-Key': sale.id },
-                body: JSON.stringify({
-                    ...sale.invoiceData,
-                    isOfflineSync: true // Mark as synced offline sale to bypass shift validation
-                }),
-            });
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ message: 'Unknown error' }));
-                throw new Error(err.message || `HTTP ${res.status}`);
-            }
-
-            const syncedInvoice = await res.json().catch(() => null);
-
-            // Sale synced successfully — remove from queue
-            await removePendingSale(sale.id);
-            result.synced++;
-            onProgress?.(result.synced, result.total);
-
-            if (syncedInvoice) {
-                try {
-                    const { addSalesHistory } = await import('./offline-db');
-                    // Add items back if missing from response
-                    if (!syncedInvoice.items || syncedInvoice.items.length === 0) {
-                        syncedInvoice.items = sale.invoiceData.items;
-                    }
-                    await addSalesHistory(companyId, [syncedInvoice]);
-                } catch (e) {
-                    console.error('Failed to add synced sale to history', e);
-                }
-            }
+            const syncedInvoice = await postSale(sale);
+            await recordSynced(sale, syncedInvoice);
         } catch (error: any) {
             const errorMsg = error.message || 'Sync failed';
-            await updatePendingSaleStatus(sale.id, 'failed', errorMsg);
-            result.failed++;
-            result.errors.push({ saleId: sale.id, error: errorMsg });
-            onProgress?.(result.synced, result.total);
 
-            // If this is a network error, stop trying — we're still offline
+            // Network dropped mid-run — park the sale as pending, stop trying.
             if (!getIsOnline()) {
+                await updatePendingSaleStatus(sale.id, 'pending', errorMsg);
                 break;
             }
+
+            // Stale fiscal numbers: re-issue once with fresh numbers and retry
+            // immediately instead of poisoning the queue.
+            if (isSequenceMismatch(errorMsg) && !(sale as any)._reissued) {
+                (sale as any)._reissued = true;
+                console.warn(`[Sync] Sale ${sale.id} claimed stale numbers — re-issuing with fresh numbers.`);
+                try {
+                    const reissued = await reissueWithFreshNumbers(sale);
+                    if (reissued) {
+                        await updatePendingSaleStatus(sale.id, 'syncing');
+                        const syncedInvoice = await postSale(sale);
+                        await recordSynced(sale, syncedInvoice);
+                        continue;
+                    }
+                } catch (retryError: any) {
+                    const retryMsg = retryError.message || 'Re-issue sync failed';
+                    if (!getIsOnline()) {
+                        await updatePendingSaleStatus(sale.id, 'pending', retryMsg);
+                        break;
+                    }
+                    const updated = await recordPendingSaleServerFailure(sale.id, retryMsg);
+                    result.failed++;
+                    result.errors.push({ saleId: sale.id, error: `${retryMsg}${updated?.status === 'dead' ? ' (quarantined — needs manager review)' : ''}` });
+                    onProgress?.(result.synced, result.total);
+                    continue;
+                }
+            }
+
+            // Ordinary server rejection: backoff, quarantine after N attempts.
+            const updated = await recordPendingSaleServerFailure(sale.id, errorMsg);
+            result.failed++;
+            result.errors.push({ saleId: sale.id, error: `${errorMsg}${updated?.status === 'dead' ? ' (quarantined — needs manager review)' : ''}` });
+            onProgress?.(result.synced, result.total);
         }
     }
 

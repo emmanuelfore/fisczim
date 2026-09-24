@@ -1,8 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { CloudUpload, AlertTriangle, RefreshCw, Clock, CheckCircle2 } from "lucide-react";
+import { CloudUpload, AlertTriangle, RefreshCw, Clock, CheckCircle2, Skull } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getDb } from "@/lib/offline-db";
+import { getDb, resetPendingSaleRetry } from "@/lib/offline-db";
 
 interface SyncQueueModalProps {
   isOpen: boolean;
@@ -24,6 +24,8 @@ export function SyncQueueModal({ isOpen, onClose, triggerSync, syncStatus, isOnl
   const loadPendingSales = async () => {
     const db = await getDb();
     const allPending = await db.getAll("pendingSales");
+    // FIFO — oldest first, same order the sync engine uses
+    allPending.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     setPendingSales(allPending);
   };
 
@@ -33,6 +35,37 @@ export function SyncQueueModal({ isOpen, onClose, triggerSync, syncStatus, isOnl
       await db.delete("pendingSales", id);
       await loadPendingSales();
     }
+  };
+
+  const handleRetry = async (id: string) => {
+    await resetPendingSaleRetry(id);
+    await loadPendingSales();
+    triggerSync();
+  };
+
+  const statusMeta = (sale: any) => {
+    if (sale.status === 'dead') {
+      return {
+        chip: "Quarantined",
+        chipClass: "bg-red-100 text-red-700 border-red-200",
+        iconBg: "bg-red-100",
+        icon: <Skull className="h-4 w-4 text-red-600" />,
+      };
+    }
+    if (sale.status === 'failed') {
+      return {
+        chip: sale.retryAt ? `Retrying ${new Date(sale.retryAt).toLocaleTimeString()}` : "Failed",
+        chipClass: "bg-orange-100 text-orange-700 border-orange-200",
+        iconBg: "bg-orange-100",
+        icon: <AlertTriangle className="h-4 w-4 text-orange-600" />,
+      };
+    }
+    return {
+      chip: sale.status === 'syncing' ? "Syncing…" : "Pending",
+      chipClass: "bg-amber-100 text-amber-700 border-amber-200",
+      iconBg: "bg-amber-100",
+      icon: <Clock className="h-4 w-4 text-amber-600" />,
+    };
   };
 
   return (
@@ -58,51 +91,65 @@ export function SyncQueueModal({ isOpen, onClose, triggerSync, syncStatus, isOnl
               <p className="text-sm text-slate-400">No pending transactions in the queue.</p>
             </div>
           ) : (
-            pendingSales.map((sale) => (
-              <div key={sale.id} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-start gap-4 transition-all hover:shadow-md">
-                <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${sale.status === 'error' ? 'bg-red-100' : 'bg-amber-100'}`}>
-                  {sale.status === 'error' ? (
-                    <AlertTriangle className="h-4 w-4 text-red-600" />
-                  ) : (
-                    <Clock className="h-4 w-4 text-amber-600" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-bold text-slate-900 truncate">
-                      {sale.payload.isPos ? 'POS Receipt' : 'Invoice'}
-                    </h3>
-                    <span className="text-sm font-black text-slate-900">
-                      ${Number(sale.payload.total).toFixed(2)}
-                    </span>
+            pendingSales.map((sale) => {
+              const meta = statusMeta(sale);
+              const data = sale.invoiceData || {};
+              return (
+                <div key={sale.id} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-start gap-4 transition-all hover:shadow-md">
+                  <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${meta.iconBg}`}>
+                    {meta.icon}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mb-2">
-                    <span>{new Date(sale.timestamp || Date.now()).toLocaleString()}</span>
-                    <span>•</span>
-                    <span>{sale.payload.items?.length || 0} items</span>
-                  </div>
-                  
-                  {sale.error && (
-                    <div className="bg-red-50 text-red-600 px-3 py-2 rounded-lg text-xs font-semibold border border-red-100 mb-3">
-                      Error: {sale.error}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <h3 className="font-bold text-slate-900 truncate">
+                        {data.isPos ? 'POS Receipt' : 'Invoice'}
+                      </h3>
+                      <span className="text-sm font-black text-slate-900 shrink-0">
+                        {data.currency || ''} {Number(data.total || 0).toFixed(2)}
+                      </span>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mb-2 flex-wrap">
+                      <span>{sale.createdAt ? new Date(sale.createdAt).toLocaleString() : ''}</span>
+                      <span>•</span>
+                      <span>{data.items?.length || 0} items</span>
+                      <span>•</span>
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${meta.chipClass}`}>
+                        {meta.chip}
+                      </span>
+                    </div>
 
-                  {sale.status === 'error' && (
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-7 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                        onClick={() => handleDiscard(sale.id)}
-                      >
-                        Discard Transaction
-                      </Button>
-                    </div>
-                  )}
+                    {sale.error && (
+                      <div className="bg-red-50 text-red-600 px-3 py-2 rounded-lg text-xs font-semibold border border-red-100 mb-3">
+                        Error: {sale.error}
+                      </div>
+                    )}
+
+                    {(sale.status === 'dead' || sale.status === 'failed') && (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                          onClick={() => handleRetry(sale.id)}
+                          disabled={!isOnline}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Retry Now
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                          onClick={() => handleDiscard(sale.id)}
+                        >
+                          Discard Transaction
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 

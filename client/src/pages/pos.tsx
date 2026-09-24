@@ -32,9 +32,16 @@ import {
   setLastCacheTime,
   addPendingSale,
   getCachedFiscalSequence,
+  getCachedZimraConfig,
   cacheFiscalSequence,
+  adjustProductStock,
   generateOfflineReport,
 } from "@/lib/offline-db";
+import {
+  processOfflineFiscalization,
+  refreshOfflineFiscalCache,
+} from "@/lib/offline-fiscal";
+import { runPreSaleGuards, sampleServerClock } from "@/lib/fiscal-guards";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Search,
@@ -147,7 +154,7 @@ import { useAuth } from "@/hooks/use-auth";
 // Refresh the local offline fiscal-sequence cache from the server's
 // authoritative counters. Always attempts the live fetch and only falls
 // back to the existing cache on failure — this prevents offline claims from
-// minting numbers out of a stale sequence (which ZIMRA flags Red).
+// minting numbers out of a stale sequence (which fiscal system flags Red).
 async function refreshCachedFiscalSequence(companyId: number): Promise<any | undefined> {
   try {
     const res = await apiFetch(`/api/companies/${companyId}/zimra/sequence`);
@@ -190,7 +197,6 @@ export default function POSPage() {
   const isCashier = (company as any)?.role === "cashier";
   const { data: products, isLoading: isLoadingProducts } =
     useProducts(companyId, selectedBranchId || undefined);
-  const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
 
   // Emergency fallback: if React Query returns nothing but we have a companyId,
   // read directly from IndexedDB. This handles edge cases where the query
@@ -202,6 +208,7 @@ export default function POSPage() {
   const [cachedCustomersFallback, setCachedCustomersFallback] = useState<any[]>(
     [],
   );
+  const [cachedSerialsFallback, setCachedSerialsFallback] = useState<any[]>([]);
   useEffect(() => {
     if (!companyId) return;
     import("@/lib/offline-db").then(
@@ -210,6 +217,7 @@ export default function POSPage() {
         getCachedCompanySettings,
         getCachedCompaniesList,
         getCachedCustomers,
+        getCachedProductSerials,
       }) => {
         // Products
         getCachedProducts(companyId).then((cached) => {
@@ -241,6 +249,12 @@ export default function POSPage() {
             setCachedCustomersFallback(cached);
           }
         });
+        // Product Serials
+        getCachedProductSerials(companyId).then((cached) => {
+          if (cached && cached.length > 0) {
+            setCachedSerialsFallback(cached);
+          }
+        });
       },
     );
   }, [companyId]);
@@ -248,6 +262,8 @@ export default function POSPage() {
   const { data: currencies } = useCurrencies(companyId);
   const { taxTypes } = useTaxConfig(companyId);
   const createInvoice = useCreateInvoice(companyId);
+  const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
+  const effectiveSerials: any[] = (serialNumbers as any[]).length > 0 ? (serialNumbers as any[]) : cachedSerialsFallback;
 
   // Offline support
   const {
@@ -304,8 +320,31 @@ export default function POSPage() {
       runOnIdle(() =>
         refreshCachedFiscalSequence(companyId).catch(() => {}),
       );
+      // Warm the full offline fiscal cache (private key + counters) so
+      // receipts can be signed locally and print instantly with QR codes,
+      // without waiting for the server round-trip.
+      runOnIdle(() => {
+        refreshOfflineFiscalCache(companyId).catch(() => {});
+      });
+      // Sample the server clock for offline skew detection.
+      runOnIdle(() => {
+        sampleServerClock(companyId).catch(() => {});
+      });
     }
   }, [isOnline, companyId, queryClient, runOnIdle]);
+
+  // Warm the local-signing fiscal cache on mount (while online) so the
+  // first checkout can sign instantly. No-op when offline.
+  useEffect(() => {
+    if (!companyId) return;
+    runOnIdle(() => {
+      refreshOfflineFiscalCache(companyId).catch(() => {});
+    });
+    runOnIdle(() => {
+      sampleServerClock(companyId).catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId]);
 
   // Resolved data — hooks handle caching and fallback; direct IDB reads are emergency fallback
   const resolvedProducts =
@@ -390,19 +429,6 @@ export default function POSPage() {
   const [splitAmount, setSplitAmount] = useState<string>("");
   const [selectedCurrencyCode, setSelectedCurrencyCode] =
     useState<string>("USD");
-  // Lesotho is single-currency: the till is always the home currency (LSL).
-  const posIsLesotho =
-    (company as any)?.country === "Lesotho" ||
-    (company as any)?.fiscalProvider === "LEKAKU";
-  const posHomeCurrency = String(
-    (company as any)?.currency || (posIsLesotho ? "LSL" : "USD"),
-  ).toUpperCase();
-  const posCurrencyOptions = posIsLesotho ? [posHomeCurrency] : ["USD", "ZWG"];
-  useEffect(() => {
-    if (posIsLesotho && selectedCurrencyCode !== posHomeCurrency) {
-      setSelectedCurrencyCode(posHomeCurrency);
-    }
-  }, [posIsLesotho, posHomeCurrency]);
   const [isFiscalized, setIsFiscalized] = useState(true);
   const [pendingPrintQueue, setPendingPrintQueue] = useState<number[]>([]);
   const pendingPrintEnqueuedAtRef = useRef<Record<number, number>>({});
@@ -415,6 +441,9 @@ export default function POSPage() {
       invoice?.fiscalCode ||
       invoice?.verificationCode ||
       invoice?.syncedWithFdms ||
+      invoice?._offline ||
+      invoice?._simulation ||
+      invoice?._localSigned || // locally signed before server round-trip
       fdmsStatus === "fiscalized" ||
       fdmsStatus === "failed",
     );
@@ -660,7 +689,10 @@ export default function POSPage() {
       const savedCurrency = localStorage.getItem(`${prefix}currency`);
       const savedPaymentMethod = localStorage.getItem(`${prefix}paymentMethod`);
 
-      if (savedCart) setCart(JSON.parse(savedCart));
+      if (savedCart) {
+        const parsed = JSON.parse(savedCart);
+        if (Array.isArray(parsed)) setCart(parsed);
+      }
       if (savedCustomerId && savedCustomerId !== "null" && savedCustomerId !== "undefined") setSelectedCustomerId(savedCustomerId);
       if (savedDiscount) setOrderDiscount(parseFloat(savedDiscount));
       if (savedCurrency) setSelectedCurrencyCode(savedCurrency);
@@ -675,38 +707,42 @@ export default function POSPage() {
     if (!companyId) return;
     const prefix = `pos_session_${companyId}_`;
 
-    localStorage.setItem(`${prefix}cart`, JSON.stringify(cart));
-    localStorage.setItem(`${prefix}customerId`, selectedCustomerId);
-    localStorage.setItem(`${prefix}discount`, orderDiscount.toString());
-    localStorage.setItem(`${prefix}currency`, selectedCurrencyCode);
-    localStorage.setItem(`${prefix}paymentMethod`, paymentMethod);
+    try {
+      localStorage.setItem(`${prefix}cart`, JSON.stringify(cart));
+      localStorage.setItem(`${prefix}customerId`, selectedCustomerId);
+      localStorage.setItem(`${prefix}discount`, orderDiscount.toString());
+      localStorage.setItem(`${prefix}currency`, selectedCurrencyCode);
+      localStorage.setItem(`${prefix}paymentMethod`, paymentMethod);
 
-    // Persist detailed printer settings
-    localStorage.setItem("pos_auto_print", posSettings.autoPrint.toString());
-    localStorage.setItem("pos_terminal_id", posSettings.terminalId);
-    localStorage.setItem(
-      "pos_silent_printing",
-      posSettings.silentPrinting.toString(),
-    );
-    localStorage.setItem("pos_printer_name", posSettings.printerName);
-    localStorage.setItem(
-      "pos_printer_width",
-      posSettings.printerWidth.toString(),
-    );
-    localStorage.setItem(
-      "pos_native_esc_pos",
-      posSettings.nativeEscPos.toString(),
-    );
-    localStorage.setItem("pos_auto_cut", posSettings.autoCut.toString());
-    localStorage.setItem("pos_feed_lines", posSettings.feedLines.toString());
-    localStorage.setItem(
-      "pos_open_drawer_on_print",
-      posSettings.openDrawerOnPrint.toString(),
-    );
-    localStorage.setItem(
-      "pos_double_height_header",
-      posSettings.doubleHeightHeader.toString(),
-    );
+      // Persist detailed printer settings
+      localStorage.setItem("pos_auto_print", posSettings.autoPrint.toString());
+      localStorage.setItem("pos_terminal_id", posSettings.terminalId);
+      localStorage.setItem(
+        "pos_silent_printing",
+        posSettings.silentPrinting.toString(),
+      );
+      localStorage.setItem("pos_printer_name", posSettings.printerName);
+      localStorage.setItem(
+        "pos_printer_width",
+        posSettings.printerWidth.toString(),
+      );
+      localStorage.setItem(
+        "pos_native_esc_pos",
+        posSettings.nativeEscPos.toString(),
+      );
+      localStorage.setItem("pos_auto_cut", posSettings.autoCut.toString());
+      localStorage.setItem("pos_feed_lines", posSettings.feedLines.toString());
+      localStorage.setItem(
+        "pos_open_drawer_on_print",
+        posSettings.openDrawerOnPrint.toString(),
+      );
+      localStorage.setItem(
+        "pos_double_height_header",
+        posSettings.doubleHeightHeader.toString(),
+      );
+    } catch (e) {
+      console.warn("[POS] localStorage write failed:", e);
+    }
   }, [
     companyId,
     cart,
@@ -1553,7 +1589,7 @@ export default function POSPage() {
         const invoice = await res.json();
         
         // Rebuild cart
-        const cartItems = invoice.items.map((item: any) => ({
+        const cartItems = (invoice.items || []).map((item: any) => ({
           productId: item.product?.id || item.productId,
           name: item.product?.name || item.description,
           price: Number(item.unitPrice),
@@ -1752,8 +1788,15 @@ export default function POSPage() {
       return;
     }
 
-    const prepareNextSaleImmediately = () => {
-      try {
+    // Decrement cached stock in the background once a sale completes.
+    // Defined here so both the try paths and the catch fallback can use it.
+    const decrementLocalStock = (items: any[]) => {
+      adjustProductStock(companyId, items).catch((e) =>
+        console.warn("[POS] Local stock decrement failed:", e),
+      );
+    };
+
+    const prepareNextSaleImmediately = () => {      try {
         const itemFreq = { ...posItemFrequencies };
         cart.forEach(item => {
           itemFreq[item.productId] = (itemFreq[item.productId] || 0) + item.quantity;
@@ -1816,6 +1859,26 @@ export default function POSPage() {
           serialNumber: item.serialNumber,
         })),
       };
+
+      // ── PRE-SALE GUARDS: clock skew, stale fiscal day, stock levels ──
+      // Blocks sales that would produce receipts ZIMRA rejects on sync.
+      if (isFiscalized) {
+        const guard = await runPreSaleGuards(companyId, invoiceData.items);
+        if (guard) {
+          toast({
+            title:
+              guard.type === "stock"
+                ? "Insufficient Stock"
+                : guard.type === "fiscalDay"
+                  ? "Fiscal Day Closed"
+                  : "Device Clock Wrong",
+            description: guard.message,
+            variant: "destructive",
+          });
+          setIsProcessing(false);
+          return;
+        }
+      }
 
       // ─── Offline fallback: queue sale locally ────────────────────
       if (isLaybySale) {
@@ -1897,21 +1960,54 @@ export default function POSPage() {
       if (!isOnline) {
         const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
         let posRef = offlineRef;
+        // ── LOCAL SIGNING (offline): sign the receipt locally so it prints
+        // with fiscal numbers + QR immediately instead of an unsigned slip.
+        let offlineFiscalData: any = null;
         if (isFiscalized) {
-          await refreshCachedFiscalSequence(companyId).catch(() => {});
+          try {
+            offlineFiscalData = await processOfflineFiscalization(
+              companyId,
+              invoiceData,
+              currency.code,
+              taxInclusive,
+              { tryRefresh: false },
+            );
+          } catch (e) {
+            console.warn("[POS] Local offline signing failed, queueing unsigned:", e);
+          }
+          if (!offlineFiscalData) {
+            await refreshCachedFiscalSequence(companyId).catch(() => {});
+          }
         }
 
-        const payloadToQueue = { ...invoiceData };
+        const payloadToQueue = offlineFiscalData
+          ? {
+              ...invoiceData,
+              _localSigned: true,
+              fiscalSignature: offlineFiscalData.fiscalSignature,
+              receiptDeviceSignature: offlineFiscalData.receiptDeviceSignature,
+              verificationCode: offlineFiscalData.verificationCode,
+              receiptGlobalNo: offlineFiscalData.receiptGlobalNo,
+              receiptCounter: offlineFiscalData.receiptCounter,
+              fiscalDayNo: offlineFiscalData.fiscalDayNo,
+              qrCodeData: offlineFiscalData.qrCodeData,
+              offlinePreviousHash: offlineFiscalData.offlinePreviousHash,
+              offlineDate: offlineFiscalData.offlineDate,
+            }
+          : { ...invoiceData };
         const offlineId = await addPendingSale(
           companyId,
           payloadToQueue,
           selectedBranchId,
         );
+        decrementLocalStock(payloadToQueue.items);
         const offInvoice = {
           id: offlineId,
           ...payloadToQueue,
           _offline: true,
-          invoiceNumber: posRef,
+          invoiceNumber: offlineFiscalData
+            ? `${offlineFiscalData.receiptGlobalNo}`
+            : posRef,
           customerReference: posRef,
           paymentAmount: sumTenders,
           change: sumTenders - (total * exchangeRate),
@@ -1947,6 +2043,115 @@ export default function POSPage() {
           );
         });
         return;
+      }
+
+      // ── LOCAL-FIRST SIGNING (online): sign instantly with the cached RSA
+      // key, print immediately with full fiscal data (QR + numbers), then
+      // POST to the server in the background so ZIMRA gets the official
+      // receipt. Receipts never wait for server signing and never print
+      // unsigned. Falls through to server-first when no cached key exists.
+      // (Skipped for restaurant draft finalizations — those already exist
+      // on the server and keep their own numbers.)
+      if (!activeDraftInvoiceId && isFiscalized) {
+        // Fresh numbers for every online sale — kills most multi-terminal
+        // collisions before they happen (auto re-issue on sync heals the rest).
+        // One fetch only: light sequence refresh when the key is cached,
+        // full fiscal-context (incl. private key) when the cache is cold.
+        try {
+          const cachedCfg = await getCachedZimraConfig(companyId).catch(() => undefined);
+          if ((cachedCfg as any)?.zimraPrivateKey) {
+            await refreshCachedFiscalSequence(companyId).catch(() => {});
+          } else {
+            await refreshOfflineFiscalCache(companyId).catch(() => {});
+          }
+        } catch { /* fall through to cache below */ }
+        let localFiscalData: any = null;
+        try {
+          localFiscalData = await processOfflineFiscalization(companyId, invoiceData, currency.code, taxInclusive, {
+            // Cache just refreshed above; don't pay for a second fetch.
+            // Falls through to server-first when no cached key exists.
+            tryRefresh: false,
+            isOnlineSale: true,
+          });
+        } catch (signErr) {
+          console.warn("[POS] Local signing failed, falling back to server:", (signErr as any)?.message);
+        }
+        if (localFiscalData) {
+          const serverPayload = {
+            ...invoiceData,
+            _localSigned: true,
+            fiscalSignature: localFiscalData.fiscalSignature,
+            receiptDeviceSignature: localFiscalData.receiptDeviceSignature,
+            verificationCode: localFiscalData.verificationCode,
+            receiptGlobalNo: localFiscalData.receiptGlobalNo,
+            receiptCounter: localFiscalData.receiptCounter,
+            fiscalDayNo: localFiscalData.fiscalDayNo,
+            qrCodeData: localFiscalData.qrCodeData,
+            offlinePreviousHash: localFiscalData.offlinePreviousHash,
+            offlineDate: localFiscalData.offlineDate,
+          };
+          const localFiscalInvoice = {
+            ...serverPayload,
+            _localSigned: true,
+            invoiceNumber: `${localFiscalData.receiptGlobalNo}`,
+            paymentAmount: sumTenders,
+            change: sumTenders - (total * exchangeRate),
+          };
+          if (posSettings.printingEnabled) {
+            setLastSuccessfulInvoice(localFiscalInvoice);
+          } else {
+            toast({
+              title: "Success",
+              description: "Order processed successfully",
+            });
+            setActiveView("products");
+          }
+          prepareNextSaleImmediately();
+          clearPersistedSession();
+          decrementLocalStock(serverPayload.items);
+
+          // Cash drawer: open after successful sale when running in Electron and enabled
+          if (window.electronAPI && posSettings.cashDrawerEnabled) {
+            const printerName =
+              localStorage.getItem("pos_printer_name") || undefined;
+            window.electronAPI.openCashDrawer(printerName).catch(console.error);
+          }
+
+          // Background: POST to server so ZIMRA gets the official receipt.
+          createInvoice
+            .mutateAsync(serverPayload as any)
+            .then(async (confirmed: any) => {
+              try {
+                const { addSalesHistory } = await import("@/lib/offline-db");
+                const offlineSaleRecord = {
+                  ...confirmed,
+                  items:
+                    confirmed.items && confirmed.items.length > 0
+                      ? confirmed.items
+                      : invoiceData.items,
+                };
+                await addSalesHistory(companyId, [offlineSaleRecord]);
+              } catch (e) {
+                console.error("Failed to save to offline sales history", e);
+              }
+              runOnIdle(() => {
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/companies/:companyId/products", companyId],
+                });
+              });
+              runOnIdle(() => {
+                refreshOfflineFiscalCache(companyId).catch(() => {});
+              });
+            })
+            .catch((err: any) => {
+              // Server sync failed — sale already printed locally, queue for retry
+              console.warn("[POS] Background server sync failed after local sign:", err?.message);
+              addPendingSale(companyId, serverPayload, selectedBranchId)
+                .then(() => refreshPendingCount().catch(() => {}))
+                .catch(console.error);
+            });
+          return;
+        }
       }
 
       let result;
@@ -2016,6 +2221,7 @@ export default function POSPage() {
 
       prepareNextSaleImmediately();
       clearPersistedSession();
+      decrementLocalStock(invoiceData.items);
     } catch (error: any) {
       // If the error looks like a network failure, queue offline
       if (!navigator.onLine || error.message === "Failed to fetch") {
@@ -2059,23 +2265,56 @@ export default function POSPage() {
           };
           const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
           let posRef = offlineRef;
-          
+
+          // Sign locally so the fallback receipt still prints with fiscal
+          // fields + QR instead of an unsigned slip.
+          let fallbackFiscalData: any = null;
           if (isFiscalized) {
-            await refreshCachedFiscalSequence(companyId).catch(() => {});
+            try {
+              fallbackFiscalData = await processOfflineFiscalization(
+                companyId,
+                payload,
+                selectedCurrencyCode,
+                taxInclusive,
+                { tryRefresh: false },
+              );
+            } catch (e) {
+              console.warn("[POS] Local signing failed in error fallback:", e);
+            }
+            if (!fallbackFiscalData) {
+              await refreshCachedFiscalSequence(companyId).catch(() => {});
+            }
           }
 
-          const payloadToQueue = { ...payload };
+          const payloadToQueue = fallbackFiscalData
+            ? {
+                ...payload,
+                _localSigned: true,
+                fiscalSignature: fallbackFiscalData.fiscalSignature,
+                receiptDeviceSignature: fallbackFiscalData.receiptDeviceSignature,
+                verificationCode: fallbackFiscalData.verificationCode,
+                receiptGlobalNo: fallbackFiscalData.receiptGlobalNo,
+                receiptCounter: fallbackFiscalData.receiptCounter,
+                fiscalDayNo: fallbackFiscalData.fiscalDayNo,
+                qrCodeData: fallbackFiscalData.qrCodeData,
+                offlinePreviousHash: fallbackFiscalData.offlinePreviousHash,
+                offlineDate: fallbackFiscalData.offlineDate,
+              }
+            : { ...payload };
           const offlineId = await addPendingSale(
             companyId,
             payloadToQueue,
             selectedBranchId,
           );
-          
+          decrementLocalStock(payloadToQueue.items);
+
           const offInvoice = {
             id: offlineId,
             ...payloadToQueue,
             _offline: true,
-            invoiceNumber: posRef,
+            invoiceNumber: fallbackFiscalData
+              ? `${fallbackFiscalData.receiptGlobalNo}`
+              : posRef,
             customerReference: posRef,
             paymentAmount: sumTenders,
             change: sumTenders - (total * exchangeRate),
@@ -2137,12 +2376,20 @@ export default function POSPage() {
         error.name === "AbortError" ||
         error.message?.includes("aborted")
       ) {
-        toast({
-          title: "Request Timed Out",
-          description:
-            "The request took too long or was interrupted. Please check your connection and try again.",
-          variant: "destructive",
-        });
+        if (!navigator.onLine) {
+          toast({
+            title: "Offline Mode",
+            description:
+              "Connection interrupted. Your sale has been saved locally and will sync when you're back online.",
+          });
+        } else {
+          toast({
+            title: "Request Timed Out",
+            description:
+              "The server took too long to respond. The sale was saved locally and will retry automatically.",
+            variant: "destructive",
+          });
+        }
       } else {
         toast({
           title: "Error",
@@ -2424,7 +2671,7 @@ export default function POSPage() {
             const waitedMs = Date.now() - enqueuedAt;
             if (waitedMs >= BACKGROUND_PRINT_MAX_WAIT_MS) {
               console.warn(
-                `[POS] Background Printing: Invoice ${invoiceId} timed out waiting for ZIMRA after ${Math.round(waitedMs / 1000)}s. Printing fallback receipt.`,
+                `[POS] Background Printing: Invoice ${invoiceId} timed out waiting for fiscal system after ${Math.round(waitedMs / 1000)}s. Printing fallback receipt.`,
               );
               handleSilentPrint(invoice, { suppressNotifications: true }).catch(
                 console.error,
@@ -2915,11 +3162,45 @@ export default function POSPage() {
       const res = await apiFetch(
         `/api/pos/last-receipt?companyId=${companyId}`,
       );
-      if (res.ok) setReprintList(await res.json());
-      else
+      if (res.ok) {
+        setReprintList(await res.json());
+      } else if (!navigator.onLine) {
+        // Offline: use salesHistory from IndexedDB
+        const { getSalesHistory } = await import("@/lib/offline-db");
+        const history = await getSalesHistory(companyId);
+        const today = new Date().toISOString().slice(0, 10);
+        const todaySales = history
+          .filter((s: any) => s.issueDate?.startsWith(today))
+          .sort((a: any, b: any) => (b.issueDate || "").localeCompare(a.issueDate || ""));
+        if (todaySales.length > 0) {
+          setReprintList(todaySales.slice(0, 10));
+        } else {
+          toast({ title: "No receipts found for today (offline)", variant: "destructive" });
+        }
+      } else {
         toast({ title: "No receipts found for today", variant: "destructive" });
+      }
     } catch {
-      toast({ title: "Failed to load receipts", variant: "destructive" });
+      // Offline fallback: use salesHistory
+      if (!navigator.onLine) {
+        try {
+          const { getSalesHistory } = await import("@/lib/offline-db");
+          const history = await getSalesHistory(companyId);
+          const today = new Date().toISOString().slice(0, 10);
+          const todaySales = history
+            .filter((s: any) => s.issueDate?.startsWith(today))
+            .sort((a: any, b: any) => (b.issueDate || "").localeCompare(a.issueDate || ""));
+          if (todaySales.length > 0) {
+            setReprintList(todaySales.slice(0, 10));
+          } else {
+            toast({ title: "No receipts found for today (offline)", variant: "destructive" });
+          }
+        } catch {
+          toast({ title: "Failed to load receipts", variant: "destructive" });
+        }
+      } else {
+        toast({ title: "Failed to load receipts", variant: "destructive" });
+      }
     }
     setReprintListLoading(false);
   };
@@ -2932,9 +3213,35 @@ export default function POSPage() {
       const res = await apiFetch(
         `/api/pos/invoice-search?companyId=${companyId}&q=${encodeURIComponent(q)}`,
       );
-      if (res.ok) setCnSearchResults(await res.json());
+      if (res.ok) {
+        setCnSearchResults(await res.json());
+      } else if (!navigator.onLine) {
+        // Offline: search salesHistory from IndexedDB
+        const { getSalesHistory } = await import("@/lib/offline-db");
+        const history = await getSalesHistory(companyId);
+        const query = q.toLowerCase();
+        const results = history.filter((inv: any) =>
+          (inv.receiptNumber || "").toLowerCase().includes(query) ||
+          (inv.customerName || "").toLowerCase().includes(query) ||
+          (inv.invoiceNumber || "").toLowerCase().includes(query)
+        );
+        setCnSearchResults(results.slice(0, 20));
+      }
     } catch {
-      /* ignore */
+      // Offline fallback
+      if (!navigator.onLine) {
+        try {
+          const { getSalesHistory } = await import("@/lib/offline-db");
+          const history = await getSalesHistory(companyId);
+          const query = q.toLowerCase();
+          const results = history.filter((inv: any) =>
+            (inv.receiptNumber || "").toLowerCase().includes(query) ||
+            (inv.customerName || "").toLowerCase().includes(query) ||
+            (inv.invoiceNumber || "").toLowerCase().includes(query)
+          );
+          setCnSearchResults(results.slice(0, 20));
+        } catch { /* ignore */ }
+      }
     }
     setCnSearching(false);
   };
@@ -2953,19 +3260,57 @@ export default function POSPage() {
         const fullInv = await res.json();
         setCnActiveInvoice(fullInv);
         setCnSelectedItems(
-          fullInv.items.map((it: any) => ({
+          (fullInv.items || []).map((it: any) => ({
             productId: it.productId,
             quantity: Number(it.quantity),
             originalItem: it,
           })),
         );
+      } else if (!navigator.onLine) {
+        // Offline: try to find the invoice in salesHistory
+        const { getSaleHistoryById } = await import("@/lib/offline-db");
+        const cached = await getSaleHistoryById(inv.id);
+        if (cached) {
+          setCnActiveInvoice(cached);
+          setCnSelectedItems(
+            (cached.items || []).map((it: any) => ({
+              productId: it.productId,
+              quantity: Number(it.quantity),
+              originalItem: it,
+            })),
+          );
+        } else {
+          toast({ title: "Invoice not found in offline cache", variant: "destructive" });
+        }
       }
     } catch {
-      toast({
-        title: "Error",
-        description: "Could not fetch invoice details",
-        variant: "destructive",
-      });
+      // Offline fallback
+      if (!navigator.onLine) {
+        try {
+          const { getSaleHistoryById } = await import("@/lib/offline-db");
+          const cached = await getSaleHistoryById(inv.id);
+          if (cached) {
+            setCnActiveInvoice(cached);
+            setCnSelectedItems(
+              (cached.items || []).map((it: any) => ({
+                productId: it.productId,
+                quantity: Number(it.quantity),
+                originalItem: it,
+              })),
+            );
+          } else {
+            toast({ title: "Invoice not found in offline cache", variant: "destructive" });
+          }
+        } catch {
+          toast({ title: "Could not fetch invoice details", variant: "destructive" });
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "Could not fetch invoice details",
+          variant: "destructive",
+        });
+      }
     }
     setCnProcessing(false);
   };
@@ -3496,7 +3841,7 @@ export default function POSPage() {
                             <SelectValue placeholder="Select Serial Number" />
                           </SelectTrigger>
                           <SelectContent>
-                            {serialNumbers
+                            {effectiveSerials
                               .filter(
                                 (s: any) =>
                                   s.productId === item.productId &&
@@ -4196,9 +4541,9 @@ export default function POSPage() {
                 </div>
               </div>
 
-              {/* Global Currency Switcher - Hyper Compact (LSL only in Lesotho) */}
+              {/* Global Currency Switcher - Hyper Compact */}
               <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
-                {posCurrencyOptions.map((cc) => (
+                {["USD", "ZWG"].map((cc) => (
                   <button
                     key={cc}
                     onClick={() => setSelectedCurrencyCode(cc)}

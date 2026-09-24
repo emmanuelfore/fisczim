@@ -58,6 +58,16 @@ export async function removePendingSale(id: string) {
   );
 }
 
+/** Replace a queued payload (used when a sale is re-issued with fresh fiscal numbers). */
+export async function updatePendingSalePayload(id: string, payload: any) {
+  const list = await readJson<PendingSale[]>(KEYS.pendingSales, []);
+  const sale = list.find((x) => x.id === id);
+  if (sale) {
+    sale.payload = payload;
+    await writeJson(KEYS.pendingSales, list);
+  }
+}
+
 export async function addPendingShiftAction(action: Omit<PendingShiftAction, "id" | "createdAt">): Promise<string> {
   const list = await readJson<PendingShiftAction[]>(KEYS.pendingShiftActions, []);
   const id = uid();

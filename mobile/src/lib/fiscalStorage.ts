@@ -5,6 +5,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiFetch } from "./api";
+import { prewarmKeyCache } from "./fiscalization-offline";
 
 const KEYS = {
   zimraConfig: "zimraConfig",
@@ -122,9 +123,13 @@ export async function refreshOfflineFiscalCache(companyId: number): Promise<{
           zimraCertificate: ctx.zimraCertificate,
           qrUrl: ctx.qrUrl,
           currentFiscalDayNo: ctx.currentFiscalDayNo,
+          fiscalDayOpen: ctx.fiscalDayOpen,
+          fiscalDayOpenedAt: ctx.fiscalDayOpenedAt,
           zimraEnvironment: ctx.zimraEnvironment,
         };
         await cacheZimraConfig(companyId, config);
+        // Pre-warm RSA key cache so first checkout is instant
+        prewarmKeyCache(ctx.zimraPrivateKey);
       } else {
         console.warn(`[FiscalStorage] /fiscal-context returned OK but zimraPrivateKey is missing!`, ctx);
       }

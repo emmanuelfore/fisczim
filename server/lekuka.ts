@@ -33,6 +33,14 @@ export interface LekukaConfig {
   deviceModelVersion?: string;
 }
 
+/**
+ * Persists gateway traffic to `zimra_logs` so LEKUKA submissions are visible
+ * in Transaction History / Sequence Report — same role as ZimraLogger.
+ */
+export interface LekukaLogger {
+  log(invoiceId: number | null, endpoint: string, request: any, response: any, statusCode?: number, errorMessage?: string): Promise<void>;
+}
+
 export interface LekukaAdditionalTax {
   taxID: number;
   receiptLineId: number;
@@ -238,14 +246,36 @@ export function getLekukaReceiptSignatureInput(receipt: LekukaReceipt, deviceId:
   return `${deviceId}${prepared.receiptType.toUpperCase()}${prepared.receiptCurrency.toUpperCase()}${prepared.receiptGlobalNo}${prepared.receiptDate}${Math.round(prepared.receiptTotal! * 100)}${taxInput}${previousReceiptHash || ""}`;
 }
 
+/**
+ * First 16 hex chars of MD5 over the device signature (hex form) — LEKUKA
+ * spec section 11 "receiptQrData". Must be derived from the DEVICE
+ * signature, never the server hash, or the portal lookup misses and reports
+ * the invoice as not received.
+ */
+export function calculateLekukaVerificationCode(deviceSignatureBase64: string): string {
+  const buf = Buffer.from(deviceSignatureBase64, "base64");
+  const hex = buf.toString("hex").toUpperCase();
+  return crypto.createHash("md5").update(hex).digest("hex").toUpperCase().substring(0, 16);
+}
+
+/** Friendly endpoint names shared with the logs UI + sequence report. */
+export function lekukaSubmitLogEndpoint(receiptType?: string): string {
+  if (receiptType === "CreditNote") return "Credit Note Submission";
+  if (receiptType === "DebitNote") return "Debit Note Submission";
+  return "Invoice Submission";
+}
+
 export class LekukaDevice {
   private readonly client: AxiosInstance;
   private readonly deviceId: string;
   private readonly privateKey?: string;
+  private readonly logger?: LekukaLogger;
+  private currentInvoiceId: number | null = null;
 
-  constructor(config: LekukaConfig) {
+  constructor(config: LekukaConfig, logger?: LekukaLogger) {
     this.deviceId = String(config.deviceId);
     this.privateKey = config.privateKey;
+    this.logger = logger;
     this.client = axios.create({
       baseURL: config.baseUrl.replace(/\/$/, ""),
       timeout: config.timeoutMs || 30_000,
@@ -275,10 +305,26 @@ export class LekukaDevice {
     return { ...prepared, receiptDeviceSignature: { hash, signature: signer.sign(this.privateKey, "base64") } };
   }
 
-  private async request<T>(method: "GET" | "POST", version: "v1" | "v2", action: string, data?: unknown): Promise<T> {
+  public setInvoiceId(id: number | null) {
+    this.currentInvoiceId = id;
+  }
+
+  private async request<T>(method: "GET" | "POST", version: "v1" | "v2", action: string, data?: unknown, logEndpoint?: string): Promise<T> {
     const endpoint = `/Device/${version}/${this.deviceId}/${action}`;
+    // Mirror ZIMRA: only lifecycle endpoints are persisted (no GetStatus/Ping noise).
+    const allowedLogs = ["OpenDay", "CloseDay", "SubmitReceipt", "GetConfig"];
+    const friendlyNames: Record<string, string> = {
+      OpenDay: "Open Fiscal Day",
+      CloseDay: "Close Fiscal Day",
+      GetConfig: "Sync Config",
+    };
+    let responseData: any = null;
+    let statusCode: number | undefined;
+    let errorMessage: string | undefined;
     try {
       const response = await this.client.request<T>({ method, url: endpoint, data });
+      responseData = response.data;
+      statusCode = response.status;
       // Log full response for SubmitReceipt to catch silent failures
       if (action === "SubmitReceipt") {
         console.log(`[LEKUKA-API] ${method} ${endpoint} RESPONSE (${response.status}):`, JSON.stringify(response.data, null, 2));
@@ -287,7 +333,16 @@ export class LekukaDevice {
     } catch (error: any) {
       const respData = error.response?.data;
       console.log(`[LEKUKA-API] ${method} ${endpoint} ERROR ${error.response?.status}:`, JSON.stringify(respData, null, 2));
+      statusCode = error.response?.status || 0;
+      errorMessage = error.message;
+      responseData = respData || { error: error.message };
       throw new LekukaApiError(error.response?.status || 0, endpoint, respData || error.message);
+    } finally {
+      if (this.logger && allowedLogs.includes(action)) {
+        const name = logEndpoint || friendlyNames[action] || action;
+        this.logger.log(this.currentInvoiceId, name, data || {}, responseData, statusCode, errorMessage)
+          .catch(err => console.error("Failed to save LEKUKA log:", err));
+      }
     }
   }
 
@@ -350,7 +405,7 @@ export class LekukaDevice {
     };
     // Log full payload for SubmitReceipt debugging — RSL may reject silently on HTTP 200
     console.log(`[LEKUKA-API] SubmitReceipt FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
-    return this.request<any>("POST", "v2", "SubmitReceipt", payload);
+    return this.request<any>("POST", "v2", "SubmitReceipt", payload, lekukaSubmitLogEndpoint(signedReceipt.receiptType));
   }
 
   /** LEKUKA spec stage 4 — close the fiscal day and reconcile. */
@@ -424,12 +479,20 @@ export class LekukaDevice {
       // Same structure as ZIMRA but with Lekuka invoice verification URL.
       const deviceIdPadded = this.deviceId.padStart(10, "0");
 
-      // Date format DDMMYYYY from "YYYY-MM-DDTHH:mm:ss"
-      const d = new Date(receiptDate);
-      const day = d.getDate().toString().padStart(2, "0");
-      const month = (d.getMonth() + 1).toString().padStart(2, "0");
-      const year = d.getFullYear();
-      const qrDate = `${day}${month}${year}`;
+      // receiptDate is "YYYY-MM-DDTHH:mm:ss" Lesotho local (no timezone).
+      // Parse the date part directly — new Date() would reinterpret it in the
+      // server timezone and can shift DDMMYYYY by a day.
+      const dateMatch = String(receiptDate || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      let qrDate: string;
+      if (dateMatch) {
+        qrDate = `${dateMatch[3]}${dateMatch[2]}${dateMatch[1]}`;
+      } else {
+        const d = new Date(receiptDate);
+        const day = d.getDate().toString().padStart(2, "0");
+        const month = (d.getMonth() + 1).toString().padStart(2, "0");
+        const year = d.getFullYear();
+        qrDate = `${day}${month}${year}`;
+      }
 
       const globalNoPadded = globalNo.toString().padStart(10, "0");
 

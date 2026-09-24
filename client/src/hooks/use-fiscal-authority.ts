@@ -20,10 +20,14 @@ export function useFiscalAuthority() {
         authorityFullName: isLesotho ? "Revenue Services Lesotho" : "Zimbabwe Revenue Authority",
         authorityShortName: isLesotho ? "LEKUKA" : "ZIMRA",
         
-        // Portal/Verification
+        // Portal/Verification — RSL invoice portal (test carries :8443)
         portalName: isLesotho ? "LEKUKA Portal" : "ZIMRA Portal",
         verifyLabel: isLesotho ? "Verify with RSL" : "Verify with ZIMRA",
-        verifyUrl: isLesotho ? "https://lekuka.rsl.co.ls/verify" : "https://fdms.zimra.co.zw/verify",
+        verifyUrl: isLesotho
+            ? ((activeCompany as any)?.zimraEnvironment === "production"
+                ? "https://invoice.rsl.org.ls/"
+                : "https://invoice.rsl.org.ls:8443/")
+            : "https://fdms.zimra.co.zw/verify",
         
         // Settings
         settingsRoute: isLesotho ? "/lekuka-settings" : "/zimra-settings",

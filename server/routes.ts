@@ -11054,15 +11054,15 @@ export async function registerRoutes(
       if (receipt.buyerData?.buyerTIN) {
         receipt.buyerData.buyerTIN = String(receipt.buyerData.buyerTIN).replace(/\D/g, "").padStart(11, "0").slice(0, 11);
       }
-      const result = await device.submitReceipt(receipt, previousReceiptHash);
-      // Calculate 16-digit verification code from the server hash (same approach as ZIMRA)
+      const signed = device.signReceipt(receipt, previousReceiptHash);
+      const result = await device.submitSignedReceipt(signed);
+      // Verification / QR data per LEKUKA spec section 11: MD5 over the
+      // RECEIPT DEVICE signature (not the server hash).
       let verificationCode = "";
-      if (result.hash) {
-          try {
-              const hashBytes = Buffer.from(result.hash, "base64");
-              verificationCode = crypto.createHash("md5").update(hashBytes).digest("hex").substring(0, 16).toUpperCase();
-          } catch (e) { /* ignore */ }
-      }
+      try {
+        const { calculateLekukaVerificationCode } = await import("./lekuka.js");
+        verificationCode = calculateLekukaVerificationCode(signed.receiptDeviceSignature?.signature || "");
+      } catch (e) { /* ignore */ }
       res.json({ ...result, verificationCode });
     } catch (err: any) {
       console.error("LEKUKA submit-receipt error:", err?.message || err);

@@ -1,7 +1,6 @@
 import { storage } from "../storage.js";
-import crypto from "crypto";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
-import { LekukaDevice, LekukaConfig, LekukaReceipt, LekukaReceiptLine, LekukaReceiptPayment, LekukaTaxType, prepareLekukaReceipt, getLekukaReceiptSignatureInput } from "../lekuka.js";
+import { LekukaDevice, LekukaConfig, LekukaReceipt, LekukaReceiptLine, LekukaReceiptPayment, LekukaTaxType, prepareLekukaReceipt, getLekukaReceiptSignatureInput, calculateLekukaVerificationCode } from "../lekuka.js";
 import { Invoice, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
 import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../../shared/lekuka.js";
 import fs from "fs";
@@ -1530,7 +1529,8 @@ export const processInvoiceFiscalizationLEKUKA = async (
         deviceId: company.fdmsDeviceId,
         privateKey: company.zimraPrivateKey,
         certificate: company.zimraCertificate,
-    });
+    }, getZimraLogger(companyId));
+    device.setInvoiceId(invoiceId);
 
     const items = invoice.items || [];
     const productIds = items
@@ -1692,22 +1692,25 @@ export const processInvoiceFiscalizationLEKUKA = async (
     const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
 
     let deviceHash = ""; // The device signature hash (SHA-256 of input) — used for chaining
+    let deviceSignature = ""; // The RSA device signature — input to the QR verification code (spec section 11)
     const submitOnce = async (lines: LekukaReceiptLine[]) => {
         const { prepared, signed } = await buildSignedReceipt(nextReceiptCounter, nextGlobalNo, prevHash, lines);
         console.log(`[LEKUKA] prepared receipt buyerData:`, JSON.stringify((signed as any).buyerData));
         console.log(`[LEKUKA] prepared receipt keys:`, Object.keys(signed).join(", "));
         // Store the device hash for chaining to the next receipt
         deviceHash = signed.receiptDeviceSignature?.hash || "";
+        deviceSignature = signed.receiptDeviceSignature?.signature || "";
         console.log(`[LEKUKA] device hash for chain: ${deviceHash?.slice(0, 20)}...`);
         // Use submitSignedReceipt to avoid double signReceipt (buildSignedReceipt already signed it)
         const result = await device.submitSignedReceipt(signed);
-        return { prepared, result };
+        return { prepared, signed, result };
     };
 
     let prepared: LekukaReceipt;
+    let signed: LekukaReceipt;
     let result: any;
     try {
-        ({ prepared, result } = await submitOnce(receiptLines));
+        ({ prepared, signed, result } = await submitOnce(receiptLines));
     } catch (err: any) {
         const code = String(err?.details?.errorCode || "");
         const detail = String(err?.details?.detail || err?.message || "");
@@ -1731,7 +1734,7 @@ export const processInvoiceFiscalizationLEKUKA = async (
                 // Reload company to pick up the new day number
                 company = await storage.getCompany(companyId);
                 // Retry the receipt with fresh counters
-                ({ prepared, result } = await submitOnce(receiptLines));
+                ({ prepared, signed, result } = await submitOnce(receiptLines));
             } catch (openErr: any) {
                 console.error(`[LEKUKA] Auto-open day failed:`, openErr.message);
                 throw err; // throw original RCPT01 error
@@ -1748,26 +1751,32 @@ export const processInvoiceFiscalizationLEKUKA = async (
             await storage.syncLekukaTaxes(companyId, freshTaxes, lekukaEnv);
             taxMapping = await buildTaxMapping();
             assertLekukaTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
-            ({ prepared, result } = await submitOnce(buildLekukaReceiptLines(items, leviesMap, taxMapping, taxInclusive)));
+            ({ prepared, signed, result } = await submitOnce(buildLekukaReceiptLines(items, leviesMap, taxMapping, taxInclusive)));
         } else {
             throw err;
         }
     }
 
     // RSL returns receiptServerSignature as "hash certThumbprint" string or as object
+    // { hash, signature, certificateThumbprint }, plus receiptID + operationID.
     let serverHash = result.hash || "";
     let serverSignature = result.signature || "";
     let certThumbprint = "";
-    if (!serverHash && result.receiptServerSignature) {
-        const sigStr = typeof result.receiptServerSignature === "string"
-            ? result.receiptServerSignature
-            : (result.receiptServerSignature.hash || JSON.stringify(result.receiptServerSignature));
-        const parts = sigStr.trim().split(/\s+/);
-        serverHash = parts[0] || "";
-        certThumbprint = parts[1] || "";
-        serverSignature = sigStr;
+    const rslReceiptId = result.receiptID ?? result.receiptId ?? null;
+    const serverSig = result.receiptServerSignature;
+    if (serverSig) {
+        if (typeof serverSig === "string") {
+            const parts = serverSig.trim().split(/\s+/);
+            serverHash = parts[0] || "";
+            certThumbprint = parts[1] || "";
+            serverSignature = serverSig;
+        } else {
+            serverHash = serverSig.hash || "";
+            serverSignature = serverSig.signature || "";
+            certThumbprint = serverSig.certificateThumbprint || "";
+        }
     }
-    console.log(`[LEKUKA] RSL response — hash: ${serverHash?.slice(0, 20)}..., certThumbprint: ${certThumbprint?.slice(0, 16)}..., receiptID: ${result.receiptID}`);
+    console.log(`[LEKUKA] RSL response — receiptID: ${result.receiptID} serverHash: ${serverHash?.slice(0, 20)}..., certThumbprint: ${certThumbprint?.slice(0, 16)}...`);
 
     // Check for Red validation errors — these mean the receipt was NOT accepted
     const redErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
@@ -1777,12 +1786,13 @@ export const processInvoiceFiscalizationLEKUKA = async (
         throw new Error(`RSL rejected receipt: ${errMsgs}`);
     }
 
-    // Calculate 16-digit verification code from the SERVER hash (for QR code / portal verification)
+    // Verification / QR data per LEKUKA spec section 11: first 16 hex chars of
+    // MD5 over the RECEIPT DEVICE signature. Using the server hash here makes
+    // the portal lookup miss and report the invoice as not received.
     let verificationCode = "";
-    if (serverHash) {
+    if (deviceSignature) {
         try {
-            const hashBytes = Buffer.from(serverHash, "base64");
-            verificationCode = crypto.createHash("md5").update(hashBytes).digest("hex").substring(0, 16).toUpperCase();
+            verificationCode = calculateLekukaVerificationCode(deviceSignature);
         } catch (e) {
             console.warn("[LEKUKA] Failed to calculate verification code:", e);
         }
@@ -1794,18 +1804,18 @@ export const processInvoiceFiscalizationLEKUKA = async (
         || (isTestEnv ? "https://invoice.rsl.org.ls:8443/" : "https://invoice.rsl.org.ls/");
     const qrCode = device.generateQrCode(verificationCode, prepared.receiptGlobalNo, prepared.receiptDate, qrBaseUrl);
 
-    console.log(`[LEKUKA] Updating invoice ${invoiceId} — fiscalCode=${serverHash?.slice(0, 20)}... verificationCode=${verificationCode} qrCode=${qrCode?.slice(0, 60)}...`);
+    console.log(`[LEKUKA] Updating invoice ${invoiceId} — deviceHash=${deviceHash?.slice(0, 20)}... verificationCode=${verificationCode} qrCode=${qrCode?.slice(0, 60)}... rslReceiptId=${rslReceiptId}`);
     const updatedInvoice = await storage.fiscalizeInvoice(invoiceId, {
-        fiscalCode: serverHash,
+        fiscalCode: deviceHash,
         qrCodeData: qrCode,
         verificationCode,
-        fiscalSignature: serverSignature,
+        fiscalSignature: deviceSignature || serverSignature,
         fiscalDayNo: activeFiscalDayNo,
         receiptCounter: prepared.receiptCounter,
         receiptGlobalNo: prepared.receiptGlobalNo,
         syncedWithFdms: true,
         fdmsStatus: "Fiscalized",
-        submissionId: result.operationID,
+        submissionId: result.operationID || (rslReceiptId ? String(rslReceiptId) : undefined),
         validationStatus: redErrors.length > 0 ? "red" : "green",
         lastValidationAttempt: new Date(),
     });

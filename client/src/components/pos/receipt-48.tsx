@@ -293,8 +293,10 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                         vCode = "9A2B-C48D-80FE-12A5-99BF"; // Realistic looking placeholder
                     }
 
-                    const verifyUrl = company.fiscalProvider === "LEKUKA" || company.country === "Lesotho" 
-                        ? "https://lekuka.rsl.co.ls/verify" 
+                    const isLesotho = company.fiscalProvider === "LEKUKA" || company.country === "Lesotho";
+                    const isTestEnv = (company.zimraEnvironment || "test") !== "production";
+                    const verifyUrl = isLesotho
+                        ? (isTestEnv ? "https://invoice.rsl.org.ls:8443/" : "https://invoice.rsl.org.ls/")
                         : "https://fdms.zimra.co.zw/verify";
                     
                     // Field [29]: QR data

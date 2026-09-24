@@ -19,10 +19,14 @@ export function useFiscalAuthority() {
         authorityFullName: isLesotho ? "Revenue Services Lesotho" : "Zimbabwe Revenue Authority",
         authorityShortName: isLesotho ? "LEKAKU" : "ZIMRA",
         
-        // Portal/Verification
+        // Portal/Verification — RSL invoice portal (test carries :8443)
         portalName: isLesotho ? "LEKAKU Portal" : "ZIMRA Portal",
         verifyLabel: isLesotho ? "Verify with RSL" : "Verify with ZIMRA",
-        verifyUrl: isLesotho ? "https://lekaku.rsl.co.ls/verify" : "https://fdms.zimra.co.zw/verify",
+        verifyUrl: isLesotho
+            ? ((activeCompany as any)?.zimraEnvironment === "production"
+                ? "https://invoice.rsl.org.ls/"
+                : "https://invoice.rsl.org.ls:8443/")
+            : "https://fdms.zimra.co.zw/verify",
         
         // Settings — single device setup page; it switches authority
         // (ZIMRA vs LEKAKU endpoint) based on the active company.

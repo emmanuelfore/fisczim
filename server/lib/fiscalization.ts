@@ -1,6 +1,6 @@
 import { storage } from "../storage.js";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
-import { LekakuDevice, LekakuConfig, LekakuReceipt, LekakuReceiptLine, LekakuReceiptPayment, LekakuTaxType, prepareLekakuReceipt, getLekakuReceiptSignatureInput } from "../lekaku.js";
+import { LekakuDevice, LekakuConfig, LekakuReceipt, LekakuReceiptLine, LekakuReceiptPayment, LekakuTaxType, prepareLekakuReceipt, getLekakuReceiptSignatureInput, calculateLekakuVerificationCode } from "../lekaku.js";
 import { Invoice, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
 import { LEKAKU_DEFAULT_GATEWAY, getLekakuGatewayUrl } from "../../shared/lekaku.js";
 import fs from "fs";
@@ -1483,7 +1483,8 @@ export const processInvoiceFiscalizationLEKAKU = async (
         deviceId: company.fdmsDeviceId,
         privateKey: company.zimraPrivateKey,
         certificate: company.zimraCertificate,
-    });
+    }, getZimraLogger(companyId));
+    device.setInvoiceId(invoiceId);
 
     const items = invoice.items || [];
     const productIds = items
@@ -1626,16 +1627,22 @@ export const processInvoiceFiscalizationLEKAKU = async (
     const activeFiscalDayNo = company.currentFiscalDayNo || 1;
     const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
 
+    let deviceHash = ""; // Device signature hash (SHA-256 of input) — used for chaining
+    let deviceSignature = ""; // RSA device signature — input to the QR verification code (spec section 11)
     const submitOnce = async (lines: LekakuReceiptLine[]) => {
         const { prepared, signed } = await buildSignedReceipt(nextReceiptCounter, nextGlobalNo, prevHash, lines);
-        const result = await device.submitReceipt(signed, prevHash);
-        return { prepared, result };
+        deviceHash = signed.receiptDeviceSignature?.hash || "";
+        deviceSignature = signed.receiptDeviceSignature?.signature || "";
+        // submitSignedReceipt: buildSignedReceipt already signed it (avoids double-sign)
+        const result = await device.submitSignedReceipt(signed);
+        return { prepared, signed, result };
     };
 
     let prepared: LekakuReceipt;
+    let signed: LekakuReceipt;
     let result: any;
     try {
-        ({ prepared, result } = await submitOnce(receiptLines));
+        ({ prepared, signed, result } = await submitOnce(receiptLines));
     } catch (err: any) {
         // RCPT025 = the gateway disagrees about a tax triple (e.g. a rate was
         // superseded after our last sync). Re-sync once from authoritative
@@ -1650,23 +1657,72 @@ export const processInvoiceFiscalizationLEKAKU = async (
         await storage.syncLekakuTaxes(companyId, freshTaxes, lekakuEnv);
         taxMapping = await buildTaxMapping();
         assertLekakuTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
-        ({ prepared, result } = await submitOnce(buildLekakuReceiptLines(items, leviesMap, taxMapping)));
+        ({ prepared, signed, result } = await submitOnce(buildLekakuReceiptLines(items, leviesMap, taxMapping)));
     }
 
-    const qrCode = device.generateQrCode(result.hash, prepared.receiptGlobalNo, prepared.receiptDate);
+    // RSL returns receiptServerSignature as "hash certThumbprint" string or as
+    // object { hash, signature, certificateThumbprint }, plus receiptID + operationID.
+    // NOTE: result.hash / result.signature do NOT exist on this shape — reading
+    // them yields undefined (the old code stored undefined everywhere and built
+    // placeholder "LEKAKU|...|undefined" QRs).
+    let serverHash = "";
+    let serverSignature = "";
+    let certThumbprint = "";
+    const rslReceiptId = result.receiptID ?? result.receiptId ?? null;
+    const serverSig = result.receiptServerSignature;
+    if (serverSig) {
+        if (typeof serverSig === "string") {
+            const parts = serverSig.trim().split(/\s+/);
+            serverHash = parts[0] || "";
+            certThumbprint = parts[1] || "";
+            serverSignature = serverSig;
+        } else {
+            serverHash = serverSig.hash || "";
+            serverSignature = serverSig.signature || "";
+            certThumbprint = serverSig.certificateThumbprint || "";
+        }
+    }
+    console.log(`[LEKUKA] RSL response — receiptID: ${rslReceiptId} serverHash: ${serverHash?.slice(0, 20)}..., certThumbprint: ${certThumbprint?.slice(0, 16)}...`);
 
+    // Check for Red validation errors — these mean the receipt was NOT accepted
+    const redErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
+    if (redErrors.length > 0) {
+        const errMsgs = redErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; ");
+        console.error(`[LEKUKA] Red validation errors — receipt NOT accepted: ${errMsgs}`);
+        throw new Error(`RSL rejected receipt: ${errMsgs}`);
+    }
+
+    // Verification / QR data per LEKUKA spec section 11: first 16 hex chars of
+    // MD5 over the RECEIPT DEVICE signature. Using the server hash here makes
+    // the portal lookup miss and report the invoice as not received.
+    let verificationCode = "";
+    if (deviceSignature) {
+        try {
+            verificationCode = calculateLekakuVerificationCode(deviceSignature);
+        } catch (e) {
+            console.warn("[LEKUKA] Failed to calculate verification code:", e);
+        }
+    }
+
+    // QR code URL: test → https://invoice.rsl.org.ls:8443/  prod → https://invoice.rsl.org.ls/
+    const isTestEnv = (company.zimraEnvironment || "test") !== "production";
+    const qrBaseUrl = company.qrUrl
+        || (isTestEnv ? "https://invoice.rsl.org.ls:8443/" : "https://invoice.rsl.org.ls/");
+    const qrCode = device.generateQrCode(verificationCode, prepared.receiptGlobalNo, prepared.receiptDate, qrBaseUrl);
+
+    console.log(`[LEKUKA] Updating invoice ${invoiceId} — deviceHash=${deviceHash?.slice(0, 20)}... verificationCode=${verificationCode} qrCode=${qrCode?.slice(0, 60)}... rslReceiptId=${rslReceiptId}`);
     const updatedInvoice = await storage.fiscalizeInvoice(invoiceId, {
-        fiscalCode: result.hash,
+        fiscalCode: deviceHash,
         qrCodeData: qrCode,
-        verificationCode: result.verificationCode,
-        fiscalSignature: result.signature,
+        verificationCode,
+        fiscalSignature: deviceSignature || serverSignature,
         fiscalDayNo: activeFiscalDayNo,
         receiptCounter: prepared.receiptCounter,
         receiptGlobalNo: prepared.receiptGlobalNo,
         syncedWithFdms: true,
         fdmsStatus: "Fiscalized",
-        submissionId: result.operationID,
-        validationStatus: "green",
+        submissionId: result.operationID || (rslReceiptId ? String(rslReceiptId) : undefined),
+        validationStatus: redErrors.length > 0 ? "red" : "green",
         lastValidationAttempt: new Date(),
     });
 
@@ -1674,7 +1730,10 @@ export const processInvoiceFiscalizationLEKAKU = async (
         lastReceiptAt: new Date(),
         lastReceiptGlobalNo: prepared.receiptGlobalNo,
         dailyReceiptCount: prepared.receiptCounter,
-        lastFiscalHash: result.hash,
+        // CRITICAL: chain on the DEVICE hash, not the server hash (spec 13.2.1).
+        // Storing result.hash (undefined on this response shape) broke every
+        // subsequent receipt's previousReceiptHash.
+        lastFiscalHash: deviceHash || serverHash,
     });
 
     return updatedInvoice;

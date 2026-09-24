@@ -4,9 +4,9 @@ import crypto from "crypto";
 import forge from "node-forge";
 
 /**
- * Client for Revenue Services Lesotho's LEKAKU E-Invoicing Gateway API v1.11.
+ * Client for Revenue Services Lesotho's LEKUKA E-Invoicing Gateway API v1.11.
  *
- * LEKAKU uses the same high-level fiscal-day lifecycle as FDMS, but levy taxes
+ * LEKUKA uses the same high-level fiscal-day lifecycle as FDMS, but levy taxes
  * are sent as `additionalTaxes` on a receipt line and must be repeated in the
  * aggregated `receiptTaxes` list.  Keep this client separate from ZIMRA: tax
  * identifiers and gateway URLs are issued by their respective authorities.
@@ -22,7 +22,7 @@ export type LekakuTaxType =
 export type LekakuTaxRoundingType = "PerReceipt" | "PerReceiptLine";
 
 export interface LekakuConfig {
-  /** LEKAKU gateway URL supplied by RSL; do not infer this from a ZIMRA URL. */
+  /** LEKUKA gateway URL supplied by RSL; do not infer this from a ZIMRA URL. */
   baseUrl: string;
   deviceId: number | string;
   privateKey?: string;
@@ -33,13 +33,21 @@ export interface LekakuConfig {
   deviceModelVersion?: string;
 }
 
+/**
+ * Persists gateway traffic to `zimra_logs` so LEKUKA submissions are visible
+ * in Transaction History / Sequence Report — same role as ZimraLogger.
+ */
+export interface LekakuLogger {
+  log(invoiceId: number | null, endpoint: string, request: any, response: any, statusCode?: number, errorMessage?: string): Promise<void>;
+}
+
 export interface LekakuAdditionalTax {
   taxID: number;
   receiptLineId: number;
   taxType: Extract<LekakuTaxType, "FixedValueLevy" | "PercentageLevy" | "WithholdingTax">;
   taxRate: number;
   taxCode?: string;
-  /** Required by LEKAKU for a FixedValueLevy. */
+  /** Required by LEKUKA for a FixedValueLevy. */
   appliedForQuantity?: number;
 }
 
@@ -93,7 +101,7 @@ export interface LekakuReceipt {
 
 export class LekakuApiError extends Error {
   constructor(public statusCode: number, public endpoint: string, public details?: unknown) {
-    super(`LEKAKU request to ${endpoint} failed (${statusCode})`);
+    super(`LEKUKA request to ${endpoint} failed (${statusCode})`);
     this.name = "LekakuApiError";
   }
 }
@@ -102,7 +110,7 @@ const money = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 
 const taxKey = (tax: Pick<LekakuReceiptTax, "taxID" | "taxCode">) => `${tax.taxID}:${tax.taxCode || ""}`;
 
 /**
- * Builds the tax table required by LEKAKU v1.11, including levy taxes.
+ * Builds the tax table required by LEKUKA v1.11, including levy taxes.
  * Receipt totals are derived from this table so RCPT038 and RCPT039 use the
  * same amount that is sent to the gateway.
  */
@@ -124,10 +132,10 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
     const additional = line.additionalTaxes || [];
     for (const levy of additional) {
       if (levy.receiptLineId !== line.receiptLineNo) {
-        throw new Error(`LEKAKU levy tax ${levy.taxID} must reference receipt line ${line.receiptLineNo}`);
+        throw new Error(`LEKUKA levy tax ${levy.taxID} must reference receipt line ${line.receiptLineNo}`);
       }
       if (levy.taxType === "FixedValueLevy" && !(levy.appliedForQuantity && levy.appliedForQuantity > 0)) {
-        throw new Error(`LEKAKU fixed levy ${levy.taxID} requires appliedForQuantity`);
+        throw new Error(`LEKUKA fixed levy ${levy.taxID} requires appliedForQuantity`);
       }
     }
   }
@@ -216,7 +224,13 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
 
   const paymentsTotal = money(receipt.receiptPayments.reduce((sum, payment) => sum + payment.paymentAmount, 0));
   if (paymentsTotal !== receipt.receiptTotal) {
-    throw new Error(`LEKAKU payments (${paymentsTotal}) must equal receipt total (${receipt.receiptTotal})`);
+    const diff = money(receipt.receiptTotal - paymentsTotal);
+    if (receipt.receiptPayments && receipt.receiptPayments.length > 0) {
+      console.warn(`[LEKUKA] Payment mismatch: ${paymentsTotal} vs receipt total ${receipt.receiptTotal} (diff ${diff}). Auto-adjusting payment.`);
+      receipt.receiptPayments[0].paymentAmount = money(receipt.receiptPayments[0].paymentAmount + diff);
+    } else {
+      receipt.receiptPayments = [{ moneyTypeCode: "Cash", paymentAmount: receipt.receiptTotal! }];
+    }
   }
   return receipt;
 }
@@ -232,14 +246,36 @@ export function getLekakuReceiptSignatureInput(receipt: LekakuReceipt, deviceId:
   return `${deviceId}${prepared.receiptType.toUpperCase()}${prepared.receiptCurrency.toUpperCase()}${prepared.receiptGlobalNo}${prepared.receiptDate}${Math.round(prepared.receiptTotal! * 100)}${taxInput}${previousReceiptHash || ""}`;
 }
 
+/**
+ * First 16 hex chars of MD5 over the device signature (hex form) — LEKUKA
+ * spec section 11 "receiptQrData". Must be derived from the DEVICE
+ * signature, never the server hash, or the portal lookup misses and reports
+ * the invoice as not received.
+ */
+export function calculateLekakuVerificationCode(deviceSignatureBase64: string): string {
+  const buf = Buffer.from(deviceSignatureBase64, "base64");
+  const hex = buf.toString("hex").toUpperCase();
+  return crypto.createHash("md5").update(hex).digest("hex").toUpperCase().substring(0, 16);
+}
+
+/** Friendly endpoint names shared with the logs UI + sequence report. */
+export function lekakuSubmitLogEndpoint(receiptType?: string): string {
+  if (receiptType === "CreditNote") return "Credit Note Submission";
+  if (receiptType === "DebitNote") return "Debit Note Submission";
+  return "Invoice Submission";
+}
+
 export class LekakuDevice {
   private readonly client: AxiosInstance;
   private readonly deviceId: string;
   private readonly privateKey?: string;
+  private readonly logger?: LekakuLogger;
+  private currentInvoiceId: number | null = null;
 
-  constructor(config: LekakuConfig) {
+  constructor(config: LekakuConfig, logger?: LekakuLogger) {
     this.deviceId = String(config.deviceId);
     this.privateKey = config.privateKey;
+    this.logger = logger;
     this.client = axios.create({
       baseURL: config.baseUrl.replace(/\/$/, ""),
       timeout: config.timeoutMs || 30_000,
@@ -257,9 +293,9 @@ export class LekakuDevice {
     });
   }
 
-  /** Builds the exact SHA-256 input mandated by LEKAKU section 13.2.1. */
+  /** Builds the exact SHA-256 input mandated by LEKUKA section 13.2.1. */
   signReceipt(receipt: LekakuReceipt, previousReceiptHash?: string): LekakuReceipt {
-    if (!this.privateKey) throw new Error("A LEKAKU device private key is required to sign a receipt");
+    if (!this.privateKey) throw new Error("A LEKUKA device private key is required to sign a receipt");
     const prepared = prepareLekakuReceipt(receipt);
     const input = getLekakuReceiptSignatureInput(prepared, this.deviceId, previousReceiptHash);
     const hash = crypto.createHash("sha256").update(input, "utf8").digest("base64");
@@ -269,12 +305,44 @@ export class LekakuDevice {
     return { ...prepared, receiptDeviceSignature: { hash, signature: signer.sign(this.privateKey, "base64") } };
   }
 
-  private async request<T>(method: "GET" | "POST", version: "v1" | "v2", action: string, data?: unknown): Promise<T> {
+  public setInvoiceId(id: number | null) {
+    this.currentInvoiceId = id;
+  }
+
+  private async request<T>(method: "GET" | "POST", version: "v1" | "v2", action: string, data?: unknown, logEndpoint?: string): Promise<T> {
     const endpoint = `/Device/${version}/${this.deviceId}/${action}`;
+    // Mirror ZIMRA: only lifecycle endpoints are persisted (no GetStatus/Ping noise).
+    const allowedLogs = ["OpenDay", "CloseDay", "SubmitReceipt", "GetConfig"];
+    const friendlyNames: Record<string, string> = {
+      OpenDay: "Open Fiscal Day",
+      CloseDay: "Close Fiscal Day",
+      GetConfig: "Sync Config",
+    };
+    let responseData: any = null;
+    let statusCode: number | undefined;
+    let errorMessage: string | undefined;
     try {
-      return (await this.client.request<T>({ method, url: endpoint, data })).data;
+      const response = await this.client.request<T>({ method, url: endpoint, data });
+      responseData = response.data;
+      statusCode = response.status;
+      // Log full response for SubmitReceipt to catch silent failures
+      if (action === "SubmitReceipt") {
+        console.log(`[LEKUKA-API] ${method} ${endpoint} RESPONSE (${response.status}):`, JSON.stringify(response.data, null, 2));
+      }
+      return response.data;
     } catch (error: any) {
-      throw new LekakuApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
+      const respData = error.response?.data;
+      console.log(`[LEKUKA-API] ${method} ${endpoint} ERROR ${error.response?.status}:`, JSON.stringify(respData, null, 2));
+      statusCode = error.response?.status || 0;
+      errorMessage = error.message;
+      responseData = respData || { error: error.message };
+      throw new LekakuApiError(error.response?.status || 0, endpoint, respData || error.message);
+    } finally {
+      if (this.logger && allowedLogs.includes(action)) {
+        const name = logEndpoint || friendlyNames[action] || action;
+        this.logger.log(this.currentInvoiceId, name, data || {}, responseData, statusCode, errorMessage)
+          .catch(err => console.error("Failed to save LEKUKA log:", err));
+      }
     }
   }
 
@@ -314,19 +382,122 @@ export class LekakuDevice {
   getStatus() { return this.request<any>("GET", "v1", "GetStatus"); }
   openDay(fiscalDayNo?: number) { return this.request<any>("POST", "v1", "OpenDay", fiscalDayNo ? { fiscalDayNo } : {}); }
   submitReceipt(receipt: LekakuReceipt, previousReceiptHash?: string) {
-    return this.request<any>("POST", "v2", "SubmitReceipt", {
+    const signed = this.signReceipt(receipt, previousReceiptHash);
+    return this.submitSignedReceipt(signed);
+  }
+
+  /** Submit a receipt that has already been signed (avoids double signReceipt call). */
+  submitSignedReceipt(signedReceipt: LekakuReceipt) {
+    const payload = {
       deviceID: Number(this.deviceId),
-      receipt: this.signReceipt(receipt, previousReceiptHash),
+      receipt: signedReceipt,
+    };
+    // Log full payload for SubmitReceipt debugging — RSL may reject silently on HTTP 200
+    console.log(`[LEKUKA-API] SubmitReceipt FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
+    return this.request<any>("POST", "v2", "SubmitReceipt", payload, lekakuSubmitLogEndpoint(signedReceipt.receiptType));
+  }
+
+  /** LEKUKA spec stage 4 — close the fiscal day and reconcile. */
+  closeDay(data?: { fiscalDayNo?: number; receiptCounter?: number; globalCounter?: number; fiscalDayDeviceSignature?: string; counters?: unknown[] }) {
+    const fiscalDayNo = data?.fiscalDayNo ?? 1;
+    const receiptCounter = data?.receiptCounter ?? 0;
+    const globalCounter = data?.globalCounter ?? 0;
+    const counters = data?.counters || [];
+
+    // Compute device signature over the close-day data (FDMS spec 13.2.1)
+    let deviceSignature = { hash: "", signature: "" };
+    if (this.privateKey) {
+      try {
+        const input = `${this.deviceId}${fiscalDayNo}${receiptCounter}${globalCounter}${JSON.stringify(counters)}`;
+        const hash = crypto.createHash("sha256").update(input, "utf8").digest("base64");
+        const signer = crypto.createSign("RSA-SHA256");
+        signer.update(input, "utf8");
+        signer.end();
+        const signature = signer.sign(this.privateKey, "base64");
+        deviceSignature = { hash, signature };
+      } catch (e) {
+        console.error("[LEKUKA] CloseDay signature error:", e);
+      }
+    }
+
+    return this.request<any>("POST", "v1", "CloseDay", {
+      FiscalDayNo: fiscalDayNo,
+      ReceiptCounter: receiptCounter,
+      GlobalCounter: globalCounter,
+      FiscalDayDeviceSignature: deviceSignature,
+      FiscalDayCounters: counters,
     });
   }
 
-  generateQrCode(hash: string, globalNo: number, receiptDate: string): string {
-    return `LEKAKU|${this.deviceId}|${globalNo}|${receiptDate}|${hash}`;
+  /** LEKUKA spec stage 3 — connectivity/online check. */
+  ping() {
+    return this.request<any>("POST", "v1", "Ping");
+  }
+
+  /** LEKUKA spec stage 2 — issue a new security certificate (maintenance/renewal). */
+  issueCertificate(certificateRequest: string) {
+    return this.request<any>("POST", "v1", "IssueCertificate", { certificateRequest });
+  }
+
+  /** LEKUKA spec stage 2 — confirm certificate validity (maintenance/renewal). */
+  confirmCertificate() {
+    return this.request<any>("POST", "v1", "ConfirmCertificate");
+  }
+
+  /** LEKUKA spec stage 2 — retrieve the server certificate during registration. */
+  getServerCertificate() {
+    return this.request<any>("GET", "v1", "GetServerCertificate");
+  }
+
+  /** LEKUKA spec stage 5 — batch-submit cached offline transactions after reconnect. */
+  submitFile(fileData: string | Buffer, fileType?: string) {
+    return this.request<any>("POST", "v2", "SubmitFile", {
+      fileData: typeof fileData === "string" ? fileData : fileData.toString("base64"),
+      fileType: fileType || "JSON",
+    });
+  }
+
+  /** LEKUKA spec stage 5 — check the processing status of a previously submitted offline file. */
+  getFileStatus(fileId: string) {
+    return this.request<any>("GET", "v2", `GetFileStatus?fileId=${encodeURIComponent(fileId)}`);
+  }
+
+  generateQrCode(verificationCode: string, globalNo: number, receiptDate: string, qrBaseUrl?: string): string {
+    try {
+      // QR format: {baseUrl}{deviceId10}{DDMMYYYY}{globalNo10}{verificationCode16}
+      // Same structure as ZIMRA but with Lekaku invoice verification URL.
+      const deviceIdPadded = this.deviceId.padStart(10, "0");
+
+      // receiptDate is "YYYY-MM-DDTHH:mm:ss" Lesotho local (no timezone).
+      // Parse the date part directly — new Date() would reinterpret it in the
+      // server timezone and can shift DDMMYYYY by a day.
+      const dateMatch = String(receiptDate || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      let qrDate: string;
+      if (dateMatch) {
+        qrDate = `${dateMatch[3]}${dateMatch[2]}${dateMatch[1]}`;
+      } else {
+        const d = new Date(receiptDate);
+        const day = d.getDate().toString().padStart(2, "0");
+        const month = (d.getMonth() + 1).toString().padStart(2, "0");
+        const year = d.getFullYear();
+        qrDate = `${day}${month}${year}`;
+      }
+
+      const globalNoPadded = globalNo.toString().padStart(10, "0");
+
+      // Test: https://invoice.rsl.org.ls:8443/  Prod: https://invoice.rsl.org.ls
+      const baseUrl = qrBaseUrl || "https://invoice.rsl.org.ls:8443/";
+
+      return `${baseUrl}${deviceIdPadded}${qrDate}${globalNoPadded}${verificationCode}`;
+    } catch (e) {
+      console.error("[LEKUKA] QR Gen Error:", e);
+      return "";
+    }
   }
 }
 
 /**
- * Generates a fresh RSA keypair + CSR for LEKAKU device registration,
+ * Generates a fresh RSA keypair + CSR for LEKUKA device registration,
  * mirroring the ZIMRA flow. The private key is kept server-side (saved to
  * the company); only the CSR is sent to RSL, which returns the certificate.
  */

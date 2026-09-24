@@ -1614,12 +1614,16 @@ export const processInvoiceFiscalizationLEKAKU = async (
     };
     const customerTin = invoice.customer?.tin?.trim();
     if (invoice.customer && customerTin) {
+        // RSL requires TIN as exactly 11-digit string; VATNumber exactly 8 chars.
+        // Customer records may hold short or dash-containing values from POS entry.
+        const cleanTin = String(customerTin).replace(/\D/g, "").padStart(11, "0").slice(0, 11);
         buyerData = {
             buyerRegisterName: invoice.customer.name || "WALK-IN CUSTOMER",
             buyerTradeName: (invoice.customer as any).tradingName || undefined,
-            buyerTIN: String(customerTin).replace(/\D/g, "").padStart(11, "0").slice(0, 11),
+            buyerTIN: cleanTin,
         };
-        if (invoice.customer.vatNumber?.trim()) buyerData.VATNumber = invoice.customer.vatNumber.trim().slice(0, 8);
+        const cleanVat = invoice.customer.vatNumber?.trim().replace(/\D/g, "").slice(0, 8);
+        if (cleanVat) buyerData.VATNumber = cleanVat.padStart(8, "0");
         if (invoice.customer.phone?.trim() || invoice.customer.email?.trim()) {
             buyerData.buyerContacts = {};
             if (invoice.customer.phone?.trim()) buyerData.buyerContacts.phoneNo = invoice.customer.phone.trim();
@@ -1694,13 +1698,24 @@ export const processInvoiceFiscalizationLEKAKU = async (
     }
     console.log(`[LEKUKA] RSL response — receiptID: ${rslReceiptId} serverHash: ${serverHash?.slice(0, 20)}..., certThumbprint: ${certThumbprint?.slice(0, 16)}...`);
 
-    // Check for Red validation errors — these mean the receipt was NOT accepted
+    // Validation errors (RCPT041 Yellow, RCPT046 Red, etc.) don't mean the
+    // receipt wasn't accepted — RSL processed it and assigned a receiptGlobalNo.
+    // The invoice IS fiscalized on RSL's side; we just record the validation
+    // status so the UI shows it. Only truly malformed requests (HTTP 4xx/5xx)
+    // that never reached the gateway should be treated as failures.
     const redErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
     if (redErrors.length > 0) {
         const errMsgs = redErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; ");
-        console.error(`[LEKUKA] Red validation errors — receipt NOT accepted: ${errMsgs}`);
-        throw new Error(`RSL rejected receipt: ${errMsgs}`);
+        console.error(`[LEKUKA] Red validation errors on receipt (still fiscalized): ${errMsgs}`);
     }
+    const yellowErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Yellow");
+    if (yellowErrors.length > 0) {
+        console.warn(`[LEKUKA] Yellow validation errors on receipt:`, yellowErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; "));
+    }
+
+    const validationStatus = redErrors.length > 0 ? "red"
+        : yellowErrors.length > 0 ? "yellow"
+        : "green";
 
     // Verification / QR data per LEKUKA spec section 11: first 16 hex chars of
     // MD5 over the RECEIPT DEVICE signature. Using the server hash here makes
@@ -1732,7 +1747,7 @@ export const processInvoiceFiscalizationLEKAKU = async (
         syncedWithFdms: true,
         fdmsStatus: "Fiscalized",
         submissionId: result.operationID || (rslReceiptId ? String(rslReceiptId) : undefined),
-        validationStatus: redErrors.length > 0 ? "red" : "green",
+        validationStatus,
         lastValidationAttempt: new Date(),
     });
 

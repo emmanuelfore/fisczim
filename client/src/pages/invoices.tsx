@@ -1002,11 +1002,23 @@ export default function InvoicesPage() {
       const res = await apiFetch(`/api/invoices/${invoice.id}`);
       if (!res.ok) throw new Error("Failed to load invoice");
       const invoiceData = await res.json();
+      // Encode the QR exactly like the details page does — without qrCodeUrl
+      // the PDF renders with no QR code at all.
+      let qrCodeUrl = "";
+      const dataToEncode = invoiceData.qrCodeData || company?.qrUrl;
+      if (invoiceData.fiscalCode && dataToEncode) {
+        try {
+          qrCodeUrl = await QRCode.toDataURL(dataToEncode);
+        } catch (qrErr) {
+          console.error("QR encode failed for PDF download:", qrErr);
+        }
+      }
       const blob = await pdf(
         <InvoicePDF
           invoice={invoiceData}
           company={company}
           customer={invoiceData.customer}
+          qrCodeUrl={qrCodeUrl}
           taxTypes={taxTypes.data}
         />,
       ).toBlob();
@@ -1362,7 +1374,7 @@ export default function InvoicesPage() {
                                   </TooltipTrigger>
                                   <TooltipContent side="right" className="max-w-xs text-xs">
                                     {invoice.validationStatus === "red"
-                                      ? "ZIMRA validation error. Resolve before closing fiscal day."
+                                      ? "Fiscal validation error. Resolve before closing fiscal day."
                                       : "Fiscalisation failed."}
                                   </TooltipContent>
                                 </Tooltip>
@@ -1517,7 +1529,7 @@ export default function InvoicesPage() {
                                       className="max-w-xs text-xs"
                                     >
                                       {invoice.validationStatus === "red"
-                                        ? "ZIMRA validation error. Resolve before closing fiscal day."
+                                        ? "Fiscal validation error. Resolve before closing fiscal day."
                                         : "Fiscalisation failed."}
                                     </TooltipContent>
                                   </Tooltip>

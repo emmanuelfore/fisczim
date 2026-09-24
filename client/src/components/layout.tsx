@@ -922,7 +922,7 @@ export function Layout({
         subtitle: "Configure tills, printing, receipts, and sales controls.",
       };
     if (location.startsWith("/settings")) {
-      if (search.includes("tab=zimra"))
+      if (search.includes("tab=fiscal-device") || search.includes("tab=zimra"))
         return {
           title: "Fiscal Device",
           subtitle:

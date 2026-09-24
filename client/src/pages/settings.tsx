@@ -64,7 +64,8 @@ export default function SettingsPage() {
   // Deep-linking support via URL query params
   const queryParams = new URLSearchParams(window.location.search);
   const legacyTab = queryParams.get("tab");
-  const initialTab = legacyTab || "profile";
+  // Legacy deep links used ?tab=zimra — map to the renamed fiscal-device tab.
+  const initialTab = legacyTab === "zimra" ? "fiscal-device" : (legacyTab || "profile");
   const [activeTab, setActiveTab] = useState(initialTab);
 
   // Form State for global fields
@@ -193,7 +194,7 @@ export default function SettingsPage() {
     {
       title: t("Fiscal (Tax)"),
       items: [
-        { id: "zimra", label: t("Fiscal Device") },
+        { id: "fiscal-device", label: t("Fiscal Device") },
         { id: "tax", label: t("Tax Config") },
       ]
     },
@@ -246,7 +247,7 @@ export default function SettingsPage() {
       case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
       case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
       case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
-      case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
+      case 'fiscal-device': return <ZimraDeviceSettings company={activeCompany} />;
       case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data: any) => {
         await updateCompany.mutateAsync(data);
         toast({
@@ -289,7 +290,7 @@ export default function SettingsPage() {
       case "accounting": return Calculator;
       case "inventory": return Package;
       case "currencies": return Coins;
-      case "zimra": return Cpu;
+      case "fiscal-device": return Cpu;
       case "tax": return Percent;
       case "app-mode": return Smartphone;
       case "pos": return CreditCard;
@@ -315,7 +316,7 @@ const getTabMeta = (id: string) => {
       case "sales-orders": return { title: t("Sales Orders Configuration"), subtitle: t("Configure deposit percentages, preorder rules, and lay-by default durations.") };
       case "inventory": return { title: t("Inventory Controls"), subtitle: t("Configure inventory valuation methods and default controls.") };
       case "currencies": return { title: t("Currencies"), subtitle: t("Set default currencies and manage exchange rates.") };
-      case "zimra": return { title: t("Fiscal Device Settings"), subtitle: t("Configure fiscal device connectivity and tax settings.") };
+      case "fiscal-device": return { title: t("Fiscal Device Settings"), subtitle: t("Configure fiscal device connectivity and tax settings.") };
       case "tax": return { title: t("Tax Configuration"), subtitle: t("Manage tax categories and VAT configuration.") };
       case "app-mode": return { title: t("App Mode Configuration"), subtitle: t("Switch between standard retail, restaurant, or bus modes.") };
       case "pos": return { title: t("POS Terminal Settings"), subtitle: t("Configure registers, printing, receipts, and tills.") };

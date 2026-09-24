@@ -3,6 +3,7 @@ import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/
 import { format } from "date-fns";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
+import { isLekakuProvider } from "@shared/lekaku";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 const styles = StyleSheet.create({
@@ -222,6 +223,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
     const borderColor = template.border || '#e5e7eb';
     const showHeaderQr = qrCodeUrl && designerSettings.qrPlacement !== "footer";
     const showFooterQr = qrCodeUrl && designerSettings.qrPlacement === "footer";
+
+    // Revenue authority label follows the company (RSL on LEKAKU/Lesotho).
+    const authority = isLekakuProvider((company as any)?.fiscalProvider, (company as any)?.country) ? "RSL" : "ZIMRA";
 
     // Extract Verification Code logic same as frontend
     const verificationCodeRaw = invoice.qrCodeData ? invoice.qrCodeData.slice(-16) : "";
@@ -728,7 +732,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     <View style={{ marginTop: 12, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
                         <Image style={{ width: 70, height: 70, marginRight: 12 }} src={qrCodeUrl} />
                         <View>
-                            <Text style={{ fontSize: 9, fontWeight: 700, color: accentColor, marginBottom: 2 }}>ZIMRA Verification QR</Text>
+                            <Text style={{ fontSize: 9, fontWeight: 700, color: accentColor, marginBottom: 2 }}>{authority} Verification QR</Text>
                             <Text style={{ fontSize: 7, color: '#64748b' }}>Scan to verify this fiscal document.</Text>
                             {verificationCode ? <Text style={{ fontSize: 7, color: '#64748b', marginTop: 2 }}>Code: {verificationCode}</Text> : null}
                         </View>

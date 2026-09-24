@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/accordion";
 import { DayManagementControls } from "@/components/zimra/day-management-controls";
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
+import { isLekakuProvider } from "@shared/lekaku";
 import { useBranchContext } from "@/lib/branch-context";
 
 interface ZimraDeviceSettingsProps {
@@ -71,6 +72,10 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
   const [connectivityResult, setConnectivityResult] = useState<any>(null);
   const [showConnectivityDialog, setShowConnectivityDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+
+  // Revenue authority branding follows the company: RSL on the LEKAKU
+  // (Lesotho) branch, ZIMRA otherwise — users never see the wrong name.
+  const authority = isLekakuProvider((company as any)?.fiscalProvider, (company as any)?.country) ? "RSL" : "ZIMRA";
 
   const isRegistered =
     !!activeDeviceId &&
@@ -105,7 +110,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, authority);
       toast({
         title: zimraErr.title,
         description: err.message || zimraErr.message,
@@ -135,7 +140,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, authority);
       toast({
         title: zimraErr.title,
         description: err.message || zimraErr.message,
@@ -161,7 +166,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       });
     },
     onError: (err: any) => {
-      const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
+      const zimraErr = getZimraErrorMessage(err.zimraErrorCode, undefined, authority);
       toast({
         title: zimraErr.title,
         description: err.message || zimraErr.message,
@@ -190,7 +195,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       const env = data.currentEnvironment || "unknown";
       toast({
         title: "Environment Switched",
-        description: `Now using ZIMRA ${env.toUpperCase()} endpoint.`,
+        description: `Now using ${authority} ${env.toUpperCase()} endpoint.`,
         className:
           env === "production"
             ? "bg-red-600 text-white"
@@ -220,7 +225,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       if (data.overallStatus === "Online") {
         toast({
           title: "Device Online",
-          description: "Connection to ZIMRA is healthy.",
+          description: `Connection to ${authority} is healthy.`,
           className: "bg-green-100 text-green-900",
         });
       } else {
@@ -258,7 +263,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       toast({
         title: "Sample Documents Created",
         description:
-          data.message || "ZIMRA approval samples are ready in invoices.",
+          data.message || `${authority} approval samples are ready in invoices.`,
         className: "bg-green-100 text-green-900",
       });
     },
@@ -266,7 +271,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       toast({
         title: "Sample Creation Failed",
         description:
-          err.message || "Could not create ZIMRA approval sample documents.",
+          err.message || `Could not create ${authority} approval sample documents.`,
         variant: "destructive",
       });
     },
@@ -297,7 +302,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       URL.revokeObjectURL(url);
       toast({
         title: "Script Download Ready",
-        description: "The ZIMRA workbook includes embedded sample PDFs.",
+        description: `The ${authority} workbook includes embedded sample PDFs.`,
         className: "bg-green-100 text-green-900",
       });
     },
@@ -305,7 +310,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       toast({
         title: "Script Download Failed",
         description:
-          err.message || "Could not create the ZIMRA script workbook.",
+          err.message || `Could not create the ${authority} script workbook.`,
         variant: "destructive",
       });
     },
@@ -339,10 +344,10 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-900">
-            ZIMRA Fiscal Device
+            {authority} Fiscal Device
           </h2>
           <p className=" text-muted-foreground">
-            Manage your connection to the ZIMRA fiscal gateway
+            Manage your connection to the {authority} fiscal gateway
           </p>
         </div>
         <div className="bg-slate-100 p-1 rounded-xl flex items-center shadow-inner border border-slate-200/50">
@@ -449,7 +454,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
             Registration Details
           </CardTitle>
           <CardDescription>
-            Device ID and Keys provided by ZIMRA
+            Device ID and Keys provided by {authority}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6 space-y-6">
@@ -669,7 +674,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
                   ) : (
                     <FileText className="w-3.5 h-3.5 mr-2" />
                   )}
-                  Create ZIMRA Samples
+                  Create {authority} Samples
                 </Button>
                 <Button
                   variant="outline"
@@ -683,7 +688,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
                   ) : (
                     <Download className="w-3.5 h-3.5 mr-2" />
                   )}
-                  Download ZIMRA Script
+                  Download {authority} Script
                 </Button>
               </div>
             </div>

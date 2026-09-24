@@ -871,7 +871,7 @@ function AdvancedResetControls({ company }: { company: any }) {
           onClick={() => {
             if (
               confirm(
-                "Are you sure you want to manually overwrite these counters? This can break ZIMRA chain validation if incorrect.",
+                "Are you sure you want to manually overwrite these counters? This can break fiscal chain validation if incorrect.",
               )
             ) {
               resetMutation.mutate();

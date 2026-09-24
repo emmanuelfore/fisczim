@@ -79,8 +79,9 @@ export function ValidationErrorsDisplay({
   onEdit,
   isResubmitting = false,
 }: ValidationErrorsDisplayProps) {
-  // Filter out minor RCPT041 warning
-  const displayErrors = errors?.filter(e => e.errorCode !== "RCPT041") || [];
+  // Show every validation error, including minor (yellow) ones like RCPT041 —
+  // filtering them out leaves a YELLOW banner with no visible explanation.
+  const displayErrors = errors || [];
 
   if (displayErrors.length === 0) {
     return null;
@@ -120,7 +121,7 @@ export function ValidationErrorsDisplay({
           ) : (
             <AlertTriangle className="w-5 h-5" />
           )}
-          ZIMRA Validation Errors
+          Fiscal Validation Errors
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

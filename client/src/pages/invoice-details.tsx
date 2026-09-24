@@ -929,7 +929,7 @@ export default function InvoiceDetailsPage() {
                       )}
                     >
                       <span className="font-bold">
-                        ZIMRA {invoice.validationStatus.toUpperCase()}:{" "}
+                        Fiscal validation {invoice.validationStatus.toUpperCase()}:{" "}
                       </span>
                       {invoice.validationStatus === "red" &&
                         "Major validation errors — cannot close fiscal day until resolved."}
@@ -1044,10 +1044,10 @@ export default function InvoiceDetailsPage() {
                             Payments
                           </TabsTrigger>
                           <TabsTrigger
-                            value="zimra"
+                            value="fiscal"
                             className="rounded-lg text-xs"
                           >
-                            ZIMRA
+                            Fiscal
                           </TabsTrigger>
                         </TabsList>
 
@@ -1209,7 +1209,7 @@ export default function InvoiceDetailsPage() {
                           </div>
                         </TabsContent>
 
-                        <TabsContent value="zimra" className="mt-3 space-y-3">
+                        <TabsContent value="fiscal" className="mt-3 space-y-3">
                           <div className="rounded-xl border border-slate-200 p-4">
                             <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                               Fiscal status

@@ -1717,6 +1717,20 @@ export const processInvoiceFiscalizationLEKAKU = async (
         : yellowErrors.length > 0 ? "yellow"
         : "green";
 
+    // Persist every RSL validation error (red AND yellow) so the displays can
+    // show them. The LEKUKA path previously never wrote this table, which left
+    // a YELLOW banner with no visible explanation of the minor errors.
+    const rslErrors: any[] = result.validationErrors || [];
+    if (rslErrors.length > 0) {
+        await storage.createValidationErrors(rslErrors.map((e: any) => ({
+            invoiceId,
+            errorCode: e.validationErrorCode || "UNKNOWN",
+            errorMessage: e.validationErrorDescription || "Validation issue reported by the fiscal gateway.",
+            errorColor: e.validationErrorColor || "Yellow",
+            requiresPreviousReceipt: false,
+        })));
+    }
+
     // Verification / QR data per LEKUKA spec section 11: first 16 hex chars of
     // MD5 over the RECEIPT DEVICE signature. Using the server hash here makes
     // the portal lookup miss and report the invoice as not received.

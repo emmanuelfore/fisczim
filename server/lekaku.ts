@@ -246,17 +246,18 @@ export function getLekakuReceiptSignatureInput(receipt: LekakuReceipt, deviceId:
   return `${deviceId}${prepared.receiptType.toUpperCase()}${prepared.receiptCurrency.toUpperCase()}${prepared.receiptGlobalNo}${prepared.receiptDate}${Math.round(prepared.receiptTotal! * 100)}${taxInput}${previousReceiptHash || ""}`;
 }
 
-/**
- * First 16 hex chars of MD5 over the device signature (hex form) — LEKUKA
- * spec section 11 "receiptQrData". Must be derived from the DEVICE
- * signature, never the server hash, or the portal lookup misses and reports
- * the invoice as not received.
- */
-export function calculateLekakuVerificationCode(deviceSignatureBase64: string): string {
-  const buf = Buffer.from(deviceSignatureBase64, "base64");
-  const hex = buf.toString("hex").toUpperCase();
-  return crypto.createHash("md5").update(hex).digest("hex").toUpperCase().substring(0, 16);
-}
+  /**
+   * LEKUKA spec section 11 "receiptQrData": first 16 hex chars of MD5
+   * over the ReceiptDeviceSignature value. This must use the EXACT same
+   * algorithm as ZIMRA's generateQrCode (server/zimra.ts): base64-decode
+   * the device signature and MD5 the RAW BYTES (not the base64 string,
+   * not the hex string). The portal looks receipts up by this value, so
+   * any other input form reports the invoice as not received.
+   */
+  export function calculateLekakuVerificationCode(deviceSignatureBase64: string): string {
+    const bytes = Buffer.from(deviceSignatureBase64, "base64");
+    return crypto.createHash("md5").update(bytes).digest("hex").toUpperCase().substring(0, 16);
+  }
 
 /** Friendly endpoint names shared with the logs UI + sequence report. */
 export function lekakuSubmitLogEndpoint(receiptType?: string): string {

@@ -1,4 +1,5 @@
 import { storage } from "../storage.js";
+import crypto from "crypto";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
 import { LekukaDevice, LekukaConfig, LekukaReceipt, LekukaReceiptLine, LekukaReceiptPayment, LekukaTaxType, prepareLekukaReceipt, getLekukaReceiptSignatureInput } from "../lekuka.js";
 import { Invoice, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
@@ -234,7 +235,8 @@ export function assertLekukaTaxPreflight(
 function buildLekukaReceiptLines(
     items: any[],
     leviesMap: Map<number, LekukaLevyEntry[]>,
-    taxMapping: Map<number, LekukaMappedTax>
+    taxMapping: Map<number, LekukaMappedTax>,
+    taxInclusive: boolean = false
 ): LekukaReceiptLine[] {
     const receiptLines: LekukaReceiptLine[] = [];
 
@@ -242,7 +244,15 @@ function buildLekukaReceiptLines(
         const item = items[index];
         const unitPrice = Number(item.unitPrice || item.price || 0);
         const quantity = Number(item.quantity || 1);
-        const lineTotal = roundMoney(unitPrice * quantity);
+        const preTaxLineTotal = roundMoney(unitPrice * quantity);
+        // When taxInclusive, the POS sends pre-tax unitPrice but the receipt
+        // engine expects receiptLineTotal to INCLUDE tax. Compute the correct
+        // tax-inclusive total so receipt total matches payment amount.
+        // Use the gateway-authoritative rate (mainTaxRate) for consistency.
+        const itemTaxRate = Number(item.taxRate || 0);
+        const lineTotal = taxInclusive
+            ? roundMoney(preTaxLineTotal * (1 + itemTaxRate / 100))
+            : preTaxLineTotal;
 
         // Main tax comes ONLY from the synced gateway mapping (RCPT025:
         // taxRate/taxID/taxType must exactly match the gateway record).
@@ -252,6 +262,15 @@ function buildLekukaReceiptLines(
         const mainTaxID = taxMapEntry?.taxID ?? 1;
         const mainTaxType = (taxMapEntry?.taxType ?? "VAT") as LekukaReceiptLine["taxType"];
         const mainTaxRate = taxMapEntry ? taxMapEntry.taxRate : Number(item.taxRate || 0);
+
+        // RCPT024 fix: when taxInclusive, recompute lineTotal and linePrice
+        // using the gateway rate so price * qty == total.
+        const effectiveTotal = taxInclusive
+            ? roundMoney(preTaxLineTotal * (1 + mainTaxRate / 100))
+            : preTaxLineTotal;
+        const effectivePrice = taxInclusive
+            ? roundMoney(unitPrice * (1 + mainTaxRate / 100))
+            : roundMoney(Math.abs(unitPrice));
 
         // Get levies for this product
         const productId = item.product?.id || item.productId;
@@ -275,13 +294,14 @@ function buildLekukaReceiptLines(
         // HS code - optional for Lesotho, use default if not provided
         const hsCode = item.product?.hsCode ? String(item.product.hsCode).replace(/\D/g, "").slice(0, 8) : "99999999";
 
+        const isDiscount = effectiveTotal < 0;
         const receiptLine: LekukaReceiptLine = {
-            receiptLineType: lineTotal < 0 ? "Discount" : "Sale",
+            receiptLineType: isDiscount ? "Discount" : "Sale",
             receiptLineNo: index + 1,
             receiptLineName: (item.description || "").trim() || "Item",
             receiptLineQuantity: roundMoney(quantity),
-            receiptLineTotal: roundMoney(Math.abs(lineTotal)),
-            receiptLinePrice: roundMoney(Math.abs(unitPrice)),
+            receiptLineTotal: roundMoney(isDiscount ? -Math.abs(effectiveTotal) : effectiveTotal),
+            receiptLinePrice: roundMoney(Math.abs(effectivePrice)),
             receiptLineHSCode: hsCode || undefined,
             taxID: mainTaxID,
             taxType: mainTaxType,
@@ -752,6 +772,26 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
                 if (resolution.taxID) {
                     taxID = resolution.taxID;
+
+                    // RCPT025 fix: sync taxPercent with the resolved tax ID's
+                    // authoritative rate from the live ZIMRA config. The item's
+                    // stored taxRate may be stale (e.g. 0% when the product's
+                    // tax type maps to Standard 15.5%). ZIMRA rejects any
+                    // receipt where taxPercent doesn't match the tax ID's rate.
+                    const liveTax = zimraConfig?.applicableTaxes?.find(t => t.taxID === taxID);
+                    const liveRate = liveTax ? Number(liveTax.taxPercent || 0) : null;
+                    if (liveRate !== null && Math.abs(liveRate - taxPercent) > 0.01) {
+                        const oldRate = taxPercent;
+                        taxPercent = liveRate;
+                        // Recompute line total for tax-inclusive invoices since
+                        // the rate changed.
+                        if (currentInvoice.taxInclusive) {
+                            const preTaxBase = parseFloat((lineTotal / (1 + oldRate / 100)).toFixed(6));
+                            lineTotal = parseFloat((preTaxBase * (1 + liveRate / 100)).toFixed(2));
+                            unitPrice = parseFloat((lineTotal / parseFloat(item.quantity as any)).toFixed(2));
+                        }
+                        vLog(`[Fiscalize] RCPT025-prevent: taxPercent adjusted ${oldRate}% → ${liveRate}% to match resolved taxID ${taxID} (line ${index + 1})`);
+                    }
                 }
                 if (resolution.issue) {
                     const label = (item.description || '').trim() || 'Item';
@@ -1563,7 +1603,8 @@ export const processInvoiceFiscalizationLEKUKA = async (
         return { prepared, signed: device.signReceipt(prepared, prevHash || undefined) };
     };
 
-    const receiptLines = buildLekukaReceiptLines(items, leviesMap, taxMapping);
+    const taxInclusive = !!invoice.taxInclusive;
+    const receiptLines = buildLekukaReceiptLines(items, leviesMap, taxMapping, taxInclusive);
 
     const getPaymentMethodCode = (methodName: string): LekukaReceiptPayment["moneyTypeCode"] => {
         const m = methodName.toUpperCase();
@@ -1613,8 +1654,8 @@ export const processInvoiceFiscalizationLEKUKA = async (
         buyerRegisterName: invoice.customer?.name || invoice.customerName || "Walk-in Customer",
         buyerTradeName: invoice.customer?.name || invoice.customerName || "Walk-in Customer",
     };
-    // TIN is mandatory — use customer TIN or fallback
-    buyerData.buyerTIN = customerTin || "0000000000";
+    // TIN is mandatory — use customer TIN or fallback (RSL requires exactly 11 chars)
+    buyerData.buyerTIN = customerTin ? String(customerTin).replace(/\D/g, "").padStart(11, "0").slice(0, 11) : "00000000000";
     // VATNumber — Lekuka requires EXACTLY 8 characters
     if (customerVat) {
         const vatDigits = customerVat.replace(/\D/g, "");
@@ -1650,11 +1691,16 @@ export const processInvoiceFiscalizationLEKUKA = async (
     const activeFiscalDayNo = company.currentFiscalDayNo || 1;
     const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
 
+    let deviceHash = ""; // The device signature hash (SHA-256 of input) — used for chaining
     const submitOnce = async (lines: LekukaReceiptLine[]) => {
         const { prepared, signed } = await buildSignedReceipt(nextReceiptCounter, nextGlobalNo, prevHash, lines);
         console.log(`[LEKUKA] prepared receipt buyerData:`, JSON.stringify((signed as any).buyerData));
         console.log(`[LEKUKA] prepared receipt keys:`, Object.keys(signed).join(", "));
-        const result = await device.submitReceipt(signed, prevHash);
+        // Store the device hash for chaining to the next receipt
+        deviceHash = signed.receiptDeviceSignature?.hash || "";
+        console.log(`[LEKUKA] device hash for chain: ${deviceHash?.slice(0, 20)}...`);
+        // Use submitSignedReceipt to avoid double signReceipt (buildSignedReceipt already signed it)
+        const result = await device.submitSignedReceipt(signed);
         return { prepared, result };
     };
 
@@ -1663,44 +1709,115 @@ export const processInvoiceFiscalizationLEKUKA = async (
     try {
         ({ prepared, result } = await submitOnce(receiptLines));
     } catch (err: any) {
+        const code = String(err?.details?.errorCode || "");
+        const detail = String(err?.details?.detail || err?.message || "");
+        const combined = code + " " + detail;
+
+        // RCPT01 / RCPT02 = fiscal day is closed on RSL. Auto-open a new day and retry once.
+        if (/RCPT01|RCPT02|fiscal day is closed/i.test(combined)) {
+            console.log(`[LEKUKA] RCPT01 — fiscal day closed on RSL. Auto-opening new day...`);
+            try {
+                const openDate = formatLesothoDate(new Date());
+                const openResult = await device.openDay(openDate);
+                console.log(`[LEKUKA] OpenDay result:`, JSON.stringify(openResult));
+                const newDayNo = (company.currentFiscalDayNo || 0) + 1;
+                await storage.updateCompany(companyId, {
+                    fiscalDayOpen: true,
+                    fiscalDayOpenedAt: new Date(),
+                    currentFiscalDayNo: newDayNo,
+                    dailyReceiptCount: 0,
+                    lastFiscalDayStatus: "Opened",
+                } as any);
+                // Reload company to pick up the new day number
+                company = await storage.getCompany(companyId);
+                // Retry the receipt with fresh counters
+                ({ prepared, result } = await submitOnce(receiptLines));
+            } catch (openErr: any) {
+                console.error(`[LEKUKA] Auto-open day failed:`, openErr.message);
+                throw err; // throw original RCPT01 error
+            }
+        } else
         // RCPT025 = the gateway disagrees about a tax triple (e.g. a rate was
         // superseded after our last sync). Re-sync once from authoritative
         // data, rebuild, retry once — then surface RSL's message verbatim.
         // Safe: the first attempt failed validation, so nothing was recorded.
-        const code = String(err?.details?.errorCode || "");
-        const detail = String(err?.details?.detail || err?.message || "");
-        if (!/RCPT025/.test(code + " " + detail)) throw err;
-        const fresh = await device.getConfig();
-        const freshTaxes = fresh?.applicableTaxes || [];
-        if (!freshTaxes.length) throw err;
-        await storage.syncLekukaTaxes(companyId, freshTaxes, lekukaEnv);
-        taxMapping = await buildTaxMapping();
-        assertLekukaTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
-        ({ prepared, result } = await submitOnce(buildLekukaReceiptLines(items, leviesMap, taxMapping)));
+        if (/RCPT025/.test(combined)) {
+            const fresh = await device.getConfig();
+            const freshTaxes = fresh?.applicableTaxes || [];
+            if (!freshTaxes.length) throw err;
+            await storage.syncLekukaTaxes(companyId, freshTaxes, lekukaEnv);
+            taxMapping = await buildTaxMapping();
+            assertLekukaTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
+            ({ prepared, result } = await submitOnce(buildLekukaReceiptLines(items, leviesMap, taxMapping, taxInclusive)));
+        } else {
+            throw err;
+        }
     }
 
-    const qrCode = device.generateQrCode(result.hash, prepared.receiptGlobalNo, prepared.receiptDate);
+    // RSL returns receiptServerSignature as "hash certThumbprint" string or as object
+    let serverHash = result.hash || "";
+    let serverSignature = result.signature || "";
+    let certThumbprint = "";
+    if (!serverHash && result.receiptServerSignature) {
+        const sigStr = typeof result.receiptServerSignature === "string"
+            ? result.receiptServerSignature
+            : (result.receiptServerSignature.hash || JSON.stringify(result.receiptServerSignature));
+        const parts = sigStr.trim().split(/\s+/);
+        serverHash = parts[0] || "";
+        certThumbprint = parts[1] || "";
+        serverSignature = sigStr;
+    }
+    console.log(`[LEKUKA] RSL response — hash: ${serverHash?.slice(0, 20)}..., certThumbprint: ${certThumbprint?.slice(0, 16)}..., receiptID: ${result.receiptID}`);
 
+    // Check for Red validation errors — these mean the receipt was NOT accepted
+    const redErrors = (result.validationErrors || []).filter((e: any) => e.validationErrorColor === "Red");
+    if (redErrors.length > 0) {
+        const errMsgs = redErrors.map((e: any) => `${e.validationErrorCode}: ${e.validationErrorDescription}`).join("; ");
+        console.error(`[LEKUKA] Red validation errors — receipt NOT accepted: ${errMsgs}`);
+        throw new Error(`RSL rejected receipt: ${errMsgs}`);
+    }
+
+    // Calculate 16-digit verification code from the SERVER hash (for QR code / portal verification)
+    let verificationCode = "";
+    if (serverHash) {
+        try {
+            const hashBytes = Buffer.from(serverHash, "base64");
+            verificationCode = crypto.createHash("md5").update(hashBytes).digest("hex").substring(0, 16).toUpperCase();
+        } catch (e) {
+            console.warn("[LEKUKA] Failed to calculate verification code:", e);
+        }
+    }
+
+    // QR code URL: test → https://invoice.rsl.org.ls:8443/  prod → https://invoice.rsl.org.ls/
+    const isTestEnv = (company.zimraEnvironment || "test") !== "production";
+    const qrBaseUrl = company.qrUrl
+        || (isTestEnv ? "https://invoice.rsl.org.ls:8443/" : "https://invoice.rsl.org.ls/");
+    const qrCode = device.generateQrCode(verificationCode, prepared.receiptGlobalNo, prepared.receiptDate, qrBaseUrl);
+
+    console.log(`[LEKUKA] Updating invoice ${invoiceId} — fiscalCode=${serverHash?.slice(0, 20)}... verificationCode=${verificationCode} qrCode=${qrCode?.slice(0, 60)}...`);
     const updatedInvoice = await storage.fiscalizeInvoice(invoiceId, {
-        fiscalCode: result.hash,
+        fiscalCode: serverHash,
         qrCodeData: qrCode,
-        verificationCode: result.verificationCode,
-        fiscalSignature: result.signature,
+        verificationCode,
+        fiscalSignature: serverSignature,
         fiscalDayNo: activeFiscalDayNo,
         receiptCounter: prepared.receiptCounter,
         receiptGlobalNo: prepared.receiptGlobalNo,
         syncedWithFdms: true,
         fdmsStatus: "Fiscalized",
         submissionId: result.operationID,
-        validationStatus: "green",
+        validationStatus: redErrors.length > 0 ? "red" : "green",
         lastValidationAttempt: new Date(),
     });
 
+    console.log(`[LEKUKA] Updating company ${company.id} — lastReceiptGlobalNo=${prepared.receiptGlobalNo} lastFiscalHash(device)=${deviceHash?.slice(0, 20)}...`);
     await storage.updateCompany(company.id, {
         lastReceiptAt: new Date(),
         lastReceiptGlobalNo: prepared.receiptGlobalNo,
         dailyReceiptCount: prepared.receiptCounter,
-        lastFiscalHash: result.hash,
+        // CRITICAL: Use DEVICE hash for chain integrity, NOT the server hash.
+        // The next receipt's signature input includes this hash at the end.
+        lastFiscalHash: deviceHash || serverHash,
     });
 
     return updatedInvoice;

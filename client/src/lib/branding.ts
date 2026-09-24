@@ -1,4 +1,4 @@
-export type Brand = "fiscalstack" | "fiscalzone";
+export type Brand = "fiscalstack" | "fiscalzone" | "fiscalstack_lesotho";
 
 export interface BrandConfig {
   name: string;
@@ -32,8 +32,31 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     heroSubtitle: "The most reliable way to manage your fiscalization and business growth.",
     primaryColor: "210 100% 50%",
   },
+  fiscalstack_lesotho: {
+    name: "FiscalStack Lesotho",
+    logo: "/fiscalstack-logo.png",
+    supportEmail: "info@fiscalstack.co.ls",
+    website: "https://fiscalstack.co.ls",
+    whatsappMessage: "Hi FiscalStack Lesotho! I'd like to learn more about your fiscalization platform.",
+    heroTitle: "Seamless Fiscal Compliance Invoicing.",
+    heroSubtitle: "Manage customers, products, and LEKUKA fiscalization in one secure platform.",
+    primaryColor: "210 80% 50%",
+  },
 };
 
 const brandEnv = (import.meta.env.VITE_APP_BRAND as string)?.toLowerCase();
-export const currentBrand: Brand = (brandEnv === "fiscalzone") ? "fiscalzone" : "fiscalstack";
+
+function detectBrand(): Brand {
+  if (brandEnv === "fiscalzone") return "fiscalzone";
+  if (brandEnv === "fiscalstack_lesotho") return "fiscalstack_lesotho";
+  if (brandEnv === "lesotho") return "fiscalstack_lesotho";
+  // Runtime detection: if the hostname is fiscalstack.co.ls, use Lesotho brand
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host.includes("fiscalstack.co.ls")) return "fiscalstack_lesotho";
+  }
+  return "fiscalstack";
+}
+
+export const currentBrand: Brand = detectBrand();
 export const brand = BRAND_CONFIGS[currentBrand];

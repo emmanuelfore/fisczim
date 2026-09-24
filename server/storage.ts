@@ -2225,18 +2225,26 @@ export class DatabaseStorage implements IStorage {
   }): Promise<Invoice> {
     const { syncedWithFdms = true, fdmsStatus = "issued", validationStatus, lastValidationAttempt, submissionId, verificationCode, ...rest } = fiscalData;
 
+    const setData: Record<string, any> = {
+      ...rest,
+      submissionId,
+      verificationCode,
+      syncedWithFdms,
+      fdmsStatus,
+      validationStatus,
+      lastValidationAttempt,
+      status: syncedWithFdms ? "issued" : "draft"
+    };
+    // Strip null/undefined values to prevent drizzle Object.entries(null) crash on JSONB columns
+    for (const key of Object.keys(setData)) {
+      if (setData[key] === null || setData[key] === undefined) {
+        delete setData[key];
+      }
+    }
+
     await db
       .update(invoices)
-      .set({
-        ...rest,
-        submissionId,
-        verificationCode,
-        syncedWithFdms,
-        fdmsStatus,
-        validationStatus,
-        lastValidationAttempt,
-        status: syncedWithFdms ? "issued" : "draft"
-      })
+      .set(setData)
       .where(eq(invoices.id, id));
 
 
@@ -2384,9 +2392,18 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Strip null/undefined values to prevent drizzle Object.entries(null) crash on JSONB columns
+    const cleanData: Record<string, any> = {};
+    for (const key of Object.keys(data)) {
+      const val = (data as any)[key];
+      if (val !== null && val !== undefined) {
+        cleanData[key] = val;
+      }
+    }
+
     const [updated] = await db
       .update(companies)
-      .set(data)
+      .set(cleanData)
       .where(eq(companies.id, id))
       .returning();
     return updated;

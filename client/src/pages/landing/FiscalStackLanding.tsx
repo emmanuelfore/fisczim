@@ -2,6 +2,16 @@ import { useState, useEffect, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { useBranding } from "@/hooks/use-branding";
 
+// ─── Country Detection ────────────────────────────────────────────────────────
+function _isLesotho(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.hostname.includes(".co.ls");
+}
+const AUTH_NAME = _isLesotho() ? "RSL" : "ZIMRA";
+const AUTH_FULL = _isLesotho() ? "Revenue Services Lesotho" : "Zimbabwe Revenue Authority";
+const COUNTRY = _isLesotho() ? "Lesotho" : "Zimbabwe";
+const CURRENCY = _isLesotho() ? "LSL" : "ZWG";
+
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 const C = {
   navy: "#0D1B2A",
@@ -431,7 +441,7 @@ const Hero = () => {
                 letterSpacing: "0.12em",
               }}
             >
-              ZIMRA COMPLIANT · ZIMBABWE
+              {AUTH_NAME} COMPLIANT · {COUNTRY.toUpperCase()}
             </span>
           </div>
 
@@ -451,7 +461,7 @@ const Hero = () => {
                 letterSpacing: "-0.03em",
               }}
             >
-              ZIMRA compliant.
+              {AUTH_NAME} compliant.
             </span>
             <em
               style={{
@@ -481,7 +491,7 @@ const Hero = () => {
               marginTop: 20,
             }}
           >
-            The complete, ZIMRA-compliant ERP and accounting system for modern businesses. Manage ledgers, track stock transfers, automate asset depreciation, and file tax returns seamlessly without lifting a finger.
+            The complete, {AUTH_NAME}-compliant ERP and accounting system for modern businesses. Manage ledgers, track stock transfers, automate asset depreciation, and file tax returns seamlessly without lifting a finger.
           </p>
 
           <div
@@ -615,7 +625,7 @@ const Hero = () => {
                 color: "rgba(255,255,255,0.45)",
               }}
             >
-              Trusted by Zimbabwean SMEs & Tax Agents
+              Trusted by {COUNTRY}n SMEs & Tax Agents
             </span>
           </div>
         </div>
@@ -656,9 +666,9 @@ const Hero = () => {
         >
           {(
             [
-              ["100%", "ZIMRA API Compliant"],
+              ["100%", `${AUTH_NAME} API Compliant`],
               ["Live", "FDMS Sync Ready"],
-              ["ZWG/USD", "Multi-Currency"],
+              [`${CURRENCY}/USD`, "Multi-Currency"],
               ["Offline", "First Architecture"],
             ] as [string, string][]
           ).map(([v, l]) => (
@@ -698,7 +708,7 @@ const featureList: FeatureItem[] = [
   {
     icon: "🏛️",
     tag: "COMPLIANCE",
-    title: "ZIMRA Compliant",
+    title: `${AUTH_NAME} Compliant`,
     desc: "Always up to date with the latest tax regulations. Automatic VAT returns and FDMS sync keep you compliant.",
     color: "#16a34a",
   },
@@ -741,7 +751,7 @@ const featureList: FeatureItem[] = [
     icon: "💱",
     tag: "CURRENCY",
     title: "Multi-Currency Ready",
-    desc: "Seamlessly handle ZWG, USD, and cross-currency transactions with automated exchange rate adjustments.",
+    desc: `Seamlessly handle ${CURRENCY}, USD, and cross-currency transactions with automated exchange rate adjustments.`,
     color: "#0ea5e9",
   },
   {
@@ -1202,12 +1212,12 @@ const Testimonials = () => {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 24 }}>
           {[
             {
-              quote: "FiscalStack completely automated our FDMS sync. We no longer worry about ZIMRA penalties.",
+              quote: `FiscalStack completely automated our FDMS sync. We no longer worry about ${AUTH_NAME} penalties.`,
               author: "Tendai M.",
               role: "Retail Owner, Harare",
             },
             {
-              quote: "The only system that handles ZWG/USD splits perfectly while keeping our ledgers ZIMRA-compliant. A lifesaver.",
+              quote: `The only system that handles ${CURRENCY}/USD splits perfectly while keeping our ledgers ${AUTH_NAME}-compliant. A lifesaver.`,
               author: "Sarah J.",
               role: "Tax Agent, Bulawayo",
             },
@@ -1263,7 +1273,7 @@ const Pricing = () => {
         "Unlimited Invoices",
         "Live FDMS Sync",
         "Priority Support",
-        "ZIMRA Compliant",
+        `${AUTH_NAME} Compliant`,
         "Smart QR Codes",
         "Auto-Tax Engine",
       ],
@@ -1523,12 +1533,12 @@ const FAQ = () => {
 
   const faqs: FaqType[] = [
     {
-      q: "What is ZIMRA compliance and why do I need it?",
-      a: `ZIMRA (Zimbabwe Revenue Authority) requires all VAT-registered businesses to use a certified Fiscal Device Management System (FDMS) to generate tamper-proof tax receipts. Non-compliance carries heavy penalties. ${brand.name} is a certified solution that handles all of this automatically.`,
+      q: `What is ${AUTH_NAME} compliance and why do I need it?`,
+      a: `${AUTH_NAME} (${AUTH_FULL}) requires all VAT-registered businesses to use a certified Fiscal Device Management System (FDMS) to generate tamper-proof tax receipts. Non-compliance carries heavy penalties. ${brand.name} is a certified solution that handles all of this automatically.`,
     },
     {
       q: "How does the FDMS integration work?",
-      a: `${brand.name} connects directly to Zimbabwe's FDMS infrastructure via secure API. Every invoice is cryptographically signed and submitted to FDMS in real time. A unique QR code is embedded on every receipt for instant verification by ZIMRA officials.`,
+      a: `${brand.name} connects directly to ${COUNTRY}'s FDMS infrastructure via secure API. Every invoice is cryptographically signed and submitted to FDMS in real time. A unique QR code is embedded on every receipt for instant verification by ${AUTH_NAME} officials.`,
     },
     {
       q: `Can I try ${brand.name} before committing to a paid plan?`,
@@ -1552,7 +1562,7 @@ const FAQ = () => {
     },
     {
       q: "Can I customize my invoice templates?",
-      a: `Yes. ${brand.name}'s invoice builder supports full branding — logo, colors, fonts, custom line-item fields, and footer notes — while maintaining ZIMRA-required fiscal elements on every document.`,
+      a: `Yes. ${brand.name}'s invoice builder supports full branding — logo, colors, fonts, custom line-item fields, and footer notes — while maintaining ${AUTH_NAME}-required fiscal elements on every document.`,
     },
   ];
   return (
@@ -1600,7 +1610,7 @@ const FAQ = () => {
               marginTop: 12,
             }}
           >
-            Everything you need to know about {brand.name} and ZIMRA compliance.
+            Everything you need to know about {brand.name} and {AUTH_NAME} compliance.
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1770,7 +1780,7 @@ const Footer = () => {
                 maxWidth: 240,
               }}
             >
-              Zimbabwe's intelligent fiscalization platform. Built for
+              {COUNTRY}'s intelligent fiscalization platform. Built for
               compliance, designed for growth.
             </p>
 
@@ -1847,7 +1857,7 @@ const Footer = () => {
                 "Privacy Policy",
                 "Terms of Service",
                 "Security",
-                "ZIMRA Compliance",
+                `${AUTH_NAME} Compliance`,
               ],
             },
           ].map((col) => (
@@ -1918,7 +1928,7 @@ const Footer = () => {
               color: "rgba(255,255,255,0.22)",
             }}
           >
-            &copy; 2026 {brand.name}. Made with &hearts; in Zimbabwe.
+            &copy; 2026 {brand.name}. Made with &hearts; in {COUNTRY}.
           </p>
           <div style={{ display: "flex", gap: 16 }}>
             {["Privacy", "Terms", "Security"].map((l) => (

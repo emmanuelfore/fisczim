@@ -153,6 +153,7 @@ import {
   insertPurchaseReturnSchema,
   insertPurchaseReturnItemSchema,
   fiscalizationJobs,
+  recurringInvoices,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 
@@ -734,6 +735,15 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  // Public config endpoint — tells the client which country/brand this deployment is
+  app.get("/api/config", (_req, res) => {
+    const countryScope = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase();
+    res.json({
+      countryScope: countryScope || "zimbabwe",
+      fiscalProvider: countryScope === "lesotho" ? "LEKUKA" : "ZIMRA",
+    });
+  });
+
   // CSV Upload Configuration
   const csvUpload = multer({
     storage: multer.memoryStorage(),
@@ -1197,6 +1207,10 @@ export async function registerRoutes(
   app.patch("/api/quotations/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     try {
+      const existing = await storage.getQuotation(id);
+      if (!existing) return res.status(404).json({ message: "Quotation not found" });
+      const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       const data = insertQuotationSchema.extend({ items: z.array(insertQuotationItemSchema) }).partial().parse(req.body);
       const result = await storage.updateQuotation(id, data);
       res.json(result);
@@ -1211,6 +1225,10 @@ export async function registerRoutes(
   app.delete("/api/quotations/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     try {
+      const existing = await storage.getQuotation(id);
+      if (!existing) return res.status(404).json({ message: "Quotation not found" });
+      const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteQuotation(id);
       res.status(204).end();
     } catch (error: any) {
@@ -1223,6 +1241,8 @@ export async function registerRoutes(
     try {
       const quote = await storage.getQuotation(id);
       if (!quote) return res.status(404).json({ message: "Quotation not found" });
+      const hasAccess = await checkCompanyAccess(storage, req.user, quote.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       if (quote.status === "invoiced") return res.status(400).json({ message: "Quotation already converted to invoice" });
 
       // Convert Quote to Invoice Data
@@ -1287,6 +1307,10 @@ export async function registerRoutes(
   app.patch("/api/recurring-invoices/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     try {
+      const [existing] = await db.select({ companyId: recurringInvoices.companyId }).from(recurringInvoices).where(eq(recurringInvoices.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Recurring invoice not found" });
+      const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       const data = insertRecurringInvoiceSchema.partial().parse(req.body);
       const result = await storage.updateRecurringInvoice(id, data);
       res.json(result);
@@ -1301,6 +1325,10 @@ export async function registerRoutes(
   app.delete("/api/recurring-invoices/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     try {
+      const [existing] = await db.select({ companyId: recurringInvoices.companyId }).from(recurringInvoices).where(eq(recurringInvoices.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Recurring invoice not found" });
+      const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteRecurringInvoice(id);
       res.status(204).end();
     } catch (error: any) {
@@ -2042,8 +2070,14 @@ export async function registerRoutes(
 
   // Company Routes
   app.get(api.companies.list.path, requireAuth, async (req, res) => {
-    const companies = await storage.getCompanies((req as any).user?.id);
-    res.json(companies);
+    try {
+      const companies = await storage.getCompanies((req as any).user?.id);
+      res.json(companies);
+    } catch (err: any) {
+      console.error("List Companies Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list companies" });
+    }
   });
 
   app.get("/api/system/superadmin-company-visibility", requireSystemAdmin, async (_req, res) => {
@@ -2109,22 +2143,28 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/:companyId/api-key", requireOwner, async (req, res) => {
-    const companyId = parseInt(req.params.companyId);
-    // Generate a secure random API key
-    const apiKey = await import("crypto").then(c => c.randomBytes(32).toString("hex"));
+    try {
+      const companyId = parseInt(req.params.companyId);
+      // Generate a secure random API key
+      const apiKey = await import("crypto").then(c => c.randomBytes(32).toString("hex"));
 
-    const updatedCompany = await storage.updateCompany(companyId, { apiKey });
-    // Log the action for security audit
-    await logAction(
-      companyId,
-      req.user!.id,
-      "UPDATE_COMPANY_SETTINGS",
-      "Using Settings",
-      undefined,
-      { action: "generated_api_key" }
-    );
+      const updatedCompany = await storage.updateCompany(companyId, { apiKey });
+      // Log the action for security audit
+      await logAction(
+        companyId,
+        req.user!.id,
+        "UPDATE_COMPANY_SETTINGS",
+        "Using Settings",
+        undefined,
+        { action: "generated_api_key" }
+      );
 
-    res.json({ apiKey });
+      res.json({ apiKey });
+    } catch (err: any) {
+      console.error("Generate API Key Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to generate API key" });
+    }
   });
 
   app.post(api.companies.create.path, requireAuth, async (req, res) => {
@@ -2150,36 +2190,42 @@ export async function registerRoutes(
   });
 
   app.get(api.companies.get.path, requireAuth, async (req, res) => {
-    let company = await storage.getCompany(Number(req.params.id));
-    if (!company) return res.status(404).json({ message: "Company not found" });
+    try {
+      let company = await storage.getCompany(Number(req.params.id));
+      if (!company) return res.status(404).json({ message: "Company not found" });
 
-    // ZIMRA Auto-Repair: QR URL
-    // If QR URL is missing but we have ZIMRA credentials, fetch it now.
-    if (!company.qrUrl && company.fdmsDeviceId && company.zimraPrivateKey && company.zimraCertificate) {
-      try {
-        console.log(`[ZIMRA] Auto-fetching missing QR URL for Company ${company.id}`);
-        const device = new ZimraDevice({
-          deviceId: company.fdmsDeviceId,
-          deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
-          activationKey: company.fdmsApiKey || "",
-          privateKey: company.zimraPrivateKey,
-          certificate: company.zimraCertificate,
-          baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
-        }, getZimraLogger(company.id));
+      // ZIMRA Auto-Repair: QR URL
+      // If QR URL is missing but we have ZIMRA credentials, fetch it now.
+      if (!company.qrUrl && company.fdmsDeviceId && company.zimraPrivateKey && company.zimraCertificate) {
+        try {
+          console.log(`[ZIMRA] Auto-fetching missing QR URL for Company ${company.id}`);
+          const device = new ZimraDevice({
+            deviceId: company.fdmsDeviceId,
+            deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
+            activationKey: company.fdmsApiKey || "",
+            privateKey: company.zimraPrivateKey,
+            certificate: company.zimraCertificate,
+            baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
+          }, getZimraLogger(company.id));
 
-        const config = await device.getConfig();
-        if (config && config.qrUrl) {
-          await storage.updateCompany(company.id, { qrUrl: config.qrUrl });
-          company.qrUrl = config.qrUrl; // Update local instance
-          console.log(`[ZIMRA] QR URL Updated: ${config.qrUrl}`);
+          const config = await device.getConfig();
+          if (config && config.qrUrl) {
+            await storage.updateCompany(company.id, { qrUrl: config.qrUrl });
+            company.qrUrl = config.qrUrl; // Update local instance
+            console.log(`[ZIMRA] QR URL Updated: ${config.qrUrl}`);
+          }
+        } catch (e: any) {
+          console.warn(`[ZIMRA] Auto-Repair Failed: ${e.message}`);
+          // Non-fatal, return company as is
         }
-      } catch (e: any) {
-        console.warn(`[ZIMRA] Auto-Repair Failed: ${e.message}`);
-        // Non-fatal, return company as is
       }
-    }
 
-    res.json(company);
+      res.json(company);
+    } catch (err: any) {
+      console.error("Get Company Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to get company" });
+    }
   });
 
   app.patch("/api/companies/:id", requireAuthOrApiKey, async (req, res) => {
@@ -2231,6 +2277,7 @@ export async function registerRoutes(
         "invoicePrefix", "quotationPrefix", "receiptPrefix",
         "salesOrderPrefix", "paymentTerms", "notes", "bankAccount", "bankBranch",
         "swiftCode", "defaultTaxRate", "invoiceFooter", "invoiceHeader", "theme",
+        "vatRegistered", "vatEnabled",
       ];
       const safeData: Record<string, any> = {};
       for (const key of ALLOWED_COMPANY_FIELDS) {
@@ -6680,8 +6727,14 @@ export async function registerRoutes(
 
   // Customer Routes
   app.get(api.customers.list.path, requireAuth, async (req, res) => {
-    const customers = await storage.getCustomers(Number(req.params.companyId));
-    res.json(customers);
+    try {
+      const customers = await storage.getCustomers(Number(req.params.companyId));
+      res.json(customers);
+    } catch (err: any) {
+      console.error("List Customers Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list customers" });
+    }
   });
 
   app.get('/api/companies/:companyId/customers/:customerId', requireAuth, async (req, res) => {
@@ -6730,24 +6783,45 @@ export async function registerRoutes(
 
   // Supplier Routes
   app.get("/api/companies/:companyId/suppliers", requireAuthOrApiKey, async (req, res) => {
-    const suppliers = await storage.getSuppliers(Number(req.params.companyId));
-    res.json(suppliers);
+    try {
+      const suppliers = await storage.getSuppliers(Number(req.params.companyId));
+      res.json(suppliers);
+    } catch (err: any) {
+      console.error("List Suppliers Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list suppliers" });
+    }
   });
 
   app.post("/api/companies/:companyId/suppliers", requireAuthOrApiKey, async (req, res) => {
-    const input = insertSupplierSchema.parse(req.body);
-    const supplier = await storage.createSupplier({
-      ...input,
-      companyId: Number(req.params.companyId)
-    });
-    res.status(201).json(supplier);
+    try {
+      const input = insertSupplierSchema.parse(req.body);
+      const supplier = await storage.createSupplier({
+        ...input,
+        companyId: Number(req.params.companyId)
+      });
+      res.status(201).json(supplier);
+    } catch (err: any) {
+      console.error("Create Supplier Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to create supplier" });
+    }
   });
 
   app.patch("/api/suppliers/:id", requireAuth, async (req, res) => {
-    const id = Number(req.params.id);
-    const updated = await storage.updateSupplier(id, req.body);
-    if (!updated) return res.status(404).json({ message: "Supplier not found" });
-    res.json(updated);
+    try {
+      const id = Number(req.params.id);
+      const existing = await storage.getSupplier(id);
+      if (!existing) return res.status(404).json({ message: "Supplier not found" });
+      const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      const updated = await storage.updateSupplier(id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Update Supplier Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to update supplier" });
+    }
   });
 
   app.get("/api/companies/:companyId/purchase-orders", requireAuthOrApiKey, async (req, res) => {
@@ -7830,10 +7904,16 @@ export async function registerRoutes(
 
   // Inventory Routes
   app.get("/api/companies/:companyId/inventory/transactions", requireAuthOrApiKey, async (req, res) => {
-    const productId = req.query.productId ? Number(req.query.productId) : undefined;
-    const branchId = getBranchId(req);
-    const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId, undefined, branchId);
-    res.json(items);
+    try {
+      const productId = req.query.productId ? Number(req.query.productId) : undefined;
+      const branchId = getBranchId(req);
+      const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId, undefined, branchId);
+      res.json(items);
+    } catch (err: any) {
+      console.error("List Inventory Transactions Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list inventory transactions" });
+    }
   });
 
   // Material Document Ledger (Detailed Transaction History)
@@ -8010,55 +8090,67 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/:companyId/inventory/stock-in", requireAuthOrApiKey, async (req, res) => {
-    const { productId, quantity, unitCost, supplierId, notes, landedCost } = req.body;
-    const { recordStockIn } = await import("./lib/inventory.js");
+    try {
+      const { productId, quantity, unitCost, supplierId, notes, landedCost } = req.body;
+      const { recordStockIn } = await import("./lib/inventory.js");
 
-    await recordStockIn(
-      Number(productId),
-      parseFloat(quantity),
-      parseFloat(unitCost),
-      Number(req.params.companyId),
-      null,
-      supplierId ? Number(supplierId) : undefined,
-      notes,
-      landedCost ? Number(landedCost) : 0
-    );
+      await recordStockIn(
+        Number(productId),
+        parseFloat(quantity),
+        parseFloat(unitCost),
+        Number(req.params.companyId),
+        null,
+        supplierId ? Number(supplierId) : undefined,
+        notes,
+        landedCost ? Number(landedCost) : 0
+      );
 
-    res.status(201).json({ message: "Stock recorded successfully" });
+      res.status(201).json({ message: "Stock recorded successfully" });
+    } catch (err: any) {
+      console.error("Stock In Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to record stock in" });
+    }
   });
 
   app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuthOrApiKey, async (req, res) => {
-    const companyId = Number(req.params.companyId);
-    const userId = (req.user as any)?.id;
-    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
-    const access = await resolveActionAccess(userId, companyId, APPROVAL_TYPES.GRN_CONFIRM, isSuperAdmin);
-    if (!access.allowed) {
-      return res.status(403).json({ message: "You do not have permission for direct goods receipt. Use the GDN workflow instead." });
+    try {
+      const companyId = Number(req.params.companyId);
+      const userId = (req.user as any)?.id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+      const access = await resolveActionAccess(userId, companyId, APPROVAL_TYPES.GRN_CONFIRM, isSuperAdmin);
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission for direct goods receipt. Use the GDN workflow instead." });
+      }
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
+      const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
+
+      if (!supplierId) {
+        return res.status(400).json({ message: "Supplier is required." });
+      }
+
+
+
+      const { recordBatchStockIn } = await import("./lib/inventory.js");
+
+      const result = await recordBatchStockIn(
+        Number(req.params.companyId),
+        items,
+        supplierId ? Number(supplierId) : undefined,
+        notes,
+        landedCosts ? Number(landedCosts) : 0,
+        allocationMethod || "value",
+        typeof grvNumber === "string" ? grvNumber : undefined,
+        (req.user as any)?.id
+      );
+
+      sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully", ...result });
+    } catch (err: any) {
+      console.error("Batch Stock In Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to record batch stock in" });
     }
-    const idempotencyKey = await sendIdempotentHit(req, res);
-    if (idempotencyKey === false) return;
-    const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
-
-    if (!supplierId) {
-      return res.status(400).json({ message: "Supplier is required." });
-    }
-
-
-
-    const { recordBatchStockIn } = await import("./lib/inventory.js");
-
-    const result = await recordBatchStockIn(
-      Number(req.params.companyId),
-      items,
-      supplierId ? Number(supplierId) : undefined,
-      notes,
-      landedCosts ? Number(landedCosts) : 0,
-      allocationMethod || "value",
-      typeof grvNumber === "string" ? grvNumber : undefined,
-      (req.user as any)?.id
-    );
-
-    sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully", ...result });
   });
 
   app.post("/api/accounting/receipts/customer", requireAuth, async (req: any, res: any) => {
@@ -9250,6 +9342,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/companies/:companyId/grvs", requireAuthOrApiKey, async (req, res) => {
+    try {
     const companyId = Number(req.params.companyId);
     const branchId = getBranchId(req);
     
@@ -9623,9 +9716,15 @@ export async function registerRoutes(
     }
 
     res.json(Array.from(grouped.values()).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
+    } catch (err: any) {
+      console.error("List GRVs Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list GRVs" });
+    }
   });
 
   app.get("/api/companies/:companyId/grvs/:grvId", requireAuthOrApiKey, async (req, res) => {
+    try {
     const companyId = Number(req.params.companyId);
     const { grvId } = req.params;
     const legacyId = grvId.startsWith("LEGACY-")
@@ -9923,39 +10022,62 @@ export async function registerRoutes(
       journalEntry,
       lines,
     });
+    } catch (err: any) {
+      console.error("Get GRV Detail Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to get GRV details" });
+    }
   });
 
   // Expense Routes
   app.get("/api/companies/:companyId/expenses", requireAuthOrApiKey, async (req, res) => {
-    const expenses = await storage.getExpenses(Number(req.params.companyId));
-    res.json(expenses);
+    try {
+      const expenses = await storage.getExpenses(Number(req.params.companyId));
+      res.json(expenses);
+    } catch (err: any) {
+      console.error("List Expenses Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list expenses" });
+    }
   });
 
   app.post("/api/companies/:companyId/expenses", requireAuthOrApiKey, async (req, res) => {
-    const body = {
-      ...req.body,
-      amount: req.body.amount ? String(req.body.amount) : undefined,
-      expenseDate: req.body.expenseDate ? new Date(req.body.expenseDate) : undefined,
-    };
-    const input = insertExpenseSchema.parse(body);
-    const expense = await storage.createExpense({
-      ...input,
-      companyId: Number(req.params.companyId)
-    });
-    res.status(201).json(expense);
+    try {
+      const body = {
+        ...req.body,
+        amount: req.body.amount ? String(req.body.amount) : undefined,
+        expenseDate: req.body.expenseDate ? new Date(req.body.expenseDate) : undefined,
+      };
+      const input = insertExpenseSchema.parse(body);
+      const expense = await storage.createExpense({
+        ...input,
+        companyId: Number(req.params.companyId)
+      });
+      res.status(201).json(expense);
+    } catch (err: any) {
+      console.error("Create Expense Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to create expense" });
+    }
   });
 
 
   app.patch("/api/expenses/:id", requireAuth, async (req, res) => {
-    const id = Number(req.params.id);
-    const body = {
-      ...req.body,
-      amount: req.body.amount ? String(req.body.amount) : undefined,
-      expenseDate: req.body.expenseDate ? new Date(req.body.expenseDate) : undefined,
-    };
-    const updated = await storage.updateExpense(id, body);
-    if (!updated) return res.status(404).json({ message: "Expense not found" });
-    res.json(updated);
+    try {
+      const id = Number(req.params.id);
+      const body = {
+        ...req.body,
+        amount: req.body.amount ? String(req.body.amount) : undefined,
+        expenseDate: req.body.expenseDate ? new Date(req.body.expenseDate) : undefined,
+      };
+      const updated = await storage.updateExpense(id, body);
+      if (!updated) return res.status(404).json({ message: "Expense not found" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Update Expense Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to update expense" });
+    }
   });
 
   // Report Routes
@@ -10108,19 +10230,33 @@ export async function registerRoutes(
 
   // Product Routes
   app.get(api.products.list.path, requireAuth, async (req, res) => {
-    const branchId = getBranchId(req);
-    const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
-    const products = await storage.getProducts(Number(req.params.companyId), branchId, ownerGroupScope);
-    res.json(products);
+    try {
+      const branchId = getBranchId(req);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const products = await storage.getProducts(Number(req.params.companyId), branchId, ownerGroupScope);
+      res.json(products);
+    } catch (err: any) {
+      console.error("List Products Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list products" });
+    }
   });
 
   app.post(api.products.create.path, requireAuth, async (req, res) => {
-    const input = api.products.create.input.parse(req.body);
-    const product = await storage.createProduct({
-      ...input,
-      companyId: Number(req.params.companyId)
-    });
-    res.status(201).json(product);
+    try {
+      const input = api.products.create.input.parse(req.body);
+      const product = await storage.createProduct({
+        ...input,
+        companyId: Number(req.params.companyId)
+      });
+      res.status(201).json(product);
+    } catch (err: any) {
+      console.error("Product create error:", err);
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0]?.message || "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      }
+      res.status(500).json({ message: err?.message || "Failed to create product" });
+    }
   });
 
   app.patch(api.products.update.path, requireAuth, async (req, res) => {
@@ -10286,10 +10422,16 @@ export async function registerRoutes(
 
   // Tax Routes
   app.get(api.tax.types.path, requireAuth, async (req, res) => {
-    const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
-    if (!companyId && !req.user?.isSuperAdmin) return res.status(403).json({ message: "No company associated with request" });
-    const types = await storage.getTaxTypes(companyId ? Number(companyId) : undefined);
-    res.json(types);
+    try {
+      const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
+      if (!companyId && !req.user?.isSuperAdmin) return res.status(403).json({ message: "No company associated with request" });
+      const types = await storage.getTaxTypes(companyId ? Number(companyId) : undefined);
+      res.json(types);
+    } catch (err: any) {
+      console.error("List Tax Types Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list tax types" });
+    }
   });
 
   app.post(api.tax.createType.path, requireAuth, async (req, res) => {
@@ -10337,40 +10479,52 @@ export async function registerRoutes(
   // LEKUKA levies are configured once, then assigned per product. This keeps
   // checkout simple and produces `additionalTaxes` for the affected sale line.
   app.get("/api/companies/:companyId/lekuka/product-levies", requireAuth, async (req, res) => {
-    const companyId = Number(req.params.companyId);
-    const rows = await db.select({
-      productId: productTaxLevies.productId,
-      taxTypeId: productTaxLevies.taxTypeId,
-      appliedForQuantity: productTaxLevies.appliedForQuantity,
-    }).from(productTaxLevies)
-      .innerJoin(products, eq(productTaxLevies.productId, products.id))
-      .where(eq(products.companyId, companyId));
-    res.json(rows);
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = await db.select({
+        productId: productTaxLevies.productId,
+        taxTypeId: productTaxLevies.taxTypeId,
+        appliedForQuantity: productTaxLevies.appliedForQuantity,
+      }).from(productTaxLevies)
+        .innerJoin(products, eq(productTaxLevies.productId, products.id))
+        .where(eq(products.companyId, companyId));
+      res.json(rows);
+    } catch (err: any) {
+      console.error("List Lekuka Product Levies Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list product levies" });
+    }
   });
 
   app.put("/api/companies/:companyId/products/:productId/lekuka-levies", requireAuth, async (req, res) => {
-    const companyId = Number(req.params.companyId);
-    const productId = Number(req.params.productId);
-    const levies = z.array(z.object({
-      taxTypeId: z.number().int().positive(),
-      appliedForQuantity: z.number().positive().optional().nullable(),
-    })).parse(req.body.levies || []);
-    const [product] = await db.select({ id: products.id }).from(products)
-      .where(and(eq(products.id, productId), eq(products.companyId, companyId)));
-    if (!product) return res.status(404).json({ message: "Product not found" });
-    const levyTaxTypes = await db.select({ id: taxTypes.id, type: taxTypes.lekukaTaxType }).from(taxTypes)
-      .where(and(eq(taxTypes.companyId, companyId), inArray(taxTypes.id, levies.map(levy => levy.taxTypeId))));
-    if (levyTaxTypes.length !== levies.length || levyTaxTypes.some(t => !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.type || ""))) {
-      return res.status(400).json({ message: "Only configured LEKUKA levy tax types can be assigned to products" });
+    try {
+      const companyId = Number(req.params.companyId);
+      const productId = Number(req.params.productId);
+      const levies = z.array(z.object({
+        taxTypeId: z.number().int().positive(),
+        appliedForQuantity: z.coerce.number().positive().optional().nullable(),
+      })).parse(req.body.levies || []);
+      const [product] = await db.select({ id: products.id }).from(products)
+        .where(and(eq(products.id, productId), eq(products.companyId, companyId)));
+      if (!product) return res.status(404).json({ message: "Product not found" });
+      const levyTaxTypes = await db.select({ id: taxTypes.id, type: taxTypes.lekukaTaxType }).from(taxTypes)
+        .where(and(eq(taxTypes.companyId, companyId), inArray(taxTypes.id, levies.map(levy => levy.taxTypeId))));
+      if (levyTaxTypes.length !== levies.length || levyTaxTypes.some(t => !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.type || ""))) {
+        return res.status(400).json({ message: "Only configured LEKUKA levy tax types can be assigned to products" });
+      }
+      await db.transaction(async (tx) => {
+        await tx.delete(productTaxLevies).where(eq(productTaxLevies.productId, productId));
+        if (levies.length) await tx.insert(productTaxLevies).values(levies.map(levy => ({
+          productId, taxTypeId: levy.taxTypeId,
+          appliedForQuantity: levy.appliedForQuantity?.toString(),
+        })));
+      });
+      res.json({ productId, levies });
+    } catch (err: any) {
+      console.error("Update Lekuka Levies Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to update lekuka levies" });
     }
-    await db.transaction(async (tx) => {
-      await tx.delete(productTaxLevies).where(eq(productTaxLevies.productId, productId));
-      if (levies.length) await tx.insert(productTaxLevies).values(levies.map(levy => ({
-        productId, taxTypeId: levy.taxTypeId,
-        appliedForQuantity: levy.appliedForQuantity?.toString(),
-      })));
-    });
-    res.json({ productId, levies });
   });
 
   // LEKUKA device registration (mirrors the ZIMRA flow, RSL endpoint).
@@ -10620,11 +10774,316 @@ export async function registerRoutes(
     }
   });
 
+  // ─── LEKUKA: Missing spec endpoints ─────────────────────────────────────────
+  // Helper: build a LekukaDevice from a company record.
+  function lekukaDeviceFromCompany(company: any) {
+    return new LekukaDevice({
+      baseUrl: (company.lekukaGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim(),
+      deviceId: String(company.fdmsDeviceId).trim(),
+      privateKey: company.zimraPrivateKey || undefined,
+      certificate: company.zimraCertificate || undefined,
+      deviceModelName: company.fdmsDeviceModelName || "Server",
+      deviceModelVersion: company.fdmsDeviceModelVersion || "1.0",
+    });
+  }
+
+  // GET /api/companies/:companyId/lekuka/live-status — calls RSL GetStatus
+  app.get("/api/companies/:companyId/lekuka/live-status", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const status = await device.getStatus();
+      res.json(status);
+    } catch (err: any) {
+      console.error("LEKUKA live-status error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Failed to get live status" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/ping — connectivity check
+  app.post("/api/companies/:companyId/lekuka/ping", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.ping();
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA ping error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Ping failed" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/day/close — close fiscal day
+  app.post("/api/companies/:companyId/lekuka/day/close", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.closeDay({
+        fiscalDayNo: req.body.fiscalDayNo ?? company.currentFiscalDayNo,
+        receiptCounter: req.body.receiptCounter ?? company.dailyReceiptCount,
+        globalCounter: req.body.globalCounter ?? company.lastReceiptGlobalNo,
+        counters: req.body.counters,
+      });
+      await storage.updateCompany(companyId, {
+        fiscalDayOpen: false,
+        fiscalDayClosedAt: new Date(),
+        lastFiscalDayStatus: "Closed",
+        dailyReceiptCount: 0,
+      } as any);
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA day-close error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Close day failed" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/day/open — open fiscal day
+  app.post("/api/companies/:companyId/lekuka/day/open", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.openDay(req.body.fiscalDayOpened);
+      await storage.updateCompany(companyId, {
+        fiscalDayOpen: true,
+        fiscalDayOpenedAt: new Date(),
+        currentFiscalDayNo: (company.currentFiscalDayNo || 0) + 1,
+        dailyReceiptCount: 0,
+        lastFiscalDayStatus: "Opened",
+      } as any);
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA day-open error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Open day failed" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/certificate/issue — renew security certificate
+  app.post("/api/companies/:companyId/lekuka/certificate/issue", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const { certificateRequest } = req.body || {};
+      if (!certificateRequest) {
+        // Auto-generate new keypair + CSR
+        const { privateKey, certificateRequest: csr } = generateLekukaKeypair(
+          company.fdmsDeviceId, company.fdmsDeviceSerialNo,
+        );
+        const device = lekukaDeviceFromCompany(company);
+        const result = await device.issueCertificate(csr);
+        const certificate = result?.certificate || result?.data?.certificate;
+        if (certificate) {
+          await storage.updateCompany(companyId, {
+            zimraPrivateKey: privateKey,
+            zimraCertificate: certificate,
+          } as any);
+        }
+        return res.json({ message: "Certificate issued", certificate, privateKey });
+      }
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.issueCertificate(certificateRequest);
+      const certificate = result?.certificate || result?.data?.certificate;
+      if (certificate) {
+        await storage.updateCompany(companyId, { zimraCertificate: certificate } as any);
+      }
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA certificate/issue error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Certificate issue failed" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/certificate/confirm — confirm certificate validity
+  app.post("/api/companies/:companyId/lekuka/certificate/confirm", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.confirmCertificate();
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA certificate/confirm error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        if (err.statusCode === 404) {
+          return res.status(404).json({ message: "Certificate endpoint not available — this operation is only supported during initial device registration with RSL." });
+        }
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Certificate confirm failed" });
+    }
+  });
+
+  // GET /api/companies/:companyId/lekuka/certificate/server — get server certificate
+  app.get("/api/companies/:companyId/lekuka/certificate/server", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.getServerCertificate();
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA certificate/server error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        if (err.statusCode === 404) {
+          return res.status(404).json({ message: "Server certificate endpoint not available — this operation is only supported during initial device registration with RSL." });
+        }
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Get server certificate failed" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/offline/submit — batch-submit offline transactions
+  app.post("/api/companies/:companyId/lekuka/offline/submit", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const { fileData, fileType } = req.body || {};
+      if (!fileData || (typeof fileData === "string" && fileData.trim().length === 0)) {
+        return res.status(400).json({ message: "fileData is required and must be non-empty" });
+      }
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.submitFile(fileData, fileType);
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA offline/submit error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "Offline submit failed" });
+    }
+  });
+
+  // GET /api/companies/:companyId/lekuka/offline/file-status — check submitted file status
+  app.get("/api/companies/:companyId/lekuka/offline/file-status", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const { fileId } = req.query || {};
+      if (!fileId) return res.status(400).json({ message: "fileId query param is required" });
+      const device = lekukaDeviceFromCompany(company);
+      const result = await device.getFileStatus(String(fileId));
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKUKA file-status error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: err.message || "File status check failed" });
+    }
+  });
+
+  // POST /api/companies/:companyId/lekuka/submit-receipt — direct receipt submission
+  app.post("/api/companies/:companyId/lekuka/submit-receipt", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const company: any = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+      const device = lekukaDeviceFromCompany(company);
+      const { receipt, previousReceiptHash } = req.body || {};
+      if (!receipt) return res.status(400).json({ message: "receipt is required" });
+      if (!receipt.receiptType) return res.status(400).json({ message: "receipt.receiptType is required (FiscalInvoice, CreditNote, DebitNote)" });
+      if (!receipt.invoiceNo) return res.status(400).json({ message: "receipt.invoiceNo is required" });
+      if (!receipt.receiptDate) return res.status(400).json({ message: "receipt.receiptDate is required" });
+      if (!Array.isArray(receipt.receiptLines) || receipt.receiptLines.length === 0) {
+        return res.status(400).json({ message: "receipt.receiptLines must be a non-empty array" });
+      }
+      for (let i = 0; i < receipt.receiptLines.length; i++) {
+        const line = receipt.receiptLines[i];
+        if (!line.receiptLineName) return res.status(400).json({ message: `receipt.receiptLines[${i}].receiptLineName is required` });
+        if (typeof line.receiptLineQuantity !== "number" || line.receiptLineQuantity <= 0) {
+          return res.status(400).json({ message: `receipt.receiptLines[${i}].receiptLineQuantity must be a positive number` });
+        }
+        if (typeof line.receiptLineTotal !== "number") {
+          return res.status(400).json({ message: `receipt.receiptLines[${i}].receiptLineTotal must be a number` });
+        }
+        if (typeof line.taxID !== "number") {
+          return res.status(400).json({ message: `receipt.receiptLines[${i}].taxID must be a number` });
+        }
+      }
+      if (!Array.isArray(receipt.receiptPayments) || receipt.receiptPayments.length === 0) {
+        return res.status(400).json({ message: "receipt.receiptPayments must be a non-empty array" });
+      }
+      // Normalize receiptDate to RSL format: "YYYY-MM-DDTHH:mm:ss" (no Z, no ms)
+      if (receipt.receiptDate) {
+        const d = new Date(receipt.receiptDate);
+        if (!isNaN(d.getTime())) {
+          const LESOTHO_UTC_OFFSET = 2 * 60 * 60 * 1000;
+          const local = new Date(d.getTime() + LESOTHO_UTC_OFFSET);
+          receipt.receiptDate = local.toISOString().slice(0, 19);
+        }
+      }
+      // Normalize BuyerTIN to exactly 11 chars (RSL requirement)
+      if (receipt.buyerData?.buyerTIN) {
+        receipt.buyerData.buyerTIN = String(receipt.buyerData.buyerTIN).replace(/\D/g, "").padStart(11, "0").slice(0, 11);
+      }
+      const result = await device.submitReceipt(receipt, previousReceiptHash);
+      // Calculate 16-digit verification code from the server hash (same approach as ZIMRA)
+      let verificationCode = "";
+      if (result.hash) {
+          try {
+              const hashBytes = Buffer.from(result.hash, "base64");
+              verificationCode = crypto.createHash("md5").update(hashBytes).digest("hex").substring(0, 16).toUpperCase();
+          } catch (e) { /* ignore */ }
+      }
+      res.json({ ...result, verificationCode });
+    } catch (err: any) {
+      console.error("LEKUKA submit-receipt error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(400).json({ message: err.message || "Receipt submission failed" });
+    }
+  });
+
   app.get(api.tax.categories.path, requireAuth, async (req, res) => {
-    const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
-    if (!companyId && !req.user?.isSuperAdmin) return res.status(403).json({ message: "No company associated with request" });
-    const categories = await storage.getTaxCategories(companyId ? Number(companyId) : undefined);
-    res.json(categories);
+    try {
+      const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
+      if (!companyId && !req.user?.isSuperAdmin) return res.status(403).json({ message: "No company associated with request" });
+      const categories = await storage.getTaxCategories(companyId ? Number(companyId) : undefined);
+      res.json(categories);
+    } catch (err: any) {
+      console.error("List Tax Categories Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list tax categories" });
+    }
   });
 
   app.post(api.tax.createCategory.path, requireAuth, async (req, res) => {
@@ -10672,37 +11131,55 @@ export async function registerRoutes(
   // --- Tax Types Management ---
 
   app.get("/api/tax-types", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : (req.headers["x-company-id"] ? parseInt(req.headers["x-company-id"] as string) : undefined);
-    // Allow seeing system defaults even if companyId is provided (logic inside storage)
-    const taxes = await storage.getTaxTypes(companyId);
-    res.json(taxes);
+    try {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : (req.headers["x-company-id"] ? parseInt(req.headers["x-company-id"] as string) : undefined);
+      // Allow seeing system defaults even if companyId is provided (logic inside storage)
+      const taxes = await storage.getTaxTypes(companyId);
+      res.json(taxes);
+    } catch (err: any) {
+      console.error("List Tax Types (public) Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to list tax types" });
+    }
   });
 
   app.post("/api/tax-types", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    const data = insertTaxTypeSchema.parse(req.body);
-    const companyId = req.body.companyId; // Should be passed or derived from context
+    try {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      const data = insertTaxTypeSchema.parse(req.body);
+      const companyId = req.body.companyId; // Should be passed or derived from context
 
-    // Basic validation
-    if (!companyId) return res.status(400).json({ message: "Company ID is required" });
+      // Basic validation
+      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
 
-    const newTax = await storage.createTaxType({ ...data, companyId });
-    res.json(newTax);
+      const newTax = await storage.createTaxType({ ...data, companyId });
+      res.json(newTax);
+    } catch (err: any) {
+      console.error("Create Tax Type Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to create tax type" });
+    }
   });
 
   app.put("/api/tax-types/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    const id = parseInt(req.params.id);
-    const companyId = req.body.companyId;
+    try {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      const id = parseInt(req.params.id);
+      const companyId = req.body.companyId;
 
-    if (!companyId) return res.status(400).json({ message: "Company ID is required for verification" });
+      if (!companyId) return res.status(400).json({ message: "Company ID is required for verification" });
 
-    // We use partial update
-    const updated = await storage.updateTaxType(id, companyId, req.body);
-    if (!updated) return res.status(404).json({ message: "Tax Type not found" });
+      // We use partial update
+      const updated = await storage.updateTaxType(id, companyId, req.body);
+      if (!updated) return res.status(404).json({ message: "Tax Type not found" });
 
-    res.json(updated);
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Update Tax Type Error:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
+      res.status(500).json({ message: err.message || "Failed to update tax type" });
+    }
   });
 
   // Invoice Routes

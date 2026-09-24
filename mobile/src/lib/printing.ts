@@ -692,7 +692,11 @@ export const printToZ100 = async (data: TicketData) => {
       await line("");
       await queueQrCode(qrData, 200, 200);
       await centerWrapped("Verify at:");
-      await centerWrapped("https://fdms.zimra.co.zw/verify");
+      if (qrData.includes("rsl.org.ls")) {
+        await centerWrapped("https://invoice.rsl.org.ls:8443/");
+      } else {
+        await centerWrapped("https://fdms.zimra.co.zw/verify");
+      }
     }
 
     await line("");

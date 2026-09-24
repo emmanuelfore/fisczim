@@ -343,8 +343,13 @@ export class ReceiptTemplate {
     const qrData = invoice.qrCodeData || invoice.receiptQRData || (invoice._simulation ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
     if (qrData) {
       encoder.feed(1).qrcode(qrData, 3);
-      encoder.line("Verify at:");
-      encoder.line("https://fdms.zimra.co.zw/verify");
+      if (qrData.includes("rsl.org.ls")) {
+        encoder.line("Verify at:");
+        encoder.line("https://invoice.rsl.org.ls:8443/");
+      } else {
+        encoder.line("Verify at:");
+        encoder.line("https://fdms.zimra.co.zw/verify");
+      }
     }
 
     // 8. Footer

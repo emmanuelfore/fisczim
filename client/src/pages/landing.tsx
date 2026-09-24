@@ -9,5 +9,7 @@ export default function LandingPage() {
     return <FiscalZoneLanding />;
   }
 
+  // Lesotho uses the same FiscalStack layout but the component
+  // already detects the domain and swaps ZIMRA → RSL / LEKUKA at runtime.
   return <FiscalStackLanding />;
 }

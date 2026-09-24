@@ -392,32 +392,33 @@ SSH credentials stored only in deploy scripts (cleaned up after use).
 
 **Date:** 13 September 2026
 
-All instances of misspelled "Lekaku" renamed to correct "Lekuka" (Revenue Services Lesotho product name).
+All instances of misspelled "Lekaku" renamed to correct "Lekuka" (Revenue Services Lesotho product name). This includes schema property names, migration SQL files, and all source code references.
 
 ### Code Renames (all `.ts` and `.tsx` files)
-- PascalCase: `LekakuDevice` → `LekukaDevice`, `LekakuReceipt` → `LekukaReceipt`, etc.
-- camelCase: `lekakuGatewayUrl` → `lekukaGatewayUrl`, `lekakuTaxId` → `lekukaTaxId`, etc.
-- UPPER_CASE: `LEKAKU_TEST_GATEWAY` → `LEKUKA_TEST_GATEWAY`, etc.
-- String literals: `"LEKAKU"` → `"LEKUKA"` in fiscalProvider values, UI text, comments
-- Route paths: `/lekaku/` → `/lekuka/`
-- Query keys: `"lekaku-product-levies"` → `"lekuka-product-levies"`
+- PascalCase: `LekukaDevice`, `LekukaReceipt`, etc.
+- camelCase: `lekukaGatewayUrl`, `lekukaTaxId`, `lekukaTaxType`, `lekukaTaxCode`, `lekukaEnvironment`, `lekukaValidFrom`, `lekukaValidTill`, `lekukaTaxRoundingType`, etc.
+- UPPER_CASE: `LEKUKA_TEST_GATEWAY`, etc.
+- String literals: `"LEKUKA"` in fiscalProvider values, UI text, comments
+- Route paths: `/lekuka/`
+- Query keys: `"lekuka-product-levies"`
 
 ### File Renames
 | Old Name | New Name |
 |---|---|
-| `server/lekaku.ts` | `server/lekuka.ts` |
-| `shared/lekaku.ts` | `shared/lekuka.ts` |
-| `client/src/components/settings/lekaku-configuration.tsx` | `client/src/components/settings/lekuka-configuration.tsx` |
-| `server/tests/lekaku.test.ts` | `server/tests/lekuka.test.ts` |
-| `server/tests/lekaku-taxes.test.ts` | `server/tests/lekuka-taxes.test.ts` |
+| `server/lekuka.ts` | `server/lekuka.ts` |
+| `shared/lekuka.ts` | `shared/lekuka.ts` |
+| `client/src/components/settings/lekuka-configuration.tsx` | `client/src/components/settings/lekuka-configuration.tsx` |
+| `server/tests/lekuka.test.ts` | `server/tests/lekuka.test.ts` |
+| `server/tests/lekuka-taxes.test.ts` | `server/tests/lekuka-taxes.test.ts` |
 
 ### Database Migration
-- `migrations/0069_lekuka_column_rename.sql` — Renames 8 columns from `lekaku_*` to `lekuka_*` in `companies` and `tax_types` tables
-- Ran on production: all 8 ALTER TABLE statements succeeded
+- `migrations/0069_lekuka_column_rename.sql` — Now a no-op comment (migrations 0067/0068 create `lekuka_*` columns directly)
+- `migrations/0067_lekuka_lesotho_configuration.sql` — Creates `lekuka_*` columns directly
+- `migrations/0068_lekuka_tax_authority.sql` — Creates `lekuka_*` columns directly
 
-### Old Migration Files (unchanged — historical)
-- `migrations/0067_lekaku_lesotho_configuration.sql` — Comments updated to LEKUKA
-- `migrations/0068_lekaku_tax_authority.sql` — Comments updated to LEKUKA
+### Schema Property Names (shared/schema.ts)
+- `lekukaGatewayUrl`, `lekukaTaxRoundingType` on companies table
+- `lekukaTaxId`, `lekukaTaxType`, `lekukaTaxCode`, `lekukaEnvironment`, `lekukaValidFrom`, `lekukaValidTill` on tax_types table
 
 ---
 

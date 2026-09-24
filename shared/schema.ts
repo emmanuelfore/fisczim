@@ -66,10 +66,10 @@ export const companies = pgTable("companies", {
   country: text("country").default("Zimbabwe"),
   currency: text("currency").default("USD"),
   fiscalProvider: text("fiscal_provider").default("ZIMRA"), // ZIMRA or LEKAKU
-  lekakuGatewayUrl: text("lekuka_gateway_url"),
+  lekukaGatewayUrl: text("lekuka_gateway_url"),
   // LEKAKU receipt arithmetic mode (spec TaxRoundingType). Must stay stable
   // within a fiscal day — the device signature hashes the rounded amounts.
-  lekakuTaxRoundingType: text("lekuka_tax_rounding_type").default("PerReceipt"), // "PerReceipt" | "PerReceiptLine"
+  lekukaTaxRoundingType: text("lekuka_tax_rounding_type").default("PerReceipt"), // "PerReceipt" | "PerReceiptLine"
   phone: text("phone").notNull(),
   email: text("email").notNull(),
   website: text("website"),
@@ -456,19 +456,19 @@ export const taxTypes = pgTable("tax_types", {
   effectiveTo: date("effective_to"),
   zimraCode: text("zimra_code"), // A, B, E, C
   zimraTaxId: text("zimra_tax_id"), // Optional ZIMRA ID e.g. "3"
-  // Revenue Services Lesotho / LEKAKU mapping.  Levy tax types are assigned
+  // Revenue Services Lesotho / LEKUKA mapping.  Levy tax types are assigned
   // to products through productTaxLevies rather than replacing the main tax.
   //
   // IMPORTANT: test and production gateways issue DIFFERENT taxIDs for the
   // same semantic tax. Rows are therefore scoped per environment
-  // (lekakuEnvironment) and products are remapped on env switch — never
+  // (lekukaEnvironment) and products are remapped on env switch — never
   // reuse one env's taxID against the other gateway (RCPT025).
-  lekakuTaxId: text("lekuka_tax_id"),
-  lekakuTaxType: text("lekuka_tax_type"), // VAT, NonVAT, Exempt, PercentageLevy, FixedValueLevy, WithholdingTax
-  lekakuTaxCode: text("lekuka_tax_code"), // gateway taxCode (all-or-nothing per receipt)
-  lekakuEnvironment: text("lekuka_environment").default("test"), // "test" | "production"
-  lekakuValidFrom: date("lekuka_valid_from"), // gateway taxValidFrom
-  lekakuValidTill: date("lekuka_valid_till"), // gateway taxValidTill (null = no expiry)
+  lekukaTaxId: text("lekuka_tax_id"),
+  lekukaTaxType: text("lekuka_tax_type"), // VAT, NonVAT, Exempt, PercentageLevy, FixedValueLevy, WithholdingTax
+  lekukaTaxCode: text("lekuka_tax_code"), // gateway taxCode (all-or-nothing per receipt)
+  lekukaEnvironment: text("lekuka_environment").default("test"), // "test" | "production"
+  lekukaValidFrom: date("lekuka_valid_from"), // gateway taxValidFrom
+  lekukaValidTill: date("lekuka_valid_till"), // gateway taxValidTill (null = no expiry)
   defaultHsCode: text("default_hs_code"), // Default HS code used for this tax type
   calculationMethod: text("calculation_method").default("INCLUSIVE"), // INCLUSIVE, EXCLUSIVE
 }, (table) => {

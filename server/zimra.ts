@@ -750,14 +750,27 @@ export class ZimraDevice {
                 if (lineTotal > 0) lineTotal = -lineTotal;
             }
 
-            // Mapping taxID to taxCode (Zimbabwe common mapping)
+            // Mapping taxID to taxCode from the device's live applicableTaxes.
+            // Uses the tax's NAME to determine role, not the numeric ID (which
+            // varies across devices: 3, 515, 517 are all "Standard Rated").
             let taxCode = line.taxCode;
             if (!taxCode) {
-                if (taxID === 3) taxCode = 'A'; // Standard
-                else if (taxID === 2) taxCode = 'B'; // Zero Rated
-                else if (taxID === 1) taxCode = 'C'; // Exempt
-                else if (taxID === 4) taxCode = 'E'; // Other?
-                else taxCode = 'A'; // Fallback
+                const liveTax = (this as any).config?.applicableTaxes?.find?.((t: any) => t.taxID === taxID);
+                if (liveTax) {
+                    const name = (liveTax.taxName || '').toLowerCase();
+                    if (name.includes('exempt')) taxCode = 'C';
+                    else if (name.includes('zero')) taxCode = 'B';
+                    else if (liveTax.taxPercent > 0 && !name.includes('non-vat') && !name.includes('withholding')) taxCode = 'A';
+                    else if (liveTax.taxPercent > 0) taxCode = 'D';
+                    else taxCode = 'B';
+                } else {
+                    // Fallback for legacy 1-6 IDs
+                    if (taxID === 1) taxCode = 'C'; // Exempt
+                    else if (taxID === 2) taxCode = 'B'; // Zero Rated
+                    else if (taxID === 3) taxCode = 'A'; // Standard
+                    else if (taxID === 4) taxCode = 'E'; // Other?
+                    else taxCode = 'A'; // Fallback
+                }
             }
 
             const result: ReceiptLine = {

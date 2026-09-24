@@ -61,7 +61,8 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-audio"
+      "expo-audio",
+      "react-native-quick-crypto"
     ]
   }
 }

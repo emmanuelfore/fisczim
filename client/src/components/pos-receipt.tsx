@@ -193,7 +193,7 @@ export function POSReceipt({
       )}
 
       {/* Pending fiscalization notice for offline sales */}
-      {!invoice.fiscalCode && invoice._offline && (
+      {!invoice.fiscalCode && invoice._offline && !invoice._localSigned && !invoice.qrCodeData && (
         <div className="text-[8px] border-y border-dashed py-2 mb-4 text-center">
           <p className="font-black text-red-600">PENDING FISCALIZATION</p>
           <p className="text-[7px]">
@@ -217,9 +217,9 @@ export function POSReceipt({
         <p>
           {company.posSettings?.receiptFooter || "Thank you for your business!"}
         </p>
-        {invoice._offline ? (
+        {invoice._offline && !invoice._localSigned && !invoice.qrCodeData ? (
           <p className="font-black not-italic">*** OFFLINE SALE ***</p>
-        ) : invoice.fiscalCode ? (
+        ) : invoice.fiscalCode || invoice._localSigned || invoice.qrCodeData ? (
           <p>*** FISCAL RECEIPT ***</p>
         ) : null}
         <p>Powered by Fisczim SaaS</p>

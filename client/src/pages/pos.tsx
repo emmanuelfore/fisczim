@@ -35,6 +35,10 @@ import {
   cacheFiscalSequence,
   generateOfflineReport,
 } from "@/lib/offline-db";
+import {
+  processOfflineFiscalization,
+  refreshOfflineFiscalCache,
+} from "@/lib/offline-fiscal";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Search,
@@ -313,8 +317,24 @@ export default function POSPage() {
       runOnIdle(() =>
         refreshCachedFiscalSequence(companyId).catch(() => {}),
       );
+      // Warm the full offline fiscal cache (private key + counters) so
+      // receipts can be signed locally and print instantly with QR codes,
+      // without waiting for the server round-trip.
+      runOnIdle(() => {
+        refreshOfflineFiscalCache(companyId).catch(() => {});
+      });
     }
   }, [isOnline, companyId, queryClient, runOnIdle]);
+
+  // Warm the local-signing fiscal cache on mount (while online) so the
+  // first checkout can sign instantly. No-op when offline.
+  useEffect(() => {
+    if (!companyId) return;
+    runOnIdle(() => {
+      refreshOfflineFiscalCache(companyId).catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId]);
 
   // Resolved data — hooks handle caching and fallback; direct IDB reads are emergency fallback
   const resolvedProducts =
@@ -411,6 +431,9 @@ export default function POSPage() {
       invoice?.fiscalCode ||
       invoice?.verificationCode ||
       invoice?.syncedWithFdms ||
+      invoice?._offline ||
+      invoice?._simulation ||
+      invoice?._localSigned || // locally signed before server round-trip
       fdmsStatus === "fiscalized" ||
       fdmsStatus === "failed",
     );
@@ -1900,11 +1923,41 @@ export default function POSPage() {
       if (!isOnline) {
         const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
         let posRef = offlineRef;
+        // ── LOCAL SIGNING (offline): sign the receipt locally so it prints
+        // with fiscal numbers + QR immediately instead of an unsigned slip.
+        let offlineFiscalData: any = null;
         if (isFiscalized) {
-          await refreshCachedFiscalSequence(companyId).catch(() => {});
+          try {
+            offlineFiscalData = await processOfflineFiscalization(
+              companyId,
+              invoiceData,
+              currency.code,
+              taxInclusive,
+              { tryRefresh: false },
+            );
+          } catch (e) {
+            console.warn("[POS] Local offline signing failed, queueing unsigned:", e);
+          }
+          if (!offlineFiscalData) {
+            await refreshCachedFiscalSequence(companyId).catch(() => {});
+          }
         }
 
-        const payloadToQueue = { ...invoiceData };
+        const payloadToQueue = offlineFiscalData
+          ? {
+              ...invoiceData,
+              _localSigned: true,
+              fiscalSignature: offlineFiscalData.fiscalSignature,
+              receiptDeviceSignature: offlineFiscalData.receiptDeviceSignature,
+              verificationCode: offlineFiscalData.verificationCode,
+              receiptGlobalNo: offlineFiscalData.receiptGlobalNo,
+              receiptCounter: offlineFiscalData.receiptCounter,
+              fiscalDayNo: offlineFiscalData.fiscalDayNo,
+              qrCodeData: offlineFiscalData.qrCodeData,
+              offlinePreviousHash: offlineFiscalData.offlinePreviousHash,
+              offlineDate: offlineFiscalData.offlineDate,
+            }
+          : { ...invoiceData };
         const offlineId = await addPendingSale(
           companyId,
           payloadToQueue,
@@ -1914,7 +1967,9 @@ export default function POSPage() {
           id: offlineId,
           ...payloadToQueue,
           _offline: true,
-          invoiceNumber: posRef,
+          invoiceNumber: offlineFiscalData
+            ? `${offlineFiscalData.receiptGlobalNo}`
+            : posRef,
           customerReference: posRef,
           paymentAmount: sumTenders,
           change: sumTenders - (total * exchangeRate),
@@ -1950,6 +2005,102 @@ export default function POSPage() {
           );
         });
         return;
+      }
+
+      // ── LOCAL-FIRST SIGNING (online): sign instantly with the cached RSA
+      // key, print immediately with full fiscal data (QR + numbers), then
+      // POST to the server in the background so ZIMRA gets the official
+      // receipt. Receipts never wait for server signing and never print
+      // unsigned. Falls through to server-first when no cached key exists.
+      // (Skipped for restaurant draft finalizations — those already exist
+      // on the server and keep their own numbers.)
+      if (!activeDraftInvoiceId && isFiscalized) {
+        let localFiscalData: any = null;
+        try {
+          localFiscalData = await processOfflineFiscalization(companyId, invoiceData, currency.code, taxInclusive, {
+            // Online: refresh the key/sequence cache first when it is missing
+            // so the sale still signs locally instead of waiting for server.
+            tryRefresh: true,
+            isOnlineSale: true,
+          });
+        } catch (signErr) {
+          console.warn("[POS] Local signing failed, falling back to server:", (signErr as any)?.message);
+        }
+        if (localFiscalData) {
+          const serverPayload = {
+            ...invoiceData,
+            _localSigned: true,
+            fiscalSignature: localFiscalData.fiscalSignature,
+            receiptDeviceSignature: localFiscalData.receiptDeviceSignature,
+            verificationCode: localFiscalData.verificationCode,
+            receiptGlobalNo: localFiscalData.receiptGlobalNo,
+            receiptCounter: localFiscalData.receiptCounter,
+            fiscalDayNo: localFiscalData.fiscalDayNo,
+            qrCodeData: localFiscalData.qrCodeData,
+            offlinePreviousHash: localFiscalData.offlinePreviousHash,
+            offlineDate: localFiscalData.offlineDate,
+          };
+          const localFiscalInvoice = {
+            ...serverPayload,
+            _localSigned: true,
+            invoiceNumber: `${localFiscalData.receiptGlobalNo}`,
+            paymentAmount: sumTenders,
+            change: sumTenders - (total * exchangeRate),
+          };
+          if (posSettings.printingEnabled) {
+            setLastSuccessfulInvoice(localFiscalInvoice);
+          } else {
+            toast({
+              title: "Success",
+              description: "Order processed successfully",
+            });
+            setActiveView("products");
+          }
+          prepareNextSaleImmediately();
+          clearPersistedSession();
+
+          // Cash drawer: open after successful sale when running in Electron and enabled
+          if (window.electronAPI && posSettings.cashDrawerEnabled) {
+            const printerName =
+              localStorage.getItem("pos_printer_name") || undefined;
+            window.electronAPI.openCashDrawer(printerName).catch(console.error);
+          }
+
+          // Background: POST to server so ZIMRA gets the official receipt.
+          createInvoice
+            .mutateAsync(serverPayload as any)
+            .then(async (confirmed: any) => {
+              try {
+                const { addSalesHistory } = await import("@/lib/offline-db");
+                const offlineSaleRecord = {
+                  ...confirmed,
+                  items:
+                    confirmed.items && confirmed.items.length > 0
+                      ? confirmed.items
+                      : invoiceData.items,
+                };
+                await addSalesHistory(companyId, [offlineSaleRecord]);
+              } catch (e) {
+                console.error("Failed to save to offline sales history", e);
+              }
+              runOnIdle(() => {
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/companies/:companyId/products", companyId],
+                });
+              });
+              runOnIdle(() => {
+                refreshOfflineFiscalCache(companyId).catch(() => {});
+              });
+            })
+            .catch((err: any) => {
+              // Server sync failed — sale already printed locally, queue for retry
+              console.warn("[POS] Background server sync failed after local sign:", err?.message);
+              addPendingSale(companyId, serverPayload, selectedBranchId)
+                .then(() => refreshPendingCount().catch(() => {}))
+                .catch(console.error);
+            });
+          return;
+        }
       }
 
       let result;
@@ -2062,23 +2213,55 @@ export default function POSPage() {
           };
           const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
           let posRef = offlineRef;
-          
+
+          // Sign locally so the fallback receipt still prints with fiscal
+          // fields + QR instead of an unsigned slip.
+          let fallbackFiscalData: any = null;
           if (isFiscalized) {
-            await refreshCachedFiscalSequence(companyId).catch(() => {});
+            try {
+              fallbackFiscalData = await processOfflineFiscalization(
+                companyId,
+                payload,
+                selectedCurrencyCode,
+                taxInclusive,
+                { tryRefresh: false },
+              );
+            } catch (e) {
+              console.warn("[POS] Local signing failed in error fallback:", e);
+            }
+            if (!fallbackFiscalData) {
+              await refreshCachedFiscalSequence(companyId).catch(() => {});
+            }
           }
 
-          const payloadToQueue = { ...payload };
+          const payloadToQueue = fallbackFiscalData
+            ? {
+                ...payload,
+                _localSigned: true,
+                fiscalSignature: fallbackFiscalData.fiscalSignature,
+                receiptDeviceSignature: fallbackFiscalData.receiptDeviceSignature,
+                verificationCode: fallbackFiscalData.verificationCode,
+                receiptGlobalNo: fallbackFiscalData.receiptGlobalNo,
+                receiptCounter: fallbackFiscalData.receiptCounter,
+                fiscalDayNo: fallbackFiscalData.fiscalDayNo,
+                qrCodeData: fallbackFiscalData.qrCodeData,
+                offlinePreviousHash: fallbackFiscalData.offlinePreviousHash,
+                offlineDate: fallbackFiscalData.offlineDate,
+              }
+            : { ...payload };
           const offlineId = await addPendingSale(
             companyId,
             payloadToQueue,
             selectedBranchId,
           );
-          
+
           const offInvoice = {
             id: offlineId,
             ...payloadToQueue,
             _offline: true,
-            invoiceNumber: posRef,
+            invoiceNumber: fallbackFiscalData
+              ? `${fallbackFiscalData.receiptGlobalNo}`
+              : posRef,
             customerReference: posRef,
             paymentAmount: sumTenders,
             change: sumTenders - (total * exchangeRate),

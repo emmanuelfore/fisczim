@@ -157,10 +157,27 @@ export class ReceiptTemplate {
     if (invoice.transactionType === 'CreditNote' || invoice.type === 'credit_note') documentTitle = "CREDIT NOTE";
     else if (invoice.transactionType === 'DebitNote' || invoice.type === 'debit_note') documentTitle = "DEBIT NOTE";
 
-    if (invoice._offline) {
-      documentTitle = "OFFLINE RECEIPT";
+    // Locally signed / offline-signed receipts carry full fiscal data (QR +
+    // numbers), so they print as fiscal receipts like mobile does — never
+    // as unsigned slips.
+    const hasFiscalData = Boolean(
+      invoice.receiptGlobalNo ||
+      invoice.qrCodeData ||
+      invoice.receiptQRData ||
+      invoice.fiscalCode ||
+      invoice.verificationCode ||
+      invoice._localSigned,
+    );
+    if (invoice._offline || invoice._simulation) {
+      if (hasFiscalData) {
+        documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
+      } else {
+        documentTitle = "OFFLINE RECEIPT";
+      }
     } else if (invoice._simulation) {
       documentTitle = "SIMULATION RECEIPT";
+    } else if (invoice._localSigned && documentTitle === "INVOICE") {
+      documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
     }
 
     const formatVerificationCode = (code: string) => {
@@ -227,8 +244,12 @@ export class ReceiptTemplate {
     encoder.line(documentTitle.trim());
     encoder.bold(false);
     if (invoice._offline) {
-      encoder.line("PENDING SYNC - NOT FISCALIZED");
-      encoder.line("KEEP FOR CASH HANDOVER");
+      if (hasFiscalData) {
+        encoder.line("PENDING SYNC - KEEP RECEIPT");
+      } else {
+        encoder.line("PENDING SYNC - NOT FISCALIZED");
+        encoder.line("KEEP FOR CASH HANDOVER");
+      }
     }
     encoder.align(TextAlignment.Left);
     encoder.separator(width);
@@ -239,7 +260,7 @@ export class ReceiptTemplate {
     const globalStr = invoice.receiptGlobalNo ? invoice.receiptGlobalNo.toString() : "---";
     encoder.tableRow("INVOICE NO:", `${counterStr}/${globalStr}`, width);
 
-    if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation) {
+    if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation || invoice._localSigned) {
       encoder.tableRow("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString(), width);
       encoder.tableRow("DEVICE SERIAL NO:", (activeCompany.fdmsDeviceSerialNo || activeCompany.deviceSerialNo || "stack1"), width);
       encoder.tableRow("DEVICE ID:", (activeCompany.fdmsDeviceId || activeCompany.deviceId || "33697"), width);

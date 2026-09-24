@@ -58,10 +58,11 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
     const isVatPayer = !!company.vatNumber;
 
     let documentTitle = "INVOICE";
-    if (isOffline) documentTitle = "OFFLINE RECEIPT";
+    const hasLocalFiscalData = isFiscalized || !!(invoice as any)._localSigned || !!(invoice as any).qrCodeData;
+    if (isOffline && !hasLocalFiscalData) documentTitle = "OFFLINE RECEIPT";
     else if (isCreditNote) documentTitle = "CREDIT NOTE";
     else if (isDebitNote) documentTitle = "DEBIT NOTE";
-    else if (isFiscalized) {
+    else if (isFiscalized || hasLocalFiscalData) {
         documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
     } else {
         documentTitle = isVatPayer ? "TAX INVOICE" : "INVOICE";

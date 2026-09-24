@@ -1,5 +1,59 @@
 import forge from 'node-forge';
 
+// Native JSI crypto (react-native-quick-crypto) — RSA in native code (~ms).
+// Optional: present after `expo install` + a dev-client/EAS rebuild. When it
+// is missing (older binary), we fall back to node-forge automatically.
+let nativeCrypto: any = null;
+try {
+    const qc = require('react-native-quick-crypto');
+    nativeCrypto = qc?.default || qc;
+} catch {
+    nativeCrypto = null;
+}
+
+function bytesToB64(bytes: Uint8Array): string {
+    const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let out = "";
+    let i = 0;
+    for (; i + 2 < bytes.length; i += 3) {
+        const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+        out += table[(n >> 18) & 63] + table[(n >> 12) & 63] + table[(n >> 6) & 63] + table[n & 63];
+    }
+    const rem = bytes.length - i;
+    if (rem === 1) {
+        const n = bytes[i] << 16;
+        out += table[(n >> 18) & 63] + table[(n >> 12) & 63] + "==";
+    } else if (rem === 2) {
+        const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+        out += table[(n >> 18) & 63] + table[(n >> 12) & 63] + table[(n >> 6) & 63] + "=";
+    }
+    return out;
+}
+
+/** Native RSA-SHA256 sign. Returns base64 or null when unavailable/failed. */
+function nativeSign(data: string, privateKeyPem: string): string | null {
+    try {
+        if (!nativeCrypto?.sign) return null;
+        const key: any = { key: privateKeyPem };
+        if (nativeCrypto.constants?.RSA_PKCS1_PADDING !== undefined) {
+            key.padding = nativeCrypto.constants.RSA_PKCS1_PADDING;
+        }
+        const out = nativeCrypto.sign("sha256", data, key);
+        if (!out) return null;
+        if (typeof out.toString === "function") {
+            try {
+                const b64 = out.toString("base64");
+                if (typeof b64 === "string" && b64.length > 0) return b64;
+            } catch { /* fall through to manual encoding */ }
+        }
+        const bytes = out instanceof Uint8Array ? out : Uint8Array.from(out as any);
+        return bytesToB64(bytes);
+    } catch (e) {
+        console.warn("[FiscalSign] Native sign failed, using forge fallback:", (e as any)?.message);
+        return null;
+    }
+}
+
 let parsedKeyCache: { pem: string; key: forge.pki.rsa.PrivateKey } | null = null;
 
 /**
@@ -20,6 +74,26 @@ export function getPrivateKey(pem: string): forge.pki.rsa.PrivateKey {
 }
 
 /**
+ * Pre-warms the RSA key cache by parsing the PEM in the background.
+ * Call this as soon as the fiscal context (private key) is loaded so that
+ * subsequent signing calls (checkout) are instant — the slow part is only
+ * the first parse of the PEM string.
+ */
+export function prewarmKeyCache(pem: string): void {
+    if (!pem || (parsedKeyCache && parsedKeyCache.pem === pem)) return;
+    // Run async so it doesn't block the caller
+    setTimeout(() => {
+        try {
+            getPrivateKey(pem);
+            console.log('[FiscalSign] Key cache pre-warmed ✓');
+        } catch (e) {
+            console.warn('[FiscalSign] Key pre-warm failed:', e);
+        }
+    }, 0);
+}
+
+
+/**
  * Computes the MD5 hash of the given string, returning it as a hex string.
  * This is used for the receiptDeviceSignature hash.
  */
@@ -32,8 +106,11 @@ export function getHash(data: string): string {
 /**
  * Computes the RSA-SHA256 signature of the given string using the private key.
  * Returns the base64 encoded signature.
+ * Fast path: native JSI crypto (non-blocking, ~ms). Fallback: node-forge.
  */
 export function signData(data: string, privateKeyPem: string): string {
+    const native = nativeSign(data, privateKeyPem);
+    if (native) return native;
     const privateKey = getPrivateKey(privateKeyPem);
     const md = forge.md.sha256.create();
     md.update(data, 'utf8');

@@ -37,6 +37,7 @@
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-gifted-charts": "^1.4.76",
+    "react-native-quick-crypto": "^1.1.7",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-svg": "^15.12.1",
     "react-native-thermal-printer": "^2.3.6",

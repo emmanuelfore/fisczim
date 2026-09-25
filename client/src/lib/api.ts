@@ -129,28 +129,42 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
             }
 
             if (!refreshSucceeded) {
-                // Refresh token is dead (or missing) — clear session and redirect to login.
-                console.warn('[apiFetch] 401 and token refresh failed — clearing session');
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('auth_user');
-                try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
-                invalidateSessionCache();
-                if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
-                    const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
-                    const path = window.location.pathname;
-                    const isAuthRoute = path.includes('/auth');
-                    const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
-                    const isPublicRoute = path === '/' || path === '' || path.startsWith('/auth') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
-                    if (isElectron) {
-                        if (!isPosLoginRoute && !isPublicRoute) {
+                // Only destroy the session when it is definitively dead: no usable
+                // tokens remain in memory or storage (a rejected refresh token clears
+                // them via auth.logout()). Transient refresh failures (network/5xx)
+                // keep the existing tokens — wiping them turns a momentary blip
+                // into a forced logout right after auth.
+                let stillHaveTokens = false;
+                try {
+                    stillHaveTokens = !!auth.getAccessToken() || !!localStorage.getItem('access_token');
+                } catch { stillHaveTokens = !!auth.getAccessToken(); }
+                if (!stillHaveTokens) {
+                    // Refresh token is dead (or missing) — clear session and redirect to login.
+                    console.warn('[apiFetch] 401 and no usable tokens remain — clearing session');
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    localStorage.removeItem('auth_user');
+                    try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
+                    invalidateSessionCache();
+                    try { sessionStorage.setItem('auth_bounce_reason', 'session-expired'); } catch {}
+                    if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
+                        const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
+                        const path = window.location.pathname;
+                        const isAuthRoute = path.includes('/auth');
+                        const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
+                        const isPublicRoute = path === '/' || path === '' || path.startsWith('/auth') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
+                        if (isElectron) {
+                            if (!isPosLoginRoute && !isPublicRoute) {
+                                (window as any).__authRedirecting = true;
+                                window.location.href = '/pos-login';
+                            }
+                        } else if (!isAuthRoute && !isPublicRoute) {
                             (window as any).__authRedirecting = true;
-                            window.location.href = '/pos-login';
+                            window.location.href = '/auth?reason=session-expired';
                         }
-                    } else if (!isAuthRoute && !isPublicRoute) {
-                        (window as any).__authRedirecting = true;
-                        window.location.href = '/auth';
                     }
+                } else {
+                    console.warn('[apiFetch] 401 but usable tokens remain — leaving session intact');
                 }
             }
         }

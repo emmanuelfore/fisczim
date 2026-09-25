@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import https from "https";
 import crypto from "crypto";
 import forge from "node-forge";
+import { exactRound2, exactMul2, exactAdd2, exactSub2, exactDiv2 } from "./lib/fiscal-money.js";
 
 /**
  * Client for Revenue Services Lesotho's LEKUKA E-Invoicing Gateway API v1.11.
@@ -106,7 +107,6 @@ export class LekukaApiError extends Error {
   }
 }
 
-const money = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
 const taxKey = (tax: Pick<LekukaReceiptTax, "taxID" | "taxCode">) => `${tax.taxID}:${tax.taxCode || ""}`;
 
 /**
@@ -123,8 +123,8 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
     const key = taxKey(tax);
     const existing = taxes.get(key);
     if (existing) {
-      existing.taxAmount = money(existing.taxAmount + tax.taxAmount);
-      existing.salesAmountWithTax = money(existing.salesAmountWithTax + tax.salesAmountWithTax);
+      existing.taxAmount = exactAdd2(existing.taxAmount, tax.taxAmount);
+      existing.salesAmountWithTax = exactAdd2(existing.salesAmountWithTax, tax.salesAmountWithTax);
     } else taxes.set(key, tax);
   };
 
@@ -149,10 +149,12 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
       ...additional.filter(t => t.taxType === "PercentageLevy" || t.taxType === "WithholdingTax"),
     ];
     const fixedLevies = additional.filter(t => t.taxType === "FixedValueLevy");
-    const fixedRaw = fixedLevies.reduce((sum, levy) => sum + levy.taxRate * (levy.appliedForQuantity || line.receiptLineQuantity), 0);
-    const percentageRate = percentageTaxes.reduce((sum, tax) => sum + tax.taxRate, 0);
+    // Exact-decimal base math: the gateway recomputes taxes from the sent
+    // lines with arithmetical rounding, so every intermediate must match it.
+    const fixedRaw = fixedLevies.reduce((sum, levy) => exactAdd2(sum, exactMul2(levy.taxRate, levy.appliedForQuantity || line.receiptLineQuantity)), 0);
+    const percentageRate = percentageTaxes.reduce((sum, tax) => exactAdd2(sum, tax.taxRate), 0);
     const base = receipt.receiptLinesTaxInclusive
-      ? (line.receiptLineTotal - fixedRaw) / (1 + percentageRate / 100)
+      ? exactDiv2(exactSub2(line.receiptLineTotal, fixedRaw), 1 + percentageRate / 100)
       : line.receiptLineTotal;
     return { line, percentageTaxes, fixedLevies, base };
   });
@@ -160,13 +162,13 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
   if (rounding === "PerReceiptLine") {
     // Round each line first, then sum (round-then-sum).
     for (const p of parsed) {
-      const calc = (rate: number) => money(p.base * rate / 100);
+      const calc = (rate: number) => exactMul2(p.base, rate / 100);
       for (const tax of p.percentageTaxes) {
         const taxAmount = tax.taxType === "Exempt" ? 0 : calc(tax.taxRate);
         // Spec: salesAmountWithTax = sum of receiptLineTotal for inclusive receipts
         const salesAmountWithTax = receipt.receiptLinesTaxInclusive
-          ? money(p.line.receiptLineTotal)
-          : money(p.line.receiptLineTotal + taxAmount);
+          ? exactRound2(p.line.receiptLineTotal)
+          : exactAdd2(p.line.receiptLineTotal, taxAmount);
         // Spec: Exempt taxes must NOT include taxRate
         const taxEntry = tax.taxType === "Exempt"
           ? { ...tax, taxRate: undefined as number | undefined, taxAmount, salesAmountWithTax }
@@ -174,11 +176,11 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
         add(taxEntry);
       }
       for (const levy of p.fixedLevies) {
-        const taxAmount = money(levy.taxRate * (levy.appliedForQuantity || p.line.receiptLineQuantity));
+        const taxAmount = exactMul2(levy.taxRate, levy.appliedForQuantity || p.line.receiptLineQuantity);
         add({
           taxID: levy.taxID, taxCode: levy.taxCode, taxType: levy.taxType, taxRate: levy.taxRate,
           taxAmount,
-          salesAmountWithTax: receipt.receiptLinesTaxInclusive ? money(p.line.receiptLineTotal) : money(p.line.receiptLineTotal + taxAmount),
+          salesAmountWithTax: receipt.receiptLinesTaxInclusive ? exactRound2(p.line.receiptLineTotal) : exactAdd2(p.line.receiptLineTotal, taxAmount),
         });
       }
     }
@@ -202,23 +204,23 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
     for (const p of parsed) {
       for (const tax of p.percentageTaxes) {
         const b = bucketOf({ taxID: tax.taxID, taxCode: tax.taxCode, taxType: tax.taxType as LekukaTaxType, taxRate: tax.taxRate });
-        b.baseSum += p.base;
-        b.lineSum += p.line.receiptLineTotal;
+        b.baseSum = exactAdd2(b.baseSum, p.base);
+        b.lineSum = exactAdd2(b.lineSum, p.line.receiptLineTotal);
       }
       for (const levy of p.fixedLevies) {
         const b = bucketOf({ taxID: levy.taxID, taxCode: levy.taxCode, taxType: levy.taxType, taxRate: levy.taxRate });
-        b.baseSum += p.base;
-        b.lineSum += p.line.receiptLineTotal;
-        b.fixedRaw += levy.taxRate * (levy.appliedForQuantity || p.line.receiptLineQuantity);
+        b.baseSum = exactAdd2(b.baseSum, p.base);
+        b.lineSum = exactAdd2(b.lineSum, p.line.receiptLineTotal);
+        b.fixedRaw = exactAdd2(b.fixedRaw, exactMul2(levy.taxRate, levy.appliedForQuantity || p.line.receiptLineQuantity));
       }
     }
     for (const b of buckets.values()) {
       const isFixed = b.fixedRaw > 0 || (b.tax.taxType === "FixedValueLevy");
-      const taxAmount = b.tax.taxType === "Exempt" ? 0 : isFixed ? money(b.fixedRaw) : money(b.baseSum * b.tax.taxRate / 100);
+      const taxAmount = b.tax.taxType === "Exempt" ? 0 : isFixed ? exactRound2(b.fixedRaw) : exactMul2(b.baseSum, b.tax.taxRate / 100);
       // Spec: salesAmountWithTax = sum of receiptLineTotal for inclusive receipts
       const salesAmountWithTax = receipt.receiptLinesTaxInclusive
-        ? money(b.lineSum)
-        : money(b.lineSum + taxAmount);
+        ? exactRound2(b.lineSum)
+        : exactAdd2(b.lineSum, taxAmount);
       // Spec: Exempt taxes must NOT include taxRate
       const taxEntry = b.tax.taxType === "Exempt"
         ? { ...b.tax, taxRate: undefined as number | undefined, taxAmount, salesAmountWithTax }
@@ -228,16 +230,16 @@ export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
   }
 
   receipt.receiptTaxes = [...taxes.values()].sort((a, b) => a.taxID - b.taxID || (a.taxCode || "").localeCompare(b.taxCode || ""));
-  receipt.receiptTotal = money(receipt.receiptLinesTaxInclusive
-    ? receipt.receiptLines.reduce((sum, line) => sum + line.receiptLineTotal, 0)
-    : receipt.receiptLines.reduce((sum, line) => sum + line.receiptLineTotal, 0) + receipt.receiptTaxes.reduce((sum, tax) => sum + tax.taxAmount, 0));
+  const linesSum = receipt.receiptLines.reduce((sum, line) => exactAdd2(sum, line.receiptLineTotal), 0);
+  const taxesSum = receipt.receiptTaxes.reduce((sum, tax) => exactAdd2(sum, tax.taxAmount), 0);
+  receipt.receiptTotal = receipt.receiptLinesTaxInclusive ? linesSum : exactAdd2(linesSum, taxesSum);
 
-  const paymentsTotal = money(receipt.receiptPayments.reduce((sum, payment) => sum + payment.paymentAmount, 0));
+  const paymentsTotal = receipt.receiptPayments.reduce((sum, payment) => exactAdd2(sum, payment.paymentAmount), 0);
   if (paymentsTotal !== receipt.receiptTotal) {
-    const diff = money(receipt.receiptTotal - paymentsTotal);
+    const diff = exactSub2(receipt.receiptTotal, paymentsTotal);
     if (receipt.receiptPayments && receipt.receiptPayments.length > 0) {
       console.warn(`[LEKUKA] Payment mismatch: ${paymentsTotal} vs receipt total ${receipt.receiptTotal} (diff ${diff}). Auto-adjusting payment.`);
-      receipt.receiptPayments[0].paymentAmount = money(receipt.receiptPayments[0].paymentAmount + diff);
+      receipt.receiptPayments[0].paymentAmount = exactAdd2(receipt.receiptPayments[0].paymentAmount, diff);
     } else {
       receipt.receiptPayments = [{ moneyTypeCode: "Cash", paymentAmount: receipt.receiptTotal! }];
     }

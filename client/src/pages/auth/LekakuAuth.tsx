@@ -44,6 +44,19 @@ export default function LekakuAuth() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isBrokenStorage, setIsBrokenStorage] = useState(false);
+  const [bounceReason, setBounceReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Surfaced when apiFetch kills a definitively-dead session and bounces here.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const reason = sessionStorage.getItem("auth_bounce_reason") || params.get("reason");
+      if (reason === "session-expired") {
+        setBounceReason(t("Your session expired — please sign in again."));
+      }
+      sessionStorage.removeItem("auth_bounce_reason");
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (isStorageBroken()) {
@@ -213,6 +226,9 @@ export default function LekakuAuth() {
               </CardDescription>
             </CardHeader>
             <CardContent className="px-8 pb-8">
+              {bounceReason && (
+                <div className="mb-4 p-3 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-sm">{bounceReason}</div>
+              )}
               {error && (
                 <div className="mb-4 p-3 rounded-md bg-red-50 text-red-500 border border-red-100 text-sm">{error}</div>
               )}

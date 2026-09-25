@@ -109,10 +109,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
         const urlStr = url.toString();
         const isAuthEndpoint = urlStr.includes('/api/auth/');
         const alreadyRetried = (init as any)?._authRetried === true;
+        // Don't cascade 401s from upstream fiscal authority endpoints — those are
+        // RSL/ZIMRA gateway rejections (e.g. expired device cert), NOT our auth
+        // system failing. Nuking the session here bounces freshly logged-in
+        // users straight back to login.
+        const isFiscalProxy = urlStr.includes('/zimra/') || urlStr.includes('/lekaku/') || urlStr.includes('/lekuka/');
 
         // 401 received: silently try ONE token refresh then retry the original request.
-        // Never retry auth endpoints themselves, and never retry more than once.
-        if (response.status === 401 && !isAuthEndpoint && !alreadyRetried) {
+        // Never retry auth endpoints themselves, never retry fiscal proxy 401s, and never retry more than once.
+        if (response.status === 401 && !isAuthEndpoint && !alreadyRetried && !isFiscalProxy) {
             let refreshSucceeded = false;
             try {
                 const refreshed = await auth.refreshTokens();
@@ -122,32 +127,46 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
                     return apiFetch(input, { ...init, _authRetried: true } as any);
                 }
             } catch {
-                // Fall through — refresh failed, session is dead.
+                // Fall through — refresh failed; definitiveness checked below.
             }
 
             if (!refreshSucceeded) {
-                // Refresh token is dead (or missing) — clear session and redirect to login.
-                console.warn('[apiFetch] 401 and token refresh failed — clearing session');
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('auth_user');
-                try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
-                invalidateSessionCache();
-                if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
-                    const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
-                    const path = window.location.pathname;
-                    const isAuthRoute = path.includes('/auth');
-                    const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
-                    const isPublicRoute = path === '/' || path === '' || path.startsWith('/auth') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
-                    if (isElectron) {
-                        if (!isPosLoginRoute && !isPublicRoute) {
+                // Only destroy the session when it is definitively dead: no usable
+                // tokens remain in memory or storage (a rejected refresh token clears
+                // them via auth.logout()). Transient refresh failures (network/5xx)
+                // keep the existing tokens — wiping them turns a momentary blip
+                // into a forced logout right after auth.
+                let stillHaveTokens = false;
+                try {
+                    stillHaveTokens = !!auth.getAccessToken() || !!localStorage.getItem('access_token');
+                } catch { stillHaveTokens = !!auth.getAccessToken(); }
+                if (!stillHaveTokens) {
+                    // Refresh token is dead (or missing) — clear session and redirect to login.
+                    console.warn('[apiFetch] 401 and no usable tokens remain — clearing session');
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    localStorage.removeItem('auth_user');
+                    try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
+                    invalidateSessionCache();
+                    try { sessionStorage.setItem('auth_bounce_reason', 'session-expired'); } catch {}
+                    if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
+                        const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
+                        const path = window.location.pathname;
+                        const isAuthRoute = path.includes('/auth');
+                        const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
+                        const isPublicRoute = path === '/' || path === '' || path.startsWith('/auth') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
+                        if (isElectron) {
+                            if (!isPosLoginRoute && !isPublicRoute) {
+                                (window as any).__authRedirecting = true;
+                                window.location.href = '/pos-login';
+                            }
+                        } else if (!isAuthRoute && !isPublicRoute) {
                             (window as any).__authRedirecting = true;
-                            window.location.href = '/pos-login';
+                            window.location.href = '/auth?reason=session-expired';
                         }
-                    } else if (!isAuthRoute && !isPublicRoute) {
-                        (window as any).__authRedirecting = true;
-                        window.location.href = '/auth';
                     }
+                } else {
+                    console.warn('[apiFetch] 401 but usable tokens remain — leaving session intact');
                 }
             }
         }

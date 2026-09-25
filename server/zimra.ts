@@ -8,6 +8,7 @@ import {
     buildReceiptDeviceSignatureInput,
     normalizeFiscalCountersForSignature,
 } from './lib/fiscal-signatures.js';
+import { exactRound2, exactRound6, exactMul2, exactAdd2, exactSub2, exactDiv2 } from './lib/fiscal-money.js';
 
 export class ZimraApiError extends Error {
     public statusCode: number;
@@ -740,7 +741,14 @@ export class ZimraDevice {
             }
 
             let linePrice = line.receiptLinePrice;
-            let lineTotal = Math.round(line.receiptLineQuantity * line.receiptLinePrice * 100) / 100;
+            // RCPT024: the gateway checks total == price*qty with arithmetical
+            // rounding, so the total MUST be derived from the SENT price/quantity
+            // with exact decimal math — float math (0.09*571.5=51.434999999999995)
+            // flips cent rounding and goes Red. Cap at the spec's 6dp precision.
+            const sentPrice = exactRound6(line.receiptLinePrice);
+            const sentQty = exactRound6(line.receiptLineQuantity);
+            linePrice = sentPrice;
+            let lineTotal = exactMul2(sentPrice, sentQty);
 
             // ZIMRA Rule: CreditNote values must be negative
             if (receipt.receiptType === 'CreditNote') {
@@ -764,6 +772,7 @@ export class ZimraDevice {
                 receiptLineHSCode: (line.receiptLineHSCode || '04021099').trim(), // Default per Python
                 receiptLineName: (line.receiptLineName || '').trim() || 'Item without description',
                 receiptLinePrice: linePrice,
+                receiptLineQuantity: sentQty,
                 receiptLineTotal: lineTotal,
                 taxID,
                 taxPercent: line.taxPercent,
@@ -796,7 +805,7 @@ export class ZimraDevice {
                     baseTotal: 0
                 });
             }
-            taxMap.get(key)!.baseTotal += line.receiptLineTotal;
+            taxMap.get(key)!.baseTotal = exactAdd2(taxMap.get(key)!.baseTotal, line.receiptLineTotal);
         });
 
         receipt.receiptTaxes = Array.from(taxMap.values()).map(t => {
@@ -809,18 +818,19 @@ export class ZimraDevice {
             };
 
             if (receipt.receiptLinesTaxInclusive) {
-                // Line totals already include tax: gross = sum(lines), embedded tax derived from gross
-                result.salesAmountWithTax = Math.round(t.baseTotal * 100) / 100;
+                // Line totals already include tax: gross = sum(lines), embedded tax derived from gross.
+                // Exact-decimal math throughout so we match the gateway's arithmetical rounding.
+                result.salesAmountWithTax = exactRound2(t.baseTotal);
                 if (t.taxPercent) {
                     const rate = t.taxPercent / 100;
-                    result.taxAmount = Math.round((result.salesAmountWithTax - result.salesAmountWithTax / (1 + rate)) * 100) / 100;
+                    result.taxAmount = exactSub2(result.salesAmountWithTax, exactDiv2(result.salesAmountWithTax, 1 + rate));
                 }
             } else {
                 // Line totals are net: tax = rate × sum(lines), gross = net + tax
-                const netTotal = Math.round(t.baseTotal * 100) / 100;
+                const netTotal = exactRound2(t.baseTotal);
                 if (t.taxPercent) {
-                    result.taxAmount = Math.round(netTotal * (t.taxPercent / 100) * 100) / 100;
-                    result.salesAmountWithTax = Math.round((netTotal + result.taxAmount) * 100) / 100;
+                    result.taxAmount = exactMul2(netTotal, t.taxPercent / 100);
+                    result.salesAmountWithTax = exactAdd2(netTotal, result.taxAmount);
                 } else {
                     result.taxAmount = 0;
                     result.salesAmountWithTax = netTotal;
@@ -838,25 +848,23 @@ export class ZimraDevice {
         });
 
         // 3. Totals (Strictly based on SUM OF TAX TABLE to satisfy RCPT038)
-        const calculatedTotal = receipt.receiptTaxes.reduce((acc, t) => acc + t.salesAmountWithTax, 0);
-        receipt.receiptTotal = Math.round(calculatedTotal * 100) / 100;
+        const calculatedTotal = receipt.receiptTaxes.reduce((acc, t) => exactAdd2(acc, t.salesAmountWithTax), 0);
+        receipt.receiptTotal = exactRound2(calculatedTotal);
 
         // 4. Ensure payments match strictly (RCPT039)
         if (receipt.receiptPayments && receipt.receiptPayments.length > 0) {
-            const paymentTotal = receipt.receiptPayments.reduce((acc, p) => acc + p.paymentAmount, 0);
+            const paymentTotal = receipt.receiptPayments.reduce((acc, p) => exactAdd2(acc, p.paymentAmount), 0);
 
             // If mismatch is small (rounding), fix the first payment (likely CASH/Card)
-            const diff = receipt.receiptTotal - paymentTotal;
+            const diff = exactSub2(receipt.receiptTotal, paymentTotal);
             if (Math.abs(diff) > 0.001) {
                 if (Math.abs(diff) <= 0.05) {
                     // Fix small rounding difference
-                    receipt.receiptPayments[0].paymentAmount += diff;
-                    receipt.receiptPayments[0].paymentAmount = Math.round(receipt.receiptPayments[0].paymentAmount * 100) / 100;
+                    receipt.receiptPayments[0].paymentAmount = exactAdd2(receipt.receiptPayments[0].paymentAmount, diff);
                 } else {
                     // Force fix the main payment
                     console.warn(`Payment total mismatch: ${paymentTotal} vs ${receipt.receiptTotal}. Adjusting payment.`);
-                    receipt.receiptPayments[0].paymentAmount += diff;
-                    receipt.receiptPayments[0].paymentAmount = Math.round(receipt.receiptPayments[0].paymentAmount * 100) / 100;
+                    receipt.receiptPayments[0].paymentAmount = exactAdd2(receipt.receiptPayments[0].paymentAmount, diff);
                 }
             }
         } else {

@@ -8,6 +8,7 @@ import path from "path";
 import { logAction } from "../audit.js";
 import { assertReceiptPreflight, ZimraPreflightError, expectedReceiptTotal } from "./zimra-preflight.js";
 import { buildCompanyTaxMapping, resolveLineTaxID } from "./tax-mapping.js";
+import { exactRound2, exactMul2 } from "./fiscal-money.js";
 import { db, pool } from "../db.js";
 import { eq, and, isNotNull, ne, inArray } from "drizzle-orm";
 import { getFiscalStateCarrier, getFiscalStateOwnerKey, hasDedicatedBranchFiscalDevice } from "./fiscal-state.js";
@@ -242,7 +243,14 @@ function buildLekakuReceiptLines(
         const item = items[index];
         const unitPrice = Number(item.unitPrice || item.price || 0);
         const quantity = Number(item.quantity || 1);
-        const lineTotal = roundMoney(unitPrice * quantity);
+        // RCPT024: the gateway checks total == price*qty with arithmetical
+        // rounding, so the total MUST be derived from the SENT price/quantity
+        // with exact decimal math — float math (0.09*571.5=51.434999999999995)
+        // flips cent rounding and goes Red.
+        const sentQuantity = exactRound2(quantity);
+        const sentPrice = exactRound2(Math.abs(unitPrice));
+        const lineTotal = exactMul2(sentPrice, sentQuantity);
+        const isDiscount = exactMul2(unitPrice, sentQuantity) < 0;
 
         // Main tax comes ONLY from the synced gateway mapping (RCPT025:
         // taxRate/taxID/taxType must exactly match the gateway record).
@@ -276,12 +284,12 @@ function buildLekakuReceiptLines(
         const hsCode = item.product?.hsCode ? String(item.product.hsCode).replace(/\D/g, "").slice(0, 8) : "99999999";
 
         const receiptLine: LekakuReceiptLine = {
-            receiptLineType: lineTotal < 0 ? "Discount" : "Sale",
+            receiptLineType: isDiscount ? "Discount" : "Sale",
             receiptLineNo: index + 1,
             receiptLineName: (item.description || "").trim() || "Item",
-            receiptLineQuantity: roundMoney(quantity),
-            receiptLineTotal: roundMoney(Math.abs(lineTotal)),
-            receiptLinePrice: roundMoney(Math.abs(unitPrice)),
+            receiptLineQuantity: sentQuantity,
+            receiptLineTotal: lineTotal,
+            receiptLinePrice: sentPrice,
             receiptLineHSCode: hsCode || undefined,
             taxID: mainTaxID,
             taxType: mainTaxType,
@@ -831,14 +839,12 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             return 'Other';
         };
 
-        // ── RCPT024/027/039: Normalize totals to ZIMRA's exact arithmetic ──
-        // Line totals must equal price × quantity (2dp) and the receipt total
-        // must be the per-tax-bucket sum ZIMRA computes — not the POS's per-line
-        // rounded totals. Sending POS totals causes Red RCPT024/027/039 even
-        // when the invoice is internally consistent.
-        const roundMoney = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+        // ── RCPT024: Normalize totals to the gateway's exact arithmetic ──
+        // Line totals must equal price × quantity (2dp, arithmetical rounding).
+        // Derive them from the SENT price/quantity with exact-decimal math —
+        // float math flips cent rounding on fractional quantities (Red RCPT024).
         for (const line of receiptLines) {
-            line.receiptLineTotal = Number((Number(line.receiptLineQuantity) * Number(line.receiptLinePrice)).toFixed(4));
+            line.receiptLineTotal = exactMul2(line.receiptLineQuantity, line.receiptLinePrice);
         }
 
         const totalAmount = parseFloat(Number(invoice.total).toFixed(2));

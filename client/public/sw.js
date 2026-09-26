@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v18';
+const CACHE_VERSION = 'v19';
 const STATIC_CACHE = `fiscalstack-static-${CACHE_VERSION}`;
 const NAV_CACHE = `fiscalstack-nav-${CACHE_VERSION}`;
 const FONT_CACHE = `fiscalstack-fonts-${CACHE_VERSION}`;
@@ -9,8 +9,16 @@ const PRECACHE_URLS = [
 ];
 
 self.addEventListener('install', (event) => {
+  // Cache each URL independently — one offline/404 must not fail the install.
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(STATIC_CACHE).then(async (cache) => {
+      await Promise.all(PRECACHE_URLS.map(async (url) => {
+        try {
+          const res = await fetch(url, { cache: 'reload' });
+          if (res && res.ok) await cache.put(url, res);
+        } catch { /* offline install — activate anyway */ }
+      }));
+    })
   );
   self.skipWaiting();
 });
@@ -63,8 +71,12 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).then((response) => {
-        const clone = response.clone();
-        caches.open(NAV_CACHE).then((cache) => cache.put(request, clone));
+        // Only cache successful pages — never persist an error page as the
+        // offline fallback, or every later offline visit serves the error.
+        if (response && response.ok) {
+          const clone = response.clone();
+          caches.open(NAV_CACHE).then((cache) => cache.put(request, clone));
+        }
         return response;
       }).catch(() =>
         caches.match(request).then((cached) => cached || caches.match('/'))
@@ -73,6 +85,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // App chunks (.js/.css): cache-first for speed, but a cache MISS with a
+  // failed network must not reject with nothing to show — fall through so the
+  // page's own recovery (fresh reload) can take over instead of hanging.
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
@@ -82,7 +97,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
         }
         return response;
-      });
+      }).catch(() => caches.match(request));
     })
   );
 });

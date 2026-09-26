@@ -144,9 +144,49 @@
       // React never mounts and the bar parks at 90%. Surface that instead of
       // hanging silently — offer a cache-busting reload.
       var chunkFailed = false;
+      // Single-shot per session: a bad service-worker cache is the usual cause
+      // of chunk failures, so drop SW + caches and reload once while React is
+      // still unmounted. Never touch a running app.
+      var recoverAttempted = false;
+      try { recoverAttempted = sessionStorage.getItem('sw_chunk_recover') === '1'; } catch (e) {}
+      function reactMounted() {
+        var root = document.getElementById('root');
+        return !!(root && root.childNodes.length > 0);
+      }
+      function recoverFromChunkFailure() {
+        if (reactMounted() || recoverAttempted) return;
+        recoverAttempted = true;
+        try { sessionStorage.setItem('sw_chunk_recover', '1'); } catch (e) {}
+        var done = function () { window.location.reload(); };
+        try {
+          var clearing = [];
+          if ('serviceWorker' in navigator) {
+            clearing.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+              return Promise.all(rs.map(function (r) { return r.unregister(); }));
+            }).catch(function () {}));
+          }
+          if (window.caches) {
+            clearing.push(caches.keys().then(function (ks) {
+              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+            }).catch(function () {}));
+          }
+          Promise.all(clearing).then(done, done);
+          setTimeout(done, 4000);
+        } catch (e) { done(); }
+      }
       window.addEventListener('error', function (e) {
         var t = e && e.target;
-        if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) chunkFailed = true;
+        if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
+          chunkFailed = true;
+          // Only auto-recover for same-origin app chunks — a failed font or
+          // third-party asset must never nuke the service worker.
+          try {
+            var src = t.src || t.href || '';
+            if (t.tagName === 'SCRIPT' && src.indexOf(window.location.origin) === 0) {
+              recoverFromChunkFailure();
+            }
+          } catch (err) {}
+        }
       }, true);
       setTimeout(function () {
         var shell = document.getElementById('boot-splash');

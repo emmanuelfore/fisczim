@@ -885,6 +885,7 @@ function BrandingMeta() {
 import { BranchProvider } from "./lib/branch-context";
 import { LanguageProvider } from "@/lib/i18n";
 import { BootSplash } from "@/components/boot-splash";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 function App() {
   useSwAuthBridge();
@@ -898,8 +899,12 @@ function App() {
             <BrandingMeta />
             <Toaster />
             {/* Boot gate: splash stays until React is actually ready —
-                never a blank moment between splash and app. */}
-            {!booted ? <BootSplash onReady={() => setBooted(true)} /> : <Router />}
+                never a blank moment between splash and app. The boundary
+                turns render crashes into a recovery screen instead of a
+                permanently parked 90% splash. */}
+            <ErrorBoundary>
+              {!booted ? <BootSplash onReady={() => setBooted(true)} /> : <Router />}
+            </ErrorBoundary>
           </BranchProvider>
         </TooltipProvider>
       </LanguageProvider>

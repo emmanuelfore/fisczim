@@ -140,6 +140,34 @@
           status.textContent = 'Still preparing… large databases may take longer on first launch.';
         }
       }, 10000);
+      // Watchdog: if app chunks fail to load (stale cache / broken connection),
+      // React never mounts and the bar parks at 90%. Surface that instead of
+      // hanging silently — offer a cache-busting reload.
+      var chunkFailed = false;
+      window.addEventListener('error', function (e) {
+        var t = e && e.target;
+        if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) chunkFailed = true;
+      }, true);
+      setTimeout(function () {
+        var shell = document.getElementById('boot-splash');
+        var root = document.getElementById('root');
+        var reactMounted = root && root.childNodes.length > 0;
+        if (shell && !reactMounted) {
+          if (status) {
+            status.textContent = chunkFailed
+              ? 'App files failed to load. Check your connection, then reload to fetch a fresh copy.'
+              : 'The app is taking unusually long to start on this device.';
+          }
+          if (!document.getElementById('boot-watchdog-reload')) {
+            var btn = document.createElement('button');
+            btn.id = 'boot-watchdog-reload';
+            btn.textContent = 'Reload app';
+            btn.style.cssText = 'margin-top:14px;padding:10px 22px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:#6366f1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;';
+            btn.onclick = function () { window.location.reload(); };
+            shell.appendChild(btn);
+          }
+        }
+      }, 45000);
     })();
   </script>
   <div id="root"></div>

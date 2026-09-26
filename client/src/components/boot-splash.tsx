@@ -80,6 +80,20 @@ export function BootSplash({ onReady, minDisplayMs = 900 }: BootSplashProps) {
     return () => clearTimeout(t);
   }, []);
 
+  // Absolute failsafe: the staged sequence is timeout-guarded, but if anything
+  // ever stalls the boot (wedged storage promise, frozen timers on low-end
+  // devices), force progress after 30s rather than parking at 90% forever.
+  // Offline-capable result so the workspace still opens.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!readyFired.current) {
+        setSlow(true);
+        finish({ offline: true, storageHealthy: true, serverReachable: false, error: null });
+      }
+    }, 30000);
+    return () => clearTimeout(t);
+  }, []);
+
   const finish = (result: BootResult) => {
     if (readyFired.current) return;
     readyFired.current = true;

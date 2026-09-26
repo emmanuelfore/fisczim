@@ -939,12 +939,12 @@ function App() {
             <BrandingMeta />
             <Toaster />
             {/* Boot gate: splash stays until React is actually ready —
-                never a blank moment between splash and app. */}
-            {!booted ? <BootSplash onReady={() => setBooted(true)} /> : (
-              <ErrorBoundary>
-                <Router />
-              </ErrorBoundary>
-            )}
+                never a blank moment between splash and app. The boundary
+                covers the gate too, so a render crash becomes a recovery
+                screen instead of a permanently parked 90% splash. */}
+            <ErrorBoundary>
+              {!booted ? <BootSplash onReady={() => setBooted(true)} /> : <Router />}
+            </ErrorBoundary>
           </BranchProvider>
         </TooltipProvider>
       </LanguageProvider>

@@ -1,7 +1,16 @@
-const CACHE_VERSION = 'v19';
-const STATIC_CACHE = `fiscalstack-static-${CACHE_VERSION}`;
+// FiscalStack Service Worker — deliberately minimal.
+// IndexedDB + in-app code own ALL offline data/sync (POS works without this
+// file doing anything clever). This worker exists only for three jobs:
+//   1. Serve the app shell when the device has no connection (offline boot).
+//   2. Retry queued sales in the background when connectivity returns.
+//   3. Satisfy the PWA installability requirement (fetch handler present).
+// App chunks (.js/.css) are content-hashed + served immutable by the server,
+// so the browser HTTP cache — not this worker — keeps them consistent and
+// available offline. Nothing here caches them, which removes the whole class
+// of stale-chunk boot failures.
+const CACHE_VERSION = 'v20';
+const SHELL_CACHE = `fiscalstack-shell-${CACHE_VERSION}`;
 const NAV_CACHE = `fiscalstack-nav-${CACHE_VERSION}`;
-const FONT_CACHE = `fiscalstack-fonts-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = [
   '/',
@@ -11,7 +20,7 @@ const PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   // Cache each URL independently — one offline/404 must not fail the install.
   event.waitUntil(
-    caches.open(STATIC_CACHE).then(async (cache) => {
+    caches.open(SHELL_CACHE).then(async (cache) => {
       await Promise.all(PRECACHE_URLS.map(async (url) => {
         try {
           const res = await fetch(url, { cache: 'reload' });
@@ -27,7 +36,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== STATIC_CACHE && k !== NAV_CACHE && k !== FONT_CACHE)
+        keys.filter((k) => k !== SHELL_CACHE && k !== NAV_CACHE)
             .map((k) => caches.delete(k))
       )
     )
@@ -53,21 +62,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com') {
-    event.respondWith(
-      caches.open(FONT_CACHE).then((cache) =>
-        cache.match(request).then((cached) => {
-          if (cached) return cached;
-          return fetch(request).then((response) => {
-            if (response.ok) cache.put(request, response.clone());
-            return response;
-          });
-        })
-      )
-    );
-    return;
-  }
-
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).then((response) => {
@@ -85,21 +79,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App chunks (.js/.css): cache-first for speed, but a cache MISS with a
-  // failed network must not reject with nothing to show — fall through so the
-  // page's own recovery (fresh reload) can take over instead of hanging.
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        if (response.ok && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.endsWith('.png') || url.pathname.endsWith('.svg') || url.pathname.endsWith('.woff2'))) {
-          const clone = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
-        }
-        return response;
-      }).catch(() => caches.match(request));
-    })
-  );
+  // Everything else (app chunks, images, fonts): straight to network.
+  // Chunks are content-hashed + immutable, so the browser HTTP cache keeps
+  // them consistent and available offline — no worker caching, no stale mix.
 });
 
 const DB_NAME = 'pos-offline';

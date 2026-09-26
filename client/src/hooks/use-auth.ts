@@ -180,10 +180,14 @@ export function useAuth() {
         }
         return;
       } catch (err: any) {
-        // If it's an auth error (wrong password), throw immediately
-        if (err?.status === 400 || err?.message?.includes("Invalid") || err?.message?.includes("credentials")) throw err;
+        // The server RESPONDED with an HTTP error (wrong password, 500, …):
+        // surface it. Only network-level failures (no response at all — the
+        // error carries no HTTP status) fall through to offline credentials.
+        // Otherwise we build a tokenless offline session that bounces straight
+        // back to login with "session expired" on the first online request.
+        if (typeof err?.status === "number") throw err;
         // Network error — fall through to offline path
-        console.warn("[Auth] Online login failed, trying offline credentials:", err.message);
+        console.warn("[Auth] Online login unreachable, trying offline credentials:", err?.message);
       }
     }
 

@@ -182,17 +182,14 @@ export function useAuth() {
         }
         return;
       } catch (err: any) {
-        // If it's a definitive auth rejection (wrong password), still try offline
-        // credentials before giving up — the terminal may simply be offline and
-        // the "401" came from a captive portal / stale probe. Only throw if
-        // offline verification also fails below.
-        if (err?.message === "Login request timed out" || err?.message?.includes("timed out") ||
-            err?.message?.includes("Failed to fetch") || err?.message?.includes("Network") ||
-            err?.message?.includes("Connection") || !getIsOnline()) {
-          console.warn("[Auth] Online login unreachable, trying offline credentials:", err?.message);
-        } else {
-          console.warn("[Auth] Online login failed, trying offline credentials anyway:", err?.message);
-        }
+        // Only fall back to offline credentials when the server never
+        // responded (network failure/timeout — no HTTP status on the error).
+        // A definitive HTTP rejection (wrong password, 500, …) must surface
+        // as an error: silently continuing with a tokenless offline session
+        // just bounces straight back to login with "session expired" on the
+        // first online request.
+        if (typeof err?.status === "number") throw err;
+        console.warn("[Auth] Online login unreachable, trying offline credentials:", err?.message);
       }
     }
 

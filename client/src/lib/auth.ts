@@ -153,8 +153,10 @@ class AuthClient {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Registration failed');
+      const error = await response.json().catch(() => ({} as any));
+      const err = new Error((error as any).message || 'Registration failed');
+      (err as any).status = response.status;
+      throw err;
     }
 
     const data: AuthResponse = await response.json();
@@ -177,8 +179,10 @@ class AuthClient {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
+      const error = await response.json().catch(() => ({} as any));
+      const err = new Error((error as any).message || 'Login failed');
+      (err as any).status = response.status;
+      throw err;
     }
 
     const data: AuthResponse = await response.json();

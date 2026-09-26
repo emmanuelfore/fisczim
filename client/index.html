@@ -140,9 +140,25 @@
           status.textContent = 'Still preparing… large databases may take longer on first launch.';
         }
       }, 10000);
-      // Watchdog: if app chunks fail to load (stale cache / broken connection),
-      // React never mounts and the bar parks at 90%. Surface that instead of
-      // hanging silently — offer a cache-busting reload.
+      // Pre-mount error trap: if the bundle throws during evaluation (before
+      // React mounts), record it so the watchdog below can SHOW the message
+      // instead of parking silently at 90%.
+      window.__bootErrors = [];
+      function recordBootError(msg) {
+        try {
+          if (msg && window.__bootErrors.length < 5) window.__bootErrors.push(String(msg).slice(0, 220));
+        } catch (e) {}
+      }
+      window.addEventListener('error', function (e) {
+        if (e && e.message) recordBootError(e.message);
+        else if (e && e.error && e.error.message) recordBootError(e.error.message);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e && e.reason;
+        recordBootError((r && (r.message || r)) || 'unhandled rejection');
+      });
+      // Watchdog: if React never mounts and the bar parks at 90%, surface that
+      // instead of hanging silently — offer a cache-busting reload.
       var chunkFailed = false;
       // Single-shot per session: a bad service-worker cache is the usual cause
       // of chunk failures, so drop SW + caches and reload once while React is
@@ -194,9 +210,12 @@
         var reactMounted = root && root.childNodes.length > 0;
         if (shell && !reactMounted) {
           if (status) {
-            status.textContent = chunkFailed
-              ? 'App files failed to load. Check your connection, then reload to fetch a fresh copy.'
-              : 'The app is taking unusually long to start on this device.';
+            var firstErr = (window.__bootErrors && window.__bootErrors[0]) || '';
+            status.textContent = firstErr
+              ? 'Startup failed: ' + firstErr
+              : chunkFailed
+                ? 'App files failed to load. Check your connection, then reload to fetch a fresh copy.'
+                : 'The app is taking unusually long to start on this device.';
           }
           if (!document.getElementById('boot-watchdog-reload')) {
             var btn = document.createElement('button');

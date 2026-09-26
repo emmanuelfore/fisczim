@@ -6,8 +6,17 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "";
 let cachedSession: any = null;
 let sessionInitialized = false;
 
-// 1. Initial fetch from custom auth/localStorage
-const customToken = auth.getAccessToken() || localStorage.getItem('access_token');
+// 1. Initial fetch from custom auth/localStorage. Guarded: storage access can
+// throw at module-eval time (wedged/disabled DOM storage, e.g. some Electron
+// profiles) — an uncaught throw here kills the entire bundle before React
+// mounts and parks the boot splash forever.
+let initialToken: string | null = null;
+try {
+  initialToken = auth.getAccessToken() || localStorage.getItem('access_token');
+} catch {
+  initialToken = auth.getAccessToken();
+}
+const customToken = initialToken;
 if (customToken) {
     cachedSession = { access_token: customToken };
     sessionInitialized = true;
@@ -16,11 +25,16 @@ if (customToken) {
 }
 
 export async function getCachedSession(): Promise<{ access_token: string; expires_at?: number } | null> {
-    const customToken = auth.getAccessToken() || localStorage.getItem('access_token');
-    if (customToken) {
-        return { access_token: customToken };
+    try {
+        const customToken = auth.getAccessToken() || localStorage.getItem('access_token');
+        if (customToken) {
+            return { access_token: customToken };
+        }
+    } catch {
+        const memToken = auth.getAccessToken();
+        if (memToken) return { access_token: memToken };
     }
-    
+
     return cachedSession;
 }
 

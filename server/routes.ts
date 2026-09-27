@@ -23,7 +23,7 @@ import crypto from "crypto";
 import { logAction } from "./audit.js";
 import { startPosShift, endPosShift, addPosTransaction, getOpenShift, getShiftTransactions, getCompanyPosTransactions } from "./lib/pos.js";
 import { seedCompanyDefaults } from "./lib/seeding.js";
-import { processInvoiceFiscalization, getZimraLogger } from "./lib/fiscalization.js";
+import { processInvoiceFiscalization, getZimraLogger, FiscalDeviceBusyError } from "./lib/fiscalization.js";
 import { classifyProduct } from "./utils/productClassifier.js";
 import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
@@ -11433,8 +11433,23 @@ export async function registerRoutes(
           const POS_FISCAL_SYNC_BUDGET_MS = 8000;
           vLog(`[Fiscal] Triggering POS fiscalization for invoice ${invoice.id} with ${POS_FISCAL_SYNC_BUDGET_MS}ms checkout budget`);
 
-          // Claim the job first to avoid background worker picking it up immediately
-          await db.update(fiscalizationJobs).set({ status: "processing" }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
+          // Claim the job first to avoid background worker picking it up immediately.
+          // The lease lets the worker reclaim this claim if this request wedges.
+          await db.update(fiscalizationJobs).set({
+            status: "processing",
+            leaseUntil: new Date(Date.now() + 5 * 60 * 1000),
+            updatedAt: new Date(),
+          }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
+
+          const requeueFiscalJob = async (reason: string) => {
+            // Contention, not a bad receipt: hand it back to the worker.
+            await db.update(fiscalizationJobs).set({
+              status: "pending",
+              lastErrorMessage: reason,
+              nextAttemptAt: new Date(),
+              updatedAt: new Date(),
+            }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
+          };
 
           const fiscalPromise = processInvoiceFiscalization(
             invoice.id,
@@ -11460,6 +11475,10 @@ export async function registerRoutes(
             markPerf("fiscal_done_within_budget");
           } else if (budgetResult.kind === "error") {
             console.error("[Fiscal] POS fiscalization failed within checkout window:", budgetResult.error);
+            if (budgetResult.error instanceof FiscalDeviceBusyError) {
+              await requeueFiscalJob(String(budgetResult.error));
+              markPerf("fiscal_device_busy");
+            } else {
             try {
               const failedInvoice = await storage.updateInvoice(invoice.id, {
                 fdmsStatus: "Failed",
@@ -11476,6 +11495,7 @@ export async function registerRoutes(
               console.error(`[Fiscal] Failed to persist POS failure status for invoice ${invoice.id}:`, updateErr);
             }
             markPerf("fiscal_failed_within_budget");
+            }
           } else {
             vWarn(`[Fiscal] POS fiscalization exceeded ${POS_FISCAL_SYNC_BUDGET_MS}ms for invoice ${invoice.id}; continuing in background.`);
             storage.updateInvoice(invoice.id, {
@@ -11491,6 +11511,10 @@ export async function registerRoutes(
               await db.update(fiscalizationJobs).set({ status: "completed", completedAt: new Date() }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
             }).catch(async (err) => {
               console.error(`[Fiscal] Background POS fiscalization failed for invoice ${invoice.id}:`, err);
+              if (err instanceof FiscalDeviceBusyError) {
+                await requeueFiscalJob(String(err));
+                return;
+              }
               try {
                 await storage.updateInvoice(invoice.id, {
                   fdmsStatus: "Failed",

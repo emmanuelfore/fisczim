@@ -18,14 +18,47 @@ const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); }
 const vTime = (label: string) => { if (POS_VERBOSE_LOGS) console.time(label); };
 const vTimeEnd = (label: string) => { if (POS_VERBOSE_LOGS) console.timeEnd(label); };
 const FISCAL_DEVICE_LOCK_NAMESPACE = 34001;
+// Bounded wait for the per-company fiscal device lock. pg_advisory_lock blocks
+// forever: if the holder wedges mid-fiscalization every other receipt for that
+// company queues up behind it, each pinning a pool connection until the pool
+// (max 5) is exhausted and the whole API stalls. Poll a non-blocking acquire
+// until this deadline, then hand the connection back and let the caller retry.
+const FISCAL_DEVICE_LOCK_TIMEOUT_MS = Number(process.env.FISCAL_DEVICE_LOCK_TIMEOUT_MS || 20000);
+const FISCAL_DEVICE_LOCK_POLL_MS = 250;
 const getZimraConfigCacheKey = (companyId: number, activeBranch?: any) =>
     getFiscalStateOwnerKey(companyId, activeBranch);
+
+export class FiscalDeviceBusyError extends Error {
+    readonly lockKey: number;
+    constructor(lockKey: number) {
+        super(`Fiscal device for scope ${lockKey} is busy — another fiscalization is still running. Will retry.`);
+        this.name = "FiscalDeviceBusyError";
+        this.lockKey = lockKey;
+    }
+}
 
 async function acquireFiscalDeviceLock(companyId: number, activeBranch: any) {
     const client = await pool.connect();
     const lockKey = getFiscalStateOwnerKey(companyId, activeBranch);
-    await client.query("SELECT pg_advisory_lock($1, $2)", [FISCAL_DEVICE_LOCK_NAMESPACE, lockKey]);
-    return { client, lockKey };
+    const deadline = Date.now() + FISCAL_DEVICE_LOCK_TIMEOUT_MS;
+    for (;;) {
+        let locked = false;
+        try {
+            const res = await client.query("SELECT pg_try_advisory_lock($1, $2) AS locked", [FISCAL_DEVICE_LOCK_NAMESPACE, lockKey]);
+            locked = res.rows?.[0]?.locked === true;
+        } catch (err) {
+            client.release();
+            throw err;
+        }
+        if (locked) return { client, lockKey };
+        if (Date.now() >= deadline) {
+            // Never hold the connection while waiting — the pool is tiny and
+            // every pinned connection starves the rest of the API.
+            client.release();
+            throw new FiscalDeviceBusyError(lockKey);
+        }
+        await new Promise((r) => setTimeout(r, FISCAL_DEVICE_LOCK_POLL_MS));
+    }
 }
 
 async function releaseFiscalDeviceLock(lock: { client: any; lockKey: number } | null) {

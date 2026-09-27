@@ -672,6 +672,10 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // a preflight failure never reached FDMS, so it must not burn a receipt number.
         let nextGlobalNo: number;
         let nextReceiptCounter: number;
+        // Set when stale offline-claimed numbers are rebased onto fresh ones;
+        // the stale offlinePreviousHash must then be ignored in favour of the
+        // live chain hash below.
+        let rebasedOfflineNumbers = false;
 
         if (zimraSync) {
             nextGlobalNo = zimraSync.nextGlobalNo;
@@ -1164,31 +1168,52 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             nextGlobalNo = zimraSync.nextGlobalNo;
             nextReceiptCounter = zimraSync.nextReceiptCounter;
         } else if (invoice.fiscalSignature && invoice.receiptGlobalNo && invoice.receiptCounter) {
-            // Offline-signed receipt: use the counters that were signed offline.
+            // Offline-signed receipt: prefer the counters that were signed offline.
             // Per the ZIMRA spec these must be EXACTLY one greater than the live
             // sequence (previous receipt + 1) — "ahead" is not enough. A
             // skip-ahead number (a gap in the chain) is stored Grey ("previous
             // receipt missing") and poisons the chain exactly like the day-4
             // anchor break did. Require an exact match on BOTH counters, and
             // if the client sent the previous hash it signed against, it must
-            // still match the live chain. Otherwise reject with a clear error
-            // so the sale is re-issued with fresh numbers rather than burning
-            // a corrupt receipt.
+            // still match the live chain.
+            //
+            // STALE COLLISION REBASE: when the claimed numbers are BEHIND the
+            // live chain (two terminals / rapid sales claimed the same cached
+            // pair and another sale already recorded them on FDMS), the sale's
+            // content was never recorded — so rebase it onto fresh atomic
+            // numbers with the live chain hash instead of failing forever.
+            // The client's offline signature is intentionally NOT forwarded
+            // (the server recomputes everything below), so rebasing is safe.
             const liveGlobal = fiscalState.lastReceiptGlobalNo ?? 0;
             const liveCounter = fiscalState.dailyReceiptCount ?? 0;
-            if (invoice.receiptGlobalNo !== liveGlobal + 1) {
-                throw new Error(`Offline receipt global number ${invoice.receiptGlobalNo} is not the next in sequence (expected ${liveGlobal + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+            const globalOk = invoice.receiptGlobalNo === liveGlobal + 1;
+            const counterOk = invoice.receiptCounter === liveCounter + 1;
+            if (!globalOk || !counterOk) {
+                const staleCollision =
+                    (invoice.receiptGlobalNo ?? 0) <= liveGlobal &&
+                    (invoice.receiptCounter ?? 0) <= liveCounter;
+                if (staleCollision) {
+                    const claimed = await storage.claimNextReceiptNumbers(company.id, usesBranchFiscalState() ? activeBranch.id : undefined);
+                    nextGlobalNo = claimed.receiptGlobalNo;
+                    nextReceiptCounter = claimed.receiptCounter;
+                    rebasedOfflineNumbers = true;
+                    vLog(`[Fiscalize] Offline collision — claimed GlobalNo=${invoice.receiptGlobalNo}/Counter=${invoice.receiptCounter} already recorded (live ${liveGlobal}/${liveCounter}); rebased to GlobalNo=${nextGlobalNo}/Counter=${nextReceiptCounter}`);
+                } else {
+                    if (!globalOk) {
+                        throw new Error(`Offline receipt global number ${invoice.receiptGlobalNo} is not the next in sequence (expected ${liveGlobal + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+                    }
+                    throw new Error(`Offline receipt daily counter ${invoice.receiptCounter} is not the next in sequence (expected ${liveCounter + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+                }
             }
-            if (invoice.receiptCounter !== liveCounter + 1) {
-                throw new Error(`Offline receipt daily counter ${invoice.receiptCounter} is not the next in sequence (expected ${liveCounter + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+            if (!rebasedOfflineNumbers) {
+                const liveHash = fiscalState.lastFiscalHash || null;
+                if (invoice.offlinePreviousHash && liveHash && invoice.offlinePreviousHash !== liveHash) {
+                    throw new Error(`Offline receipt was signed against a previous hash that no longer matches the live chain. Re-issue this sale from the POS to obtain fresh numbers.`);
+                }
+                nextGlobalNo = invoice.receiptGlobalNo;
+                nextReceiptCounter = invoice.receiptCounter;
+                vLog(`[Fiscalize] Offline — using signed counters: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
             }
-            const liveHash = fiscalState.lastFiscalHash || null;
-            if (invoice.offlinePreviousHash && liveHash && invoice.offlinePreviousHash !== liveHash) {
-                throw new Error(`Offline receipt was signed against a previous hash that no longer matches the live chain. Re-issue this sale from the POS to obtain fresh numbers.`);
-            }
-            nextGlobalNo = invoice.receiptGlobalNo;
-            nextReceiptCounter = invoice.receiptCounter;
-            vLog(`[Fiscalize] Offline — using signed counters: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         } else if (
             invoice.receiptGlobalNo &&
             invoice.receiptCounter &&
@@ -1212,7 +1237,9 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // Update receiptData with the REAL assigned numbers
         receiptData.receiptCounter = nextReceiptCounter;
         receiptData.receiptGlobalNo = nextGlobalNo;
-        prevHash = invoice.offlinePreviousHash || ((receiptData.receiptCounter === 1) ? null : (fiscalState.lastFiscalHash || null));
+        prevHash = (rebasedOfflineNumbers || !invoice.offlinePreviousHash)
+            ? ((receiptData.receiptCounter === 1) ? null : (fiscalState.lastFiscalHash || null))
+            : invoice.offlinePreviousHash;
 
         // Note: The signature generation inside submitReceipt relies on these final counters!
         // The client's offline signature (if any) is intentionally NOT forwarded to

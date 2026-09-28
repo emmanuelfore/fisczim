@@ -102,6 +102,16 @@ export default function CreditorAnalysisPage() {
             </div>
           </div>
         </div>
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/reports/supplier-statements?supplierId=${supplier.id}`)}
+            className="rounded-xl gap-2"
+          >
+            <FileText className="h-4 w-4" /> Supplier Statement
+          </Button>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card className="border-slate-200/60 shadow-sm rounded-xl overflow-hidden">

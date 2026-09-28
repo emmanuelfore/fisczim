@@ -108,7 +108,7 @@ export async function mergeCompanyWithCachedZimraConfig(company: any, companyId:
   };
 }
 
-export async function processOfflineFiscalization(
+export async function processOfflineFiscalizationInner(
   companyId: number,
   invoiceData: any,
   currencyCode: string,
@@ -209,4 +209,26 @@ export async function processOfflineFiscalization(
     console.error("Failed to generate offline fiscal signature", e);
   }
   return null;
+}
+
+// Serialize offline number claims across rapid successive sales. The claim is
+// read-sign-writeback on the cached fiscal sequence: without serialization,
+// two quick sales read the same counters before either writeback lands and
+// both sign identical (globalNo, counter) pairs — the second then fails
+// preflight permanently server-side. Chained so each sale observes the
+// previous sale's writeback; the chain survives failures via catch.
+let claimChain: Promise<unknown> = Promise.resolve();
+
+export function processOfflineFiscalization(
+  companyId: number,
+  invoiceData: any,
+  currencyCode: string,
+  taxInclusive: boolean = true,
+  options?: { tryRefresh?: boolean; isOnlineSale?: boolean }
+): Promise<any> {
+  const run = () =>
+    processOfflineFiscalizationInner(companyId, invoiceData, currencyCode, taxInclusive, options);
+  const result = claimChain.then(run, run);
+  claimChain = result.catch(() => {});
+  return result;
 }

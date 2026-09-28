@@ -18,14 +18,47 @@ const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); }
 const vTime = (label: string) => { if (POS_VERBOSE_LOGS) console.time(label); };
 const vTimeEnd = (label: string) => { if (POS_VERBOSE_LOGS) console.timeEnd(label); };
 const FISCAL_DEVICE_LOCK_NAMESPACE = 34001;
+// Bounded wait for the per-company fiscal device lock. pg_advisory_lock blocks
+// forever: if the holder wedges mid-fiscalization every other receipt for that
+// company queues up behind it, each pinning a pool connection until the pool
+// (max 5) is exhausted and the whole API stalls. Poll a non-blocking acquire
+// until this deadline, then hand the connection back and let the caller retry.
+const FISCAL_DEVICE_LOCK_TIMEOUT_MS = Number(process.env.FISCAL_DEVICE_LOCK_TIMEOUT_MS || 20000);
+const FISCAL_DEVICE_LOCK_POLL_MS = 250;
 const getZimraConfigCacheKey = (companyId: number, activeBranch?: any) =>
     getFiscalStateOwnerKey(companyId, activeBranch);
+
+export class FiscalDeviceBusyError extends Error {
+    readonly lockKey: number;
+    constructor(lockKey: number) {
+        super(`Fiscal device for scope ${lockKey} is busy — another fiscalization is still running. Will retry.`);
+        this.name = "FiscalDeviceBusyError";
+        this.lockKey = lockKey;
+    }
+}
 
 async function acquireFiscalDeviceLock(companyId: number, activeBranch: any) {
     const client = await pool.connect();
     const lockKey = getFiscalStateOwnerKey(companyId, activeBranch);
-    await client.query("SELECT pg_advisory_lock($1, $2)", [FISCAL_DEVICE_LOCK_NAMESPACE, lockKey]);
-    return { client, lockKey };
+    const deadline = Date.now() + FISCAL_DEVICE_LOCK_TIMEOUT_MS;
+    for (;;) {
+        let locked = false;
+        try {
+            const res = await client.query("SELECT pg_try_advisory_lock($1, $2) AS locked", [FISCAL_DEVICE_LOCK_NAMESPACE, lockKey]);
+            locked = res.rows?.[0]?.locked === true;
+        } catch (err) {
+            client.release();
+            throw err;
+        }
+        if (locked) return { client, lockKey };
+        if (Date.now() >= deadline) {
+            // Never hold the connection while waiting — the pool is tiny and
+            // every pinned connection starves the rest of the API.
+            client.release();
+            throw new FiscalDeviceBusyError(lockKey);
+        }
+        await new Promise((r) => setTimeout(r, FISCAL_DEVICE_LOCK_POLL_MS));
+    }
 }
 
 async function releaseFiscalDeviceLock(lock: { client: any; lockKey: number } | null) {
@@ -517,8 +550,22 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
         };
 
-        // 🚀 OPTIMIZATION: Skip getStatus if the day is already open locally
-        const needsStatusSync = !fiscalState.fiscalDayOpen || !fiscalState.currentFiscalDayNo;
+        // 🚀 OPTIMIZATION: Skip getStatus if the day is already open locally.
+        // "Open locally" is only trustworthy when the day is recent and ZIMRA
+        // never reported a failed close. A day left flagged open for days (or
+        // after FiscalDayCloseFailed) is usually already closed on ZIMRA's
+        // side: every submission then fails with "Fiscal Day Closed", and the
+        // recovery path cannot open a new day while ZIMRA still considers the
+        // old one open. So an unreliable local state always triggers a real
+        // status sync instead of being trusted blindly.
+        const fiscalDayStalenessHours = activeBranch?.fiscalDayStalenessHours || company.fiscalDayStalenessHours || 24;
+        const localOpenedAt = fiscalState.fiscalDayOpenedAt ? new Date(fiscalState.fiscalDayOpenedAt).getTime() : NaN;
+        const localDayIsStale = Number.isFinite(localOpenedAt)
+            && Date.now() - localOpenedAt > fiscalDayStalenessHours * 60 * 60 * 1000;
+        const localDayStateUnreliable = fiscalState.lastFiscalDayStatus === 'FiscalDayCloseFailed' || localDayIsStale;
+        const needsStatusSync = !fiscalState.fiscalDayOpen
+            || !fiscalState.currentFiscalDayNo
+            || localDayStateUnreliable;
 
         if (needsStatusSync) {
             vTime(`[ZIMRA] getStatus-${companyId}`);
@@ -528,9 +575,6 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
             const now = new Date();
             const fiscalDayOpenedAt = fiscalState.fiscalDayOpenedAt ? new Date(fiscalState.fiscalDayOpenedAt) : null;
-            // Configurable fiscal day staleness threshold (default 24 hours)
-            // Branch settings override company settings
-            const fiscalDayStalenessHours = activeBranch?.fiscalDayStalenessHours || company.fiscalDayStalenessHours || 24;
             const stalenessThresholdMs = fiscalDayStalenessHours * 60 * 60 * 1000;
             const isStale = fiscalDayOpenedAt && (now.getTime() - fiscalDayOpenedAt.getTime() > stalenessThresholdMs);
 
@@ -565,6 +609,22 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     justOpened = true;
                 } catch (openErr: any) {
                     console.error(`[ZIMRA] Failed to open new fiscal day: ${openErr.message}`);
+                    // ZIMRA says the day is closed and we could not open the
+                    // next one. Persist that truth: leaving fiscalDayOpen=true
+                    // makes every later receipt submit into a closed day and
+                    // fail the same way, and the next attempt would then skip
+                    // the status sync that could recover the day.
+                    try {
+                        const closedState = {
+                            fiscalDayOpen: false,
+                            lastFiscalDayStatus: status.fiscalDayStatus || 'FiscalDayClosed',
+                        };
+                        await persistFiscalState(closedState);
+                        fiscalConfig = { ...fiscalConfig, ...closedState };
+                    } catch (persistErr: any) {
+                        console.warn(`[ZIMRA] Could not reconcile closed fiscal day state: ${persistErr.message}`);
+                    }
+                    throw new Error(`Fiscal Day Closed. Automatic opening failed: ${openErr.message}`);
                 }
             } else if (statusStr === 'fiscaldayopened' || statusStr === 'fiscaldayclosefailed') {
                 // Day is open (or close failed) — continue fiscalizing on it. Do NOT close it proactively.
@@ -672,6 +732,10 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // a preflight failure never reached FDMS, so it must not burn a receipt number.
         let nextGlobalNo: number;
         let nextReceiptCounter: number;
+        // Set when stale offline-claimed numbers are rebased onto fresh ones;
+        // the stale offlinePreviousHash must then be ignored in favour of the
+        // live chain hash below.
+        let rebasedOfflineNumbers = false;
 
         if (zimraSync) {
             nextGlobalNo = zimraSync.nextGlobalNo;
@@ -841,14 +905,29 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
 
             // Build receipt line, conditionally omitting taxPercent for exempt items
+            const sentQuantity = exactRound2(Number(item.quantity || 0));
+            const sentPrice = parseFloat(Number(unitPrice).toFixed(2));
+            // RCPT024: ZIMRA checks receiptLineTotal == price * qty. The stored
+            // line total was computed from the FULL-precision quantity (weighed
+            // goods: 3.528kg), but the column keeps quantity at 2dp (3.53), so
+            // the stored total and the sent quantity drift apart and the whole
+            // receipt is rejected as Red (RCPT024, then RCPT027/RCPT039 for the
+            // total and payment). Snap the total onto the values actually being
+            // sent — but only within the precision lost by rounding quantity, so
+            // a genuine line discount (always far larger) is left untouched.
+            const computedLineTotal = exactMul2(sentPrice, sentQuantity);
+            const driftBound = Math.abs(sentPrice) * 0.005 + 0.005;
+            const receiptLineTotal = Math.abs(lineTotal - computedLineTotal) <= driftBound
+                ? computedLineTotal
+                : lineTotal;
             const receiptLine: any = {
                 receiptLineType: ((currentInvoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (currentInvoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(unitPrice) < 0) ? 'Discount' : 'Sale',
                 receiptLineNo: index + 1,
                 receiptLineHSCode: hsCode,
                 receiptLineName: (item.description || '').trim() || 'Item without description',
-                receiptLinePrice: parseFloat(Number(unitPrice).toFixed(2)),
-                receiptLineQuantity: parseFloat(Number(item.quantity).toFixed(2)),
-                receiptLineTotal: parseFloat(Number(lineTotal).toFixed(2)),
+                receiptLinePrice: sentPrice,
+                receiptLineQuantity: sentQuantity,
+                receiptLineTotal: parseFloat(Number(receiptLineTotal).toFixed(2)),
                 taxID: taxID,
             };
 
@@ -1164,31 +1243,52 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             nextGlobalNo = zimraSync.nextGlobalNo;
             nextReceiptCounter = zimraSync.nextReceiptCounter;
         } else if (invoice.fiscalSignature && invoice.receiptGlobalNo && invoice.receiptCounter) {
-            // Offline-signed receipt: use the counters that were signed offline.
+            // Offline-signed receipt: prefer the counters that were signed offline.
             // Per the ZIMRA spec these must be EXACTLY one greater than the live
             // sequence (previous receipt + 1) — "ahead" is not enough. A
             // skip-ahead number (a gap in the chain) is stored Grey ("previous
             // receipt missing") and poisons the chain exactly like the day-4
             // anchor break did. Require an exact match on BOTH counters, and
             // if the client sent the previous hash it signed against, it must
-            // still match the live chain. Otherwise reject with a clear error
-            // so the sale is re-issued with fresh numbers rather than burning
-            // a corrupt receipt.
+            // still match the live chain.
+            //
+            // STALE COLLISION REBASE: when the claimed numbers are BEHIND the
+            // live chain (two terminals / rapid sales claimed the same cached
+            // pair and another sale already recorded them on FDMS), the sale's
+            // content was never recorded — so rebase it onto fresh atomic
+            // numbers with the live chain hash instead of failing forever.
+            // The client's offline signature is intentionally NOT forwarded
+            // (the server recomputes everything below), so rebasing is safe.
             const liveGlobal = fiscalState.lastReceiptGlobalNo ?? 0;
             const liveCounter = fiscalState.dailyReceiptCount ?? 0;
-            if (invoice.receiptGlobalNo !== liveGlobal + 1) {
-                throw new Error(`Offline receipt global number ${invoice.receiptGlobalNo} is not the next in sequence (expected ${liveGlobal + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+            const globalOk = invoice.receiptGlobalNo === liveGlobal + 1;
+            const counterOk = invoice.receiptCounter === liveCounter + 1;
+            if (!globalOk || !counterOk) {
+                const staleCollision =
+                    (invoice.receiptGlobalNo ?? 0) <= liveGlobal &&
+                    (invoice.receiptCounter ?? 0) <= liveCounter;
+                if (staleCollision) {
+                    const claimed = await storage.claimNextReceiptNumbers(company.id, usesBranchFiscalState() ? activeBranch.id : undefined);
+                    nextGlobalNo = claimed.receiptGlobalNo;
+                    nextReceiptCounter = claimed.receiptCounter;
+                    rebasedOfflineNumbers = true;
+                    vLog(`[Fiscalize] Offline collision — claimed GlobalNo=${invoice.receiptGlobalNo}/Counter=${invoice.receiptCounter} already recorded (live ${liveGlobal}/${liveCounter}); rebased to GlobalNo=${nextGlobalNo}/Counter=${nextReceiptCounter}`);
+                } else {
+                    if (!globalOk) {
+                        throw new Error(`Offline receipt global number ${invoice.receiptGlobalNo} is not the next in sequence (expected ${liveGlobal + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+                    }
+                    throw new Error(`Offline receipt daily counter ${invoice.receiptCounter} is not the next in sequence (expected ${liveCounter + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+                }
             }
-            if (invoice.receiptCounter !== liveCounter + 1) {
-                throw new Error(`Offline receipt daily counter ${invoice.receiptCounter} is not the next in sequence (expected ${liveCounter + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+            if (!rebasedOfflineNumbers) {
+                const liveHash = fiscalState.lastFiscalHash || null;
+                if (invoice.offlinePreviousHash && liveHash && invoice.offlinePreviousHash !== liveHash) {
+                    throw new Error(`Offline receipt was signed against a previous hash that no longer matches the live chain. Re-issue this sale from the POS to obtain fresh numbers.`);
+                }
+                nextGlobalNo = invoice.receiptGlobalNo;
+                nextReceiptCounter = invoice.receiptCounter;
+                vLog(`[Fiscalize] Offline — using signed counters: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
             }
-            const liveHash = fiscalState.lastFiscalHash || null;
-            if (invoice.offlinePreviousHash && liveHash && invoice.offlinePreviousHash !== liveHash) {
-                throw new Error(`Offline receipt was signed against a previous hash that no longer matches the live chain. Re-issue this sale from the POS to obtain fresh numbers.`);
-            }
-            nextGlobalNo = invoice.receiptGlobalNo;
-            nextReceiptCounter = invoice.receiptCounter;
-            vLog(`[Fiscalize] Offline — using signed counters: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         } else if (
             invoice.receiptGlobalNo &&
             invoice.receiptCounter &&
@@ -1212,7 +1312,9 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // Update receiptData with the REAL assigned numbers
         receiptData.receiptCounter = nextReceiptCounter;
         receiptData.receiptGlobalNo = nextGlobalNo;
-        prevHash = invoice.offlinePreviousHash || ((receiptData.receiptCounter === 1) ? null : (fiscalState.lastFiscalHash || null));
+        prevHash = (rebasedOfflineNumbers || !invoice.offlinePreviousHash)
+            ? ((receiptData.receiptCounter === 1) ? null : (fiscalState.lastFiscalHash || null))
+            : invoice.offlinePreviousHash;
 
         // Note: The signature generation inside submitReceipt relies on these final counters!
         // The client's offline signature (if any) is intentionally NOT forwarded to

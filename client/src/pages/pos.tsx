@@ -33,6 +33,7 @@ import {
   addPendingSale,
   getCachedFiscalSequence,
   cacheFiscalSequence,
+  getCachedZimraConfig,
   generateOfflineReport,
 } from "@/lib/offline-db";
 import {
@@ -336,6 +337,21 @@ export default function POSPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
+  // Track whether the terminal can sign locally; re-check on company change,
+  // connectivity flips, and after each cache warm below.
+  const checkFiscalKey = useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const cfg = await getCachedZimraConfig(companyId).catch(() => undefined);
+      setFiscalKeyMissing(!(cfg as any)?.zimraPrivateKey);
+    } catch {
+      /* unknown — keep previous state */
+    }
+  }, [companyId]);
+  useEffect(() => {
+    checkFiscalKey();
+  }, [checkFiscalKey, isOnline]);
+
   // Resolved data — hooks handle caching and fallback; direct IDB reads are emergency fallback
   const resolvedProducts =
     products && products.length > 0 ? products : cachedProductsFallback;
@@ -409,6 +425,10 @@ export default function POSPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
   const [lastSuccessfulInvoice, setLastSuccessfulInvoice] = useState<any>(null);
+  // True while this terminal holds no cached fiscal private key — sales then
+  // print UNSIGNED (server signs later). Surfaced as a banner instead of
+  // failing silent so unsigned receipts never go unnoticed.
+  const [fiscalKeyMissing, setFiscalKeyMissing] = useState(false);
   const [activeView, setActiveView] = useState<"products" | "cart">("products");
   const [paidAmount, setPaidAmount] = useState<string>("");
   const [splitPayments, setSplitPayments] = useState<
@@ -2090,6 +2110,7 @@ export default function POSPage() {
               });
               runOnIdle(() => {
                 refreshOfflineFiscalCache(companyId).catch(() => {});
+                checkFiscalKey();
               });
             })
             .catch((err: any) => {
@@ -4025,6 +4046,24 @@ export default function POSPage() {
                 />
               </div>
             )}
+          </div>
+        )}
+
+        {/* ─── Missing fiscal key — sales print UNSIGNED until synced ─── */}
+        {fiscalKeyMissing && (
+          <div className="px-3 md:px-6 py-2 pt-10 md:pt-2 shrink-0 z-40 print:hidden bg-red-600 text-white flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-tighter animate-pulse">
+            <AlertTriangle className="h-3 w-3" />
+            No fiscal key cached — receipts print unsigned. Connect and sync to enable local signing.
+            <Button
+              variant="link"
+              className="h-auto p-0 text-white underline text-[10px] font-black"
+              onClick={() => {
+                refreshOfflineFiscalCache(companyId).catch(() => {});
+                checkFiscalKey();
+              }}
+            >
+              Sync Now
+            </Button>
           </div>
         )}
 

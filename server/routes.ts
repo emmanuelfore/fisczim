@@ -12752,18 +12752,35 @@ export async function registerRoutes(
       const [supplier] = await db.select().from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.companyId, companyId)));
       if (!supplier) return res.status(404).json({ message: "Supplier not found" });
 
-      const bills = await db.select().from(supplierInvoices).where(and(eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, supplierId), lte(supplierInvoices.date, end), ne(supplierInvoices.status, "cancelled")));
+      const [company] = await db.select({
+        id: companies.id, name: companies.name, tradingName: companies.tradingName,
+        address: companies.address, city: companies.city, country: companies.country,
+        phone: companies.phone, email: companies.email, tin: companies.tin, vatNumber: companies.vatNumber,
+      }).from(companies).where(eq(companies.id, companyId));
+
+      const bills = await db.select().from(supplierInvoices).where(and(eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, supplierId), lte(supplierInvoices.date, end), ne(supplierInvoices.status, "cancelled"), ne(supplierInvoices.status, "void")));
       const payRows = await db.select().from(supplierPayments).where(and(eq(supplierPayments.companyId, companyId), eq(supplierPayments.supplierId, supplierId), lte(supplierPayments.paymentDate, end)));
 
+      // AP convention: positive balance = we owe the supplier.
+      // Bills + debit notes increase it (credit col); payments + credit notes reduce it (debit col).
+      const billLabel = (bill: any) =>
+        bill.invoiceNumber?.startsWith("OB-AP") ? "Opening Balance"
+        : bill.transactionType === "CreditNote" ? "Credit Note"
+        : bill.transactionType === "DebitNote" ? "Debit Note"
+        : "Supplier Bill";
       const allTransactions = [
-        ...bills.map((bill: any) => ({
-          date: bill.date,
-          type: bill.invoiceNumber?.startsWith("OB-AP") ? "Opening Balance" : "Supplier Bill",
-          reference: bill.invoiceNumber,
-          description: bill.notes || "Supplier bill",
-          debit: 0,
-          credit: Number(bill.totalAmount || 0),
-        })),
+        ...bills.map((bill: any) => {
+          const isCredit = bill.transactionType === "CreditNote";
+          return {
+            date: bill.date,
+            type: billLabel(bill),
+            reference: bill.invoiceNumber,
+            description: bill.notes || billLabel(bill),
+            debit: isCredit ? Number(bill.totalAmount || 0) : 0,
+            credit: isCredit ? 0 : Number(bill.totalAmount || 0),
+            entry_type: isCredit ? "credit-note" : bill.transactionType === "DebitNote" ? "debit-note" : "bill",
+          };
+        }),
         ...payRows.map((payment: any) => ({
           date: payment.paymentDate,
           type: "Payment",
@@ -12771,6 +12788,7 @@ export async function registerRoutes(
           description: payment.notes || payment.method,
           debit: Number(payment.amount || 0),
           credit: 0,
+          entry_type: "payment",
         })),
       ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -12786,7 +12804,26 @@ export async function registerRoutes(
           return { ...tx, balance: runningBalance };
         });
 
-      res.json({ supplier, startDate: start, endDate: end, openingBalance, closingBalance: runningBalance, transactions });
+      const periodTotalBilled = transactions
+        .filter((tx) => tx.entry_type === "bill" || tx.entry_type === "debit-note")
+        .reduce((sum, tx) => sum + Number(tx.credit || 0), 0);
+      const periodTotalCredited = transactions
+        .filter((tx) => tx.entry_type === "credit-note")
+        .reduce((sum, tx) => sum + Number(tx.debit || 0), 0);
+      const periodTotalPaid = transactions
+        .filter((tx) => tx.entry_type === "payment")
+        .reduce((sum, tx) => sum + Number(tx.debit || 0), 0);
+
+      res.json({
+        supplier, company: company || null,
+        startDate: start, endDate: end,
+        date_from: start, date_to: end,
+        openingBalance, closingBalance: runningBalance, balance_due: runningBalance,
+        period_total_billed: periodTotalBilled,
+        period_total_credited: periodTotalCredited,
+        period_total_paid: periodTotalPaid,
+        transactions,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

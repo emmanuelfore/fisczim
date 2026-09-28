@@ -439,6 +439,7 @@ export function Layout({
         { icon: Receipt, label: "Accounts Payable", href: "/accounting/accounts-payable" },
         { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
         { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
+        { icon: FileText, label: "Supplier Statements", href: "/reports/supplier-statements" },
         { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
         { icon: Calculator, label: "Expenses", href: "/expenses" },
         {
@@ -1196,6 +1197,11 @@ export function Layout({
       return {
         title: "Customer Statements",
         subtitle: "Generate and review customer account statements.",
+      };
+    if (location.startsWith("/reports/supplier-statements"))
+      return {
+        title: "Supplier Statements",
+        subtitle: "Generate and review supplier account statements.",
       };
     if (location.startsWith("/reports/cash-collection"))
       return {

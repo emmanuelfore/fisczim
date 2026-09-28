@@ -94,6 +94,7 @@ const StockTakePage = lazy(() => import("@/pages/stock-take"));
 const PaymentsReceivedPage = lazy(() => import("@/pages/payments-received"));
 const PaymentPreviewPage = lazy(() => import("@/pages/payment-preview"));
 const CustomerStatementsPage = lazy(() => import("@/pages/customer-statements"));
+const SupplierStatementsPage = lazy(() => import("@/pages/supplier-statements"));
 const CashCollectionReportPage = lazy(() => import("@/pages/cash-collection-report-page"));
 const BusFleetPage = lazy(() => import("@/pages/bus-fleet"));
 const BusTripsPage = lazy(() => import("@/pages/bus-trips"));
@@ -562,6 +563,9 @@ function Router() {
       </Route>
       <Route path="/reports/customer-statements">
         {() => <ProtectedRoute component={CustomerStatementsPage} />}
+      </Route>
+      <Route path="/reports/supplier-statements">
+        {() => <ProtectedRoute component={SupplierStatementsPage} />}
       </Route>
       <Route path="/reports/cash-collection">
         {() => <ProtectedRoute component={CashCollectionReportPage} />}

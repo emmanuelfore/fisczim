@@ -91,6 +91,7 @@ function getReportCategories(fa: ReturnType<typeof useFiscalAuthority>): {
       { key: "receivable-details", label: "Receivable Details", category: "receivables", description: "Granular list of all unpaid invoices with due dates and customer contacts.", endpoint: "receivable-details" },
       { key: "ap-aging-summary", label: "AP Aging Summary", category: "receivables", description: "Track outstanding bills to vendors categorized by aging brackets.", externalHref: "/accounting/reports/aging?tab=ap" },
       { key: "customer-statements", label: "Customer Statements", category: "receivables", description: "Generate printable transaction statements for customers showing running balances.", externalHref: "/reports/customer-statements" },
+      { key: "supplier-statements", label: "Supplier Statements", category: "receivables", description: "Generate printable AP statements per supplier with bills, debit/credit notes, payments and running balance.", externalHref: "/reports/supplier-statements" },
     ],
   },
   {

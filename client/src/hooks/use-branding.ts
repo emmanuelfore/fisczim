@@ -8,5 +8,6 @@ export function useBranding() {
     isFiscalZone: currentBrand === "fiscalzone",
     isFiscalStackLesotho: currentBrand === "fiscalstack_lesotho",
     primaryColor: brand.primaryColor,
+    primaryColorHex: brand.primaryColorHex,
   };
 }

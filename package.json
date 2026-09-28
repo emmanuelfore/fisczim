@@ -9,6 +9,7 @@
     "build": "vite build && npm run build:server",
     "build:fiscalstack": "cross-env VITE_APP_BRAND=fiscalstack vite build && npm run build:server",
     "build:fiscalzone": "cross-env VITE_APP_BRAND=fiscalzone vite build && npm run build:server",
+    "build:fiscalstack_lesotho": "cross-env VITE_APP_BRAND=fiscalstack_lesotho vite build && npm run build:server",
     "build:server": "tsx script/build.ts",
     "start": "cross-env NODE_ENV=production node dist/index.cjs",
     "check": "tsc",

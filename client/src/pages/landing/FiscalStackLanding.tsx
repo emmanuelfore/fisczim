@@ -11,6 +11,9 @@ function _isLesotho(): boolean {
 }
 const AUTH_NAME = _isLesotho() ? "RSL" : "ZIMRA";
 const AUTH_FULL = _isLesotho() ? "Revenue Services Lesotho" : "Zimbabwe Revenue Authority";
+// Lesotho's certified FDMS gateway. Named on the landing so the branch is
+// recognisably Lekuka rather than a generic ZIMRA copy.
+const GATEWAY = _isLesotho() ? "LEKUKA" : "";
 const COUNTRY = _isLesotho() ? "Lesotho" : "Zimbabwe";
 const CURRENCY = _isLesotho() ? "LSL" : "ZWG";
 
@@ -443,7 +446,7 @@ const Hero = () => {
                 letterSpacing: "0.12em",
               }}
             >
-              {AUTH_NAME} COMPLIANT · {COUNTRY.toUpperCase()}
+              {GATEWAY ? `${AUTH_NAME} / ${GATEWAY} COMPLIANT` : `${AUTH_NAME} COMPLIANT`} · {COUNTRY.toUpperCase()}
             </span>
           </div>
 

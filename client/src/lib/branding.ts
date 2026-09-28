@@ -8,7 +8,10 @@ export interface BrandConfig {
   whatsappMessage: string;
   heroTitle: string;
   heroSubtitle: string;
+  /** HSL triple used by the landing page. */
   primaryColor: string;
+  /** Exact brand hex — the single source of truth for the app theme. */
+  primaryColorHex: string;
 }
 
 const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
@@ -21,6 +24,7 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     heroTitle: "Seamless Fiscal Compliance Invoicing.",
     heroSubtitle: "Manage customers, products, and fiscalization in one secure platform.",
     primaryColor: "256 90% 60%",
+    primaryColorHex: "#2563eb",
   },
   fiscalzone: {
     name: "FiscalZone",
@@ -31,16 +35,21 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     heroTitle: "Next-Gen Fiscal Compliance.",
     heroSubtitle: "The most reliable way to manage your fiscalization and business growth.",
     primaryColor: "210 100% 50%",
+    primaryColorHex: "#0088ff",
   },
   fiscalstack_lesotho: {
     name: "FiscalStack Lesotho",
+    // Same real FiscalStack mark as the main site, not a separate placeholder.
     logo: "/fiscalstack-logo.png",
     supportEmail: "info@fiscalstack.co.ls",
     website: "https://fiscalstack.co.ls",
     whatsappMessage: "Hi FiscalStack Lesotho! I'd like to learn more about your fiscalization platform.",
     heroTitle: "Seamless Fiscal Compliance Invoicing.",
-    heroSubtitle: "Manage customers, products, and LEKUKA fiscalization in one secure platform.",
-    primaryColor: "210 80% 50%",
+    heroSubtitle: "Manage customers, products, and Lekuka fiscalization in one secure platform.",
+    // Identical blue to the main FiscalStack brand, so the Lesotho branch looks
+    // the same everywhere — landing, auth and dashboard.
+    primaryColor: "221 73% 53%",
+    primaryColorHex: "#2563eb",
   },
 };
 

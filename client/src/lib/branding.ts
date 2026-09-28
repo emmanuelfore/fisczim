@@ -38,12 +38,14 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     primaryColorHex: "#0088ff",
   },
   fiscalstack_lesotho: {
-    name: "FiscalStack Lesotho",
+    // The branch is Lekuka: it carries the real FiscalStack logo and the main
+    // FiscalStack blue, but it is marketed under its own name.
+    name: "Lekuka",
     // Same real FiscalStack mark as the main site, not a separate placeholder.
     logo: "/fiscalstack-logo.png",
     supportEmail: "info@fiscalstack.co.ls",
     website: "https://fiscalstack.co.ls",
-    whatsappMessage: "Hi FiscalStack Lesotho! I'd like to learn more about your fiscalization platform.",
+    whatsappMessage: "Hi Lekuka! I'd like to learn more about your fiscalization platform.",
     heroTitle: "Seamless Fiscal Compliance Invoicing.",
     heroSubtitle: "Manage customers, products, and Lekuka fiscalization in one secure platform.",
     // Identical blue to the main FiscalStack brand, so the Lesotho branch looks

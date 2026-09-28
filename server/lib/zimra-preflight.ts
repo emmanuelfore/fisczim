@@ -314,7 +314,15 @@ export async function assertReceiptPreflight(args: {
   }
 
   if (issues.length > 0) {
-    throw new ZimraPreflightError("ZIMRA preflight failed. Receipt was not submitted.", issues);
+    // Name the codes in the message: this string is what lands in
+    // fiscalization_jobs.last_error_message, and the generic text used to hide
+    // the real reason (e.g. RCPT024 line-total rounding) from every diagnosis.
+    const summary = issues
+      .slice(0, 3)
+      .map((i) => `${i.code}: ${i.message}`)
+      .join(" | ");
+    const extra = issues.length > 3 ? ` (+${issues.length - 3} more)` : "";
+    throw new ZimraPreflightError(`ZIMRA preflight failed. Receipt was not submitted. ${summary}${extra}`, issues);
   }
 }
 

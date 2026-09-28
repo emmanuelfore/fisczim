@@ -550,8 +550,22 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
         };
 
-        // 🚀 OPTIMIZATION: Skip getStatus if the day is already open locally
-        const needsStatusSync = !fiscalState.fiscalDayOpen || !fiscalState.currentFiscalDayNo;
+        // 🚀 OPTIMIZATION: Skip getStatus if the day is already open locally.
+        // "Open locally" is only trustworthy when the day is recent and ZIMRA
+        // never reported a failed close. A day left flagged open for days (or
+        // after FiscalDayCloseFailed) is usually already closed on ZIMRA's
+        // side: every submission then fails with "Fiscal Day Closed", and the
+        // recovery path cannot open a new day while ZIMRA still considers the
+        // old one open. So an unreliable local state always triggers a real
+        // status sync instead of being trusted blindly.
+        const fiscalDayStalenessHours = activeBranch?.fiscalDayStalenessHours || company.fiscalDayStalenessHours || 24;
+        const localOpenedAt = fiscalState.fiscalDayOpenedAt ? new Date(fiscalState.fiscalDayOpenedAt).getTime() : NaN;
+        const localDayIsStale = Number.isFinite(localOpenedAt)
+            && Date.now() - localOpenedAt > fiscalDayStalenessHours * 60 * 60 * 1000;
+        const localDayStateUnreliable = fiscalState.lastFiscalDayStatus === 'FiscalDayCloseFailed' || localDayIsStale;
+        const needsStatusSync = !fiscalState.fiscalDayOpen
+            || !fiscalState.currentFiscalDayNo
+            || localDayStateUnreliable;
 
         if (needsStatusSync) {
             vTime(`[ZIMRA] getStatus-${companyId}`);
@@ -561,9 +575,6 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
             const now = new Date();
             const fiscalDayOpenedAt = fiscalState.fiscalDayOpenedAt ? new Date(fiscalState.fiscalDayOpenedAt) : null;
-            // Configurable fiscal day staleness threshold (default 24 hours)
-            // Branch settings override company settings
-            const fiscalDayStalenessHours = activeBranch?.fiscalDayStalenessHours || company.fiscalDayStalenessHours || 24;
             const stalenessThresholdMs = fiscalDayStalenessHours * 60 * 60 * 1000;
             const isStale = fiscalDayOpenedAt && (now.getTime() - fiscalDayOpenedAt.getTime() > stalenessThresholdMs);
 
@@ -598,6 +609,22 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     justOpened = true;
                 } catch (openErr: any) {
                     console.error(`[ZIMRA] Failed to open new fiscal day: ${openErr.message}`);
+                    // ZIMRA says the day is closed and we could not open the
+                    // next one. Persist that truth: leaving fiscalDayOpen=true
+                    // makes every later receipt submit into a closed day and
+                    // fail the same way, and the next attempt would then skip
+                    // the status sync that could recover the day.
+                    try {
+                        const closedState = {
+                            fiscalDayOpen: false,
+                            lastFiscalDayStatus: status.fiscalDayStatus || 'FiscalDayClosed',
+                        };
+                        await persistFiscalState(closedState);
+                        fiscalConfig = { ...fiscalConfig, ...closedState };
+                    } catch (persistErr: any) {
+                        console.warn(`[ZIMRA] Could not reconcile closed fiscal day state: ${persistErr.message}`);
+                    }
+                    throw new Error(`Fiscal Day Closed. Automatic opening failed: ${openErr.message}`);
                 }
             } else if (statusStr === 'fiscaldayopened' || statusStr === 'fiscaldayclosefailed') {
                 // Day is open (or close failed) — continue fiscalizing on it. Do NOT close it proactively.
@@ -878,14 +905,29 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
 
             // Build receipt line, conditionally omitting taxPercent for exempt items
+            const sentQuantity = exactRound2(Number(item.quantity || 0));
+            const sentPrice = parseFloat(Number(unitPrice).toFixed(2));
+            // RCPT024: ZIMRA checks receiptLineTotal == price * qty. The stored
+            // line total was computed from the FULL-precision quantity (weighed
+            // goods: 3.528kg), but the column keeps quantity at 2dp (3.53), so
+            // the stored total and the sent quantity drift apart and the whole
+            // receipt is rejected as Red (RCPT024, then RCPT027/RCPT039 for the
+            // total and payment). Snap the total onto the values actually being
+            // sent — but only within the precision lost by rounding quantity, so
+            // a genuine line discount (always far larger) is left untouched.
+            const computedLineTotal = exactMul2(sentPrice, sentQuantity);
+            const driftBound = Math.abs(sentPrice) * 0.005 + 0.005;
+            const receiptLineTotal = Math.abs(lineTotal - computedLineTotal) <= driftBound
+                ? computedLineTotal
+                : lineTotal;
             const receiptLine: any = {
                 receiptLineType: ((currentInvoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (currentInvoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(unitPrice) < 0) ? 'Discount' : 'Sale',
                 receiptLineNo: index + 1,
                 receiptLineHSCode: hsCode,
                 receiptLineName: (item.description || '').trim() || 'Item without description',
-                receiptLinePrice: parseFloat(Number(unitPrice).toFixed(2)),
-                receiptLineQuantity: parseFloat(Number(item.quantity).toFixed(2)),
-                receiptLineTotal: parseFloat(Number(lineTotal).toFixed(2)),
+                receiptLinePrice: sentPrice,
+                receiptLineQuantity: sentQuantity,
+                receiptLineTotal: parseFloat(Number(receiptLineTotal).toFixed(2)),
                 taxID: taxID,
             };
 

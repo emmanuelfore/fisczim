@@ -14,6 +14,25 @@ const LEASE_MS = 5 * 60 * 1000; // claim lease written on every claim
 const STALE_PROCESSING_MS = 10 * 60 * 1000; // reclaim a claim older than this
 const BUSY_RETRY_MS = 15000; // device busy → retry soon, without burning attempts
 
+// ZIMRA outages and device contention are transient, not bad receipts. The old
+// backoff (10s/20s/40s/80s) burned all 5 attempts inside a 3-minute outage and
+// left the sale permanently failed, so a blip cost real money. Transient errors
+// now defer on a fixed 60s delay and only count against a much larger budget.
+const TRANSIENT_RETRY_MS = 60000;
+const TRANSIENT_MAX_DEFERS = 40; // ~40 minutes of outage before declaring failure
+const TRANSIENT_ERROR_PATTERNS = [
+  "%already being processed%",
+  "%timeout exceeded when trying to connect%",
+  "%socket hang up%",
+  "%ECONNRESET%",
+  "%ETIMEDOUT%",
+  "%EPIPE%",
+];
+
+function isTransientError(message: string): boolean {
+  return TRANSIENT_ERROR_PATTERNS.some((p) => message.toLowerCase().includes(p.slice(1, -1).toLowerCase()));
+}
+
 // Self-healing sweep: POS sales that were never submitted at all because their
 // job row never existed (lost insert, or predates durable jobs).
 const SWEEP_EVERY_TICKS = 6; // ~1 minute
@@ -165,6 +184,43 @@ async function handleFailure(job: JobRow, error: any): Promise<void> {
   // overwrite a fiscalized receipt with a failure.
   if (await invoiceAlreadyFiscalized(job.invoiceId)) {
     await markJobCompleted(job.id, message);
+    return;
+  }
+
+  // ZIMRA outage / device contention: hold the receipt and retry on a fixed
+  // delay. Attempts only trip the far higher defer budget, so a short outage
+  // never turns a real sale into a permanent failure.
+  if (isTransientError(message)) {
+    const defers = job.attemptCount + 1;
+    if (defers >= TRANSIENT_MAX_DEFERS) {
+      await db
+        .update(fiscalizationJobs)
+        .set({
+          status: "failed",
+          lastErrorMessage: `${message} (gave up after ${defers} retries)`,
+          completedAt: new Date(),
+          updatedAt: new Date(),
+          attemptCount: defers,
+        })
+        .where(eq(fiscalizationJobs.id, job.id));
+      if (!(await invoiceAlreadyFiscalized(job.invoiceId))) {
+        await db
+          .update(invoices)
+          .set({ fdmsStatus: "Failed", validationStatus: "invalid", lastValidationAttempt: new Date() })
+          .where(eq(invoices.id, job.invoiceId));
+      }
+      return;
+    }
+    await db
+      .update(fiscalizationJobs)
+      .set({
+        status: "pending",
+        lastErrorMessage: `${message} (defer ${defers}/${TRANSIENT_MAX_DEFERS})`,
+        attemptCount: defers,
+        nextAttemptAt: new Date(Date.now() + TRANSIENT_RETRY_MS),
+        updatedAt: new Date(),
+      })
+      .where(eq(fiscalizationJobs.id, job.id));
     return;
   }
 

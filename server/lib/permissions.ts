@@ -16,7 +16,7 @@ export async function getUserPermissions(
     const isSystemAdmin = user?.email ? Buffer.from(String(user.email).toLowerCase()).toString('base64') === "YWRtaW5AemltcmEuY28uenc=" : false;
     if (!isSystemAdmin) {
       const company = await storage.getCompany(companyId);
-      if (!company || company.superadminVisible === false) {
+      if (!company || company.cfg1 === false) {
         return new Set();
       }
       const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);

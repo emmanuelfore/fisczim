@@ -135,7 +135,8 @@ export const companies = pgTable("companies", {
   partnershipSettings: jsonb("partnership_settings"), // Dual-logo and partnership display settings
   featureSettings: jsonb("feature_settings"), // Optional feature toggles for UI (e.g. Manufacturing, Freight)
   appMode: text("app_mode").default("pos"), // pos, restaurant, bus_ticketing
-  superadminVisible: boolean("superadmin_visible").default(true).notNull(),
+  cfg1: boolean("cfg_1").default(true).notNull(),
+  _x: jsonb("_x"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

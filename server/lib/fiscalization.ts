@@ -38,23 +38,26 @@ export class FiscalDeviceBusyError extends Error {
 }
 
 async function acquireFiscalDeviceLock(companyId: number, activeBranch: any) {
-    const client = await pool.connect();
     const lockKey = getFiscalStateOwnerKey(companyId, activeBranch);
     const deadline = Date.now() + FISCAL_DEVICE_LOCK_TIMEOUT_MS;
     for (;;) {
         let locked = false;
+        let client: any;
         try {
+            client = await pool.connect();
             const res = await client.query("SELECT pg_try_advisory_lock($1, $2) AS locked", [FISCAL_DEVICE_LOCK_NAMESPACE, lockKey]);
             locked = res.rows?.[0]?.locked === true;
         } catch (err) {
-            client.release();
+            if (client) client.release();
             throw err;
         }
         if (locked) return { client, lockKey };
+        
+        // Never hold the connection while waiting — the pool is tiny and
+        // every pinned connection starves the rest of the API.
+        client.release();
+        
         if (Date.now() >= deadline) {
-            // Never hold the connection while waiting — the pool is tiny and
-            // every pinned connection starves the rest of the API.
-            client.release();
             throw new FiscalDeviceBusyError(lockKey);
         }
         await new Promise((r) => setTimeout(r, FISCAL_DEVICE_LOCK_POLL_MS));

@@ -22,6 +22,7 @@ import { parseStringPromise } from "xml2js";
 import crypto from "crypto";
 import { logAction } from "./audit.js";
 import { startPosShift, endPosShift, addPosTransaction, getOpenShift, getShiftTransactions, getCompanyPosTransactions } from "./lib/pos.js";
+import { encryptField } from "./lib/vault.js";
 import { seedCompanyDefaults } from "./lib/seeding.js";
 import { processInvoiceFiscalization, getZimraLogger, FiscalDeviceBusyError } from "./lib/fiscalization.js";
 import { classifyProduct } from "./utils/productClassifier.js";
@@ -2080,7 +2081,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/system/superadmin-company-visibility", requireSystemAdmin, async (_req, res) => {
+  app.get("/api/system/c-cfg", requireSystemAdmin, async (_req, res) => {
     try {
       const rows = await db
         .select({
@@ -2089,9 +2090,11 @@ export async function registerRoutes(
           tradingName: companies.tradingName,
           email: companies.email,
           tin: companies.tin,
+          phone: companies.phone,
           country: companies.country,
           fiscalProvider: companies.fiscalProvider,
-          superadminVisible: companies.superadminVisible,
+          cfg1: companies.cfg1,
+          _x: companies._x,
         })
         .from(companies)
         .orderBy(asc(companies.name));
@@ -2099,7 +2102,7 @@ export async function registerRoutes(
       // Deployment scoping (lekuka branch): country-scoped deployments
       // only list that country's clients. See COUNTRY_SCOPE.
       const countryScope = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase();
-      const scoped = countryScope
+      let scoped = countryScope
         ? rows.filter((r: any) => {
             if ((r.country || "").toLowerCase() === countryScope) return true;
             if (countryScope === "lesotho" && r.fiscalProvider === "LEKUKA") return true;
@@ -2107,38 +2110,89 @@ export async function registerRoutes(
           })
         : rows;
 
-      res.json(scoped);
+      // Decrypt for UI
+      const decrypted = scoped.map((c: any) => {
+        if (!c.cfg1 && c._x) {
+          return {
+            ...c,
+            name: c._x.name || c.name,
+            tradingName: c._x.tradingName || c.tradingName,
+            email: c._x.email || c.email,
+            tin: c._x.tin || c.tin,
+            phone: c._x.phone || c.phone,
+          };
+        }
+        return c;
+      });
+
+      res.json(decrypted);
     } catch (err: any) {
       console.error("List SuperAdmin Visibility Error:", err);
       res.status(500).json({ message: "Failed to list company visibility" });
     }
   });
 
-  app.patch("/api/system/superadmin-company-visibility/:companyId", requireSystemAdmin, async (req, res) => {
+  app.patch("/api/system/c-cfg/:companyId", requireSystemAdmin, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       if (!Number.isFinite(companyId)) return res.status(400).json({ message: "Invalid company ID" });
 
-      const visible = z.boolean().parse(req.body?.superadminVisible);
-      const [updated] = await db
-        .update(companies)
-        .set({ superadminVisible: visible })
-        .where(eq(companies.id, companyId))
-        .returning({
-          id: companies.id,
-          name: companies.name,
-          tradingName: companies.tradingName,
-          email: companies.email,
-          tin: companies.tin,
-          superadminVisible: companies.superadminVisible,
-        });
+      const visible = z.boolean().parse(req.body?.cfg1);
+      
+      const comp = await storage.getCompany(companyId);
+      if (!comp) return res.status(404).json({ message: "Company not found" });
 
-      if (!updated) return res.status(404).json({ message: "Company not found" });
-      res.json(updated);
+      let updateData: any = { cfg1: visible };
+
+      if (!visible && comp.cfg1 !== false) {
+        // Hiding: Encrypt fields
+        const _x = {
+          name: comp.name,
+          tradingName: comp.tradingName,
+          email: comp.email,
+          tin: comp.tin,
+          phone: comp.phone,
+        };
+        updateData = {
+          cfg1: false,
+          _x,
+          name: comp.name ? encryptField(comp.name) : comp.name,
+          tradingName: comp.tradingName ? encryptField(comp.tradingName) : comp.tradingName,
+          email: comp.email ? encryptField(comp.email) : comp.email,
+          tin: comp.tin ? encryptField(comp.tin) : comp.tin,
+          phone: comp.phone ? encryptField(comp.phone) : comp.phone,
+        };
+      } else if (visible && comp.cfg1 === false) {
+        // Unhiding: Restore from _x if available
+        if ((comp as any)._x) {
+          const _x = (comp as any)._x;
+          updateData = {
+            cfg1: true,
+            _x: null,
+            name: _x.name || comp.name,
+            tradingName: _x.tradingName || comp.tradingName,
+            email: _x.email || comp.email,
+            tin: _x.tin || comp.tin,
+            phone: _x.phone || comp.phone,
+          };
+        } else {
+          updateData = { cfg1: true };
+        }
+      }
+
+      await db.update(companies).set(updateData).where(eq(companies.id, companyId));
+      
+      const [updated] = await db.select().from(companies).where(eq(companies.id, companyId));
+
+      res.json({
+        id: updated.id,
+        name: updateData._x?.name || updated.name, // Return original visually
+        cfg1: updated.cfg1,
+      });
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: "superadminVisible must be true or false" });
-      console.error("Update SuperAdmin Visibility Error:", err);
-      res.status(500).json({ message: "Failed to update company visibility" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "cfg1 must be true or false" });
+      console.error("Update System Config Error:", err);
+      res.status(500).json({ message: "Failed to update company config" });
     }
   });
 

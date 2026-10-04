@@ -849,7 +849,7 @@ export class DatabaseStorage implements IStorage {
           const companyName = (c.name || "").toLowerCase();
           const tradingName = (c.tradingName || "").toLowerCase();
           const isSystemOnly = systemAdminOnlyCompanies.has(companyName) || systemAdminOnlyCompanies.has(tradingName);
-          return !isSystemOnly && c.superadminVisible !== false;
+          return !isSystemOnly && c.cfg1 !== false;
         });
       }
 

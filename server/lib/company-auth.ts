@@ -4,7 +4,7 @@ type CompanyLike = {
   id: number;
   name?: string | null;
   tradingName?: string | null;
-  superadminVisible?: boolean | null;
+  cfg1?: boolean | null;
 };
 
 type CompanyMembership = {
@@ -98,7 +98,7 @@ export async function checkCompanyAccess(
     if (isSystemAdminEmail(user.email)) return true;
 
     const company = await storage.getCompany(companyId);
-    if (!company || company.superadminVisible === false) return false;
+    if (!company || company.cfg1 === false) return false;
 
     const companyName = (company.name || "").toLowerCase();
     const tradingName = (company.tradingName || "").toLowerCase();

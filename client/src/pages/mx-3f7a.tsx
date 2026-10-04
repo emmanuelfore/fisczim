@@ -16,10 +16,10 @@ type CompanyVisibility = {
   tradingName?: string | null;
   email?: string | null;
   tin?: string | null;
-  superadminVisible: boolean;
+  cfg1: boolean;
 };
 
-export default function SuperadminVisibilityPage() {
+export default function SystemConfigPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -28,13 +28,13 @@ export default function SuperadminVisibilityPage() {
     btoa(String(user?.email || "").toLowerCase()) === "YWRtaW5AemltcmEuY28uenc=";
 
   const companiesQuery = useQuery<CompanyVisibility[]>({
-    queryKey: ["system-superadmin-company-visibility"],
+    queryKey: ["system-c-cfg-mx"],
     enabled: isSystemAdmin,
     queryFn: async () => {
-      const res = await apiFetch("/api/system/superadmin-company-visibility");
+      const res = await apiFetch("/api/system/c-cfg");
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "Failed to load visibility settings");
+        throw new Error(err.message || "Failed to load config");
       }
       return res.json();
     },
@@ -43,16 +43,16 @@ export default function SuperadminVisibilityPage() {
   const updateVisibilityMutation = useMutation({
     mutationFn: async ({
       companyId,
-      superadminVisible,
+      cfg1,
     }: {
       companyId: number;
-      superadminVisible: boolean;
+      cfg1: boolean;
     }) => {
       const res = await apiFetch(
-        `/api/system/superadmin-company-visibility/${companyId}`,
+        `/api/system/c-cfg/${companyId}`,
         {
           method: "PATCH",
-          body: JSON.stringify({ superadminVisible }),
+          body: JSON.stringify({ cfg1 }),
         },
       );
       if (!res.ok) {
@@ -63,12 +63,12 @@ export default function SuperadminVisibilityPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["system-superadmin-company-visibility"],
+        queryKey: ["system-c-cfg-mx"],
       });
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({
-        title: "Visibility updated",
-        description: "Other superadmins will see the new company list.",
+        title: "Config updated",
+        description: "Other admins will see the new list.",
       });
     },
     onError: (err: Error) =>
@@ -91,7 +91,7 @@ export default function SuperadminVisibilityPage() {
   }, [companies, search]);
 
   const hiddenCount = companies.filter(
-    (company) => !company.superadminVisible,
+    (company) => !company.cfg1,
   ).length;
 
   if (!isSystemAdmin) {
@@ -191,16 +191,16 @@ export default function SuperadminVisibilityPage() {
                         </h3>
                         <Badge
                           variant={
-                            company.superadminVisible ? "secondary" : "outline"
+                            company.cfg1 ? "secondary" : "outline"
                           }
                           className="gap-1"
                         >
-                          {company.superadminVisible ? (
+                          {company.cfg1 ? (
                             <Eye className="h-3 w-3" />
                           ) : (
                             <EyeOff className="h-3 w-3" />
                           )}
-                          {company.superadminVisible ? "Visible" : "Hidden"}
+                          {company.cfg1 ? "Visible" : "Hidden"}
                         </Badge>
                       </div>
                       <p className="mt-1 text-sm text-slate-500">
@@ -213,13 +213,13 @@ export default function SuperadminVisibilityPage() {
                       Other superadmins
                     </span>
                     <Switch
-                      checked={company.superadminVisible}
+                      checked={company.cfg1}
                       disabled={updateVisibilityMutation.isPending}
-                      aria-label={`Toggle ${company.name} visibility`}
+                      aria-label={`Toggle ${company.name} config`}
                       onCheckedChange={(checked) =>
                         updateVisibilityMutation.mutate({
                           companyId: company.id,
-                          superadminVisible: checked,
+                          cfg1: checked,
                         })
                       }
                     />

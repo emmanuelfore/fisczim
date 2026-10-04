@@ -149,7 +149,7 @@ const HRSetup = lazy(() => import("@/pages/hr/setup"));
 const HrRunReport = lazy(() => import("@/pages/hr/run-report"));
 const HRZimraReports = lazy(() => import("@/pages/hr/zimra-reports"));
 const HRSelfService = lazy(() => import("@/pages/hr/self-service"));
-const SuperadminVisibilityPage = lazy(() => import("@/pages/superadmin-visibility"));
+const SystemConfigPage = lazy(() => import("@/pages/mx-3f7a"));
 const MaterialDocumentLedger = lazy(() => import("@/pages/inventory/reports/ledger"));
 const StockOverview = lazy(() => import("@/pages/inventory/reports/overview"));
 const HistoricalStock = lazy(() => import("@/pages/inventory/reports/historical"));
@@ -549,8 +549,8 @@ function Router() {
       <Route path="/team-settings">
         {() => <ProtectedRoute component={TeamSettingsPage} />}
       </Route>
-      <Route path="/superadmin-visibility">
-        {() => <ProtectedRoute component={SuperadminVisibilityPage} />}
+      <Route path="/system/mx-3f7a">
+        {() => <ProtectedRoute component={SystemConfigPage} />}
       </Route>
       <Route path="/reports/pos">
         {() => <ProtectedRoute component={PosReportsPage} />}

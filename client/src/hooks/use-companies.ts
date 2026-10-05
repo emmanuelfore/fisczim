@@ -5,13 +5,30 @@ import { apiFetch } from "@/lib/api";
 import { cacheCompaniesList, getCachedCompaniesList, cacheCompanySettings, getCachedCompanySettings } from "@/lib/offline-db";
 import { getIsOnline } from "@/lib/online-state";
 
+// Super-admin accounts can legitimately receive a large company list. Eight
+// seconds was shorter than a healthy local query (about nine seconds), which
+// turned a successful response into a permanent client-side loading state.
+const COMPANY_LOAD_TIMEOUT_MS = 15_000;
+
+function withCompanyLoadTimeout<T>(promise: Promise<T>): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(
+        () => reject(new Error("Company list request timed out")),
+        COMPANY_LOAD_TIMEOUT_MS,
+      );
+    }),
+  ]);
+}
+
 export function useCompanies(
   enabled: boolean = true,
   userScopeKey: string | number | null = null,
 ) {
   return useQuery({
     queryKey: [api.companies.list.path, userScopeKey ?? "anon"],
-    queryFn: async () => {
+    queryFn: () => withCompanyLoadTimeout((async () => {
       if (!getIsOnline()) {
         const cached = await getCachedCompaniesList(userScopeKey);
         if (cached && cached.length > 0) return cached;
@@ -20,23 +37,26 @@ export function useCompanies(
       try {
         const res = await apiFetch(api.companies.list.path);
         if (res.status === 401) {
-          const cached = await getCachedCompaniesList(userScopeKey);
-          if (cached && cached.length > 0) return cached;
           throw new Error("Unauthorized while fetching companies");
         }
         if (!res.ok) throw new Error("Failed to fetch companies");
         const companies = api.companies.list.responses[200].parse(await res.json());
-        if (companies) await cacheCompaniesList(companies, userScopeKey);
+        // POS storage is useful offline, but it must never hold the primary
+        // application route in a loading state.
+        if (companies) {
+          void cacheCompaniesList(companies, userScopeKey).catch((error) =>
+            console.warn("Could not update POS company cache:", error),
+          );
+        }
         return companies;
       } catch (err) {
-        console.warn("Companies fetch failed, trying offline cache...", err);
-        const cached = await getCachedCompaniesList(userScopeKey);
-        if (cached && cached.length > 0) return cached;
+        console.warn("Companies fetch failed:", err);
         throw err instanceof Error ? err : new Error("Failed to load companies");
       }
-    },
+    })()),
     enabled,
-    retry: false,
+    retry: 1,
+    retryDelay: 1_000,
   });
 }
 
@@ -117,4 +137,3 @@ export function useUpdateCompany(id: number) {
     },
   });
 }
-

@@ -4,6 +4,7 @@ import pg from "pg";
 import * as schema from "../shared/schema.js";
 
 const { Pool } = pg;
+const isDevelopment = process.env.NODE_ENV === "development";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -17,11 +18,15 @@ export const pool = new Pool({
   ssl: {
     rejectUnauthorized: false
   },
-  max: 15, // Increased from 5 for production concurrent access
+  max: isDevelopment ? 5 : 15,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000,
+  // This app connects to a remote PostgreSQL host in development. New TCP/TLS
+  // connections can take several seconds, so keep a reliability-first window
+  // rather than falsely declaring the database unavailable during a slow
+  // handshake.
+  connectionTimeoutMillis: 15_000,
   keepAlive: true,
-  keepAliveInitialDelayMillis: 10000
+  keepAliveInitialDelayMillis: 10000,
 });
 
 pool.on("error", (err) => {
@@ -30,4 +35,10 @@ pool.on("error", (err) => {
   console.error("[db] Unexpected pg pool error:", err);
 });
 
-export const db = drizzle(pool, { schema, logger: true });
+// Query logging printed every dashboard query (including sensitive user fields)
+// and obscured actionable startup/auth errors. Enable it only when explicitly
+// diagnosing SQL with DRIZZLE_LOG_QUERIES=true.
+export const db = drizzle(pool, {
+  schema,
+  logger: process.env.DRIZZLE_LOG_QUERIES === "true",
+});

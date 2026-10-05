@@ -3,7 +3,6 @@ import { apiFetch, invalidateSessionCache } from "@/lib/api";
 import { auth } from "@/lib/auth";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { cacheUser, getCachedUser, clearCachedUser, getPendingSalesCount, saveOfflineCredentials, verifyOfflineCredentials, verifyOfflinePinCredentials, getOfflineUsers } from "@/lib/offline-db";
 import { useToast } from "@/hooks/use-toast";
 import { isElectron } from "@/lib/utils";
 import { getIsOnline, setOnlineState } from "@/lib/online-state";
@@ -12,6 +11,35 @@ let authInitStarted = false;
 let authInitDone = false;
 const authInitListeners = new Set<(ready: boolean) => void>();
 let lastUserInvalidateAt = 0;
+
+const POS_STORAGE_TIMEOUT_MS = 2_500;
+const AUTH_REQUEST_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), POS_STORAGE_TIMEOUT_MS);
+    }),
+  ]);
+}
+
+async function fetchCurrentUser() {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+  try {
+    return await apiFetch("/api/user", { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+// IndexedDB belongs to the POS offline flow. Keep it out of the application
+// startup path; these helpers run only after a cashier explicitly signs in.
+async function getPosOfflineUsers() {
+  const { getOfflineUsers } = await import("@/lib/offline-db");
+  return withTimeout(getOfflineUsers(), "Offline terminal storage did not respond");
+}
 
 // If auth client already has a valid session from localStorage (cold reload while logged in),
 // skip the async init wait entirely.
@@ -28,8 +56,8 @@ export function useAuth() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  // If offline, skip Supabase init entirely — we'll use cached user from IndexedDB.
-  // In Electron we always let Supabase attempt init (it has a 1.5s failsafe timeout).
+  // If offline, skip network auth initialization entirely. In Electron we keep
+  // the short failsafe so the POS login route can take over.
   const startOffline = !isElectron() && !navigator.onLine;
   const [isAuthLoading, setIsAuthLoading] = useState(
     startOffline ? false : !authInitDone
@@ -96,34 +124,20 @@ export function useAuth() {
   const userQuery = useQuery({
     queryKey: ["/api/user"],
     queryFn: async () => {
-      // Offline: skip the network entirely and go straight to cache
+      // Do not open IndexedDB while the application is starting. POS opens its
+      // own offline store after the user chooses the terminal login flow.
       if (!getIsOnline()) {
-        // Electron forced logout (every launch must show POS login) — never auto-use stale user_cache
-        try {
-          if (sessionStorage.getItem('__electron_forced_logout')) {
-            await clearCachedUser();
-            console.log("[Auth] Electron forced logout — skipping cached user");
-            return null;
-          }
-        } catch {}
-        const cached = await getCachedUser();
-        if (cached) {
-          console.log("[Auth] Offline — using cached user:", cached.email);
-          return cached;
-        }
         return null;
       }
 
       try {
-        const res = await apiFetch("/api/user");
+        const res = await fetchCurrentUser();
         if (res.status === 304) {
           const cachedFromQuery = queryClient.getQueryData(["/api/user"]);
           if (cachedFromQuery) return cachedFromQuery;
-          const cachedFromOffline = await getCachedUser();
-          return cachedFromOffline || null;
+          return null;
         }
         if (res.status === 401) {
-          await clearCachedUser();
           return null;
         }
         if (!res.ok) {
@@ -131,15 +145,12 @@ export function useAuth() {
         }
         const data = await res.json();
         const user = typeof data === "object" && data !== null && "user" in data ? data.user : data;
-        if (user) await cacheUser(user);
         return user;
       } catch (err) {
-        console.warn("[Auth] User fetch failed, trying offline cache...", err);
-        try { if (sessionStorage.getItem('__electron_forced_logout')) return null; } catch {}
+        console.warn("[Auth] User fetch failed; continuing to the sign-in screen", err);
         const cachedFromQuery = queryClient.getQueryData(["/api/user"]);
         if (cachedFromQuery) return cachedFromQuery;
-        const cachedFromOffline = await getCachedUser();
-        return cachedFromOffline ?? null;
+        return null;
       }
     },
     enabled: !isAuthLoading,
@@ -168,15 +179,18 @@ export function useAuth() {
         const data = await Promise.race([loginPromise, timeoutPromise]) as Awaited<ReturnType<typeof auth.login>>;
 
         if (data.user) {
-          await saveOfflineCredentials(email, password, { ...data.user, sessionStatus: 'offline_cached' });
-          await cacheUser(data.user);
           try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
           queryClient.setQueryData(["/api/user"], data.user);
 
-          // Eagerly cache everything needed for offline use (non-blocking)
-          warmOfflineCache(data.user).catch(err =>
-            console.warn("[Auth] Failed to warm offline cache:", err)
-          );
+          const isPosLogin = window.location.pathname.startsWith("/pos");
+          // Only the POS flow prepares IndexedDB, and it never delays login.
+          if (isPosLogin) {
+            void import("@/lib/offline-db").then(({ saveOfflineCredentials }) =>
+              saveOfflineCredentials(email, password, { ...data.user, sessionStatus: "offline_cached" }),
+            ).then(() => warmOfflineCache(data.user)).catch(err =>
+              console.warn("[Auth] Failed to prepare POS offline cache:", err),
+            );
+          }
         }
         return;
       } catch (err: any) {
@@ -192,20 +206,26 @@ export function useAuth() {
     }
 
     // Offline path
-    const user = await verifyOfflineCredentials(email, password);
+    const { verifyOfflineCredentials } = await import("@/lib/offline-db");
+    const user = await withTimeout(
+      verifyOfflineCredentials(email, password),
+      "Offline terminal storage did not respond",
+    );
     if (!user) {
       throw new Error("Invalid credentials or no offline profile cached");
     }
 
     console.log("[Auth] Offline verification successful");
-    await cacheUser(user);
     try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
 
     // Restore selectedCompanyId BEFORE setting user in query cache
     const storedId = localStorage.getItem("selectedCompanyId");
     if (!storedId || storedId === "0") {
       const { getCachedCompaniesList } = await import("@/lib/offline-db");
-      const cachedCompanies = await getCachedCompaniesList(user.id);
+      const cachedCompanies = await withTimeout(
+        getCachedCompaniesList(user.id),
+        "Offline terminal storage did not respond",
+      );
       if (cachedCompanies && cachedCompanies.length > 0) {
         const best =
           cachedCompanies.find((c: any) => c.role === "owner") ||
@@ -228,20 +248,26 @@ export function useAuth() {
     if (getIsOnline()) {
       throw new Error("Online logins must use passwords, not PINs.");
     }
-    const user = await verifyOfflinePinCredentials(email, pin);
+    const { verifyOfflinePinCredentials } = await import("@/lib/offline-db");
+    const user = await withTimeout(
+      verifyOfflinePinCredentials(email, pin),
+      "Offline terminal storage did not respond",
+    );
     if (!user) {
       throw new Error("Invalid PIN or no offline profile cached");
     }
 
     console.log("[Auth] Offline PIN verification successful");
-    await cacheUser(user);
     try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
 
     // Restore selectedCompanyId
     const storedId = localStorage.getItem("selectedCompanyId");
     if (!storedId || storedId === "0") {
       const { getCachedCompaniesList } = await import("@/lib/offline-db");
-      const cachedCompanies = await getCachedCompaniesList(user.id);
+      const cachedCompanies = await withTimeout(
+        getCachedCompaniesList(user.id),
+        "Offline terminal storage did not respond",
+      );
       if (cachedCompanies && cachedCompanies.length > 0) {
         const best =
           cachedCompanies.find((c: any) => c.role === "owner") ||
@@ -311,15 +337,14 @@ export function useAuth() {
   const registerWithPassword = async ({ email, password, name }: any) => {
     const data = await auth.register(email, password, name);
     if (data.user) {
-      await cacheUser(data.user);
       queryClient.setQueryData(["/api/user"], data.user);
     }
     return data;
   };
 
   const logout = async () => {
-    // Clear React Query cache and local user cache
-    await clearCachedUser();
+    // Clear the in-memory application session. POS records and credentials are
+    // intentionally retained for its separate offline-login flow.
     queryClient.clear();
     localStorage.removeItem("selectedCompanyId");
     localStorage.removeItem("selectedBranchId");
@@ -378,7 +403,7 @@ export function useAuth() {
     loginWithGoogle,
     loginWithPassword,
     loginWithOfflinePin,
-    getOfflineUsers,
+    getOfflineUsers: getPosOfflineUsers,
     registerWithPassword,
     logout,
     updatePassword,

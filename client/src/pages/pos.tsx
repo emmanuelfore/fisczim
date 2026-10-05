@@ -2006,19 +2006,6 @@ export default function POSPage() {
         prepareNextSaleImmediately();
         clearPersistedSession();
 
-        // Register Background Sync
-        if ("serviceWorker" in navigator && "SyncManager" in window) {
-          runOnIdle(() => {
-            navigator.serviceWorker.ready
-              .then((reg) => {
-                return (reg as any).sync.register("sync-sales");
-              })
-              .catch((err) =>
-                console.error("[Sync] Registration failed:", err),
-              );
-          });
-        }
-
         runOnIdle(() => {
           refreshPendingCount().catch((err) =>
             console.error("[POS] refreshPendingCount failed:", err),
@@ -2298,19 +2285,6 @@ export default function POSPage() {
           }
           prepareNextSaleImmediately();
           clearPersistedSession();
-
-          // Register Background Sync
-          if ("serviceWorker" in navigator && "SyncManager" in window) {
-            runOnIdle(() => {
-              navigator.serviceWorker.ready
-                .then((reg) => {
-                  return (reg as any).sync.register("sync-sales");
-                })
-                .catch((err) =>
-                  console.error("[Sync] Registration failed:", err),
-                );
-            });
-          }
 
           runOnIdle(() => {
             refreshPendingCount().catch((err) =>

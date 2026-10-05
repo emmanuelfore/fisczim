@@ -95,7 +95,7 @@ export default function AuthPage() {
         password: signupData.password,
         name: signupData.name,
       });
-      if (data?.session) {
+      if (data?.user) {
         setSuccessMsg("Account created! Logging you in...");
       } else {
         setSuccessMsg("Account created! Please check your email to verify your account before logging in.");

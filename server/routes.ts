@@ -692,7 +692,8 @@ export async function registerRoutes(
   // Force route to be kept in bundle
   app.get("/api/user", (req: any, res: express.Response) => {
     if (!req.isAuthenticated()) return res.json({ user: null });
-    res.json({ user: req.user });
+    const { password: _password, pin: _pin, ...safeUser } = req.user;
+    res.json({ user: safeUser });
   });
 
   app.patch("/api/user", (req: any, res: express.Response, next: express.NextFunction) => {

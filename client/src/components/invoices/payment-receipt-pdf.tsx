@@ -9,6 +9,7 @@ import {
 } from "@react-pdf/renderer";
 import { format, isValid } from "date-fns";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
+import { getDefaultCity, getDefaultCountry } from "@/lib/country-detect";
 
 // Use built-in Helvetica — removing font registration to eliminate fetch issues
 

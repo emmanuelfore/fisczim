@@ -1,3 +1,5 @@
+import { Suspense, lazy, useEffect, useRef, useState, Component, type ReactNode } from "react";
+
 const HRPayslips = lazy(() => import("@/pages/hr/payslips"));
 const HRDashboard = lazy(() => import("@/pages/hr/index"));
 import { Switch, Route, Redirect, useLocation } from "wouter";
@@ -158,13 +160,10 @@ const ProductionReportPage = lazy(() => import("@/pages/inventory/reports/produc
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
 import { NAV_PERMISSION_MAP } from "@shared/permissions";
-import { auth } from "@/lib/auth";
 import { useCompanies } from "@/hooks/use-companies";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { Loader2 } from "lucide-react";
 import { insertBusRouteSchema, type BusRouteCloud } from "@shared/schema";
-import { Suspense, lazy, useEffect, useRef, useState, Component, type ReactNode } from "react";
-import { getPwaLaunchRedirect } from "@/hooks/use-pwa-install";
 import { useIsOnline } from "@/hooks/use-is-online";
 import { useBranding } from "@/hooks/use-branding";
 import { ThemeManager } from "@/components/theme-manager";
@@ -196,6 +195,21 @@ function LoadingScreen({ message = "Loading…" }: { message?: string }) {
         <div className="h-10 rounded-xl bg-white/5 animate-pulse [animation-delay:150ms]" />
         <div className="h-10 rounded-xl bg-white/5 animate-pulse [animation-delay:300ms]" />
       </div>
+    </div>
+  );
+}
+
+function StartupProblem({ message = "We could not load your workspace." }: { message?: string }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 gap-4 text-center">
+      <h1 className="text-lg font-semibold">Workspace unavailable</h1>
+      <p className="max-w-md text-sm text-slate-300">{message}</p>
+      <button
+        onClick={() => window.location.reload()}
+        className="rounded-md bg-indigo-500 px-4 py-2 text-sm font-medium hover:bg-indigo-400"
+      >
+        Retry
+      </button>
     </div>
   );
 }
@@ -248,6 +262,9 @@ function ProtectedRoute({
   // No user at all — if offline send to /pos (they may have cached data),
   // if online send to /auth
   if (!user) return <Redirect to="/auth" />;
+  if (isCompaniesError && !Array.isArray(companies)) {
+    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+  }
 
   // Redirect to onboarding if online and company list is definitively empty
   if (!isOffline && companies && companies.length === 0) {
@@ -292,10 +309,12 @@ function OnboardingRoute() {
 
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Redirect to="/auth" />;
-  if (!Array.isArray(companies)) return <LoadingScreen />;
 
   // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
   if (!isOnline || isError) {
+    if (!Array.isArray(companies)) {
+      return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    }
     const role = Array.isArray(companies)
       ? (companies[0] as any)?.role
       : undefined;
@@ -305,6 +324,9 @@ function OnboardingRoute() {
         to={isCashier ? "/pos" : getCompanyHomeRoute(companies, user)}
       />
     );
+  }
+  if (!Array.isArray(companies)) {
+    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
   }
 
   // If we have companies, we shouldn't be here
@@ -329,9 +351,15 @@ function AuthRedirect() {
 
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Redirect to="/auth" />;
-  if (!isOnline || isError)
+  if (!isOnline || isError) {
+    if (!Array.isArray(companies)) {
+      return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    }
     return <Redirect to={getCompanyHomeRoute(companies, user)} />;
-  if (!Array.isArray(companies)) return <LoadingScreen />;
+  }
+  if (!Array.isArray(companies)) {
+    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+  }
 
   return <Redirect to={getCompanyHomeRoute(companies, user)} />;
 }
@@ -340,10 +368,6 @@ function Router() {
   const { user, isLoading: rawAuthLoading } = useAuth();
   const isOnline = useIsOnline();
   const isLoading = useBoundedLoading(rawAuthLoading);
-
-  // If launched as an installed PWA from /pos, go straight there
-  const pwaRedirect = getPwaLaunchRedirect();
-  if (pwaRedirect) return <Redirect to={pwaRedirect} />;
 
   if (isLoading) return <LoadingScreen />;
 
@@ -839,27 +863,6 @@ function Router() {
   );
 }
 
-// Bridge: service worker asks for auth token during background sync
-function useSwAuthBridge() {
-  useEffect(() => {
-    if (!navigator.serviceWorker) return;
-
-    const handler = async (event: MessageEvent) => {
-      if (event.data?.type !== "GET_AUTH_TOKEN") return;
-      try {
-        const token = auth.getAccessToken() || localStorage.getItem('access_token');
-        event.ports[0]?.postMessage({ token });
-      } catch {
-        event.ports[0]?.postMessage({ token: null });
-      }
-    };
-
-    navigator.serviceWorker.addEventListener("message", handler);
-    return () =>
-      navigator.serviceWorker.removeEventListener("message", handler);
-  }, []);
-}
-
 function BrandingMeta() {
   const { brand } = useBranding();
   const { authorityName } = useFiscalAuthority();
@@ -931,11 +934,7 @@ class ErrorBoundary extends Component<
 
 import { BranchProvider } from "./lib/branch-context";
 import { LanguageProvider } from "@/lib/i18n";
-import { BootSplash } from "@/components/boot-splash";
-
 function App() {
-  useSwAuthBridge();
-  const [booted, setBooted] = useState(false);
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
@@ -944,12 +943,8 @@ function App() {
           <BranchProvider>
             <BrandingMeta />
             <Toaster />
-            {/* Boot gate: splash stays until React is actually ready —
-                never a blank moment between splash and app. The boundary
-                covers the gate too, so a render crash becomes a recovery
-                screen instead of a permanently parked 90% splash. */}
             <ErrorBoundary>
-              {!booted ? <BootSplash onReady={() => setBooted(true)} /> : <Router />}
+              <Router />
             </ErrorBoundary>
           </BranchProvider>
         </TooltipProvider>

@@ -6,7 +6,6 @@ import { createServer } from "http";
 import { setupSwagger } from "./swagger.js";
 import { startRecurringInvoiceWorker, startFiscalDayClosingWorker } from "./jobs.js";
 import { startFiscalizationWorker } from "./workers/fiscalization_worker.js";
-import { seedGlobalPayrollDefaults } from "./lib/payroll-seeding.js";
 import { initializeScheduler } from "./scheduler.js";
 
 import cors from "cors";
@@ -25,7 +24,9 @@ process.on('uncaughtException', (err) => {
 
 const app = express();
 
-// CRITICAL #1: Restrict CORS to production domain only
+// Restrict CORS in production. Local development can be opened through
+// localhost, 127.0.0.1, a desktop shell, or file:// (reported as "null").
+// Rejecting those origins made the local UI appear as a blank blue screen.
 const allowedOrigins = [
   "https://fiscalstack.co.zw",
   "https://www.fiscalstack.co.zw",
@@ -41,7 +42,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (process.env.NODE_ENV === "development" || !origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));
@@ -242,12 +243,12 @@ app.use((req, res, next) => {
 async function initializeApp() {
   // Setup application
   setupSwagger(app);
-  await seedGlobalPayrollDefaults();
   await registerRoutes(httpServer, app);
 
   app.route("/api/user").get((req: any, res: Response) => {
     if (!req.isAuthenticated()) return res.json({ user: null });
-    res.json({ user: req.user });
+    const { password: _password, pin: _pin, ...safeUser } = req.user;
+    res.json({ user: safeUser });
   });
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -276,11 +277,17 @@ async function initializeApp() {
     });
   }
 
-  // Start midnight fiscal day closing worker
-  startFiscalDayClosingWorker();
+  // Development should be responsive and quiet. These database polling loops
+  // are for the deployed service; opt in locally only when testing them.
+  const runBackgroundWorkers =
+    process.env.NODE_ENV !== "development" || process.env.ENABLE_BACKGROUND_WORKERS === "true";
+  if (runBackgroundWorkers) {
+    startFiscalDayClosingWorker();
+    startFiscalizationWorker();
+  } else {
+    log("background fiscal workers are disabled in development");
+  }
 
-  // Start durable fiscalization worker
-  startFiscalizationWorker();
 }
 
 // Export for Vercel

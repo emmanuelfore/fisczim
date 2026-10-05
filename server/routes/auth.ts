@@ -220,9 +220,12 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     // If user's password in public.users is missing, attempt to sync from auth.users on-the-fly
     if (!user.password) {
       try {
-        const [authUser] = await storage.getUserByEmail(user.email) ? await db.execute(sql`SELECT encrypted_password FROM auth.users WHERE id = ${user.id}`) : [];
-        if (authUser && (authUser as any).encrypted_password) {
-          const syncedPassword = (authUser as any).encrypted_password as string;
+        const result = await db.execute(
+          sql`SELECT encrypted_password FROM auth.users WHERE id = ${user.id}`,
+        );
+        const authUser = result.rows[0] as { encrypted_password?: string } | undefined;
+        if (authUser?.encrypted_password) {
+          const syncedPassword = authUser.encrypted_password;
           await storage.updateUser(user.id, { password: syncedPassword });
           user.password = syncedPassword;
         }
@@ -272,9 +275,16 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
       user: userWithoutPassword,
       ...tokens,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Auth] Login error:', error);
-    res.status(500).json({ message: 'Login failed', error: error instanceof Error ? error.message : 'Unknown error' });
+    const databaseUnavailable =
+      /connection (terminated|timeout)|ECONNRESET|ETIMEDOUT/i.test(String(error?.message || error));
+    res.status(databaseUnavailable ? 503 : 500).json({
+      message: databaseUnavailable
+        ? 'Database is temporarily unavailable. Please retry shortly.'
+        : 'Login failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 });
 

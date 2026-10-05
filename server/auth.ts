@@ -44,18 +44,7 @@ export function setupAuth(app: Express) {
       }
 
       // Get user from database
-      let user;
-      let retries = 3;
-      while (retries > 0) {
-        try {
-          user = await storage.getUser(payload.userId);
-          break;
-        } catch (err) {
-          retries--;
-          if (retries === 0) throw err;
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
+      const user = await storage.getUser(payload.userId);
 
       if (user) {
         req.user = user;
@@ -64,9 +53,16 @@ export function setupAuth(app: Express) {
         req.user = undefined;
       }
       next();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Auth middleware error:", err);
-      return res.status(500).json({ message: "Auth middleware failed", error: err instanceof Error ? err.message : String(err) });
+      const databaseUnavailable =
+        /connection (terminated|timeout)|ECONNRESET|ETIMEDOUT/i.test(String(err?.message || err));
+      return res.status(databaseUnavailable ? 503 : 500).json({
+        message: databaseUnavailable
+          ? "Database is temporarily unavailable. Please retry shortly."
+          : "Auth middleware failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   });
 

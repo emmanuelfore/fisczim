@@ -221,7 +221,7 @@ export default function Dashboard() {
     isLesothoDomain() ? "LSL" : "USD",
     ...configuredCurrencyCodes,
     isLesothoDomain() ? null : (configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG")
-  ].filter(Boolean)));
+  ].filter((c): c is string => Boolean(c))));
 
   const totalSalesByCurrency = (operationalMetrics?.totalRevenueByCurrency || {}) as CurrencyAmounts;
   const vatCollectedByCurrency = invoices.reduce(

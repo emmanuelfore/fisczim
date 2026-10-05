@@ -1,5 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "crypto";
+import { eq } from "drizzle-orm";
+import { db } from "../db.js";
+import { sageConnections } from "../../shared/schema.js";
 
 const router = Router();
 
@@ -71,7 +74,7 @@ router.get("/connect", (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  GET /api/sage/oauth/callback
 //  Sage redirects here after the user grants access.
-//  Exchanges the authorization code for tokens and saves to Supabase.
+//  Exchanges the authorization code for tokens and saves to the application DB.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get("/callback", async (req: Request, res: Response) => {
   const { code, state, error: oauthError } = req.query as Record<string, string>;
@@ -142,28 +145,41 @@ router.get("/callback", async (req: Request, res: Response) => {
     console.warn("[SageOAuth] Could not fetch business info:", err.message);
   }
 
-  // Upsert into sage_connections (keyed by company_id)
-  if (!supabaseAdmin) {
-    console.error("[SageOAuth] Supabase admin client not available");
-    return res.redirect(`/?sage_error=internal_error`);
+  if (!sageBusinessId || !access_token || !refresh_token) {
+    console.error("[SageOAuth] Sage did not return a business ID or complete token pair");
+    return res.redirect(`/?sage_error=${encodeURIComponent("Sage returned incomplete connection data")}`);
   }
 
-  const { error: upsertErr } = await supabaseAdmin
-    .from("sage_connections")
-    .upsert(
-      {
-        company_id:       companyId,
-        sage_business_id: sageBusinessId,
-        access_token,
-        refresh_token,
-        token_expires_at: new Date(Date.now() + (expires_in ?? 3600) * 1000).toISOString(),
-        connected_at:     new Date().toISOString(),
-      },
-      { onConflict: "company_id" }
-    );
+  const now = new Date();
+  const tokenExpiresAt = new Date(
+    now.getTime() + (Number(expires_in) || 3600) * 1000,
+  );
 
-  if (upsertErr) {
-    console.error("[SageOAuth] Failed to save connection:", upsertErr.message);
+  try {
+    await db
+      .insert(sageConnections)
+      .values({
+        companyId,
+        sageBusinessId,
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        tokenExpiresAt,
+        connectedAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: sageConnections.companyId,
+        set: {
+          sageBusinessId,
+          accessToken: access_token,
+          refreshToken: refresh_token,
+          tokenExpiresAt,
+          connectedAt: now,
+          updatedAt: now,
+        },
+      });
+  } catch (err) {
+    console.error("[SageOAuth] Failed to save connection:", err);
     return res.redirect(`/?sage_error=${encodeURIComponent("Failed to save connection")}`);
   }
 
@@ -184,34 +200,29 @@ router.get("/status", async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Missing companyId" });
   }
 
-  if (!supabaseAdmin) {
-    return res.status(500).json({ error: "Supabase not available" });
+  try {
+    const [connection] = await db
+      .select({
+        sageBusinessId: sageConnections.sageBusinessId,
+        connectedAt: sageConnections.connectedAt,
+        tokenExpiresAt: sageConnections.tokenExpiresAt,
+      })
+      .from(sageConnections)
+      .where(eq(sageConnections.companyId, companyId))
+      .limit(1);
+
+    if (!connection) return res.json({ connected: false });
+
+    return res.json({
+      connected: true,
+      sageBusinessId: connection.sageBusinessId,
+      connectedAt: connection.connectedAt,
+      tokenExpired: connection.tokenExpiresAt < new Date(),
+    });
+  } catch (err) {
+    console.error("[SageOAuth] Failed to read connection status:", err);
+    return res.status(500).json({ error: "Failed to read Sage connection status" });
   }
-
-  const { data, error } = await supabaseAdmin
-    .from("sage_connections")
-    .select("sage_business_id, connected_at, token_expires_at")
-    .eq("company_id", companyId)
-    .maybeSingle();
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-
-  if (!data) {
-    return res.json({ connected: false });
-  }
-
-  const isExpired = data.token_expires_at
-    ? new Date(data.token_expires_at) < new Date()
-    : false;
-
-  return res.json({
-    connected:       true,
-    sageBusinessId:  data.sage_business_id,
-    connectedAt:     data.connected_at,
-    tokenExpired:    isExpired,
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,17 +236,13 @@ router.post("/disconnect", async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Missing companyId" });
   }
 
-  if (!supabaseAdmin) {
-    return res.status(500).json({ error: "Supabase not available" });
-  }
-
-  const { error } = await supabaseAdmin
-    .from("sage_connections")
-    .delete()
-    .eq("company_id", companyId);
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
+  try {
+    await db
+      .delete(sageConnections)
+      .where(eq(sageConnections.companyId, companyId));
+  } catch (err) {
+    console.error("[SageOAuth] Failed to remove connection:", err);
+    return res.status(500).json({ error: "Failed to remove Sage connection" });
   }
 
   console.log(`[SageOAuth] Company ${companyId} disconnected from Sage`);

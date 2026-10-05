@@ -36,6 +36,7 @@ interface OfflineHold {
 
 let dbInstance: IDBPDatabase | null = null;
 let isDbBroken = false;
+const DB_OPEN_TIMEOUT_MS = 2_500;
 
 /**
  * Returns true if IndexedDB failed to initialize (e.g. "Internal error opening backing store").
@@ -49,7 +50,7 @@ export async function getDb(): Promise<IDBPDatabase> {
     if (dbInstance) return dbInstance;
 
     try {
-        dbInstance = await openDB(DB_NAME, DB_VERSION, {
+        const opening = openDB(DB_NAME, DB_VERSION, {
         upgrade(db, oldVersion, newVersion) {
             console.log(`[DB] Upgrading from ${oldVersion} to ${newVersion}`);
 
@@ -117,7 +118,19 @@ export async function getDb(): Promise<IDBPDatabase> {
             dbInstance?.close();
             dbInstance = null;
         }
-    });
+        });
+
+        // IndexedDB is only used by POS/offline features. A damaged browser
+        // profile must not leave a cashier action waiting forever for it.
+        dbInstance = await Promise.race([
+            opening,
+            new Promise<IDBPDatabase>((_, reject) => {
+                setTimeout(
+                    () => reject(new Error("IndexedDB open timed out")),
+                    DB_OPEN_TIMEOUT_MS,
+                );
+            }),
+        ]);
 
     return dbInstance;
     } catch (err: any) {

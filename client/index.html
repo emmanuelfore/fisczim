@@ -10,21 +10,12 @@
   <meta name="description"
     content="Tax-compliant invoicing and Point of Sale for African businesses. Issue fiscal receipts, manage inventory, and operate offline." />
 
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="/site.webmanifest" />
-
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
 
   <!-- Theme Color (matches Dark Cybertheme slate-900) -->
   <meta name="theme-color" content="#0f172a" />
   <meta name="msapplication-TileColor" content="#0f172a" />
-
-  <!-- PWA mobile support -->
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="FiscalStack" />
-  <link rel="apple-touch-icon" href="/web-app-manifest-192x192.png" />
 
   <!-- Open Graph (for sharing links) -->
   <meta property="og:type" content="website" />
@@ -36,200 +27,21 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <style>
-    /* ── Instant boot paint: never show a white page ────────────────────── */
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #0f172a;
-    }
-    #boot-splash {
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 18px;
-      background: radial-gradient(600px 400px at 70% 10%, rgba(99,102,241,.18), transparent 60%),
-                  radial-gradient(600px 400px at 20% 90%, rgba(37,99,235,.16), transparent 60%),
-                  #0f172a;
-      color: #fff;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      transition: opacity .25s ease;
-      padding: 24px;
-      text-align: center;
-    }
-    #boot-splash.boot-fade { opacity: 0; pointer-events: none; }
-    #boot-splash .boot-status { font-size: 14px; color: #cbd5e1; min-height: 20px; margin: 0; }
-    #boot-splash .boot-bar {
-      width: min(320px, 70vw); height: 6px; border-radius: 999px;
-      background: rgba(255,255,255,.12); overflow: hidden;
-    }
-    #boot-splash .boot-fill {
-      height: 100%; width: 4%; border-radius: 999px;
-      background: linear-gradient(90deg, #6366f1, #22d3ee);
-      transition: width .3s ease;
-    }
-    #boot-splash .boot-pct { font-size: 12px; color: #64748b; font-variant-numeric: tabular-nums; }
-    #boot-splash .boot-dots span {
-      display: inline-block; width: 7px; height: 7px; margin: 0 3px;
-      border-radius: 999px; background: #6366f1;
-      animation: boot-blink 1.2s infinite ease-in-out;
-    }
-    #boot-splash .boot-dots span:nth-child(2) { animation-delay: .15s; }
-    #boot-splash .boot-dots span:nth-child(3) { animation-delay: .3s; }
-    @keyframes boot-blink { 0%,100% { opacity: .25; transform: translateY(0);} 50% { opacity: 1; transform: translateY(-3px);} }
-  </style>
+  <style>html, body { margin: 0; padding: 0; background: #0f172a; }</style>
 </head>
 
 <body>
-  <!-- Instant splash: painted before any JS bundle loads. No branding, just progress. -->
-  <div id="boot-splash" aria-live="polite">
-    <div class="boot-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-    <p class="boot-status" id="boot-splash-status">Preparing your workspace…</p>
-    <div class="boot-bar"><div class="boot-fill" id="boot-splash-fill"></div></div>
-    <div class="boot-pct" id="boot-splash-pct">4%</div>
-  </div>
-  <script>
-    // Fake-but-smooth crawl while the bundle loads — React takes over on mount.
-    // Never jumps 0→100: eases toward 90% and waits for the real "ready" signal.
-    (function () {
-      var pct = 4, target = 90, timer = null;
-      var fill = document.getElementById('boot-splash-fill');
-      var label = document.getElementById('boot-splash-pct');
-      var status = document.getElementById('boot-splash-status');
-      var messages = [
-        'Preparing your workspace…',
-        'Loading inventory…',
-        'Preparing sales engine…',
-        'Checking printer service…',
-        'Finalizing startup…'
-      ];
-      var mi = 0;
-      window.__bootSplashSet = function (p, msg) {
-        pct = Math.max(pct, Math.min(100, p));
-        if (fill) fill.style.width = pct + '%';
-        if (label) label.textContent = Math.round(pct) + '%';
-        if (msg && status) status.textContent = msg;
-      };
-      timer = setInterval(function () {
-        if (pct < 24) pct += 2.5;
-        else if (pct < 60) pct += 0.9;
-        else if (pct < target) pct += 0.35;
-        else {
-          mi = (mi + 1) % messages.length;
-          if (status) status.textContent = messages[mi];
-          return;
-        }
-        if (fill) fill.style.width = pct + '%';
-        if (label) label.textContent = Math.round(pct) + '%';
-      }, 120);
-      window.__bootSplashDone = function () {
-        clearInterval(timer);
-        window.__bootSplashSet(100, 'Ready');
-        var el = document.getElementById('boot-splash');
-        if (!el) return;
-        el.classList.add('boot-fade');
-        setTimeout(function () { el.remove(); }, 300);
-      };
-      // Safety: if React fails to boot within 25s, leave a message, never a white page.
-      setTimeout(function () {
-        if (document.getElementById('boot-splash') && status && pct < 100) {
-          status.textContent = 'Still preparing… large databases may take longer on first launch.';
-        }
-      }, 10000);
-      // Pre-mount error trap: if the bundle throws during evaluation (before
-      // React mounts), record it so the watchdog below can SHOW the message
-      // instead of parking silently at 90%.
-      window.__bootErrors = [];
-      function recordBootError(msg) {
-        try {
-          if (msg && window.__bootErrors.length < 5) window.__bootErrors.push(String(msg).slice(0, 220));
-        } catch (e) {}
-      }
-      window.addEventListener('error', function (e) {
-        if (e && e.message) recordBootError(e.message);
-        else if (e && e.error && e.error.message) recordBootError(e.error.message);
-      });
-      window.addEventListener('unhandledrejection', function (e) {
-        var r = e && e.reason;
-        recordBootError((r && (r.message || r)) || 'unhandled rejection');
-      });
-      // Watchdog: if React never mounts and the bar parks at 90%, surface that
-      // instead of hanging silently — offer a cache-busting reload.
-      var chunkFailed = false;
-      // Single-shot per session: a bad service-worker cache is the usual cause
-      // of chunk failures, so drop SW + caches and reload once while React is
-      // still unmounted. Never touch a running app.
-      var recoverAttempted = false;
-      try { recoverAttempted = sessionStorage.getItem('sw_chunk_recover') === '1'; } catch (e) {}
-      function reactMounted() {
-        var root = document.getElementById('root');
-        return !!(root && root.childNodes.length > 0);
-      }
-      function recoverFromChunkFailure() {
-        if (reactMounted() || recoverAttempted) return;
-        recoverAttempted = true;
-        try { sessionStorage.setItem('sw_chunk_recover', '1'); } catch (e) {}
-        var done = function () { window.location.reload(); };
-        try {
-          var clearing = [];
-          if ('serviceWorker' in navigator) {
-            clearing.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
-              return Promise.all(rs.map(function (r) { return r.unregister(); }));
-            }).catch(function () {}));
-          }
-          if (window.caches) {
-            clearing.push(caches.keys().then(function (ks) {
-              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
-            }).catch(function () {}));
-          }
-          Promise.all(clearing).then(done, done);
-          setTimeout(done, 4000);
-        } catch (e) { done(); }
-      }
-      window.addEventListener('error', function (e) {
-        var t = e && e.target;
-        if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
-          chunkFailed = true;
-          // Only auto-recover for same-origin app chunks — a failed font or
-          // third-party asset must never nuke the service worker.
-          try {
-            var src = t.src || t.href || '';
-            if (t.tagName === 'SCRIPT' && src.indexOf(window.location.origin) === 0) {
-              recoverFromChunkFailure();
-            }
-          } catch (err) {}
-        }
-      }, true);
-      setTimeout(function () {
-        var shell = document.getElementById('boot-splash');
-        var root = document.getElementById('root');
-        var reactMounted = root && root.childNodes.length > 0;
-        if (shell && !reactMounted) {
-          if (status) {
-            var firstErr = (window.__bootErrors && window.__bootErrors[0]) || '';
-            status.textContent = firstErr
-              ? 'Startup failed: ' + firstErr
-              : chunkFailed
-                ? 'App files failed to load. Check your connection, then reload to fetch a fresh copy.'
-                : 'The app is taking unusually long to start on this device.';
-          }
-          if (!document.getElementById('boot-watchdog-reload')) {
-            var btn = document.createElement('button');
-            btn.id = 'boot-watchdog-reload';
-            btn.textContent = 'Reload app';
-            btn.style.cssText = 'margin-top:14px;padding:10px 22px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:#6366f1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;';
-            btn.onclick = function () { window.location.reload(); };
-            shell.appendChild(btn);
-          }
-        }
-      }, 45000);
-    })();
-  </script>
+  <!-- React renders directly into the root. Do not place a progress overlay
+       here: an HTML splash can outlive React and look permanently complete. -->
   <div id="root"></div>
+  <script>
+    // Vite transforms /src/main.tsx only when this document is served over
+    // HTTP. Opening index.html with file:// otherwise leaves a blank dark page.
+    if (window.location.protocol === "file:") {
+      document.getElementById("root").innerHTML =
+        '<main style="min-height:100vh;display:grid;place-items:center;padding:24px;color:#e2e8f0;font:16px system-ui;text-align:center"><div><h1 style="margin:0 0 12px">Start the app from its dev server</h1><p style="margin:0">Run <code>npm run dev</code>, then open <code>http://localhost:5001</code>.</p></div></main>';
+    }
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

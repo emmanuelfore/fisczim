@@ -4,6 +4,7 @@ import pg from "pg";
 import * as schema from "../shared/schema.js";
 
 const { Pool } = pg;
+const isDevelopment = process.env.NODE_ENV === "development";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -17,9 +18,12 @@ export const pool = new Pool({
   ssl: {
     rejectUnauthorized: false
   },
-  max: 15, // Increased from 5 for production concurrent access
+  max: isDevelopment ? 5 : 15,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000,
+  // A remote/local database outage must not hold the browser on its sign-in
+  // screen for 15 seconds per request. Production retains the longer grace
+  // period; development fails promptly and makes the real issue visible.
+  connectionTimeoutMillis: isDevelopment ? 4_000 : 15_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000
 });

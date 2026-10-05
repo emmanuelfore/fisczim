@@ -24,9 +24,7 @@ function clearElectronSessionSync() {
   } catch (_e) {
     // Ignore — storage may be unavailable in some edge cases
   }
-  // Async: clear IndexedDB user_cache (preserves offline_credentials, companies_list, products, etc.)
-  // Fire-and-forget — use-auth.ts will also await the marker before returning cached user
-  import('./offline-db').then(({ clearCachedUser }) => clearCachedUser().catch(() => {})).catch(() => {});
+  // IndexedDB is reserved for the POS offline flow and is not opened at app startup.
 }
 
 if (shouldClearElectronSession()) {

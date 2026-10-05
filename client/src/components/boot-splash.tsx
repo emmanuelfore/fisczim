@@ -252,7 +252,7 @@ export function BootSplash({ onReady, minDisplayMs = 900 }: BootSplashProps) {
 
         {slow && !done && !failed && (
           <p className="mt-5 text-xs text-slate-400">
-            Still preparing… large databases may take longer on first launch.
+            Still preparing... finishing startup checks.
           </p>
         )}
 
@@ -286,7 +286,7 @@ export function BootSplash({ onReady, minDisplayMs = 900 }: BootSplashProps) {
         )}
 
         <p className="mt-6 text-[11px] text-slate-600 uppercase tracking-widest font-bold">
-          {stageKey === "sync" ? "This may take a few moments — essentials first." : `Step: ${stageLabel}`}
+          {`Step: ${stageLabel}`}
         </p>
       </div>
     </div>

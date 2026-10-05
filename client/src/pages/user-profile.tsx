@@ -26,6 +26,7 @@ export default function UserProfilePage() {
   });
 
   const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
     password: "",
     confirmPassword: "",
   });
@@ -73,13 +74,13 @@ export default function UserProfilePage() {
 
     try {
       setIsUpdatingPassword(true);
-      await updatePassword(passwordForm.password);
+      await updatePassword(passwordForm.currentPassword, passwordForm.password);
       toast({
         title: "Password Updated",
         description: "Your password has been changed successfully.",
         className: "bg-emerald-600 text-white",
       });
-      setPasswordForm({ password: "", confirmPassword: "" });
+      setPasswordForm({ currentPassword: "", password: "", confirmPassword: "" });
     } catch (error: any) {
       toast({
         title: "Update Failed",
@@ -153,6 +154,26 @@ export default function UserProfilePage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handlePasswordUpdate} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="current-password">Current Password</Label>
+                <div className="relative">
+                  <Input
+                    id="current-password"
+                    type="password"
+                    value={passwordForm.currentPassword}
+                    onChange={(e) =>
+                      setPasswordForm({
+                        ...passwordForm,
+                        currentPassword: e.target.value,
+                      })
+                    }
+                    required
+                    minLength={6}
+                  />
+                  <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="new-password">New Password</Label>
                 <div className="relative">

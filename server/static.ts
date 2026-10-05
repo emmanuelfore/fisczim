@@ -17,8 +17,8 @@ export function serveStatic(app: Express) {
     immutable: true,
     setHeaders: (res, filePath) => {
       // Only content-hashed build assets (/assets/*) are truly immutable.
-      // Everything else (index.html, sw.js, manifest) must revalidate or
-      // devices pin a stale app shell for up to a year.
+      // Everything else, especially index.html, must revalidate or devices
+      // can pin a stale app shell for up to a year.
       if (!filePath.includes(`${path.sep}assets${path.sep}`)) {
         res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
       }

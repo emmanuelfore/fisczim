@@ -20,12 +20,13 @@ export const pool = new Pool({
   },
   max: isDevelopment ? 5 : 15,
   idleTimeoutMillis: 30000,
-  // A remote/local database outage must not hold the browser on its sign-in
-  // screen for 15 seconds per request. Production retains the longer grace
-  // period; development fails promptly and makes the real issue visible.
-  connectionTimeoutMillis: isDevelopment ? 4_000 : 15_000,
+  // This app connects to a remote PostgreSQL host in development. New TCP/TLS
+  // connections can take several seconds, so keep a reliability-first window
+  // rather than falsely declaring the database unavailable during a slow
+  // handshake.
+  connectionTimeoutMillis: 15_000,
   keepAlive: true,
-  keepAliveInitialDelayMillis: 10000
+  keepAliveInitialDelayMillis: 10000,
 });
 
 pool.on("error", (err) => {
@@ -34,4 +35,10 @@ pool.on("error", (err) => {
   console.error("[db] Unexpected pg pool error:", err);
 });
 
-export const db = drizzle(pool, { schema, logger: true });
+// Query logging printed every dashboard query (including sensitive user fields)
+// and obscured actionable startup/auth errors. Enable it only when explicitly
+// diagnosing SQL with DRIZZLE_LOG_QUERIES=true.
+export const db = drizzle(pool, {
+  schema,
+  logger: process.env.DRIZZLE_LOG_QUERIES === "true",
+});

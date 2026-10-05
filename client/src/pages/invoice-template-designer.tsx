@@ -87,7 +87,7 @@ export default function InvoiceTemplateDesignerPage() {
     async function renderPreview() {
       setPreviewLoading(true);
       const sampleQr = await QRCode.toDataURL(
-        fa?.qrVerificationUrl || "https://sample.example.com/qr",
+        fa?.verifyUrl || "https://sample.example.com/qr",
       );
       const sampleCompany = {
         ...(company || {}),
@@ -112,7 +112,7 @@ export default function InvoiceTemplateDesignerPage() {
           "Your Company",
         accountNumber: company?.accountNumber || "00123456789",
         branchCode: company?.branchCode || "6101",
-        qrUrl: company?.qrUrl || fa?.qrVerificationUrl || "",
+        qrUrl: company?.qrUrl || fa?.verifyUrl || "",
       };
       const sampleInvoice = {
         id: 0,

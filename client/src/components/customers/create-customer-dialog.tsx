@@ -1,6 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertCustomerSchema, withCustomerTinRule, type InsertCustomer } from "@shared/schema";
+import { insertCustomerSchema, type InsertCustomer } from "@shared/schema";
 import { useCreateCustomer } from "@/hooks/use-customers";
 import { getDefaultCountry } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
   const { isLesotho } = useFiscalAuthority();
 
   const form = useForm<InsertCustomer>({
-    resolver: zodResolver(withCustomerTinRule(insertCustomerSchema, isLesotho)),
+    resolver: zodResolver(insertCustomerSchema),
     defaultValues: {
       name: "",
       email: "", // Initialize as empty strings to avoid uncontrolled warnings

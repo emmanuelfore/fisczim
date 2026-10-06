@@ -31,11 +31,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Loader2, Building2 } from "lucide-react";
 import { useState } from "react";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Toaster } from "@/components/ui/toaster"; // Ensure Toaster is available in Layout, but good to have imports valid? global Toaster is in App.tsx.
 
 export function CreateCustomerDialog({ companyId }: { companyId: number }) {
   const [open, setOpen] = useState(false);
   const createCustomer = useCreateCustomer(companyId);
+  const { isLesotho } = useFiscalAuthority();
 
   const form = useForm<InsertCustomer>({
     resolver: zodResolver(insertCustomerSchema),
@@ -208,7 +210,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
                       </FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="10 Digits"
+                          placeholder={isLesotho ? "200153280-9" : "10 digits e.g. 1000123456"}
                           value={field.value || ""}
                           onChange={field.onChange}
                           className="rounded-lg bg-white border-blue-200/50 focus-visible:ring-blue-500/20 font-mono "

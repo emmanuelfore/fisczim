@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Pencil, Loader2, Building2 } from "lucide-react";
 import { useState } from "react";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface Props {
   customer: Customer;
@@ -45,6 +46,7 @@ interface Props {
 
 export function EditCustomerDialog({ customer, trigger }: Props) {
   const [open, setOpen] = useState(false);
+  const { isLesotho } = useFiscalAuthority();
   const updateCustomer = useUpdateCustomer();
 
   const form = useForm<InsertCustomer>({
@@ -224,7 +226,7 @@ export function EditCustomerDialog({ customer, trigger }: Props) {
                       </FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="10 Digits"
+                          placeholder={isLesotho ? "200153280-9" : "10 digits e.g. 1000123456"}
                           value={field.value || ""}
                           onChange={field.onChange}
                           className="rounded-lg bg-white border-blue-200/50 focus-visible:ring-blue-500/20 font-mono "

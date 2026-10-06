@@ -946,10 +946,24 @@ export const insertCompanyBaseSchema = createInsertSchema(companies).omit({ id: 
   bpNumber: z.string().nullable().optional().transform(v => v === "" ? null : v),
 });
 export const insertCompanySchema = insertCompanyBaseSchema.superRefine((data, ctx) => {
-  // TIN is a free field for all authorities (never format-checked).
-  // VAT/BP format rules below apply to ZIMRA companies only.
+  // Tax-number formats are authority-specific: ZIMRA wants 10-digit TINs,
+  // RSL/LEKAKU TINs look like 200153280-9 and VAT numbers are free-form.
+  // Both provider spellings (LEKAKU branch shorthand and RSL's LEKUKA) count.
   const _fp = String((data as any).fiscalProvider || "").toUpperCase();
   const isLesotho = (data.country || "") === "Lesotho" || _fp === "LEKAKU" || _fp === "LEKUKA";
+  const tin = (data.tin || "") as string;
+  if (tin) {
+    const ok = isLesotho ? /^\d{9}-\d$/.test(tin) : /^\d{10}$/.test(tin);
+    if (!ok) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tin"],
+        message: isLesotho
+          ? "RSL TIN must look like 200153280-9 (9 digits, hyphen, check digit)"
+          : "TIN must be exactly 10 digits",
+      });
+    }
+  }
   const vat = (data.vatNumber || "") as string;
   if (vat && !isLesotho && !/^\d{9,10}$/.test(vat)) {
     ctx.addIssue({
@@ -968,9 +982,9 @@ export const insertCompanySchema = insertCompanyBaseSchema.superRefine((data, ct
   }
 });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true }).extend({
-  // Counterparty TINs are free text (same as suppliers): no authority
-  // imposes a format here, and customers are often cross-border.
-  tin: z.string().nullable().optional().transform(v => v === "" ? null : v),
+  // Both authorities accepted (cross-border customers are normal); message names
+  // no authority so ZIMRA users never see RSL formats and vice versa.
+  tin: z.string().regex(/^(\d{10}|\d{9}-\d)$/, "TIN must be 10 digits (e.g. 1000123456) or 9 digits, hyphen, check digit (e.g. 200153280-9)").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
   vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
   bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
 });

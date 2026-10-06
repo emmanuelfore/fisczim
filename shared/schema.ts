@@ -946,23 +946,10 @@ export const insertCompanyBaseSchema = createInsertSchema(companies).omit({ id: 
   bpNumber: z.string().nullable().optional().transform(v => v === "" ? null : v),
 });
 export const insertCompanySchema = insertCompanyBaseSchema.superRefine((data, ctx) => {
-  // Tax-number formats are authority-specific: ZIMRA wants 10-digit TINs,
-  // Lesotho TINs are a free field and VAT numbers are free-form.
-  // Both provider spellings (LEKAKU and RSL's LEKUKA) count.
+  // TIN is a free field for all authorities (never format-checked).
+  // VAT/BP format rules below apply to ZIMRA companies only.
   const _fp = String((data as any).fiscalProvider || "").toUpperCase();
   const isLesotho = (data.country || "") === "Lesotho" || _fp === "LEKAKU" || _fp === "LEKUKA";
-  const tin = (data.tin || "") as string;
-  // Lesotho: TIN is a free field (no format enforced).
-  if (tin && !isLesotho) {
-    const ok = /^\d{10}$/.test(tin);
-    if (!ok) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["tin"],
-        message: "TIN must be exactly 10 digits",
-      });
-    }
-  }
   const vat = (data.vatNumber || "") as string;
   if (vat && !isLesotho && !/^\d{9,10}$/.test(vat)) {
     ctx.addIssue({
@@ -981,28 +968,12 @@ export const insertCompanySchema = insertCompanyBaseSchema.superRefine((data, ct
   }
 });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true }).extend({
-  // Counterparty TINs are free text at the schema level (same as suppliers):
-  // Lesotho imposes no format, and customers are often cross-border. ZIMRA's
-  // 10-digit rule is enforced in the customer dialogs where the active
-  // company's authority is known.
+  // Counterparty TINs are free text (same as suppliers): no authority
+  // imposes a format here, and customers are often cross-border.
   tin: z.string().nullable().optional().transform(v => v === "" ? null : v),
   vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
   bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
 });
-
-// Authority-aware customer TIN rule for forms where the active company is
-// known. Lesotho: free field (no constraint). ZIMRA: exactly 10 digits when
-// a TIN is provided. Server-side contract stays permissive (cross-border
-// customers); the UI enforces the active authority's format.
-export function withCustomerTinRule(schema: any, isLesotho: boolean): any {
-  if (isLesotho) return schema;
-  return schema.superRefine((data: any, ctx: any) => {
-    const tin = String(data?.tin || "");
-    if (tin && !/^\d{10}$/.test(tin)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tin"], message: "TIN must be exactly 10 digits" });
-    }
-  });
-}
 export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true }).extend({
   sku: z.string().min(1, "Code/SKU is required")
 });

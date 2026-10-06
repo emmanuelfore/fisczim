@@ -18,8 +18,13 @@ export const pool = new Pool({
   ssl: {
     rejectUnauthorized: false
   },
-  max: isDevelopment ? 5 : 15,
+  max: isDevelopment ? 10 : 15,
   idleTimeoutMillis: 30000,
+  // Dashboard bursts fan out ~8 concurrent requests and every authenticated
+  // request checks out a connection twice (auth getUser, then the handler).
+  // On this high-latency link each acquisition takes seconds, so a max of 5
+  // queued past the 15s connection timeout and surfaced as 500s from the
+  // auth middleware. 10 absorbs the burst without hammering the server.
   // This app connects to a remote PostgreSQL host in development. New TCP/TLS
   // connections can take several seconds, so keep a reliability-first window
   // rather than falsely declaring the database unavailable during a slow

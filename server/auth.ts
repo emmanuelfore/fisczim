@@ -14,6 +14,34 @@ declare global {
   }
 }
 
+// Short-lived cache for the per-request user lookup. The JWT is already
+// verified before this runs, so identity is proven; caching only skips a
+// repeat DB round-trip (seconds on a high-latency link) for attributes like
+// name/role. Trade-off: profile/role edits take up to USER_CACHE_TTL_MS to
+// reflect in subsequent requests.
+const USER_CACHE_TTL_MS = 60_000;
+const userCache = new Map<string, { user: DbUser; expiresAt: number }>();
+
+function getCachedUser(userId: string): DbUser | undefined {
+  const entry = userCache.get(userId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    userCache.delete(userId);
+    return undefined;
+  }
+  return entry.user;
+}
+
+function setCachedUser(user: DbUser): void {
+  if (userCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, entry] of userCache) {
+      if (now > entry.expiresAt) userCache.delete(key);
+    }
+  }
+  userCache.set(user.id, { user, expiresAt: Date.now() + USER_CACHE_TTL_MS });
+}
+
 export function setupAuth(app: Express) {
   // NOTE: This middleware is PASSIVE — it attaches req.user if a valid token exists
   // but does NOT reject requests without tokens. Each route must check
@@ -43,8 +71,11 @@ export function setupAuth(app: Express) {
         return next();
       }
 
-      // Get user from database
-      const user = await storage.getUser(payload.userId);
+      // Get user from database (cached briefly to avoid a repeat
+      // multi-second round-trip on every request of a dashboard burst).
+      const cached = getCachedUser(payload.userId);
+      const user = cached ?? await storage.getUser(payload.userId);
+      if (user && !cached) setCachedUser(user);
 
       if (user) {
         req.user = user;

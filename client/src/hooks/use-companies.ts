@@ -8,7 +8,9 @@ import { getIsOnline } from "@/lib/online-state";
 // Super-admin accounts can legitimately receive a large company list. Eight
 // seconds was shorter than a healthy local query (about nine seconds), which
 // turned a successful response into a permanent client-side loading state.
-const COMPANY_LOAD_TIMEOUT_MS = 15_000;
+// Measured p95 on the remote link is ~17s (each DB round-trip costs seconds),
+// so allow 30s before giving up; the server keeps working past this anyway.
+const COMPANY_LOAD_TIMEOUT_MS = 30_000;
 
 function withCompanyLoadTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([

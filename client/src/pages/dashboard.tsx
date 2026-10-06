@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { buildUrl, api } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   CheckCircle2,
@@ -133,6 +133,21 @@ export default function Dashboard() {
   const { data: customers = [] } = useCustomers(companyId);
   const { data: currencies = [] } = useCurrencies(companyId);
   const { data: deviceStatus } = useDeviceStatus(companyId);
+  // Dashboards fire ~10 heavy endpoints at once; each is seconds on a
+  // high-latency link and the burst starves the DB pool. Below-fold charts
+  // wait for an idle slot after first paint so KPIs/lists load first.
+  const [chartsDeferred, setChartsDeferred] = useState(false);
+  useEffect(() => {
+    const ric = (window as any).requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout: number }) => number)
+      | undefined;
+    if (ric) {
+      const id = ric(() => setChartsDeferred(true), { timeout: 2000 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(() => setChartsDeferred(true), 1200);
+    return () => window.clearTimeout(t);
+  }, []);
   const useFiscalWorkflow = Boolean(
     deviceStatus?.isConfigured && activeCompany?.vatRegistered !== false,
   );
@@ -146,7 +161,7 @@ export default function Dashboard() {
       if (!res.ok) return null;
       return await res.json();
     },
-    enabled: !!companyId,
+    enabled: !!companyId && chartsDeferred,
   });
 
   const { data: revenueData = [] } = useQuery<any[]>({
@@ -158,7 +173,7 @@ export default function Dashboard() {
       if (!res.ok) return [];
       return await res.json();
     },
-    enabled: !!companyId,
+    enabled: !!companyId && chartsDeferred,
   });
 
   const { data: paymentDataRaw = [] } = useQuery<any[]>({
@@ -177,7 +192,7 @@ export default function Dashboard() {
       if (!res.ok) return [];
       return await res.json();
     },
-    enabled: !!companyId,
+    enabled: !!companyId && chartsDeferred,
   });
 
   const { data: abcAnalysis = [] } = useQuery<any[]>({
@@ -189,7 +204,7 @@ export default function Dashboard() {
       if (!res.ok) return [];
       return await res.json();
     },
-    enabled: !!companyId,
+    enabled: !!companyId && chartsDeferred,
   });
 
   const { data: stockAlerts = [] } = useQuery<any[]>({

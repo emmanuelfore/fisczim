@@ -11,6 +11,34 @@ export async function getUserPermissions(
   companyId: number,
   isSuperAdmin?: boolean
 ): Promise<Set<PermissionKey>> {
+  // Short-lived cache: permission checks run on nearly every guarded
+  // endpoint (often alongside a separate membership lookup), each a
+  // multi-second round-trip on a high-latency link. The cached set is
+  // immutable per entry (always cloned on the way out). Trade-off: role /
+  // permission edits take up to PERMISSIONS_CACHE_TTL_MS to reflect.
+  const cacheKey = `${userId}:${companyId}:${isSuperAdmin ? 1 : 0}`;
+  const cached = permissionsCache.get(cacheKey);
+  if (cached && Date.now() <= cached.expiresAt) return new Set(cached.value);
+  if (cached) permissionsCache.delete(cacheKey);
+  const value = await getUserPermissionsUncached(userId, companyId, isSuperAdmin);
+  if (permissionsCache.size > 2000) {
+    const now = Date.now();
+    for (const [key, entry] of permissionsCache) {
+      if (now > entry.expiresAt) permissionsCache.delete(key);
+    }
+  }
+  permissionsCache.set(cacheKey, { value: new Set(value), expiresAt: Date.now() + PERMISSIONS_CACHE_TTL_MS });
+  return new Set(value);
+}
+
+const PERMISSIONS_CACHE_TTL_MS = 60_000;
+const permissionsCache = new Map<string, { value: Set<PermissionKey>; expiresAt: number }>();
+
+async function getUserPermissionsUncached(
+  userId: string,
+  companyId: number,
+  isSuperAdmin?: boolean
+): Promise<Set<PermissionKey>> {
   if (isSuperAdmin) {
     const user = await storage.getUser(userId);
     const isSystemAdmin = user?.email ? Buffer.from(String(user.email).toLowerCase()).toString('base64') === "YWRtaW5AemltcmEuY28uenc=" : false;

@@ -596,6 +596,13 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Short-lived membership cache. Every guarded endpoint calls
+  // getCompanyMembership (often twice: access check + permission check), and
+  // each lookup is a multi-second round-trip on a high-latency link.
+  // Trade-off: role changes take up to MEMBERSHIP_CACHE_TTL_MS to reflect.
+  private static membershipCache = new Map<string, { value: { legacyRole: string; companyRoleId: number | null } | undefined; expiresAt: number }>();
+  private static readonly MEMBERSHIP_CACHE_TTL_MS = 60_000;
+
   private roundMoney(value: number): number {
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
   }
@@ -2945,12 +2952,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined> {
+    const cacheKey = `${userId}:${companyId}`;
+    const cached = DatabaseStorage.membershipCache.get(cacheKey);
+    if (cached && Date.now() <= cached.expiresAt) return cached.value;
+    if (cached) DatabaseStorage.membershipCache.delete(cacheKey);
     const [result] = await db
       .select({ role: companyUsers.role, companyRoleId: companyUsers.companyRoleId })
       .from(companyUsers)
       .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
-    if (!result) return undefined;
-    return { legacyRole: result.role || "member", companyRoleId: result.companyRoleId ?? null };
+    const value = result ? { legacyRole: result.role || "member", companyRoleId: result.companyRoleId ?? null } : undefined;
+    if (DatabaseStorage.membershipCache.size > 2000) {
+      const now = Date.now();
+      for (const [key, entry] of DatabaseStorage.membershipCache) {
+        if (now > entry.expiresAt) DatabaseStorage.membershipCache.delete(key);
+      }
+    }
+    DatabaseStorage.membershipCache.set(cacheKey, { value, expiresAt: Date.now() + DatabaseStorage.MEMBERSHIP_CACHE_TTL_MS });
+    return value;
   }
 
   async getAllSystemUsers(): Promise<User[]> {

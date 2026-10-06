@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   insertCustomerSchema,
+  withCustomerTinRule,
   type InsertCustomer,
   type Customer,
 } from "@shared/schema";
@@ -50,7 +51,7 @@ export function EditCustomerDialog({ customer, trigger }: Props) {
   const updateCustomer = useUpdateCustomer();
 
   const form = useForm<InsertCustomer>({
-    resolver: zodResolver(insertCustomerSchema),
+    resolver: zodResolver(withCustomerTinRule(insertCustomerSchema, isLesotho)),
     defaultValues: {
       name: customer.name,
       email: customer.email || "",

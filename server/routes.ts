@@ -4338,20 +4338,6 @@ export async function registerRoutes(
 
   // User Management
   // 1. List Users
-  app.get("/api/system/users", requireAuthOrApiKey, async (req, res) => {
-    try {
-      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
-      if (!isSuperAdmin) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      const users = await storage.getAllSystemUsers();
-      res.json(users);
-    } catch (err: any) {
-      console.error("List System Users Error:", err);
-      res.status(500).json({ message: "Failed to list system users" });
-    }
-  });
-
   app.get("/api/companies/:companyId/users", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);

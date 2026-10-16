@@ -255,7 +255,6 @@ export interface IStorage {
   removeUserFromCompany(userId: string, companyId: number): Promise<void>;
   getCompanyUserRole(userId: string, companyId: number): Promise<string | undefined>;
   getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined>;
-  getAllSystemUsers(): Promise<User[]>;
 
   // Roles & Permissions
   seedDefaultRolesForCompany(companyId: number): Promise<void>;
@@ -2969,10 +2968,6 @@ export class DatabaseStorage implements IStorage {
     }
     DatabaseStorage.membershipCache.set(cacheKey, { value, expiresAt: Date.now() + DatabaseStorage.MEMBERSHIP_CACHE_TTL_MS });
     return value;
-  }
-
-  async getAllSystemUsers(): Promise<User[]> {
-    return await db.select().from(users).orderBy(users.createdAt);
   }
 
   async seedDefaultRolesForCompany(companyId: number): Promise<void> {

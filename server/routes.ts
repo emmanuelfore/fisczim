@@ -11770,6 +11770,252 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:companyId/zimra/sample-script", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
+
+      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "You do not have permission to download scripts for this company" });
+      }
+
+      const XLSX = await import("xlsx");
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      // Pull all fiscalized invoices, credit notes, debit notes from this company
+      const allInvoices = await storage.getInvoices(companyId);
+      // Successful fiscalization is recorded as syncedWithFdms/fiscalCode, and
+      // fdmsStatus uses "Fiscalized"/"issued" — never "Approved".
+      const FISCALIZED_STATUSES = new Set(["fiscalized", "issued", "approved"]);
+      const fiscalized = allInvoices.filter((inv: any) =>
+        inv.syncedWithFdms === true ||
+        (typeof inv.fiscalCode === "string" && inv.fiscalCode.length > 0) ||
+        FISCALIZED_STATUSES.has(String(inv.fdmsStatus || "").trim().toLowerCase())
+      );
+
+      const toRow = (inv: any) => ({
+        "Invoice Number": inv.invoiceNumber || "",
+        "Transaction Type": inv.transactionType || "FiscalInvoice",
+        "Issue Date": inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : "",
+        "Customer Name": inv.customerName || "",
+        "Buyer TIN": inv.buyerTin || "",
+        "Currency": inv.currency || "",
+        "Subtotal": Number(inv.subtotal || 0).toFixed(2),
+        "Tax Amount": Number(inv.taxAmount || 0).toFixed(2),
+        "Total": Number(inv.total || 0).toFixed(2),
+        "Status": inv.status || "",
+        "FDMS Status": inv.fdmsStatus || "",
+        "Fiscal Code": inv.fiscalCode || "",
+        "Receipt Counter": inv.receiptCounter ?? "",
+        "Receipt Global No": inv.receiptGlobalNo ?? "",
+        "Related Invoice": inv.relatedInvoiceId ? `#${inv.relatedInvoiceId}` : "",
+        "Device Serial No": (company as any).fdmsDeviceSerialNo || "",
+      });
+
+      const invoiceDocs = fiscalized.filter((inv: any) => !inv.transactionType || inv.transactionType === "FiscalInvoice");
+      const creditNoteDocs = fiscalized.filter((inv: any) => inv.transactionType === "CreditNote");
+      const debitNoteDocs = fiscalized.filter((inv: any) => inv.transactionType === "DebitNote");
+
+      const invoiceRows = invoiceDocs.map(toRow);
+      const creditNoteRows = creditNoteDocs.map(toRow);
+      const debitNoteRows = debitNoteDocs.map(toRow);
+
+      const wb = XLSX.utils.book_new();
+
+      // Official ZIMRA 22 Columns in exact order requested:
+      // Taxpayer TIN | Taxpayer name | VAT number | Email | Trade name | Contact phone No | E-mail | Province | Street | House No | City | Region | Station | Serial No | Model name | Supplier | Serial No | Device ID | INVOICE | CREDIT NOTE | DEBIT NOTE | ZIMRA COMMENTS
+      const regHeaders = [
+        "Taxpayer TIN",
+        "Taxpayer name",
+        "VAT number",
+        "Email",
+        "Trade name",
+        "Contact phone No",
+        "E-mail",
+        "Province",
+        "Street",
+        "House No",
+        "City",
+        "Region",
+        "Station",
+        "Serial No",
+        "Model name",
+        "Supplier",
+        "Serial No",
+        "Device ID",
+        "INVOICE",
+        "CREDIT NOTE",
+        "DEBIT NOTE",
+        "ZIMRA COMMENTS",
+      ];
+
+      // Address resolution. companies has no houseNo/street/province/region/station
+      // columns, so derive what we can from `address` and keep the ZIMRA defaults.
+      const rawAddress = String(company.address || "").trim();
+      const houseNo = rawAddress.match(/^(\d+[\w-]*)/)?.[1] || "";
+      const street = rawAddress;
+      const city = String(company.city || "Harare");
+      const province = city;
+      const region = "Region 1 Small Clients Office";
+      const station = "SCO Kurima";
+      // Branches may override the fiscal device; prefer the requested branch.
+      const branchId = getBranchId(req);
+      const activeBranch = branchId ? await storage.getBranch(branchId) : null;
+      const serialNo = String(
+        activeBranch?.fdmsDeviceSerialNo || (company as any).fdmsDeviceSerialNo || ""
+      );
+      const deviceId = String(activeBranch?.fdmsDeviceId || company.fdmsDeviceId || "");
+      const tradeName = String(company.tradingName || company.name || "");
+      const contactPhone = String(company.phone || "");
+      const email = String(company.email || "");
+      const vatNumber = String(company.vatNumber || "");
+      const tin = String(company.tin || "");
+      const modelName = "Server";
+      const supplier = "Self (Server to Server)";
+
+      // Pair documents by row index
+      const maxRows = Math.max(invoiceDocs.length, creditNoteDocs.length, debitNoteDocs.length, 1);
+      const regDataRows: any[][] = [];
+
+      for (let i = 0; i < maxRows; i++) {
+        const invNo = invoiceDocs[i]?.invoiceNumber || (i === 0 ? "INV-001" : "");
+        const cnNo = creditNoteDocs[i]?.invoiceNumber || (i === 0 ? "CN-001" : "");
+        const dnNo = debitNoteDocs[i]?.invoiceNumber || (i === 0 ? "DN-001" : "");
+
+        regDataRows.push([
+          tin,
+          company.name || "",
+          vatNumber,
+          email,
+          tradeName,
+          contactPhone,
+          email,
+          province,
+          street,
+          houseNo,
+          city,
+          region,
+          station,
+          serialNo,
+          modelName,
+          supplier,
+          serialNo,
+          deviceId,
+          invNo,
+          cnNo,
+          dnNo,
+          "", // ZIMRA COMMENTS
+        ]);
+      }
+
+      const regWs = XLSX.utils.aoa_to_sheet([regHeaders, ...regDataRows]);
+      XLSX.utils.book_append_sheet(wb, regWs, "Registration Details");
+
+      // Official ZIMRA Reference sheets
+      const regionsList = [
+        ["Region 1 Large Clients Office"],
+        ["Region 1 Medium Clients Office"],
+        ["Region 1 Small Clients Office"],
+        ["Region 2"],
+        ["Region 3"],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(regionsList), "Regions");
+
+      const stationsList = [
+        ["Beitbrigde"],
+        ["Bindura"],
+        ["Chinhoyi"],
+        ["Chipinge"],
+        ["Chiredzi"],
+        ["Gwanda"],
+        ["Gweru"],
+        ["Hwange"],
+        ["Kadoma"],
+        ["Kariba"],
+        ["Kwekwe"],
+        ["LCO Kurima"],
+        ["Marondera"],
+        ["Masvingo"],
+        ["MCO Kurima"],
+        ["Mutare"],
+        ["Rusape"],
+        ["SCO Kurima"],
+        ["Victoria Falls Town Office"],
+        ["Zvishavane"],
+        ["harare"],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stationsList), "Stations");
+
+      const suppliersList = [
+        ["Axis Solutions"],
+        ["Cortech Solutions"],
+        ["Fiscal Revenue Solutions"],
+        ["Fiscal Support Services"],
+        ["Global Horizons"],
+        ["JUST IT"],
+        ["Microware"],
+        ["Self (Server to Server)"],
+        ["Chips(Server to Server)"],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(suppliersList), "Suppliers");
+
+      const modelNamesList = [
+        ["ELTRADE A3"],
+        ["ELTRADE B1"],
+        ["ELTRADE CC300"],
+        ["ELTRADE PRP 250F"],
+        ["ELTRADE TM-T810F"],
+        ["INCOTEX 118"],
+        ["Revmax"],
+        ["Tracksol001"],
+        ["Tracksol003"],
+        ["VFD"],
+        ["Server"],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(modelNamesList), "Model Names");
+
+      // Audit & log sheets
+      const addSheet = (name: string, rows: any[]) => {
+        const ws = rows.length > 0
+          ? XLSX.utils.json_to_sheet(rows)
+          : XLSX.utils.aoa_to_sheet([["No fiscalized documents found for this type."]]);
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      };
+
+      addSheet("Fiscal Invoices", invoiceRows);
+      addSheet("Credit Notes", creditNoteRows);
+      addSheet("Debit Notes", debitNoteRows);
+
+      // Summary sheet
+      const summaryRows = [
+        { "Field": "Company Name", "Value": company.name || "" },
+        { "Field": "TIN", "Value": company.tin || "" },
+        { "Field": "Device Serial No", "Value": (company as any).fdmsDeviceSerialNo || "" },
+        { "Field": "Device ID", "Value": company.fdmsDeviceId || "" },
+        { "Field": "Environment", "Value": (company as any).zimraEnvironment || "test" },
+        { "Field": "Total Fiscalized Invoices", "Value": invoiceRows.length },
+        { "Field": "Total Credit Notes", "Value": creditNoteRows.length },
+        { "Field": "Total Debit Notes", "Value": debitNoteRows.length },
+        { "Field": "Generated At", "Value": new Date().toISOString() },
+      ];
+      const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+
+      const filename = `zimra_test_scripts_${company.name?.replace(/\s+/g, "_") || companyId}_${Date.now()}.xlsx`;
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.send(buf);
+    } catch (err: any) {
+      console.error("ZIMRA sample script download error:", err);
+      res.status(500).json({ message: err.message || "Failed to generate ZIMRA script workbook" });
+    }
+  });
+
   app.get(api.invoices.get.path, requireAuth, async (req, res) => {
     const invoice = await storage.getInvoice(Number(req.params.id));
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
 import { api, buildUrl } from "@shared/routes";
 import { type InsertCompany, type Company } from "@shared/schema";
 import { apiFetch } from "@/lib/api";
@@ -28,7 +29,15 @@ export function useCompanies(
   enabled: boolean = true,
   userScopeKey: string | number | null = null,
 ) {
-  return useQuery({
+  // Record why the last attempt failed. React Query can end up reporting
+  // isError with a null error (a rejected-with-undefined queryFn), which makes
+  // "Company list could not be loaded" undiagnosable. Capturing the reason at
+  // the failure site keeps it reliable regardless of what the cache does with
+  // the error value.
+  const failureReasonRef = useRef<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+
+  const query = useQuery({
     queryKey: [api.companies.list.path, userScopeKey ?? "anon"],
     queryFn: () => withCompanyLoadTimeout((async () => {
       if (!getIsOnline()) {
@@ -39,10 +48,16 @@ export function useCompanies(
       try {
         const res = await apiFetch(api.companies.list.path);
         if (res.status === 401) {
-          throw new Error("Unauthorized while fetching companies");
+          throw new Error("Unauthorized while fetching companies (HTTP 401)");
         }
-        if (!res.ok) throw new Error("Failed to fetch companies");
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`Company list request failed: HTTP ${res.status}${body ? ` - ${body.slice(0, 200)}` : ""}`);
+        }
         const companies = api.companies.list.responses[200].parse(await res.json());
+        if (!Array.isArray(companies)) {
+          throw new Error(`Company list response was ${companies === null ? "null" : typeof companies}, expected an array`);
+        }
         // POS storage is useful offline, but it must never hold the primary
         // application route in a loading state.
         if (companies) {
@@ -52,14 +67,19 @@ export function useCompanies(
         }
         return companies;
       } catch (err) {
-        console.warn("Companies fetch failed:", err);
-        throw err instanceof Error ? err : new Error("Failed to load companies");
+        const reason = err instanceof Error ? err.message : String(err ?? "unknown error");
+        failureReasonRef.current = reason;
+        setFailureReason(reason);
+        console.error("[useCompanies] company list load failed:", reason);
+        throw err instanceof Error ? err : new Error(reason);
       }
     })()),
     enabled,
     retry: 1,
     retryDelay: 1_000,
   });
+
+  return { ...query, failureReason };
 }
 
 export function useCompany(id: number) {

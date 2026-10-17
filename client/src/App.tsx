@@ -251,6 +251,7 @@ function ProtectedRoute({
     isLoading: isLoadingCompanies,
     isError: isCompaniesError,
     error: companiesError,
+    failureReason,
   } = useCompanies(!!user, user?.id ?? null);
   const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(
     !!user,
@@ -293,7 +294,7 @@ function ProtectedRoute({
     return (
       <StartupProblem
         message="Your company list could not be loaded."
-        detail={describeCompaniesFailure(companiesError, isOnline)}
+        detail={describeCompaniesFailure(failureReason ?? companiesError, isOnline)}
       />
     );
   }
@@ -334,6 +335,7 @@ function OnboardingRoute() {
     isLoading: isLoadingCompanies,
     isError,
     error: companiesError,
+    failureReason,
   } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
@@ -349,7 +351,7 @@ function OnboardingRoute() {
       return (
         <StartupProblem
           message="Your company list could not be loaded."
-          detail={describeCompaniesFailure(companiesError, isOnline)}
+          detail={describeCompaniesFailure(failureReason ?? companiesError, isOnline)}
         />
       );
     }
@@ -367,7 +369,7 @@ function OnboardingRoute() {
     return (
       <StartupProblem
         message="Your company list could not be loaded."
-        detail={describeCompaniesFailure(companiesError, isOnline)}
+        detail={describeCompaniesFailure(failureReason ?? companiesError, isOnline)}
       />
     );
   }
@@ -387,6 +389,7 @@ function AuthRedirect() {
     isLoading: isLoadingCompanies,
     isError,
     error: companiesError,
+    failureReason,
   } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
@@ -400,7 +403,7 @@ function AuthRedirect() {
       return (
         <StartupProblem
           message="Your company list could not be loaded."
-          detail={describeCompaniesFailure(companiesError, isOnline)}
+          detail={describeCompaniesFailure(failureReason ?? companiesError, isOnline)}
         />
       );
     }
@@ -410,7 +413,7 @@ function AuthRedirect() {
     return (
       <StartupProblem
         message="Your company list could not be loaded."
-        detail={describeCompaniesFailure(companiesError, isOnline)}
+        detail={describeCompaniesFailure(failureReason ?? companiesError, isOnline)}
       />
     );
   }

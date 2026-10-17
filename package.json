@@ -6,6 +6,9 @@
   "sideEffects": true,
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx watch server/index.ts",
+    "dev:fiscalstack": "cross-env VITE_APP_BRAND=fiscalstack NODE_ENV=development tsx watch server/index.ts",
+    "dev:fiscalzone": "cross-env VITE_APP_BRAND=fiscalzone NODE_ENV=development tsx watch server/index.ts",
+    "dev:fiscalstack_lesotho": "cross-env VITE_APP_BRAND=fiscalstack_lesotho NODE_ENV=development tsx watch server/index.ts",
     "build": "vite build && npm run build:server",
     "build:fiscalstack": "cross-env VITE_APP_BRAND=fiscalstack vite build && npm run build:server",
     "build:fiscalzone": "cross-env VITE_APP_BRAND=fiscalzone vite build && npm run build:server",

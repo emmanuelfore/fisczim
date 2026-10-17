@@ -55,13 +55,20 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
   },
 };
 
-const brandEnv = (import.meta.env.VITE_APP_BRAND as string)?.toLowerCase();
+const brandEnv = (import.meta.env.VITE_APP_BRAND as string)?.toLowerCase().trim();
 
 function detectBrand(): Brand {
+  // An explicit build-time brand is authoritative. Previously these env checks
+  // were compared against a literal, so the minifier folded them away and left
+  // only the hostname fallback below — meaning a bundle built for Lesotho
+  // rendered the Zimbabwe brand on any host that was not fiscalstack.co.ls
+  // (localhost, a staging domain, an IP). Resolve the env brand here so it
+  // survives minification and wins over hostname sniffing.
   if (brandEnv === "fiscalzone") return "fiscalzone";
-  if (brandEnv === "fiscalstack_lesotho") return "fiscalstack_lesotho";
-  if (brandEnv === "lesotho") return "fiscalstack_lesotho";
-  // Runtime detection: if the hostname is fiscalstack.co.ls, use Lesotho brand
+  if (brandEnv === "fiscalstack_lesotho" || brandEnv === "lesotho") return "fiscalstack_lesotho";
+  if (brandEnv === "fiscalstack") return "fiscalstack";
+
+  // No build-time brand: fall back to the hostname.
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
     if (host.includes("fiscalstack.co.ls")) return "fiscalstack_lesotho";

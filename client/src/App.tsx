@@ -199,11 +199,37 @@ function LoadingScreen({ message = "Loading…" }: { message?: string }) {
   );
 }
 
-function StartupProblem({ message = "We could not load your workspace." }: { message?: string }) {
+const COMPANY_LOAD_TIMEOUT_S = 30;
+
+/**
+ * Turn a companies-query failure into something actionable. This used to be a
+ * hardcoded "check the database connection", which sent every reader — and the
+ * next person debugging it — hunting a database fault that was usually an auth
+ * expiry, a slow link or the browser being offline.
+ */
+function describeCompaniesFailure(error: unknown, isOnline: boolean): string {
+  if (!isOnline) return "You appear to be offline and there is no cached company list yet.";
+  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
+  if (/timed out/i.test(message)) {
+    return `The company list request timed out after ${COMPANY_LOAD_TIMEOUT_S}s. Retry, or check your connection. (${message})`;
+  }
+  if (/Unauthorized|401/i.test(message)) {
+    return `Your session was rejected while loading companies. Retry to sign in again. (${message})`;
+  }
+  if (/offline/i.test(message)) return `${message}`;
+  return `The server returned an error: ${message}`;
+}
+
+function StartupProblem({ message = "We could not load your workspace.", detail }: { message?: string; detail?: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 gap-4 text-center">
       <h1 className="text-lg font-semibold">Workspace unavailable</h1>
       <p className="max-w-md text-sm text-slate-300">{message}</p>
+      {detail && (
+        <p className="max-w-md rounded-md bg-white/5 px-3 py-2 font-mono text-xs text-slate-400">
+          {detail}
+        </p>
+      )}
       <button
         onClick={() => window.location.reload()}
         className="rounded-md bg-indigo-500 px-4 py-2 text-sm font-medium hover:bg-indigo-400"
@@ -224,6 +250,7 @@ function ProtectedRoute({
     data: companies,
     isLoading: isLoadingCompanies,
     isError: isCompaniesError,
+    error: companiesError,
   } = useCompanies(!!user, user?.id ?? null);
   const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(
     !!user,
@@ -263,7 +290,12 @@ function ProtectedRoute({
   // if online send to /auth
   if (!user) return <Redirect to="/auth" />;
   if (isCompaniesError && !Array.isArray(companies)) {
-    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    return (
+      <StartupProblem
+        message="Your company list could not be loaded."
+        detail={describeCompaniesFailure(companiesError, isOnline)}
+      />
+    );
   }
 
   // Redirect to onboarding if online and company list is definitively empty
@@ -301,6 +333,7 @@ function OnboardingRoute() {
     data: companies,
     isLoading: isLoadingCompanies,
     isError,
+    error: companiesError,
   } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
@@ -313,7 +346,12 @@ function OnboardingRoute() {
   // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
   if (!isOnline || isError) {
     if (!Array.isArray(companies)) {
-      return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+      return (
+        <StartupProblem
+          message="Your company list could not be loaded."
+          detail={describeCompaniesFailure(companiesError, isOnline)}
+        />
+      );
     }
     const role = Array.isArray(companies)
       ? (companies[0] as any)?.role
@@ -326,7 +364,12 @@ function OnboardingRoute() {
     );
   }
   if (!Array.isArray(companies)) {
-    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    return (
+      <StartupProblem
+        message="Your company list could not be loaded."
+        detail={describeCompaniesFailure(companiesError, isOnline)}
+      />
+    );
   }
 
   // If we have companies, we shouldn't be here
@@ -343,6 +386,7 @@ function AuthRedirect() {
     data: companies,
     isLoading: isLoadingCompanies,
     isError,
+    error: companiesError,
   } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
@@ -353,12 +397,22 @@ function AuthRedirect() {
   if (!user) return <Redirect to="/auth" />;
   if (!isOnline || isError) {
     if (!Array.isArray(companies)) {
-      return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+      return (
+        <StartupProblem
+          message="Your company list could not be loaded."
+          detail={describeCompaniesFailure(companiesError, isOnline)}
+        />
+      );
     }
     return <Redirect to={getCompanyHomeRoute(companies, user)} />;
   }
   if (!Array.isArray(companies)) {
-    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    return (
+      <StartupProblem
+        message="Your company list could not be loaded."
+        detail={describeCompaniesFailure(companiesError, isOnline)}
+      />
+    );
   }
 
   return <Redirect to={getCompanyHomeRoute(companies, user)} />;

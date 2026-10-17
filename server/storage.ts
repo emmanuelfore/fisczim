@@ -829,7 +829,6 @@ export class DatabaseStorage implements IStorage {
   async getCompanies(userId: string): Promise<(Company & { role: string })[]> {
     const user = await this.getUser(userId);
     const isSystemAdmin = user?.email ? Buffer.from(String(user.email).toLowerCase()).toString('base64') === "YWRtaW5AemltcmEuY28uenc=" : false;
-    console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}, isSystemAdmin: ${isSystemAdmin}`);
 
     if (user?.isSuperAdmin) {
       let allCompanies = await db.select().from(companies);

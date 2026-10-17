@@ -36,7 +36,7 @@ import {
 import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { ImportProductDialog } from "@/components/inventory/import-product-dialog";
 import { ManageCategoriesDialog } from "@/components/products/manage-categories-dialog";
-import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertDialog,
@@ -52,6 +52,7 @@ import {
 import { Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { resolveTaxType } from "@/lib/tax";
 import { useBranchContext } from "@/lib/branch-context";
 import { resolveMediaUrl } from "@/lib/media";
 import { PageHeader } from "@/components/page-header";
@@ -75,6 +76,45 @@ import {
 
 type TypeFilter = "all" | "product" | "service";
 
+type LevyAssignment = {
+  productId: number;
+  taxTypeId: number;
+  appliedForQuantity?: string;
+};
+
+type LevyInfo = {
+  tax: any;
+  assignment: LevyAssignment;
+};
+
+// Additional (LEKAKU levy) taxes assigned to a product through
+// productTaxLevies. Shown on the product list so sellers see the full
+// tax load; applied on top of the base price at sale/fiscalization time.
+function LevyBadges({ levies }: { levies: LevyInfo[] }) {
+  if (levies.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {levies.map(({ tax, assignment }) => {
+        const kind = tax.lekakuTaxType as string | undefined;
+        const label =
+          kind === "FixedValueLevy"
+            ? `+${tax.name} ${tax.rate} fixed${assignment.appliedForQuantity ? ` × ${assignment.appliedForQuantity}` : ""}`
+            : `+${tax.name} ${tax.rate}%`;
+        return (
+          <Badge
+            key={tax.id}
+            variant="outline"
+            title={`Additional tax (${kind || "levy"}) applied on top at sale`}
+            className="bg-emerald-50 text-emerald-700 border-emerald-200 font-bold text-[10px] whitespace-nowrap"
+          >
+            {label}
+          </Badge>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ProductsPage() {
   const [, setLocation] = useLocation();
   const [itemsPerPage, setItemsPerPage] = useState(20);
@@ -88,6 +128,54 @@ export default function ProductsPage() {
   const updateProduct = useUpdateProduct();
   const { taxTypes } = useTaxConfig(companyId || undefined);
   const queryClient = useQueryClient();
+  // Per-product additional taxes (LEKAKU levies). Same source the settings
+  // page uses; joined with taxTypes below for name/rate/kind.
+  const { data: levyAssignments = [] } = useQuery({
+    queryKey: ["lekaku-product-levies", companyId],
+    queryFn: async () => {
+      if (!companyId) return [] as LevyAssignment[];
+      const res = await apiFetch(
+        `/api/companies/${companyId}/lekaku/product-levies`,
+      );
+      if (!res.ok) return [] as LevyAssignment[];
+      return (await res.json()) as LevyAssignment[];
+    },
+    enabled: !!companyId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const levyMap = useMemo(() => {
+    const map = new Map<number, LevyAssignment[]>();
+    for (const a of levyAssignments) {
+      if (!map.has(a.productId)) map.set(a.productId, []);
+      map.get(a.productId)!.push(a);
+    }
+    return map;
+  }, [levyAssignments]);
+
+  const getProductLevies = (productId: number): LevyInfo[] => {
+    const assigns = levyMap.get(productId) || [];
+    return assigns
+      .map((assignment) => ({
+        assignment,
+        tax: taxTypes.data?.find((t: any) => t.id === assignment.taxTypeId),
+      }))
+      .filter((x): x is LevyInfo => !!x.tax);
+  };
+
+  // Extra amount added on top of the base price by percentage/fixed levies.
+  // WithholdingTax is a deduction at payment time, so it is shown as a
+  // badge only and excluded from this add-on total.
+  const getLevyExtra = (p: any): number => {
+    const base = Number(p.price) || 0;
+    let extra = 0;
+    for (const { tax } of getProductLevies(p.id)) {
+      const rate = parseFloat(tax.rate || "0");
+      if (tax.lekakuTaxType === "PercentageLevy") extra += (base * rate) / 100;
+      else if (tax.lekakuTaxType === "FixedValueLevy") extra += rate;
+    }
+    return Math.round((extra + Number.EPSILON) * 100) / 100;
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -482,28 +570,10 @@ export default function ProductsPage() {
             ) : (
               paginatedItems?.map((p) => {
                 const isService = p.productType === "service";
-                const matchedType = taxTypes.data?.find((t: any) => {
-                  if (p.taxTypeId) return t.id === p.taxTypeId;
-                  if (parseFloat(t.rate) === parseFloat(p.taxRate || "0")) {
-                    if (parseFloat(p.taxRate || "0") === 0) {
-                      const isExempt =
-                        p.name.toLowerCase().includes("exempt") ||
-                        p.description?.toLowerCase().includes("exempt");
-                      if (isExempt) {
-                        const zimraTaxId = t.zimraTaxId?.toString();
-                        return (
-                          zimraTaxId == "1" ||
-                          t.zimraCode === "C" ||
-                          t.zimraCode === "E" ||
-                          t.name.toLowerCase().includes("exempt")
-                        );
-                      }
-                      return t.zimraTaxId === "2" || t.name.toLowerCase().includes("zero");
-                    }
-                    return true;
-                  }
-                  return false;
-                });
+                const matchedType = resolveTaxType(p, taxTypes.data);
+
+                const productLevies = getProductLevies(p.id);
+                const levyExtra = getLevyExtra(p);
 
                 return (
                   <div
@@ -560,6 +630,11 @@ export default function ProductsPage() {
                         <span className="font-bold text-[#0F172A] tracking-tight block text-lg">
                           ${Number(p.price).toFixed(2)}
                         </span>
+                        {levyExtra > 0 && (
+                          <span className="block text-[10px] font-bold text-emerald-700">
+                            +${levyExtra.toFixed(2)} levies
+                          </span>
+                        )}
                         {p.category && (
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                             {p.category}
@@ -591,6 +666,7 @@ export default function ProductsPage() {
                             {p.taxRate}%
                           </span>
                         )}
+                        <LevyBadges levies={productLevies} />
                       </div>
                     </div>
                     <div className="flex justify-end gap-2 border-t border-slate-100 pt-2">
@@ -664,28 +740,10 @@ export default function ProductsPage() {
               ) : (
                 paginatedItems?.map((p) => {
                   const isService = p.productType === "service";
-                  const matchedType = taxTypes.data?.find((t: any) => {
-                    if (p.taxTypeId) return t.id === p.taxTypeId;
-                    if (parseFloat(t.rate) === parseFloat(p.taxRate || "0")) {
-                      if (parseFloat(p.taxRate || "0") === 0) {
-                        const isExempt =
-                          p.name.toLowerCase().includes("exempt") ||
-                          p.description?.toLowerCase().includes("exempt");
-                        if (isExempt) {
-                          const zimraTaxId = t.zimraTaxId?.toString();
-                          return (
-                            zimraTaxId == "1" ||
-                            t.zimraCode === "C" ||
-                            t.zimraCode === "E" ||
-                            t.name.toLowerCase().includes("exempt")
-                          );
-                        }
-                        return t.zimraTaxId === "2" || t.name.toLowerCase().includes("zero");
-                      }
-                      return true;
-                    }
-                    return false;
-                  });
+                  const matchedType = resolveTaxType(p, taxTypes.data);
+
+                  const productLevies = getProductLevies(p.id);
+                  const levyExtra = getLevyExtra(p);
 
                   return (
                     <tr
@@ -767,6 +825,11 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-5 py-4 font-bold text-[#0F172A] tracking-tight">
                         ${Number(p.price).toFixed(2)}
+                        {levyExtra > 0 && (
+                          <span className="block text-[10px] font-bold text-emerald-700">
+                            +${levyExtra.toFixed(2)} levies
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-4">
                         {isService ? (
@@ -800,6 +863,7 @@ export default function ProductsPage() {
                             {p.taxRate}%
                           </span>
                         )}
+                        <LevyBadges levies={productLevies} />
                       </td>
                       <td className="px-5 py-4 text-right">
                         <DropdownMenu>

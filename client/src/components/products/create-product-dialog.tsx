@@ -4,6 +4,8 @@ import { insertProductSchema, type InsertProduct } from "@shared/schema";
 import { useCreateProduct } from "@/hooks/use-products";
 import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { useActiveCompany } from "@/hooks/use-active-company";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,9 +40,10 @@ import { useState, useEffect } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { resolveTaxType } from "@/lib/tax";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
-import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { ProductLevyEditor, type LevySelection } from "@/components/products/product-levy-editor";
 
 export function CreateProductDialog({
   companyId,
@@ -51,12 +54,24 @@ export function CreateProductDialog({
   triggerLabel?: string;
   defaultType?: "good" | "service";
 }) {
-  const fa = useFiscalAuthority();
   const resolvedLabel = triggerLabel ?? (defaultType === "service" ? "Add Service" : "Add Product");
   const [open, setOpen] = useState(false);
   const [isService, setIsService] = useState(defaultType === "service");
   const createProduct = useCreateProduct(companyId);
   const { taxCategories, taxTypes } = useTaxConfig(companyId);
+  // Lesotho: only offer current-environment, active RSL main taxes
+  // (VAT/NonVAT/Exempt). Levy kinds live on product levies, never as the
+  // main tax — the preflight rejects them there.
+  const { isLesotho } = useFiscalAuthority();
+  const { activeCompany: dialogCompany } = useActiveCompany();
+  const lekakuEnv = (dialogCompany as any)?.zimraEnvironment === "production" ? "production" : "test";
+  const visibleTaxTypes = (taxTypes.data || []).filter((t: any) => {
+    if (!isLesotho) return true;
+    if (!t.lekakuTaxId) return false;
+    if ((t.lekakuEnvironment || "test") !== lekakuEnv) return false;
+    if (t.isActive === false) return false;
+    return !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.lekakuTaxType);
+  });
   const { toast } = useToast();
 
   const { data: categories } = useQuery({
@@ -119,11 +134,29 @@ export function CreateProductDialog({
   const onSubmit = async (data: InsertProduct) => {
     try {
       const { companyId: _, ...rest } = data;
-      await createProduct.mutateAsync({ ...rest, productType: isService ? "service" : "good" });
+      const created: any = await createProduct.mutateAsync({ ...rest, productType: isService ? "service" : "good" });
+      if (levyDraft.length > 0 && created?.id) {
+        try {
+          const res = await apiFetch(`/api/companies/${companyId}/products/${created.id}/lekaku-levies`, {
+            method: "PUT",
+            body: JSON.stringify({
+              levies: levyDraft.map((d) => ({
+                taxTypeId: d.taxTypeId,
+                ...(d.appliedForQuantity ? { appliedForQuantity: d.appliedForQuantity } : {}),
+              })),
+            }),
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || "Could not save additional taxes");
+          toast({ title: `${levyDraft.length} additional tax${levyDraft.length > 1 ? "es" : ""} attached` });
+        } catch (levyErr: any) {
+          toast({ title: "Product created, but levies failed", description: levyErr.message, variant: "destructive" });
+        }
+      }
       toast({
         title: "Success",
         description: `${isService ? "Service" : "Product"} created successfully.`,
       });
+      setLevyDraft([]);
       setOpen(false);
       form.reset({
         ...form.getValues(),
@@ -147,11 +180,16 @@ export function CreateProductDialog({
     string | undefined
   >(undefined);
 
-  // Sync with default value or tax types load
+  // Additional taxes (LEKAKU levies): products can stack more than one.
+  const [levyDraft, setLevyDraft] = useState<LevySelection[]>([]);
+
+  // Sync with default value or tax types load. New products have no
+  // taxTypeId yet, so this resolves the form's rate against the tax config.
   useEffect(() => {
     if (taxTypes.data && !selectedTaxTypeId && open) {
-      const defaultType = taxTypes.data?.find(
-        (t: any) => t.rate === form.getValues("taxRate"),
+      const defaultType = resolveTaxType(
+        { taxRate: form.getValues("taxRate") },
+        taxTypes.data,
       );
       if (defaultType) setSelectedTaxTypeId(defaultType.id.toString());
     }
@@ -162,7 +200,7 @@ export function CreateProductDialog({
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) setSelectedTaxTypeId(undefined);
+        if (!val) { setSelectedTaxTypeId(undefined); setLevyDraft([]); }
       }}
     >
       <DialogTrigger asChild>
@@ -668,7 +706,7 @@ export function CreateProductDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
-                        {fa.authorityShortName} Tax Type
+                        {isLesotho ? "RSL Tax Type" : "ZIMRA Tax Type"}
                       </FormLabel>
                       <Select
                         onValueChange={(val) => {
@@ -690,9 +728,9 @@ export function CreateProductDialog({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent className="rounded-xl shadow-xl">
-                          {taxTypes.data?.map((t: any) => (
+                          {visibleTaxTypes?.map((t: any) => (
                             <SelectItem key={t.id} value={t.id.toString()}>
-                              {t.name} ({t.rate}%)
+                              {t.name} ({t.rate}%){isLesotho && t.lekakuTaxId ? ` · ID ${t.lekakuTaxId}` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -749,6 +787,7 @@ export function CreateProductDialog({
                   )}
                 />
               </div>
+              <ProductLevyEditor companyId={companyId} draft={levyDraft} onDraftChange={setLevyDraft} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -4,6 +4,8 @@ import { insertProductSchema, type InsertProduct } from "@shared/schema";
 import { useUpdateProduct } from "@/hooks/use-products";
 import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { useActiveCompany } from "@/hooks/use-active-company";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,12 +40,13 @@ import { type ReactNode, useState, useEffect } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { resolveTaxType } from "@/lib/tax";
 import { RecipeManager } from "./recipe-manager";
 import { BatchVariationManager } from "./batch-variation-manager";
 import { ChefHat, Pill, FlaskConical, Boxes } from "lucide-react";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
-import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { ProductLevyEditor, type LevySelection } from "@/components/products/product-levy-editor";
 
 interface Props {
   product: any;
@@ -52,10 +55,22 @@ interface Props {
 }
 
 export function EditProductDialog({ product, trigger, children }: Props) {
-  const fa = useFiscalAuthority();
   const [open, setOpen] = useState(false);
   const updateProduct = useUpdateProduct();
   const { taxCategories, taxTypes } = useTaxConfig(product.companyId);
+  // Lesotho: only offer current-environment, active RSL main taxes
+  // (VAT/NonVAT/Exempt). Levy kinds live on product levies, never as the
+  // main tax — the preflight rejects them there.
+  const { isLesotho } = useFiscalAuthority();
+  const { activeCompany: dialogCompany } = useActiveCompany();
+  const lekakuEnv = (dialogCompany as any)?.zimraEnvironment === "production" ? "production" : "test";
+  const visibleTaxTypes = (taxTypes.data || []).filter((t: any) => {
+    if (!isLesotho) return true;
+    if (!t.lekakuTaxId) return false;
+    if ((t.lekakuEnvironment || "test") !== lekakuEnv) return false;
+    if (t.isActive === false) return false;
+    return !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.lekakuTaxType);
+  });
   const { toast } = useToast();
 
   // Refetch tax types every time the dialog opens to guarantee fresh data
@@ -147,41 +162,15 @@ export function EditProductDialog({ product, trigger, children }: Props) {
 
   const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<string>("");
 
+  // Additional taxes (LEKAKU levies): products can stack more than one.
+  const [levyDraft, setLevyDraft] = useState<LevySelection[]>([]);
+
   // Sync with initial product once taxTypes load (or dialog opens)
   useEffect(() => {
     if (!open || !taxTypes.data) return;
-    // First try explicit taxTypeId from database
-    if (product.taxTypeId) {
-      setSelectedTaxTypeId(product.taxTypeId.toString());
-      return;
-    }
-    // Fallback to heuristic for legacy data: match by rate
-    const initial = taxTypes.data?.find((t: any) => {
-      if (t.rate === product.taxRate?.toString()) {
-        if (t.rate === "0" || t.rate === "0.00") {
-          const isExempt =
-            product.name?.toLowerCase().includes("exempt") ||
-            product.description?.toLowerCase().includes("exempt");
-          if (isExempt) {
-            const zimraTaxId = t.zimraTaxId?.toString();
-            return (
-              zimraTaxId == "1" ||
-              t.zimraCode === "C" ||
-              t.zimraCode === "E" ||
-              t.name.toLowerCase().includes("exempt")
-            );
-          }
-          const zimraTaxId = t.zimraTaxId?.toString();
-          return (
-            zimraTaxId == "2" ||
-            t.zimraCode === "D" ||
-            t.name.toLowerCase().includes("zero")
-          );
-        }
-        return true;
-      }
-      return false;
-    });
+    // Resolve from the tax config: explicit taxTypeId first, legacy rate
+    // match (with zero/exempt disambiguation) second.
+    const initial = resolveTaxType(product, taxTypes.data);
     if (initial) setSelectedTaxTypeId(initial.id.toString());
   }, [taxTypes.data, product, open]);
 
@@ -190,7 +179,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) setSelectedTaxTypeId(""); // Reset on close
+        if (!val) { setSelectedTaxTypeId(""); setLevyDraft([]); } // Reset on close
       }}
     >
       <DialogTrigger asChild>
@@ -855,7 +844,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
-                        {fa.authorityShortName} Tax Type
+                        {isLesotho ? "RSL Tax Type" : "ZIMRA Tax Type"}
                       </FormLabel>
                       <Select
                         onValueChange={(val) => {
@@ -877,9 +866,9 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent position="popper" className="rounded-xl shadow-xl z-[9999]">
-                          {taxTypes.data?.map((t: any) => (
+                          {visibleTaxTypes?.map((t: any) => (
                             <SelectItem key={t.id} value={t.id.toString()}>
-                              {t.name} ({t.rate}%)
+                              {t.name} ({t.rate}%){isLesotho && t.lekakuTaxId ? ` · ID ${t.lekakuTaxId}` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -936,6 +925,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                   )}
                 />
               </div>
+              <ProductLevyEditor companyId={product.companyId} productId={product.id} draft={levyDraft} onDraftChange={setLevyDraft} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

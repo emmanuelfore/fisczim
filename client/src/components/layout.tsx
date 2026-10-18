@@ -571,7 +571,7 @@ export function Layout({
               {
                 icon: Eye,
                 label: "Super Admin Visibility",
-                href: "/superadmin-visibility",
+                href: "/system/mx-3f7a",
               },
             ]
           : []),
@@ -1000,7 +1000,7 @@ export function Layout({
         title: "Partnership Sales",
         subtitle: "Review co-branded sales and revenue splits.",
       };
-    if (location.startsWith("/superadmin-visibility"))
+    if (location.startsWith("/system/mx-3f7a"))
       return {
         title: "Super Admin Visibility",
         subtitle: "Control which companies other superadmins can access.",

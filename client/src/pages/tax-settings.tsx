@@ -42,14 +42,15 @@ import { DayManagementControls } from "@/components/zimra/day-management-control
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { LekakuDeviceConfig } from "@/components/settings/lekaku-device-config";
 
 function cleanDeviceId(value: unknown) {
   const text = String(value || "").trim();
   return text && !text.includes("@") ? text : "";
 }
 
-export default function ZimraSettingsPage() {
-  const fa = useFiscalAuthority();
+export default function TaxSettingsPage() {
+  const { authorityShortName, isLesotho } = useFiscalAuthority();
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
   const currentCompany = activeCompany;
   const isLoading = isLoadingActive;
@@ -69,30 +70,48 @@ export default function ZimraSettingsPage() {
 
   return (
     <Layout>
-      <div className="mb-4 flex items-center justify-end">
-        <Link href="/zimra-logs">
-          <Button variant="outline">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            View Transaction Logs
-          </Button>
-        </Link>
-      </div>
+      {/* Lesotho companies set up their RSL device on this same page —
+          only the endpoint and credentials flow differ (LEKUKA). */}
+      {isLesotho && (
+        <div className="mb-4 flex items-center justify-end">
+          <Link href="/settings?tab=tax">
+            <Button variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Configure Taxes & Levies
+            </Button>
+          </Link>
+        </div>
+      )}
+      {!isLesotho && (
+        <div className="mb-4 flex items-center justify-end">
+          <Link href="/zimra-logs">
+            <Button variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              View Transaction Logs
+            </Button>
+          </Link>
+        </div>
+      )}
 
       <div className="max-w-3xl">
-        <Card className="card-depth border-none h-fit">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Server className="w-5 h-5 mr-2 text-green-600" />
-              {fa.authorityShortName} Fiscal Device
-            </CardTitle>
-            <CardDescription>
-              Configure your device connection and registration status
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ZimraDeviceConfig company={currentCompany} />
-          </CardContent>
-        </Card>
+        {isLesotho ? (
+          <LekakuDeviceConfig company={currentCompany} />
+        ) : (
+          <Card className="card-depth border-none h-fit">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Server className="w-5 h-5 mr-2 text-green-600" />
+                {authorityShortName} Fiscal Device
+              </CardTitle>
+              <CardDescription>
+                Configure your device connection and registration status
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ZimraDeviceConfig company={currentCompany} />
+            </CardContent>
+          </Card>
+        )}
       </div>
     </Layout>
   );

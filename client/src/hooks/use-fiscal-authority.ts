@@ -29,8 +29,9 @@ export function useFiscalAuthority() {
                 : "https://invoice.rsl.org.ls:8443/")
             : "https://fdms.zimra.co.zw/verify",
         
-        // Settings
-        settingsRoute: isLesotho ? "/lekuka-settings" : "/zimra-settings",
+        // Settings — single device setup page; it switches authority
+        // (ZIMRA vs LEKUKA endpoint) based on the active company.
+        settingsRoute: "/tax-settings",
         settingsLabel: isLesotho ? "LEKUKA Settings" : "ZIMRA Settings",
         
         // Tax
@@ -43,7 +44,7 @@ export function useFiscalAuthority() {
         
         // Logs
         logsLabel: isLesotho ? "LEKUKA Logs" : "ZIMRA Logs",
-        logsRoute: isLesotho ? "/lekuka-logs" : "/zimra-logs",
+        logsRoute: "/zimra-logs",
         
         // Day management
         fiscalDayLabel: isLesotho ? "Fiscal Day" : "Fiscal Day",

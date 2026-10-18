@@ -23,8 +23,10 @@ import {
   XCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { getLekukaGatewayUrl } from "@shared/lekuka";
 
-export default function FdmsTestPage() {
+export default function FiscalTestPage() {
   const { toast } = useToast();
   const rawId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const storedCompanyId = isNaN(rawId) ? 0 : rawId;
@@ -33,6 +35,13 @@ export default function FdmsTestPage() {
   const currentCompany =
     companies?.find((c) => c.id === storedCompanyId) || companies?.[0];
   const companyId = currentCompany?.id || 0;
+  const { isLesotho } = useFiscalAuthority();
+  // Lesotho hits the RSL LEKUKA gateway; Zimbabwe hits ZIMRA FDMS.
+  const p = isLesotho ? "/lekuka" : "/zimra";
+  const gateway = isLesotho
+    ? ((currentCompany as any)?.lekukaGatewayUrl ||
+        getLekukaGatewayUrl((currentCompany as any)?.zimraEnvironment)).trim()
+    : null;
 
   const [responseLog, setResponseLog] = useState<string>("Ready to test...");
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -98,12 +107,17 @@ export default function FdmsTestPage() {
                 <Monitor className="w-4 h-4 mr-2 text-blue-600" />
                 Device Actions
               </CardTitle>
+              {isLesotho && gateway && (
+                <p className="px-6 pb-1 font-mono text-[11px] text-emerald-700 break-all">
+                  RSL gateway: {gateway}
+                </p>
+              )}
             </CardHeader>
             <CardContent className="space-y-3">
               <Button
                 variant="outline"
                 className="w-full justify-start"
-                onClick={() => runAction("Get Status", "/zimra/status", "GET")}
+                onClick={() => runAction("Get Status", `${p}/status`, "GET")}
                 disabled={!!loadingAction}
               >
                 <Activity className="w-4 h-4 mr-2" />
@@ -112,7 +126,13 @@ export default function FdmsTestPage() {
               <Button
                 variant="outline"
                 className="w-full justify-start"
-                onClick={() => runAction("Ping Server", "/zimra/ping", "POST")}
+                onClick={() =>
+                  runAction(
+                    isLesotho ? "Ping RSL Gateway" : "Ping Server",
+                    `${p}/ping`,
+                    "POST",
+                  )
+                }
                 disabled={!!loadingAction}
               >
                 <Activity className="w-4 h-4 mr-2" />
@@ -122,11 +142,13 @@ export default function FdmsTestPage() {
                 variant="outline"
                 className="w-full justify-start"
                 onClick={() =>
-                  runAction(
-                    "Connectivity Test",
-                    "/zimra/connectivity-test",
-                    "POST",
-                  )
+                  isLesotho
+                    ? runAction("Tax Health Check", `${p}/tax-health`, "GET")
+                    : runAction(
+                        "Connectivity Test",
+                        `${p}/connectivity-test`,
+                        "POST",
+                      )
                 }
                 disabled={!!loadingAction}
               >
@@ -147,7 +169,7 @@ export default function FdmsTestPage() {
               <Button
                 className="w-full justify-start bg-emerald-600 hover:bg-emerald-700 text-white"
                 onClick={() =>
-                  runAction("Open Fiscal Day", "/zimra/day/open", "POST")
+                  runAction("Open Fiscal Day", `${p}/day/open`, "POST")
                 }
                 disabled={!!loadingAction}
               >
@@ -157,7 +179,7 @@ export default function FdmsTestPage() {
               <Button
                 className="w-full justify-start bg-red-600 hover:bg-red-700 text-white"
                 onClick={() =>
-                  runAction("Close Fiscal Day", "/zimra/day/close", "POST")
+                  runAction("Close Fiscal Day", `${p}/day/close`, "POST")
                 }
                 disabled={!!loadingAction}
               >
@@ -179,7 +201,7 @@ export default function FdmsTestPage() {
                 variant="secondary"
                 className="w-full justify-start"
                 onClick={() =>
-                  runAction("Sync Config", "/zimra/config/sync", "POST")
+                  runAction("Sync Config", `${p}/config/sync`, "POST")
                 }
                 disabled={!!loadingAction}
               >
@@ -190,7 +212,7 @@ export default function FdmsTestPage() {
                 variant="secondary"
                 className="w-full justify-start"
                 onClick={() =>
-                  runAction("Get Applicable Taxes", "/zimra/applicable-taxes", "GET")
+                  runAction("Get Applicable Taxes", `${p}/applicable-taxes`, "GET")
                 }
                 disabled={!!loadingAction}
               >
@@ -203,12 +225,14 @@ export default function FdmsTestPage() {
                 onClick={() =>
                   runAction(
                     "Verify Taxpayer",
-                    "/zimra/verify-taxpayer",
+                    `${p}/verify-taxpayer`,
                     "POST",
                     {
                       deviceId: currentCompany.fdmsDeviceId,
                       activationKey: currentCompany.fdmsApiKey,
-                      deviceSerialNo: "TEST-SERIAL",
+                      deviceSerialNo:
+                        (currentCompany as any).fdmsDeviceSerialNo ||
+                        undefined,
                     },
                   )
                 }

@@ -64,8 +64,8 @@ const SerialTrackingPage = lazy(() => import("@/pages/serial-tracking"));
 const ServicesPage = lazy(() => import("@/pages/services"));
 const TaxConfigPage = lazy(() => import("@/pages/tax-config"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
-const ZimraSettingsPage = lazy(() => import("@/pages/zimra-settings"));
-const FdmsTestPage = lazy(() => import("@/pages/fdms-test"));
+const ZimraSettingsPage = lazy(() => import("@/pages/tax-settings"));
+const FdmsTestPage = lazy(() => import("@/pages/fiscal-test"));
 const CurrencySettingsPage = lazy(() => import("@/pages/currency-settings"));
 const TeamSettingsPage = lazy(() => import("@/pages/team-settings"));
 const UserProfilePage = lazy(() => import("@/pages/user-profile"));
@@ -670,11 +670,20 @@ function Router() {
       <Route path="/restaurant/layout">
         {() => <ProtectedRoute component={RestaurantLayoutPage} />}
       </Route>
-      <Route path="/zimra-settings">
+      <Route path="/tax-settings">
         {() => <ProtectedRoute component={ZimraSettingsPage} />}
+      </Route>
+      <Route path="/zimra-settings">
+        {() => <Redirect to="/tax-settings" />}
+      </Route>
+      <Route path="/lekuka-settings">
+        {() => <Redirect to="/tax-settings" />}
       </Route>
       <Route path="/zimra-logs">
         {() => <ProtectedRoute component={ZimraLogsPage} />}
+      </Route>
+      <Route path="/lekuka-logs">
+        {() => <Redirect to="/zimra-logs" />}
       </Route>
       <Route path="/jobs">
         {() => <ProtectedRoute component={JobsPage} />}
@@ -682,8 +691,11 @@ function Router() {
       <Route path="/api-logs">
         {() => <ProtectedRoute component={ApiLogsPage} />}
       </Route>
-      <Route path="/fdms-test">
+      <Route path="/fiscal-test">
         {() => <ProtectedRoute component={FdmsTestPage} />}
+      </Route>
+      <Route path="/fdms-test">
+        {() => <Redirect to="/fiscal-test" />}
       </Route>
       <Route path="/restaurant/layout">
         {() => <ProtectedRoute component={RestaurantLayoutPage} />}

@@ -21,6 +21,13 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "icon.png",
+      "renderer/**/*"
+    ],
     "win": {
       "target": [
         {

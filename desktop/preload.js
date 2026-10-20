@@ -1,8 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Resolve the backend base URL synchronously from the main process so the
+// renderer can call the API even though its own assets load from the bundled
+// loopback static server.
+let apiBaseUrl = '';
+try {
+  apiBaseUrl = ipcRenderer.sendSync('get-api-base-url') || '';
+} catch (err) {
+  apiBaseUrl = '';
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Identity
   isElectron: true,
+  apiBaseUrl,
   // Signal the renderer to clear its auth session tokens on this launch.
   // This ensures the POS login page is always shown on app start.
   clearSessionOnLaunch: true,

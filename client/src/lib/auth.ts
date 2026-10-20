@@ -1,4 +1,9 @@
-const API_URL = import.meta.env.VITE_API_URL || '';
+// Desktop shell injects the backend base URL at runtime; the web build uses the
+// build-time VITE_API_URL.
+const API_URL =
+  (typeof window !== 'undefined' && (window as any).electronAPI?.apiBaseUrl) ||
+  import.meta.env.VITE_API_URL ||
+  '';
 
 // Helper: must check both the bridge and UA fallback (preload may not have injected yet)
 function shouldClearElectronSession(): boolean {

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, screen, ipcMain, Menu, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const crypto = require('crypto');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
@@ -21,6 +22,36 @@ const { SerialPort } = require('serialport');
 
 const PROD_URL = 'https://fiscalstack.co.zw/pos-login';
 const DEV_URL = 'http://localhost:5001/pos-login';
+const PROD_API_URL = 'https://fiscalstack.co.zw';
+const DEV_API_URL = 'http://localhost:5001';
+
+// MIME map for the bundled-renderer static server.
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.map': 'application/json; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+// The bundled renderer is served from a loopback HTTP server so the SPA gets a
+// real http origin (absolute /assets paths, history routing, secure-context for
+// crypto.subtle) while all app assets load from disk with zero network.
+let rendererServer = null;
 
 // Manager PIN cache helpers (Task 8.1)
 const PIN_CACHE_KEY = 'manager-pin-cache';
@@ -100,26 +131,29 @@ function validateIpcInput({ html, printerName, pin, companyId } = {}) {
 
 /**
  * Resolves the URL to load in the main window using the following priority:
+ * 0. Bundled offline-first renderer (http://127.0.0.1:PORT/pos-login), unless
+ *    config.json sets `forceRemote: true`
  * 1. `startUrl` field in config.json from app.getPath('userData')
  * 2. ELECTRON_START_URL environment variable
  * 3. Production URL if app.isPackaged
  * 4. Dev default: http://localhost:5001/pos-login
  */
-function resolveStartUrl() {
+function resolveStartUrl(rendererBase = null) {
+  const config = readConfig();
+
+  // Priority 0: bundled renderer — the app loads from disk, so startup needs
+  // no network. API calls go to resolveApiBase() and are opportunistic.
+  if (rendererBase && config.forceRemote !== true) {
+    const localUrl = `${rendererBase}/pos-login`;
+    log.info(`[resolveStartUrl] Using bundled renderer: ${localUrl}`);
+    return localUrl;
+  }
+
   let url = null;
 
   // Priority 1: config.json in userData directory
-  try {
-    const configPath = path.join(app.getPath('userData'), 'config.json');
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, 'utf8');
-      const config = JSON.parse(raw);
-      if (config.startUrl) {
-        url = config.startUrl;
-      }
-    }
-  } catch (err) {
-    console.error('[resolveStartUrl] Failed to read config.json:', err.message);
+  if (config.startUrl) {
+    url = config.startUrl;
   }
 
   // Priority 2: ELECTRON_START_URL environment variable
@@ -174,6 +208,106 @@ function readConfig() {
     console.error('[readConfig] Failed to read config.json:', err.message);
   }
   return {};
+}
+
+/**
+ * Resolves the backend API base URL (scheme + host, no trailing slash).
+ * Priority: config.json `apiBaseUrl` → VITE_API_URL env → dev default → prod.
+ * The renderer receives this via the `get-api-base-url` IPC channel so the
+ * same web bundle can talk to whichever backend the install is pointed at.
+ */
+function resolveApiBase() {
+  const config = readConfig();
+  const trim = (v) => String(v).replace(/\/+$/, '');
+  if (config.apiBaseUrl) return trim(config.apiBaseUrl);
+  if (process.env.VITE_API_URL) return trim(process.env.VITE_API_URL);
+  if (!app.isPackaged) return DEV_API_URL;
+  return PROD_API_URL;
+}
+
+/**
+ * Starts a loopback-only static server for the bundled renderer (the Vite build
+ * copied into desktop/renderer). Serving the SPA from http://127.0.0.1 means a
+ * cold start needs no network at all — assets come from disk and API calls are
+ * made opportunistically against resolveApiBase().
+ *
+ * Returns the base URL (e.g. "http://127.0.0.1:51234") or null when no bundled
+ * renderer exists (e.g. `electron .` before a renderer build).
+ */
+function startRendererServer() {
+  const rendererDir = path.join(__dirname, 'renderer');
+  const indexPath = path.join(rendererDir, 'index.html');
+
+  if (!fs.existsSync(indexPath)) {
+    log.warn('[renderer] No bundled renderer found — falling back to remote URL');
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    rendererServer = http.createServer((req, res) => {
+      let pathname = '/';
+      try {
+        pathname = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname);
+      } catch {
+        pathname = '/';
+      }
+      if (pathname === '/') pathname = '/index.html';
+
+      const filePath = path.join(rendererDir, path.normalize(pathname));
+      // Prevent path traversal outside the renderer directory.
+      if (filePath !== rendererDir && !filePath.startsWith(rendererDir + path.sep)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          // SPA fallback for extension-less routes (e.g. /pos-login); a missing
+          // asset (has an extension) is a genuine 404 so it never gets HTML.
+          if (path.extname(pathname)) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Not found');
+            return;
+          }
+          fs.readFile(indexPath, (indexErr, html) => {
+            if (indexErr) {
+              res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+              res.end('Not found');
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': MIME_TYPES['.html'] });
+            res.end(html);
+          });
+          return;
+        }
+
+        const ext = path.extname(filePath).toLowerCase();
+        res.writeHead(200, {
+          'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+          // Hashed assets are immutable; index.html must always revalidate so a
+          // new build is picked up after an update.
+          'Cache-Control': ext === '.html'
+            ? 'no-cache'
+            : 'public, max-age=31536000, immutable',
+        });
+        res.end(data);
+      });
+    });
+
+    rendererServer.on('error', (err) => {
+      log.error('[renderer] Static server error:', err.message);
+      rendererServer = null;
+      resolve(null);
+    });
+
+    rendererServer.listen(0, '127.0.0.1', () => {
+      const { port } = rendererServer.address();
+      const base = `http://127.0.0.1:${port}`;
+      log.info(`[renderer] Serving bundled UI at ${base}`);
+      resolve(base);
+    });
+  });
 }
 
 /**
@@ -237,6 +371,12 @@ function printHtmlToWindow(html, printerName) {
  * @param {import('electron').BrowserWindow} mainWindow
  */
 function registerIpcHandlers(mainWindow) {
+  // Synchronous API-base lookup used by preload.js so the renderer knows which
+  // backend to call while its assets load from the bundled loopback server.
+  ipcMain.on('get-api-base-url', (event) => {
+    event.returnValue = resolveApiBase();
+  });
+
   // Task 4.1: print-receipt — validate, render in hidden window, print silently
   ipcMain.handle('print-receipt', async (_event, html, printerName) => {
     const validationError = validateIpcInput({ html, printerName });
@@ -493,9 +633,7 @@ Write-Output $result
     // Try online verification first (if we have a valid companyId)
     if (effectiveCompanyId) {
       try {
-        const startUrl = resolveStartUrl();
-        const baseUrl = new URL(startUrl);
-        const apiUrl = `${baseUrl.protocol}//${baseUrl.host}/api/companies/${effectiveCompanyId}/auth/verify-manager-pin`;
+        const apiUrl = `${resolveApiBase()}/api/companies/${effectiveCompanyId}/auth/verify-manager-pin`;
 
         const response = await fetch(apiUrl, {
           method: 'POST',
@@ -655,12 +793,15 @@ function setupAutoUpdater(mainWindow) {
   }
 }
 
-function createWindow() {
+async function createWindow() {
   // Requirement 3.6: disable the default application menu
   Menu.setApplicationMenu(null);
 
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const config = readConfig();
+
+  // Serve the bundled UI from disk first so the window can load with no network.
+  const rendererBase = await startRendererServer();
 
   // IndexedDB: no CSP or session partition overrides are set here, so the renderer
   // has full access to IndexedDB for offline credential caching, pending sales, and shift data.
@@ -698,7 +839,7 @@ function createWindow() {
 
   initBarcodeScanner(mainWindow, config.scannerPort);
 
-  const posUrl = resolveStartUrl();
+  const posUrl = resolveStartUrl(rendererBase);
   mainWindow.loadURL(posUrl).catch(err => {
     mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
       <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
@@ -757,8 +898,8 @@ function createWindow() {
   setupAutoUpdater(mainWindow);
 }
 
-app.on('ready', () => {
-  createWindow();
+app.on('ready', async () => {
+  await createWindow();
 });
 
 app.on('window-all-closed', function () {
@@ -770,5 +911,12 @@ app.on('window-all-closed', function () {
 app.on('activate', function () {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  }
+});
+
+app.on('before-quit', function () {
+  if (rendererServer) {
+    try { rendererServer.close(); } catch { /* already closed */ }
+    rendererServer = null;
   }
 });

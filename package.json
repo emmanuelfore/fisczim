@@ -23,9 +23,12 @@
     "mobile:android": "npm --prefix mobile run android",
     "mobile:ios": "npm --prefix mobile run ios",
     "desktop:install": "npm --prefix desktop install",
+    "desktop:renderer": "vite build && node desktop/scripts/copy-renderer.mjs",
     "desktop:start": "npm --prefix desktop start",
     "desktop": "npm run desktop:start",
-    "desktop:build": "npm --prefix desktop run build:win",
+    "desktop:build": "npm run desktop:renderer && npm --prefix desktop run build:win",
+    "desktop:build:win": "npm run desktop:renderer && npm --prefix desktop run build:win",
+    "desktop:build:linux": "npm run desktop:renderer && npm --prefix desktop run build:linux",
     "test": "vitest run"
   },
   "dependencies": {

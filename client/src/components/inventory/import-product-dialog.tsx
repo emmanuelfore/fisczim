@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, FileSpreadsheet, Loader2, Languages } from "lucide-react";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { apiFetch } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -107,7 +108,7 @@ export function ImportProductDialog() {
       formData.append("file", csvBlob, "processed_catalog.csv");
       formData.append("companyId", activeCompanyId.toString());
 
-      const res = await fetch("/api/import/products", {
+      const res = await apiFetch("/api/import/products", {
         method: "POST",
         body: formData,
       });

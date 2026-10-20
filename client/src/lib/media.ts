@@ -1,4 +1,7 @@
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+const API_BASE =
+  (typeof window !== "undefined" && (window as any).electronAPI?.apiBaseUrl) ||
+  import.meta.env.VITE_API_URL ||
+  "";
 
 function joinUrl(base: string, path: string) {
   if (!base) return path;

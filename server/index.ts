@@ -40,9 +40,20 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
+// The desktop POS loads its bundled UI from an ephemeral loopback origin
+// (http://127.0.0.1:<random-port>) and calls this API cross-origin, so allow
+// any loopback origin regardless of port. Loopback origins can't be reached
+// from a remote machine, so this does not widen the public attack surface.
+const loopbackOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (process.env.NODE_ENV === "development" || !origin || allowedOrigins.includes(origin)) {
+    if (
+      process.env.NODE_ENV === "development" ||
+      !origin ||
+      allowedOrigins.includes(origin) ||
+      loopbackOrigin.test(origin)
+    ) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));

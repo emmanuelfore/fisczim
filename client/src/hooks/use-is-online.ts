@@ -6,8 +6,13 @@ export function useIsOnline(): boolean {
 
     const checkConnection = async () => {
         try {
-            // Heartbeat check to actual API
-            const res = await fetch('/api/health', { method: 'HEAD', cache: 'no-store' });
+            // Heartbeat check to actual API. In the desktop shell the UI is
+            // served from a local origin, so the base must be absolute.
+            const base =
+                (typeof window !== 'undefined' && (window as any).electronAPI?.apiBaseUrl) ||
+                import.meta.env.VITE_API_URL ||
+                '';
+            const res = await fetch(`${base}/api/health`, { method: 'HEAD', cache: 'no-store' });
             return res.ok;
         } catch {
             return false;

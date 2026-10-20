@@ -8,6 +8,7 @@ vite.config.ts.*
 .vercel
 .vs/
 desktop/dist/
+desktop/renderer/
 public/*.AppImage
 public/*.exe
 client/public/downloads/*.exe

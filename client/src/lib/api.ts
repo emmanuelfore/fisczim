@@ -1,6 +1,12 @@
 import { auth } from "./auth";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+// In the desktop shell the UI is served from a bundled loopback origin, so the
+// backend URL is injected at runtime by preload (window.electronAPI.apiBaseUrl).
+// The web build falls back to the build-time VITE_API_URL.
+const API_BASE =
+    (typeof window !== "undefined" && window.electronAPI?.apiBaseUrl) ||
+    import.meta.env.VITE_API_URL ||
+    "";
 
 // ── Synchronous Session Cache ──
 let cachedSession: any = null;

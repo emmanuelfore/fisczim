@@ -307,7 +307,7 @@ export function useAuth() {
         apiFetch(`/api/companies/${cid}/products`),
         apiFetch(`/api/companies/${cid}/customers`),
         apiFetch(`/api/companies/${cid}/currencies`),
-        apiFetch(`/api/tax/types?companyId=${cid}`),
+        apiFetch(`/api/tax-types?companyId=${cid}`),
         apiFetch(`/api/pos/my-sales?companyId=${cid}&includeItems=true`)
       ]);
 

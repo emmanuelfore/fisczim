@@ -23,7 +23,7 @@ const LEVY_KINDS = ["PercentageLevy", "FixedValueLevy", "WithholdingTax"];
  *
  * Create mode: controlled draft (saved by the parent after the product exists).
  * Edit mode (productId set): loads existing assignments and saves via its own
- * button with PUT /products/:id/lekaku-levies (full-set replace).
+ * button with PUT /products/:id/lekuka-levies (full-set replace).
  */
 export function ProductLevyEditor({
   companyId,
@@ -52,7 +52,7 @@ export function ProductLevyEditor({
   const { data: assignments = [], isLoading: loadingAssignments } = useQuery({
     queryKey: ["lekaku-product-levies", companyId],
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/lekaku/product-levies`);
+      const res = await apiFetch(`/api/companies/${companyId}/lekuka/product-levies`);
       if (!res.ok) return [];
       return res.json() as Promise<Array<{ productId: number; taxTypeId: number; appliedForQuantity?: string | null }>>;
     },
@@ -77,7 +77,7 @@ export function ProductLevyEditor({
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!productId) throw new Error("Save the product first, then assign levies.");
-      const res = await apiFetch(`/api/companies/${companyId}/products/${productId}/lekaku-levies`, {
+      const res = await apiFetch(`/api/companies/${companyId}/products/${productId}/lekuka-levies`, {
         method: "PUT",
         body: JSON.stringify({
           levies: draft.map((d) => ({

@@ -940,22 +940,15 @@ export async function registerRoutes(
 
   // --- Job Logs & Reporting ---
   
-  // Get all job logs with optional filters
+  // Get all job logs with optional filters (superadmin only — job runs span all companies)
   app.get("/api/jobs/logs", requireAuth, async (req, res) => {
     try {
+      if (!req.user?.isSuperAdmin) return res.status(403).json({ message: "Forbidden" });
+
       const jobName = req.query.jobName as string | undefined;
       const status = req.query.status as string | undefined;
       const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
-
-      // IDOR check: if companyId is provided, verify access
-      if (companyId) {
-        const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
-        if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
-      } else if (!req.user?.isSuperAdmin) {
-        // Non-admin users must scope to their company
-        return res.status(400).json({ message: "companyId is required" });
-      }
 
       const logs = await storage.getJobLogs({ jobName, status, companyId, limit });
       res.json(logs);
@@ -976,9 +969,10 @@ export async function registerRoutes(
     }
   });
 
-  // Get job report with statistics
+  // Get job report with statistics (superadmin only)
   app.get("/api/jobs/report", requireAuth, async (req, res) => {
     try {
+      if (!req.user?.isSuperAdmin) return res.status(403).json({ message: "Forbidden" });
       const jobName = req.query.jobName as string | undefined;
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
@@ -990,9 +984,10 @@ export async function registerRoutes(
     }
   });
 
-  // Scheduler status: schedules + latest run outcomes (in-memory)
-  app.get("/api/jobs/status", requireAuth, async (_req, res) => {
+  // Scheduler status: schedules + latest run outcomes (in-memory) (superadmin only)
+  app.get("/api/jobs/status", requireAuth, async (req, res) => {
     try {
+      if (!req.user?.isSuperAdmin) return res.status(403).json({ message: "Forbidden" });
       const { getJobsStatus } = await import("./jobs.js");
       res.json({ serverTime: new Date().toISOString(), jobs: getJobsStatus() });
     } catch (e: any) {
@@ -4338,6 +4333,20 @@ export async function registerRoutes(
 
   // User Management
   // 1. List Users
+  app.get("/api/system/users", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!isSuperAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const users = await storage.getAllSystemUsers();
+      res.json(users);
+    } catch (err: any) {
+      console.error("List System Users Error:", err);
+      res.status(500).json({ message: "Failed to list system users" });
+    }
+  });
+
   app.get("/api/companies/:companyId/users", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -17095,6 +17104,10 @@ export async function registerRoutes(
   app.use('/api/v1', v1Router);
   app.use("/api", createRolesPermissionsRouter(requireAuth));
   app.use("/api", createPartnershipsRouter(requireAuth));
+  // The customer-flow routes are consumed by the web client at the root /api
+  // paths (e.g. /api/sales-orders). Keep the /api/customer-flow alias for
+  // backwards compatibility with existing integrations.
+  app.use("/api", createCustomerFlowRouter(requireAuth));
   app.use("/api/customer-flow", createCustomerFlowRouter(requireAuth));
   app.use("/api", createFreightRouter(requireAuth));
 

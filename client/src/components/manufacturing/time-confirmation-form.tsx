@@ -30,7 +30,7 @@ export function TimeConfirmationForm({ productionRunId, onSuccess }: { productio
   });
 
   const { data: employees } = useQuery({
-    queryKey: [`/api/companies/${companyId}/employees`],
+    queryKey: [`/api/companies/${companyId}/payroll/employees`],
     enabled: !!companyId,
   });
 

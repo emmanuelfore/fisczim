@@ -22,7 +22,7 @@ export function ExpiringBatchesDashboard({ companyId }: { companyId: number }) {
   const { data: batches = [], isLoading } = useQuery<any[]>({
     queryKey: ["expiring-batches", companyId],
     queryFn: async () => {
-      const res = await apiFetch(`/api/inventory/expiring-batches?companyId=${companyId}&days=90`);
+      const res = await apiFetch(`/api/companies/${companyId}/inventory/expiring-batches?days=90`);
       if (!res.ok) throw new Error("Failed to fetch expiring batches");
       return res.json();
     },

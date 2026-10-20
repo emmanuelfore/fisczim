@@ -13,7 +13,7 @@ export default function ProductionReportPage() {
   const [search, setSearch] = useState("");
 
   const { data: runs, isLoading } = useQuery<any[]>({
-    queryKey: [`/api/companies/${companyId}/inventory/production-runs`],
+    queryKey: [`/api/companies/${companyId}/manufacturing/production-runs`],
     enabled: !!companyId,
   });
 

@@ -135,7 +135,7 @@ export default function ProductsPage() {
     queryFn: async () => {
       if (!companyId) return [] as LevyAssignment[];
       const res = await apiFetch(
-        `/api/companies/${companyId}/lekaku/product-levies`,
+        `/api/companies/${companyId}/lekuka/product-levies`,
       );
       if (!res.ok) return [] as LevyAssignment[];
       return (await res.json()) as LevyAssignment[];

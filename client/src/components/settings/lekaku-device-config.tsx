@@ -20,6 +20,19 @@ function cleanDeviceId(value: unknown) {
   return text && !text.includes("@") ? text : "";
 }
 
+async function readJson(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text) {
+    return { message: res.ok ? "" : `${res.status} ${res.statusText || "Request failed"}` };
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    const summary = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    return { message: `${res.status} ${res.statusText || "Unexpected response"}${summary ? `: ${summary}` : ""}` };
+  }
+}
+
 export function LekakuDeviceConfig({ company }: { company: any }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -47,12 +60,12 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
   const verifyTaxpayerMutation = useMutation({
     mutationFn: async () => {
       const base = (company.lekakuGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim();
-      const res = await apiFetch(`/api/companies/${company.id}/lekaku/verify-taxpayer`, {
+      const res = await apiFetch(`/api/companies/${company.id}/lekuka/verify-taxpayer`, {
         method: "POST",
         body: JSON.stringify({ deviceId, activationKey, deviceSerialNo, gatewayUrl: base }),
       });
-      if (!res.ok) throw await res.json();
-      return await res.json();
+      if (!res.ok) throw await readJson(res);
+      return await readJson(res);
     },
     onSuccess: (data) => {
       setVerificationResult(data);
@@ -67,12 +80,12 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
   const registerDeviceMutation = useMutation({
     mutationFn: async () => {
       const base = (company.lekakuGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim();
-      const res = await apiFetch(`/api/companies/${company.id}/lekaku/register`, {
+      const res = await apiFetch(`/api/companies/${company.id}/lekuka/register`, {
         method: "POST",
         body: JSON.stringify({ deviceId, activationKey, deviceSerialNo, gatewayUrl: base }),
       });
-      if (!res.ok) throw await res.json();
-      return await res.json();
+      if (!res.ok) throw await readJson(res);
+      return await readJson(res);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
@@ -87,15 +100,15 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
 
   const switchEnvironmentMutation = useMutation({
     mutationFn: async (env: string) => {
-      const res = await apiFetch(`/api/companies/${company.id}/lekaku/environment`, {
+      const res = await apiFetch(`/api/companies/${company.id}/lekuka/environment`, {
         method: "POST",
         body: JSON.stringify({ environment: env }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await readJson(res);
         throw new Error(err.message || "Failed to switch environment");
       }
-      return await res.json();
+      return await readJson(res);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
@@ -109,9 +122,9 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
 
   const syncConfigMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/lekaku/config/sync`, { method: "POST" });
-      if (!res.ok) throw await res.json();
-      return await res.json();
+      const res = await apiFetch(`/api/companies/${company.id}/lekuka/config/sync`, { method: "POST" });
+      if (!res.ok) throw await readJson(res);
+      return await readJson(res);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
@@ -131,7 +144,7 @@ export function LekakuDeviceConfig({ company }: { company: any }) {
     queryFn: async () => {
       const res = await apiFetch(`/api/companies/${company.id}/subscriptions`);
       if (!res.ok) return [];
-      return res.json();
+      return readJson(res);
     },
   });
   const macAddress = company.registeredMacAddress || "";

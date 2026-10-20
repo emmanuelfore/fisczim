@@ -73,7 +73,7 @@ export default function TaxReportsPage() {
     queryKey: ["zimra-logs", companyId],
     queryFn: async () => {
       const res = await apiFetch(
-        `/api/companies/${companyId}/zimra-logs?limit=10`,
+        `/api/companies/${companyId}/zimra/logs?limit=10`,
       );
       if (!res.ok) return [];
       return await res.json();

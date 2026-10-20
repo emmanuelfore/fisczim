@@ -137,7 +137,7 @@ export function CreateProductDialog({
       const created: any = await createProduct.mutateAsync({ ...rest, productType: isService ? "service" : "good" });
       if (levyDraft.length > 0 && created?.id) {
         try {
-          const res = await apiFetch(`/api/companies/${companyId}/products/${created.id}/lekaku-levies`, {
+          const res = await apiFetch(`/api/companies/${companyId}/products/${created.id}/lekuka-levies`, {
             method: "PUT",
             body: JSON.stringify({
               levies: levyDraft.map((d) => ({

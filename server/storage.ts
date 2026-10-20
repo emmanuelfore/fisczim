@@ -255,6 +255,7 @@ export interface IStorage {
   removeUserFromCompany(userId: string, companyId: number): Promise<void>;
   getCompanyUserRole(userId: string, companyId: number): Promise<string | undefined>;
   getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined>;
+  getAllSystemUsers(): Promise<User[]>;
 
   // Roles & Permissions
   seedDefaultRolesForCompany(companyId: number): Promise<void>;
@@ -2910,6 +2911,10 @@ export class DatabaseStorage implements IStorage {
       companyRoleId,
       companyRoleName,
     }));
+  }
+
+  async getAllSystemUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(users.createdAt);
   }
 
   async addUserToCompany(userId: string, companyId: number, role: string, companyRoleId?: number): Promise<void> {

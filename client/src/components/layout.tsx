@@ -261,6 +261,7 @@ export function Layout({
       ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
       : "User";
   const isSystemAdmin = btoa(String(user?.email || "").toLowerCase()) === "YWRtaW5AemltcmEuY28uenc=";
+  const isSuperAdmin = !!user?.isSuperAdmin;
   const posNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     {
@@ -501,7 +502,6 @@ export function Layout({
       children: [
         { icon: Server, label: "Fiscal Device Settings", href: "/tax-settings" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
-        { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
         { icon: Activity, label: "API Logs", href: "/api-logs" },
         { icon: Activity, label: "Fiscal Test", href: "/fiscal-test" },
         { icon: FileText, label: "Tax Reports", href: "/reports/tax" },
@@ -566,6 +566,15 @@ export function Layout({
           label: "General Settings",
           href: "/settings",
         },
+        ...(isSuperAdmin
+          ? [
+              {
+                icon: CalendarClock,
+                label: "Scheduled Jobs",
+                href: "/jobs",
+              },
+            ]
+          : []),
         ...(isSystemAdmin
           ? [
               {

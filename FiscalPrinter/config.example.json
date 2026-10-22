@@ -1,0 +1,24 @@
+{
+  "apiEndpoint": "https://fiscalstack.co.zw/api/v1/",
+  "apiKey": "YOUR_FISCALSTACK_API_KEY",
+  "spoolFolder": "./spool/incoming",
+  "processedFolder": "./spool/processed",
+  "failedFolder": "./spool/failed",
+  "outputFolder": "./spool/fiscal-receipts",
+  "currency": "USD",
+  "paymentMethod": "CASH",
+  "companyName": "Your Company",
+  "printerName": "",
+  "saveDebugHtml": false,
+  "parse": {
+    "productStartLine": "Order No.",
+    "productEndLine": "Items count",
+    "invoiceNumber": "Order No.",
+    "customerName": "Buyer Name",
+    "customerTIN": "Buyer TIN",
+    "customerVATNumber": "Buyer VAT",
+    "itemDotCounter": 2,
+    "vatFlag": "1",
+    "vatA": "0.155"
+  }
+}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FiscalStack Settings</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://static.zohocdn.com/zohofinance/v1.0/zf_sdk.js"></script>
+</head>
+<body class="fs-page">
+  <main class="fs-shell">
+    <header class="fs-header">
+      <img class="fs-logo" src="img/logo.png" alt="FiscalStack">
+      <div>
+        <h1>FiscalStack Fiscalisation</h1>
+        <p class="fs-muted">Connect Zoho Books to FiscalStack for ZIMRA fiscalisation.</p>
+      </div>
+      <span id="connection-pill" class="fs-pill">Not connected</span>
+    </header>
+
+    <section class="fs-card">
+      <div class="fs-section-head">
+        <h2>Zoho Books organisation</h2>
+        <span class="fs-badge">OAuth session</span>
+      </div>
+      <div class="fs-row">
+        <span>Organisation</span>
+        <strong id="org-name">Detecting...</strong>
+      </div>
+      <div class="fs-row">
+        <span>Organisation ID</span>
+        <code id="org-id">-</code>
+      </div>
+      <p class="fs-hint">Zoho Books supplies this organisation securely through the widget SDK. FiscalStack never asks for the Zoho password.</p>
+    </section>
+
+    <form id="settings-form" class="fs-card" autocomplete="off">
+      <h2>FiscalStack API connection</h2>
+      <label>
+        API base URL
+        <input id="base-url" type="url" placeholder="https://fiscalstack.co.zw" required>
+      </label>
+      <label>
+        API key
+        <input id="api-key" type="password" placeholder="Paste the company API key" required>
+      </label>
+      <p class="fs-hint">The API key identifies the registered FiscalStack company and fiscal device. Create or rotate it in the FiscalStack dashboard.</p>
+      <div class="fs-actions">
+        <button id="test-btn" type="button" class="fs-btn fs-btn-secondary">Test connection</button>
+        <button id="save-btn" type="submit" class="fs-btn fs-btn-primary">Save connection</button>
+        <button id="forget-btn" type="button" class="fs-btn fs-btn-ghost">Forget</button>
+      </div>
+      <div id="connection-result" class="fs-result" hidden></div>
+    </form>
+
+    <section class="fs-card">
+      <div class="fs-section-head">
+        <h2>Registered company and device</h2>
+        <button id="refresh-btn" type="button" class="fs-btn fs-btn-ghost fs-btn-small">Refresh</button>
+      </div>
+      <div id="company-card" class="fs-empty">Connect FiscalStack to load the registered company and fiscal device.</div>
+    </section>
+
+    <section class="fs-card">
+      <div class="fs-section-head">
+        <h2>Recent fiscalised invoices</h2>
+        <span id="recent-count" class="fs-badge">0</span>
+      </div>
+      <div id="recent-list" class="fs-list">
+        <div class="fs-empty">No fiscalised invoices loaded yet.</div>
+      </div>
+      <div id="recent-detail" hidden></div>
+    </section>
+
+    <footer class="fs-footer">
+      <a href="https://fiscalstack.co.zw" target="_blank" rel="noopener">Open FiscalStack dashboard</a>
+      <span id="save-note" class="fs-muted"></span>
+    </footer>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="vendor/qrcode.js"></script>
+  <script src="shared.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

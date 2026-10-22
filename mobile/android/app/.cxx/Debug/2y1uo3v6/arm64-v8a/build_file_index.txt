@@ -1,0 +1,13 @@
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/generated/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@react-native-community/datetimepicker/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@react-native-community/netinfo/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-gesture-handler/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-nitro-modules/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/generated/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-crypto/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-svg/android/src/main/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-webview/android/build/generated/source/codegen/jni/CMakeLists.txt
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt

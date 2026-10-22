@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FiscalStack Fiscalisation</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://static.zohocdn.com/zohofinance/v1.0/zf_sdk.js"></script>
+</head>
+<body class="fs-page">
+  <main class="fs-shell">
+    <header class="fs-header">
+      <img class="fs-logo" src="img/logo.png" alt="FiscalStack">
+      <div>
+        <h1>FiscalStack</h1>
+        <p class="fs-muted" id="invoice-subtitle">Loading invoice...</p>
+      </div>
+      <span id="status-pill" class="fs-pill">Loading</span>
+    </header>
+
+    <section id="invoice-card" class="fs-card">
+      <div class="fs-row">
+        <span>Invoice</span>
+        <strong id="invoice-number">-</strong>
+      </div>
+      <div class="fs-row">
+        <span>Customer</span>
+        <strong id="invoice-customer">-</strong>
+      </div>
+      <div class="fs-row">
+        <span>Date</span>
+        <strong id="invoice-date">-</strong>
+      </div>
+      <div class="fs-row">
+        <span>Total</span>
+        <strong id="invoice-total">-</strong>
+      </div>
+      <div class="fs-row">
+        <span>Line items</span>
+        <span id="invoice-items">-</span>
+      </div>
+    </section>
+
+    <section id="not-configured" class="fs-card" hidden>
+      <h2>Connect FiscalStack</h2>
+      <p class="fs-hint">Add the FiscalStack API key for the company that should fiscalise this Zoho Books invoice.</p>
+      <div class="fs-actions">
+        <button id="open-setup" type="button" class="fs-btn fs-btn-primary">Open connection settings</button>
+      </div>
+    </section>
+
+    <section id="setup-panel" class="fs-card" hidden>
+      <h2>FiscalStack connection</h2>
+      <label>
+        API base URL
+        <input id="setup-base-url" type="url" placeholder="https://fiscalstack.co.zw">
+      </label>
+      <label>
+        API key
+        <input id="setup-api-key" type="password" placeholder="Paste the company API key">
+      </label>
+      <div class="fs-actions">
+        <button id="setup-test" type="button" class="fs-btn fs-btn-secondary">Test</button>
+        <button id="setup-save" type="button" class="fs-btn fs-btn-primary">Save</button>
+        <button id="setup-cancel" type="button" class="fs-btn fs-btn-ghost">Cancel</button>
+      </div>
+      <div id="setup-result" class="fs-result" hidden></div>
+    </section>
+
+    <section id="fiscalise-card" class="fs-card" hidden>
+      <h2>Fiscalise invoice</h2>
+      <div class="fs-grid">
+        <label>
+          Currency
+          <select id="currency">
+            <option value="USD">USD</option>
+            <option value="ZWG">ZWG</option>
+          </select>
+        </label>
+        <label>
+          Payment method
+          <select id="payment-method">
+            <option value="CASH">Cash</option>
+            <option value="CARD">Card</option>
+            <option value="MOBILE">Mobile</option>
+            <option value="ECOCASH">EcoCash</option>
+            <option value="ONE_MONEY">OneMoney</option>
+            <option value="TRANSFER">Transfer</option>
+            <option value="BANK_TRANSFER">Bank transfer</option>
+            <option value="EFT">EFT</option>
+            <option value="RTGS">RTGS</option>
+            <option value="ZIPIT">Zipit</option>
+          </select>
+        </label>
+      </div>
+      <div class="fs-grid" style="margin-top: 10px;">
+        <label>
+          Tax treatment
+          <select id="tax-type">
+            <option value="auto">Match Zoho Books</option>
+            <option value="STANDARD">Standard VAT</option>
+            <option value="ZERO_RATED">Zero-rated</option>
+            <option value="EXEMPT">Exempt</option>
+          </select>
+        </label>
+        <label class="fs-check">
+          <input id="tax-inclusive" type="checkbox">
+          Prices include VAT
+        </label>
+      </div>
+      <div id="validation" class="fs-note" hidden></div>
+      <div class="fs-actions">
+        <button id="fiscalise-btn" type="button" class="fs-btn fs-btn-primary">Fiscalise invoice</button>
+        <button id="refresh-invoice" type="button" class="fs-btn fs-btn-secondary">Refresh status</button>
+      </div>
+      <p class="fs-hint">This submits the invoice to the FiscalStack company in ZIMRA. The fiscal receipt is stored in this browser for reprinting.</p>
+    </section>
+
+    <section id="receipt-card" class="fs-card" hidden>
+      <div class="fs-section-head">
+        <h2>Fiscal receipt</h2>
+        <span class="fs-badge fs-badge-ok">Fiscalised</span>
+      </div>
+      <div class="fs-receipt">
+        <div class="fs-qr" id="receipt-qr"></div>
+        <div class="fs-receipt-meta">
+          <div class="fs-row">
+            <span>Receipt number</span>
+            <strong id="receipt-number">-</strong>
+          </div>
+          <div class="fs-row">
+            <span>Fiscal day</span>
+            <strong id="receipt-fiscal-day">-</strong>
+          </div>
+          <div class="fs-row">
+            <span>Receipt counter</span>
+            <strong id="receipt-counter">-</strong>
+          </div>
+          <div class="fs-row">
+            <span>Fiscal code</span>
+            <code id="receipt-fiscal-code">-</code>
+          </div>
+          <div class="fs-row">
+            <span>Status</span>
+            <strong id="receipt-status">-</strong>
+          </div>
+        </div>
+      </div>
+      <div class="fs-actions">
+        <button id="print-btn" type="button" class="fs-btn fs-btn-primary">Print fiscal receipt</button>
+        <button id="copy-qr" type="button" class="fs-btn fs-btn-secondary">Copy QR data</button>
+        <button id="refresh-receipt" type="button" class="fs-btn fs-btn-ghost">Refresh</button>
+      </div>
+    </section>
+
+    <footer class="fs-footer">
+      <a href="https://fiscalstack.co.zw" target="_blank" rel="noopener">FiscalStack dashboard</a>
+      <span id="footer-note" class="fs-muted"></span>
+    </footer>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="vendor/qrcode.js"></script>
+  <script src="shared.js"></script>
+  <script src="invoice.js"></script>
+</body>
+</html>

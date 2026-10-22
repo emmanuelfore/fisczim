@@ -1,0 +1,1 @@
+const e="http://localhost:5001";function n(r,t){return`${r.replace(/\/+$/,"")}/${t.replace(/^\/+/,"")}`}function i(r){if(!r)return"";const t=String(r).trim();return t?/^(https?:|data:|blob:)/i.test(t)?t:t.startsWith("//")?`${window.location.protocol}${t}`:t.startsWith("/")?n(e,t):n(e,`/${t}`):""}export{i as r};

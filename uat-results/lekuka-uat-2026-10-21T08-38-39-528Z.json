@@ -1,0 +1,56 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261021083835",
+  "dryRun": false,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-21T08:38:35.615Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNP9ABGIFODG:0000001C"
+  },
+  "results": [
+    {
+      "id": "TC-003",
+      "title": "Get server certificate",
+      "status": "pass",
+      "startedAt": "2026-10-21T08:38:39.364Z",
+      "durationMs": 164,
+      "response": {
+        "certificateCount": 1,
+        "certificateValidTill": "2035-01-17T09:07:39",
+        "subjects": [
+          "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Signer"
+        ]
+      },
+      "summary": {
+        "certificateValidTill": "2035-01-17T09:07:39"
+      }
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "pass": 1,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "byId": [
+      {
+        "id": "TC-003",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-21T08:38:39.528Z"
+}

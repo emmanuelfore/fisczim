@@ -1,0 +1,489 @@
+{
+  "suite": "LEKUKA UAT",
+  "dryRun": true,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-21T07:17:03.648Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayClosed",
+    "fiscalDayReconciliationMode": "Manual",
+    "fiscalDayServerSignature": {
+      "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+      "hash": "G7oUFT/niJ9jFbCIsDmL6elhrtwpUBXtQ2J4jqT1nqc=",
+      "signature": "JkXB4b+iyhBr51pqDf6vUDSYhVAOf9OPu/XHIMH0AmdSabgLMbWtubK17T2tv5YxVHlHvOvT2aw3BLxxub4bvn8jZ2o3tQQ7JowcsEukqOSJZZlsaKULLUBTtZo6Mjpgrq+wze8JQ7rTwqoCKoRfr33Zyn8gtKGY+LpF/gfaCQ+KYhlRXFSsNoatYjcCXVhbdqkdM1Ap3fHAV87JL3PLg6PooT8LSgYKfsxyC9PGdp4f0WDUWx5Ic8OE/WbxnB5v6RSLWs/zESiTypl9bF4LC/Dv4gexaW8Z24pJW3NIYLHCQx/hAzLYIw2M/CGXyJnOM0twp/sgJZtshj+tfqoQVw=="
+    },
+    "fiscalDayClosed": "2026-09-28T15:59:49",
+    "fiscalDayCounter": [
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 10,
+        "fiscalCounterTaxID": 81,
+        "fiscalCounterValue": 6581.18
+      },
+      {
+        "fiscalCounterType": "SaleTaxByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 10,
+        "fiscalCounterTaxID": 81,
+        "fiscalCounterValue": 598.04
+      },
+      {
+        "fiscalCounterType": "DebitNoteByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 15,
+        "fiscalCounterTaxID": 7,
+        "fiscalCounterValue": 57.5
+      },
+      {
+        "fiscalCounterType": "DebitNoteTaxByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 15,
+        "fiscalCounterTaxID": 7,
+        "fiscalCounterValue": 7.5
+      },
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 0,
+        "fiscalCounterTaxID": 4,
+        "fiscalCounterValue": 4763.7
+      },
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 20,
+        "fiscalCounterTaxID": 82,
+        "fiscalCounterValue": 6938.45
+      },
+      {
+        "fiscalCounterType": "SaleTaxByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 20,
+        "fiscalCounterTaxID": 82,
+        "fiscalCounterValue": 1156.11
+      },
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 0.9,
+        "fiscalCounterTaxID": 83,
+        "fiscalCounterValue": 4793.6
+      },
+      {
+        "fiscalCounterType": "SaleTaxByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 0.9,
+        "fiscalCounterTaxID": 83,
+        "fiscalCounterValue": 9.9
+      },
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 15,
+        "fiscalCounterTaxID": 7,
+        "fiscalCounterValue": 11104.26
+      },
+      {
+        "fiscalCounterType": "SaleTaxByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 15,
+        "fiscalCounterTaxID": 7,
+        "fiscalCounterValue": 1448
+      },
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 0,
+        "fiscalCounterTaxID": 6,
+        "fiscalCounterValue": 27479.97
+      },
+      {
+        "fiscalCounterType": "SaleByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 10,
+        "fiscalCounterTaxID": 21,
+        "fiscalCounterValue": 6640
+      },
+      {
+        "fiscalCounterType": "SaleTaxByTax",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterTaxPercent": 10,
+        "fiscalCounterTaxID": 21,
+        "fiscalCounterValue": 603.62
+      },
+      {
+        "fiscalCounterType": "BalanceByMoneyType",
+        "fiscalCounterCurrency": "LSL",
+        "fiscalCounterMoneyType": "Cash",
+        "fiscalCounterValue": 51807.1
+      }
+    ],
+    "lastReceiptGlobalNo": 123,
+    "lastFiscalDayNo": 3,
+    "fiscalDayDocumentQuantities": [
+      {
+        "receiptType": "Receipt",
+        "receiptCurrency": "LSL",
+        "receiptQuantity": 1,
+        "receiptTotalAmount": 115
+      },
+      {
+        "receiptType": "CreditNote",
+        "receiptCurrency": "LSL",
+        "receiptQuantity": 2,
+        "receiptTotalAmount": 0
+      },
+      {
+        "receiptType": "FiscalInvoice",
+        "receiptCurrency": "LSL",
+        "receiptQuantity": 84,
+        "receiptTotalAmount": 51634.6
+      },
+      {
+        "receiptType": "DebitNote",
+        "receiptCurrency": "LSL",
+        "receiptQuantity": 1,
+        "receiptTotalAmount": 57.5
+      }
+    ],
+    "operationID": "0HNP4COMTKTQ2:0000004E"
+  },
+  "results": [
+    {
+      "id": "TC-001",
+      "title": "Device registration",
+      "status": "skipped",
+      "startedAt": "2026-10-21T07:17:03.649Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded by request"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "title": "Taxpayer information verification",
+      "status": "skipped",
+      "startedAt": "2026-10-21T07:17:03.649Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded by request"
+      ]
+    },
+    {
+      "id": "TC-003",
+      "title": "Get server certificate",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:17:03.649Z",
+      "durationMs": 571,
+      "response": {
+        "certificateCount": 1,
+        "certificateValidTill": "2035-01-17T09:07:39",
+        "subjects": [
+          "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Signer"
+        ]
+      },
+      "summary": {
+        "certificateValidTill": "2035-01-17T09:07:39"
+      }
+    },
+    {
+      "id": "TC-005",
+      "title": "Get device configuration",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:17:04.220Z",
+      "durationMs": 232,
+      "response": {
+        "operationID": "0HNP4COMTKTSD:0000003C",
+        "applicableTaxes": [
+          {
+            "taxRate": 10,
+            "taxName": "Alcohol",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 81,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 20,
+            "taxName": "Tobacco",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 82,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 0.9,
+            "taxName": "Plastic Levy",
+            "validFrom": "2024-12-01T00:00:00",
+            "taxID": 83,
+            "taxType": "FixedValueLevy"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 1,
+            "taxType": "VAT"
+          },
+          {
+            "taxName": "Exempt",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 4,
+            "taxType": "Exempt"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 6,
+            "taxType": "NonVAT"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Goods)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 7,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "10% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 21,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "Withholding Tax (Resident)",
+            "validFrom": "2025-08-01T00:00:00",
+            "taxID": 101,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 121,
+            "taxType": "NonVAT"
+          }
+        ],
+        "deviceOperatingMode": "Online"
+      },
+      "summary": {
+        "taxCount": 10,
+        "deviceOperatingMode": "Online"
+      }
+    },
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:17:04.452Z",
+      "durationMs": 1069,
+      "response": {
+        "fiscalDayStatus": "FiscalDayClosed",
+        "fiscalDayReconciliationMode": "Manual",
+        "fiscalDayServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "G7oUFT/niJ9jFbCIsDmL6elhrtwpUBXtQ2J4jqT1nqc=",
+          "signature": "JkXB4b+iyhBr51pqDf6vUDSYhVAOf9OPu/XHIMH0AmdSabgLMbWtubK17T2tv5YxVHlHvOvT2aw3BLxxub4bvn8jZ2o3tQQ7JowcsEukqOSJZZlsaKULLUBTtZo6Mjpgrq+wze8JQ7rTwqoCKoRfr33Zyn8gtKGY+LpF/gfaCQ+KYhlRXFSsNoatYjcCXVhbdqkdM1Ap3fHAV87JL3PLg6PooT8LSgYKfsxyC9PGdp4f0WDUWx5Ic8OE/WbxnB5v6RSLWs/zESiTypl9bF4LC/Dv4gexaW8Z24pJW3NIYLHCQx/hAzLYIw2M/CGXyJnOM0twp/sgJZtshj+tfqoQVw=="
+        },
+        "fiscalDayClosed": "2026-09-28T15:59:49",
+        "fiscalDayCounter": [
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 81,
+            "fiscalCounterValue": 6581.18
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 81,
+            "fiscalCounterValue": 598.04
+          },
+          {
+            "fiscalCounterType": "DebitNoteByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 57.5
+          },
+          {
+            "fiscalCounterType": "DebitNoteTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 7.5
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0,
+            "fiscalCounterTaxID": 4,
+            "fiscalCounterValue": 4763.7
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 20,
+            "fiscalCounterTaxID": 82,
+            "fiscalCounterValue": 6938.45
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 20,
+            "fiscalCounterTaxID": 82,
+            "fiscalCounterValue": 1156.11
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0.9,
+            "fiscalCounterTaxID": 83,
+            "fiscalCounterValue": 4793.6
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0.9,
+            "fiscalCounterTaxID": 83,
+            "fiscalCounterValue": 9.9
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 11104.26
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 1448
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0,
+            "fiscalCounterTaxID": 6,
+            "fiscalCounterValue": 27479.97
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 21,
+            "fiscalCounterValue": 6640
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 21,
+            "fiscalCounterValue": 603.62
+          },
+          {
+            "fiscalCounterType": "BalanceByMoneyType",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterMoneyType": "Cash",
+            "fiscalCounterValue": 51807.1
+          }
+        ],
+        "lastReceiptGlobalNo": 123,
+        "lastFiscalDayNo": 3,
+        "fiscalDayDocumentQuantities": [
+          {
+            "receiptType": "Receipt",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 1,
+            "receiptTotalAmount": 115
+          },
+          {
+            "receiptType": "CreditNote",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 2,
+            "receiptTotalAmount": 0
+          },
+          {
+            "receiptType": "FiscalInvoice",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 84,
+            "receiptTotalAmount": 51634.6
+          },
+          {
+            "receiptType": "DebitNote",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 1,
+            "receiptTotalAmount": 57.5
+          }
+        ],
+        "operationID": "0HNP4COMTKTQ2:0000004E"
+      },
+      "summary": {
+        "fiscalDayStatus": "FiscalDayClosed",
+        "lastFiscalDayNo": 3,
+        "lastReceiptGlobalNo": 123
+      }
+    },
+    {
+      "id": "TC-009",
+      "title": "Ping gateway",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:17:05.521Z",
+      "durationMs": 5495,
+      "response": {
+        "reportingFrequency": 5,
+        "operationID": "0HNP9ABGIFNBQ:0000002E"
+      },
+      "summary": {
+        "operationID": "0HNP9ABGIFNBQ:0000002E"
+      }
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "pass": 4,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 2,
+    "byId": [
+      {
+        "id": "TC-001",
+        "status": "skipped"
+      },
+      {
+        "id": "TC-002",
+        "status": "skipped"
+      },
+      {
+        "id": "TC-003",
+        "status": "pass"
+      },
+      {
+        "id": "TC-005",
+        "status": "pass"
+      },
+      {
+        "id": "TC-007",
+        "status": "pass"
+      },
+      {
+        "id": "TC-009",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-21T07:17:11.016Z"
+}

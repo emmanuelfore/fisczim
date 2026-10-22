@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "RNSunmiPrinterSpec_autolinked_build",
+		"source" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/generated/jni"
+	}
+}

@@ -1,0 +1,203 @@
+{
+	"archive" : {},
+	"artifacts" : 
+	[
+		{
+			"path" : "QuickBase64Spec_cxxmodule_autolinked_build/libreact-native-quick-base64.a"
+		}
+	],
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"target_link_libraries",
+			"target_include_directories",
+			"set_target_properties"
+		],
+		"files" : 
+		[
+			"/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 7,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 25,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 20,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 13,
+				"parent" : 0
+			}
+		]
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D__BIONIC_NO_PAGE_SIZE_MACRO -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_NO_CONFIG=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_HAVE_CLOCK_GETTIME=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_USE_LIBCPP=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_CFG_NO_COROUTINES=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_MOBILE=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_HAVE_RECVMMSG=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_HAVE_PTHREAD=1"
+				},
+				{
+					"backtrace" : 2,
+					"fragment" : "-DFOLLY_HAVE_XSI_STRERROR_R=1"
+				},
+				{
+					"fragment" : "-std=c++20"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 3,
+					"path" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/../cpp"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/generated/jni/."
+				},
+				{
+					"backtrace" : 2,
+					"path" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/generated/jni/react/renderer/components/QuickBase64Spec"
+				},
+				{
+					"backtrace" : 2,
+					"isSystem" : true,
+					"path" : "/home/emmanuel/.gradle/caches/9.3.1/transforms/bfd7155db24a7dbe896cb28e55809f50/transformed/react-android-0.86.3-debug/prefab/modules/jsi/include"
+				},
+				{
+					"backtrace" : 2,
+					"isSystem" : true,
+					"path" : "/home/emmanuel/.gradle/caches/9.3.1/transforms/bfd7155db24a7dbe896cb28e55809f50/transformed/react-android-0.86.3-debug/prefab/modules/reactnative/include"
+				},
+				{
+					"backtrace" : 2,
+					"isSystem" : true,
+					"path" : "/home/emmanuel/.gradle/caches/9.3.1/transforms/fedb7f356f76c77e418b31de4c23d70a/transformed/fbjni-0.7.0/prefab/modules/fbjni/include"
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					4
+				],
+				"standard" : "20"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1
+			],
+			"sysroot" : 
+			{
+				"path" : "/home/emmanuel/Android/Sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+			}
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 2,
+			"id" : "react_codegen_QuickBase64Spec::@c10d6c8dd21476b871bf"
+		}
+	],
+	"id" : "react-native-quick-base64::@e7fbd610d6131b198d81",
+	"name" : "react-native-quick-base64",
+	"nameOnDisk" : "libreact-native-quick-base64.a",
+	"paths" : 
+	{
+		"build" : "QuickBase64Spec_cxxmodule_autolinked_build",
+		"source" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1
+			]
+		},
+		{
+			"name" : "Object Libraries",
+			"sourceIndexes" : 
+			[
+				2
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/cpp/QuickBase64Impl.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 1,
+			"compileGroupIndex" : 0,
+			"path" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/cpp/simdutf.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"isGenerated" : true,
+			"path" : "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/Debug/2y1uo3v6/arm64-v8a/QuickBase64Spec_autolinked_build/CMakeFiles/react_codegen_QuickBase64Spec.dir/QuickBase64Spec-generated.cpp.o",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "STATIC_LIBRARY"
+}

@@ -1,0 +1,28 @@
+{
+  "locale": [
+    "en"
+  ],
+  "service": "FINANCE",
+  "modules": {
+    "widgets": [
+      {
+        "location": "invoice.details.sidebar",
+        "name": "FiscalStack Fiscalisation",
+        "url": "/app/invoice.html",
+        "logo": "/app/img/logo.png"
+      }
+    ]
+  },
+  "config": [],
+  "usedConnections": [],
+  "whiteListedDomains": [
+    "https://fiscalstack.co.zw",
+    "https://www.fiscalstack.co.zw"
+  ],
+  "cspDomains": {
+    "connect-src": [
+      "https://fiscalstack.co.zw",
+      "https://www.fiscalstack.co.zw"
+    ]
+  }
+}

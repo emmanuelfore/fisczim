@@ -40,9 +40,21 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
+// Wildcard patterns for trusted hosting domains (Zoho widget sandbox, etc.)
+const allowedOriginPatterns = [
+  /^https:\/\/[a-z0-9-]+\.zappsusercontent\.com$/,  // Zoho widget CDN/sandbox
+  /^https:\/\/books\.zoho\.(com|eu|in|com\.au|jp)$/,
+  /^https:\/\/[a-z0-9-]+\.zohocdn\.com$/,
+];
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (process.env.NODE_ENV === "development" || !origin || allowedOrigins.includes(origin)) {
+    if (
+      process.env.NODE_ENV === "development" ||
+      !origin ||
+      allowedOrigins.includes(origin) ||
+      allowedOriginPatterns.some((pattern) => pattern.test(origin))
+    ) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));

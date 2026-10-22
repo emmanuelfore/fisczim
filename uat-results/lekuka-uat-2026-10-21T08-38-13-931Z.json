@@ -1,0 +1,215 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261021083807",
+  "dryRun": true,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-21T08:38:08.031Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNP4COMTKUO5:0000005A"
+  },
+  "results": [
+    {
+      "id": "TC-003",
+      "title": "Get server certificate",
+      "status": "pass",
+      "startedAt": "2026-10-21T08:38:08.203Z",
+      "durationMs": 5162,
+      "response": {
+        "certificateCount": 1,
+        "certificateValidTill": "2035-01-17T09:07:39",
+        "subjects": [
+          "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Signer"
+        ]
+      },
+      "summary": {
+        "certificateValidTill": "2035-01-17T09:07:39"
+      }
+    },
+    {
+      "id": "TC-005",
+      "title": "Get device configuration",
+      "status": "pass",
+      "startedAt": "2026-10-21T08:38:13.366Z",
+      "durationMs": 179,
+      "response": {
+        "operationID": "0HNP4COMTKUT4:0000002E",
+        "applicableTaxes": [
+          {
+            "taxRate": 10,
+            "taxName": "Alcohol",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 81,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 20,
+            "taxName": "Tobacco",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 82,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 0.9,
+            "taxName": "Plastic Levy",
+            "validFrom": "2024-12-01T00:00:00",
+            "taxID": 83,
+            "taxType": "FixedValueLevy"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 1,
+            "taxType": "VAT"
+          },
+          {
+            "taxName": "Exempt",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 4,
+            "taxType": "Exempt"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 6,
+            "taxType": "NonVAT"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Goods)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 7,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "10% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 21,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "Withholding Tax (Resident)",
+            "validFrom": "2025-08-01T00:00:00",
+            "taxID": 101,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 121,
+            "taxType": "NonVAT"
+          }
+        ],
+        "deviceOperatingMode": "Online"
+      },
+      "summary": {
+        "taxCount": 10,
+        "deviceOperatingMode": "Online"
+      }
+    },
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "pass",
+      "startedAt": "2026-10-21T08:38:13.545Z",
+      "durationMs": 214,
+      "response": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastReceiptGlobalNo": 132,
+        "lastFiscalDayNo": 5,
+        "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+        "operationID": "0HNP4COMTKUO5:0000005A"
+      },
+      "summary": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastFiscalDayNo": 5,
+        "lastReceiptGlobalNo": 132
+      }
+    },
+    {
+      "id": "TC-009",
+      "title": "Ping gateway",
+      "status": "pass",
+      "startedAt": "2026-10-21T08:38:13.759Z",
+      "durationMs": 171,
+      "response": {
+        "reportingFrequency": 5,
+        "operationID": "0HNP4COMTKUCC:000000C3"
+      },
+      "summary": {
+        "operationID": "0HNP4COMTKUCC:000000C3"
+      }
+    },
+    {
+      "id": "TC-001",
+      "title": "Device registration",
+      "status": "skipped",
+      "startedAt": "2026-10-21T08:38:13.931Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded from automated runs"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "title": "Taxpayer information verification",
+      "status": "skipped",
+      "startedAt": "2026-10-21T08:38:13.931Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded from automated runs"
+      ]
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "pass": 4,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 2,
+    "byId": [
+      {
+        "id": "TC-003",
+        "status": "pass"
+      },
+      {
+        "id": "TC-005",
+        "status": "pass"
+      },
+      {
+        "id": "TC-007",
+        "status": "pass"
+      },
+      {
+        "id": "TC-009",
+        "status": "pass"
+      },
+      {
+        "id": "TC-001",
+        "status": "skipped"
+      },
+      {
+        "id": "TC-002",
+        "status": "skipped"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-21T08:38:13.931Z"
+}

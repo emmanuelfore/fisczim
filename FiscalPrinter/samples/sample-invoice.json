@@ -1,0 +1,18 @@
+{
+  "invoiceNumber": "INV-DEMO-1002",
+  "currency": "USD",
+  "paymentMethod": "CASH",
+  "transactionType": "FiscalInvoice",
+  "buyer": {
+    "name": "Walk-in Customer"
+  },
+  "items": [
+    {
+      "name": "Demo Service",
+      "quantity": 1,
+      "unitPrice": 10.0,
+      "taxType": "STANDARD",
+      "taxInclusive": true
+    }
+  ]
+}

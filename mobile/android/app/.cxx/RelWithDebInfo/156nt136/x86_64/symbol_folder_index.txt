@@ -1,0 +1,1 @@
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/156nt136/obj/x86_64

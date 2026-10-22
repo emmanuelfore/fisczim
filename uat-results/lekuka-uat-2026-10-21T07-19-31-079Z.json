@@ -1,0 +1,1082 @@
+{
+  "suite": "LEKUKA UAT",
+  "dryRun": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-21T07:19:00.982Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayClosed",
+    "fiscalDayReconciliationMode": "Auto",
+    "fiscalDayServerSignature": {
+      "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+      "hash": "wKeIchsqIt2m0tKkCAiROKHPRYMPap1V6RTl96m5uwM=",
+      "signature": "mCmFji61ZO83Eq1EjOmP5v8w55Qsu0wfGZ95AszvJ+QWKkIQQD2f9MzoYu2abxwajzoZIYtwTH2kaGrZAIz40vV2MAdc11powcfN+qXQD2A1e2YXOtV8X/TZVrIG/aRm3yKQtbzU/GpJIO/xfCSGYzGggFQwFQ8uL56c1t4BeVuuxAcRtdEzPia2kEQVkak+eWjSfZN2FqDeebug828bvfwUNdtv3cL8tuanKbh6BgTP3u75MQ00VN7fXNYpsBqSOPGrPGE92dZBsOAntKcuxi6esuLViGrNy5P0JqP8jUhLibwXmlOPBum21OFKcFULjLsuNbZ8IFBcfT2/L99CHA=="
+    },
+    "fiscalDayClosed": "2026-10-21T09:19:15",
+    "lastReceiptGlobalNo": 131,
+    "lastFiscalDayNo": 4,
+    "operationID": "0HNP9ABGIFN7T:00000062"
+  },
+  "results": [
+    {
+      "id": "TC-003",
+      "title": "Get server certificate",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:00.984Z",
+      "durationMs": 277,
+      "response": {
+        "certificateCount": 1,
+        "certificateValidTill": "2035-01-17T09:07:39",
+        "subjects": [
+          "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Signer"
+        ]
+      },
+      "summary": {
+        "certificateValidTill": "2035-01-17T09:07:39"
+      }
+    },
+    {
+      "id": "TC-005",
+      "title": "Get device configuration",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:01.261Z",
+      "durationMs": 3236,
+      "response": {
+        "operationID": "0HNP9ABGIFN9M:0000004D",
+        "applicableTaxes": [
+          {
+            "taxRate": 10,
+            "taxName": "Alcohol",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 81,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 20,
+            "taxName": "Tobacco",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 82,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 0.9,
+            "taxName": "Plastic Levy",
+            "validFrom": "2024-12-01T00:00:00",
+            "taxID": 83,
+            "taxType": "FixedValueLevy"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 1,
+            "taxType": "VAT"
+          },
+          {
+            "taxName": "Exempt",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 4,
+            "taxType": "Exempt"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 6,
+            "taxType": "NonVAT"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Goods)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 7,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "10% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 21,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "Withholding Tax (Resident)",
+            "validFrom": "2025-08-01T00:00:00",
+            "taxID": 101,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 121,
+            "taxType": "NonVAT"
+          }
+        ],
+        "deviceOperatingMode": "Online"
+      },
+      "summary": {
+        "taxCount": 10,
+        "deviceOperatingMode": "Online"
+      }
+    },
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:04.497Z",
+      "durationMs": 213,
+      "response": {
+        "fiscalDayStatus": "FiscalDayClosed",
+        "fiscalDayReconciliationMode": "Manual",
+        "fiscalDayServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "G7oUFT/niJ9jFbCIsDmL6elhrtwpUBXtQ2J4jqT1nqc=",
+          "signature": "JkXB4b+iyhBr51pqDf6vUDSYhVAOf9OPu/XHIMH0AmdSabgLMbWtubK17T2tv5YxVHlHvOvT2aw3BLxxub4bvn8jZ2o3tQQ7JowcsEukqOSJZZlsaKULLUBTtZo6Mjpgrq+wze8JQ7rTwqoCKoRfr33Zyn8gtKGY+LpF/gfaCQ+KYhlRXFSsNoatYjcCXVhbdqkdM1Ap3fHAV87JL3PLg6PooT8LSgYKfsxyC9PGdp4f0WDUWx5Ic8OE/WbxnB5v6RSLWs/zESiTypl9bF4LC/Dv4gexaW8Z24pJW3NIYLHCQx/hAzLYIw2M/CGXyJnOM0twp/sgJZtshj+tfqoQVw=="
+        },
+        "fiscalDayClosed": "2026-09-28T15:59:49",
+        "fiscalDayCounter": [
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 81,
+            "fiscalCounterValue": 6581.18
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 81,
+            "fiscalCounterValue": 598.04
+          },
+          {
+            "fiscalCounterType": "DebitNoteByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 57.5
+          },
+          {
+            "fiscalCounterType": "DebitNoteTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 7.5
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0,
+            "fiscalCounterTaxID": 4,
+            "fiscalCounterValue": 4763.7
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 20,
+            "fiscalCounterTaxID": 82,
+            "fiscalCounterValue": 6938.45
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 20,
+            "fiscalCounterTaxID": 82,
+            "fiscalCounterValue": 1156.11
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0.9,
+            "fiscalCounterTaxID": 83,
+            "fiscalCounterValue": 4793.6
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0.9,
+            "fiscalCounterTaxID": 83,
+            "fiscalCounterValue": 9.9
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 11104.26
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 15,
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterValue": 1448
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 0,
+            "fiscalCounterTaxID": 6,
+            "fiscalCounterValue": 27479.97
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 21,
+            "fiscalCounterValue": 6640
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxPercent": 10,
+            "fiscalCounterTaxID": 21,
+            "fiscalCounterValue": 603.62
+          },
+          {
+            "fiscalCounterType": "BalanceByMoneyType",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterMoneyType": "Cash",
+            "fiscalCounterValue": 51807.1
+          }
+        ],
+        "lastReceiptGlobalNo": 123,
+        "lastFiscalDayNo": 3,
+        "fiscalDayDocumentQuantities": [
+          {
+            "receiptType": "Receipt",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 1,
+            "receiptTotalAmount": 115
+          },
+          {
+            "receiptType": "CreditNote",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 2,
+            "receiptTotalAmount": 0
+          },
+          {
+            "receiptType": "FiscalInvoice",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 84,
+            "receiptTotalAmount": 51634.6
+          },
+          {
+            "receiptType": "DebitNote",
+            "receiptCurrency": "LSL",
+            "receiptQuantity": 1,
+            "receiptTotalAmount": 57.5
+          }
+        ],
+        "operationID": "0HNP4COMTKTOK:00000063"
+      },
+      "summary": {
+        "fiscalDayStatus": "FiscalDayClosed",
+        "lastFiscalDayNo": 3,
+        "lastReceiptGlobalNo": 123
+      }
+    },
+    {
+      "id": "TC-009",
+      "title": "Ping gateway",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:04.710Z",
+      "durationMs": 162,
+      "response": {
+        "reportingFrequency": 5,
+        "operationID": "0HNP4COMTKTN3:00000070"
+      },
+      "summary": {
+        "operationID": "0HNP4COMTKTN3:00000070"
+      }
+    },
+    {
+      "id": "TC-008",
+      "title": "Open fiscal day",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:04.872Z",
+      "durationMs": 716,
+      "request": {
+        "fiscalDayOpened": "2026-10-21T09:19:04",
+        "fiscalDayNo": 4
+      },
+      "response": {
+        "openDay": {
+          "fiscalDayNo": 4,
+          "operationID": "0HNP9ABGIFN7T:00000061"
+        },
+        "status": {
+          "fiscalDayStatus": "FiscalDayOpened",
+          "lastReceiptGlobalNo": 123,
+          "lastFiscalDayNo": 4,
+          "operationID": "0HNP9ABGIFNBQ:00000036"
+        }
+      },
+      "summary": {
+        "fiscalDayNo": 4,
+        "fiscalDayDate": "2026-10-21",
+        "fiscalDayStatus": "FiscalDayOpened",
+        "openingGlobalNo": 124
+      }
+    },
+    {
+      "id": "TC-001",
+      "title": "Device registration",
+      "status": "skipped",
+      "startedAt": "2026-10-21T07:19:05.589Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded by request"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "title": "Taxpayer information verification",
+      "status": "skipped",
+      "startedAt": "2026-10-21T07:19:05.589Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded by request"
+      ]
+    },
+    {
+      "id": "TC-010",
+      "title": "Submit Receipt",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:05.589Z",
+      "durationMs": 884,
+      "request": {
+        "receiptType": "Receipt",
+        "receiptCounter": 1,
+        "receiptGlobalNo": 124,
+        "invoiceNo": "LS-UAT-TC-010",
+        "receiptDate": "2026-10-21T09:19:06",
+        "receiptTotal": 115,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 7,
+            "taxType": "VAT",
+            "taxRate": 15,
+            "taxAmount": 15,
+            "salesAmountWithTax": 115
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 115
+          }
+        ],
+        "hasBuyerData": false,
+        "receiptDeviceSignatureHash": "B9E/5ihatiU5X94ltkmGLHPcBJ4NgtMNMwBKBEZBYTM="
+      },
+      "response": {
+        "receiptID": 30584,
+        "serverDate": "2026-10-21T09:19:06",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "yYehOUiNLKxtiUHtURfTsb/hV8hQHnH8b9uq8ZeoGOo=",
+          "signature": "EaexGCZy+vrTw5kF61EqfJRUfH0JDkbI0s1FUnC8kOmnGJxxmAC27BbQT+Q4d5M8nvwY+Z597S9SQogaCGpW5qxbZDugYOou1I0kmDPsgDRrPbqrXiyAevRqcRI9QZBp+xtBRpIhOrY4eCfI3rt3uL0KhJM/XhastrA43Xa5G6bLo1D3UQfHjea1HwqBtcnj999cEgjeiSLaulZc4/6RERnXkcP1afz/vnGNF1yR6ORKs+RcwOUus0RND/58G++9OOiBMz7F6Pjks3wklu0ZjRzCGzIq4q4NNvgbJ6itqJuzAtaYXDDuahMImRT7Fupwjy4boy5WvoG2iFllP8gYJg=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP4COMTKTSD:00000043"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 1,
+        "receiptGlobalNo": 124,
+        "receiptTotal": 115,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-011",
+      "title": "Submit FiscalInvoice",
+      "status": "fail",
+      "startedAt": "2026-10-21T07:19:06.473Z",
+      "durationMs": 7,
+      "error": {
+        "message": "TC TC-011 total mismatch: expected 115.00, prepared 57.50"
+      }
+    },
+    {
+      "id": "TC-012",
+      "title": "Submit CreditNote",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:06.481Z",
+      "durationMs": 217,
+      "request": {
+        "receiptType": "CreditNote",
+        "receiptCounter": 2,
+        "receiptGlobalNo": 125,
+        "invoiceNo": "LS-UAT-TC-012",
+        "receiptDate": "2026-10-21T09:19:08",
+        "receiptTotal": -115,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 7,
+            "taxType": "VAT",
+            "taxRate": 15,
+            "taxAmount": -15,
+            "salesAmountWithTax": -115
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": -115
+          }
+        ],
+        "hasBuyerData": true,
+        "creditDebitNote": {
+          "deviceID": 812,
+          "receiptGlobalNo": 124,
+          "fiscalDayNo": 4
+        },
+        "receiptNotes": "UAT credit note for TC-010",
+        "receiptDeviceSignatureHash": "nRYP7KFppoe4F4l95KwUngR0x3OC4BTO3iELQKSdpL0="
+      },
+      "response": {
+        "receiptID": 30585,
+        "serverDate": "2026-10-21T09:19:06",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "dVnxm4jERSdyuTDhggikMJKiQiZDSnnrt9O4OksmcSo=",
+          "signature": "XRlXgiTVLQZDiEEBl5oPz+Y6S8dGjYhm31EMuvsAsBZKUsXQPRPtOa/BnrIVjC9CboJtZks0HcYfHVCCq1KZNzq5ezvktv4OP+tDqOCrE6TwsXQ35dhd50k2FmCvoWHZg3QtaxbNGmthb5RhnVNNiL6tVBhKRM4jhhrHwWLOHKp/YbkxSECydRyGLbjKEoT7jxNed3G9eJuynPfkpR9bKcPf7VdINJsHl4YJTVm+oTwk0nSzZqfBASJSiwgX/83Qpui6j+pMeNnmKqt9g6LYNuVe7vmtX0/3BmI7+fUf0Xis2/J9LnSeAysxqBPXt8J1dm+N3jYGDW1vg2cXR6GXYA=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP4COMTKTHN:00000089"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 2,
+        "receiptGlobalNo": 125,
+        "receiptTotal": -115,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-013",
+      "title": "Submit FiscalInvoice with discount",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:06.698Z",
+      "durationMs": 266,
+      "request": {
+        "receiptType": "FiscalInvoice",
+        "receiptCounter": 3,
+        "receiptGlobalNo": 126,
+        "invoiceNo": "LS-UAT-TC-013",
+        "receiptDate": "2026-10-21T09:19:09",
+        "receiptTotal": 103.5,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 2,
+        "receiptTaxes": [
+          {
+            "taxID": 7,
+            "taxType": "VAT",
+            "taxRate": 15,
+            "taxAmount": 13.5,
+            "salesAmountWithTax": 103.5
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 103.5
+          }
+        ],
+        "hasBuyerData": true,
+        "receiptDeviceSignatureHash": "OjHXp9mChrH6l47MGHHp3ZtIZhlwC6FEdqgs8xgpshU="
+      },
+      "response": {
+        "receiptID": 30573,
+        "serverDate": "2026-10-21T09:19:06",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "BXEY6WGtRkkULRFvEofebPQ/KWrP1Th6RcZfhANeM9c=",
+          "signature": "XUEs2lii5I6FrzoW1FtfACpCwgQPykIqwG5eY/qaiOH1Ws/JuyY9o0AG5qLRJ6W0nIQSRhWxI1YVHIJORan+gQgeJjCTCKtPojr5OBZXpIst5gm15Ivdy7KVhQuAlSt5TyOVKgeibEEWuGV+bFAuVN4hjswN1muG1Vj25sqWYJqUee8kn9sD9aol20WIlO4VeD+Y8MApMzlLgdqyTIMo3Sj5bBHVClvwepTBF3Mqq5e9bLeHWXi6RpbCcBiqb5hbM9Lq2HJv6nKykwnJ8Oi5m7wlThgjMX3YGCjOvunWXpef5ZnVnBhexqfM/VN8EGdkNeRFPwSY0513E4PVyjrGQA=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP9ABGIFMU8:00000095"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 3,
+        "receiptGlobalNo": 126,
+        "receiptTotal": 103.5,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-014",
+      "title": "Submit DebitNote",
+      "status": "fail",
+      "startedAt": "2026-10-21T07:19:06.964Z",
+      "durationMs": 0,
+      "error": {
+        "message": "Original TC-011 invoice is required for the debit note"
+      }
+    },
+    {
+      "id": "TC-015",
+      "title": "Submit VAT at 15%",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:06.964Z",
+      "durationMs": 292,
+      "request": {
+        "receiptType": "FiscalInvoice",
+        "receiptCounter": 4,
+        "receiptGlobalNo": 127,
+        "invoiceNo": "LS-UAT-TC-015",
+        "receiptDate": "2026-10-21T09:19:10",
+        "receiptTotal": 57.5,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 7,
+            "taxType": "VAT",
+            "taxRate": 15,
+            "taxAmount": 7.5,
+            "salesAmountWithTax": 57.5
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 57.5
+          }
+        ],
+        "hasBuyerData": true,
+        "receiptDeviceSignatureHash": "GPr89leK0jZrQOX6h6xV4vm0CtRg1siVG91g47jiFZg="
+      },
+      "response": {
+        "receiptID": 30574,
+        "serverDate": "2026-10-21T09:19:07",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "qvT5LaiTA9JBalZBAX3JXTcb1IbznEepe3I7Z/lNyrU=",
+          "signature": "F65jo20WEne2kjOIaPg3hVxcoMwIPyRSZ9wGOlyEByFwQHAy3wfpdhhgn4g5niaE4WbGLf/+Wc7o39dthhb1+7fk9s8L/MvjFr7LfDBvsiwZuTLgoZXFj6AnFO2381tMNKswXBkScwep4PH0UswRw4Fp9hP4wEFeEL6uS6HlrIaybyXCvylo1hHsb9tXmtkb873vJJTtsfvC/yrLD1F5rEYyVzY1HmaELkKYjwVpW6+z/oPD86pScb4LJR+Hyl0sfuguicTCtNDIzgGpAoY+M++Qf7kR+M2vAS+6m7QNZd8/wUndRiqWtAzqgZnIk0sLsNltXMzihPYKULV7sCs1Kw=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP9ABGIFNGJ:0000000D"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 4,
+        "receiptGlobalNo": 127,
+        "receiptTotal": 57.5,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-016",
+      "title": "Submit VAT at 10%",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:07.256Z",
+      "durationMs": 251,
+      "request": {
+        "receiptType": "FiscalInvoice",
+        "receiptCounter": 5,
+        "receiptGlobalNo": 128,
+        "invoiceNo": "LS-UAT-TC-016",
+        "receiptDate": "2026-10-21T09:19:12",
+        "receiptTotal": 220,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 21,
+            "taxType": "VAT",
+            "taxRate": 10,
+            "taxAmount": 20,
+            "salesAmountWithTax": 220
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 220
+          }
+        ],
+        "hasBuyerData": true,
+        "receiptDeviceSignatureHash": "lbDIXg/U+3bQVGt9YRSNXHQLeCJO5rjojfOUs0ZmB0o="
+      },
+      "response": {
+        "receiptID": 30575,
+        "serverDate": "2026-10-21T09:19:07",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "hAUKo/YzBkJfgh4ezZ93NPkFRTL3lBHvjl+5pUrS0ZY=",
+          "signature": "u/VqLV+1QkHC9l3MLvXxBpFc8QLMGYbHzVuU6AyAsIOBjGT1wSuXiPqCb08TXuWUQDC9pwpCZY5Z7x6Ng/ucPaqVUZeaNvwtsQo59BtOA6ehkYy3pq1JO5vxMe3fbNFTitRrEL79E2enlWws42RTy2R4FKtnDT33I38vgnG98bLM8LKrTeo1p/d1wrM+RyBfSUetEu74GF0WVLBLa4ECc5KfABoRIOiQDuipQoCYnu7SVGaW9InnlnBWD/Tv44Yem3UOW33HxoUKyDMQfCnNesk4tDdaZbDLaLM1zDh3cXSio2QSt5OmY5rqklckLz07tiMtQGsKLTy58in4G78LSA=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP9ABGIFMSE:000000AF"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 5,
+        "receiptGlobalNo": 128,
+        "receiptTotal": 220,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-017",
+      "title": "Submit VAT at 0%",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:07.507Z",
+      "durationMs": 3213,
+      "request": {
+        "receiptType": "FiscalInvoice",
+        "receiptCounter": 6,
+        "receiptGlobalNo": 129,
+        "invoiceNo": "LS-UAT-TC-017",
+        "receiptDate": "2026-10-21T09:19:13",
+        "receiptTotal": 300,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 6,
+            "taxType": "NonVAT",
+            "taxRate": 0,
+            "taxAmount": 0,
+            "salesAmountWithTax": 300
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 300
+          }
+        ],
+        "hasBuyerData": true,
+        "receiptDeviceSignatureHash": "RtZVsqoUXGUERYiBQBtXVdtwsw+v13Msb3g5GmrjLW4="
+      },
+      "response": {
+        "receiptID": 30586,
+        "serverDate": "2026-10-21T09:19:10",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "pzKrvaTrXLnjHWHBbHQEEzwjXNI1sUXg76vay+lFet8=",
+          "signature": "WfWZDH/3xj6PJ/VpR52VRgA+WnaJ5Htj9anBjxiwSKYwxWC5ojZzwMicZSkwDCl++4neABC5IoJ9hnsoSGGtmdfIw100GmspI0TBoyAtTiSDCbe3sfidRS8JGgveTVBV/J5vSs62ONX8AV/f61VAuxlDxErs6HO404zkkGoFAxBfYBT5rXJocFo4BbcdMtZ0RMPa/GB0Ts/tQjUiv5cO3O0Sv/a9MHOy3XeBjLHUCx1+hNPYr4aT71rl0MeNcC+nQ3UpsQoTsJadoWhzxhWKV2tmQFLFDxzKdXkEaYmvRUxWxCDe2SVnQ+aocOq+x2l/o8Xa8La5z/txt7jFAXV6Dw=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP4COMTKTHN:0000008A"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 6,
+        "receiptGlobalNo": 129,
+        "receiptTotal": 300,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-018",
+      "title": "Submit 20% levy with 15% VAT",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:10.720Z",
+      "durationMs": 264,
+      "request": {
+        "receiptType": "FiscalInvoice",
+        "receiptCounter": 7,
+        "receiptGlobalNo": 130,
+        "invoiceNo": "LS-UAT-TC-018",
+        "receiptDate": "2026-10-21T09:19:17",
+        "receiptTotal": 540,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 7,
+            "taxType": "VAT",
+            "taxRate": 15,
+            "taxAmount": 60,
+            "salesAmountWithTax": 460
+          },
+          {
+            "taxID": 82,
+            "taxType": "PercentageLevy",
+            "taxRate": 20,
+            "taxAmount": 80,
+            "salesAmountWithTax": 480
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 540
+          }
+        ],
+        "hasBuyerData": true,
+        "receiptDeviceSignatureHash": "dC5kwaYCUc1U3bEw/l0TKItQJACb+vngORdPA0XYci8="
+      },
+      "response": {
+        "receiptID": 30587,
+        "serverDate": "2026-10-21T09:19:10",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "DrljAUgaxXmZPaDiaeZJHCCpjYj3vr0UOWVEyN2wQMs=",
+          "signature": "XSaKW4E1LySYrOjGM2aA1xmzZlhHdUFtWYAs6uX8ab4WgIwXrWjjbwRDmxLOrNe5oM+RUdVZL6FBPdtkASZ3rv2mVvtapdlFg+Hpe/TxHFZsU6TjpKzG7wGbzD0NLgLKccikW70TCfJH0LMLTApqkMJsPCI65OezLSN8sP3Pxpz6q7cce4ecbaS0KraJoyAtm1peIS32Ys5h3XBd67tJMny9nFAAMXWsTOiI5dwkk183PEcnT/FL+e9hteTYbP9NYJwWqOagz3fbk5fZvopSflN6MlhLVGcojO02zMKrBogrRUKOTNb75v3Mhhx3OtzY89RAz43NuF+H9cdsKmumjQ=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP4COMTKTMM:0000006F"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 7,
+        "receiptGlobalNo": 130,
+        "receiptTotal": 540,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-019",
+      "title": "Submit 10% levy with 15% VAT",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:10.984Z",
+      "durationMs": 366,
+      "request": {
+        "receiptType": "FiscalInvoice",
+        "receiptCounter": 8,
+        "receiptGlobalNo": 131,
+        "invoiceNo": "LS-UAT-TC-019",
+        "receiptDate": "2026-10-21T09:19:18",
+        "receiptTotal": 625,
+        "receiptLinesTaxInclusive": false,
+        "lineCount": 1,
+        "receiptTaxes": [
+          {
+            "taxID": 7,
+            "taxType": "VAT",
+            "taxRate": 15,
+            "taxAmount": 75,
+            "salesAmountWithTax": 575
+          },
+          {
+            "taxID": 81,
+            "taxType": "PercentageLevy",
+            "taxRate": 10,
+            "taxAmount": 50,
+            "salesAmountWithTax": 550
+          }
+        ],
+        "receiptPayments": [
+          {
+            "moneyTypeCode": "Cash",
+            "paymentAmount": 625
+          }
+        ],
+        "hasBuyerData": true,
+        "receiptDeviceSignatureHash": "eafJye5nhmbxoOXLp+x709JXzji59MttwAsZXagw6d0="
+      },
+      "response": {
+        "receiptID": 30588,
+        "serverDate": "2026-10-21T09:19:11",
+        "receiptServerSignature": {
+          "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+          "hash": "5NSW3Ta23AQ97pAa2zgIb1NImJx8TT9HA7DopGsdLg0=",
+          "signature": "kfaviMuhn157teVsA/m39TLXz047aWKoy1SWbLpyN3t8lc3HnEibOvbej/U+7drYTdo+eBh9DmAlaxikliB7MFZ39eZdfxoU1jmydOLuNYH9Y1x+hN42n2/x4SeAqyNyJvqril0oIXxPATvoMzprbsHONsKOLy8nHyHR2e0qUikgforgcibM5pSgRDjeviG6/wNszdYb6vu87/a/qC0ykz1Rnz7l31zov13lM2sJhlO9DuqvhMCDbmqBzWQOhfJOECMptQgfJk4hocxYk6BVKiZYRqcYwLYNo/gsnTdwffMDtHOyYiyBSGD9iPvpVNN1MldDPASuydznznsFt1/51Q=="
+        },
+        "validationErrors": [],
+        "operationID": "0HNP4COMTKTTA:00000032"
+      },
+      "validationErrors": [],
+      "summary": {
+        "receiptCounter": 8,
+        "receiptGlobalNo": 131,
+        "receiptTotal": 625,
+        "validationErrors": 0
+      }
+    },
+    {
+      "id": "TC-020",
+      "title": "Submit fixed plastic levy",
+      "status": "fail",
+      "startedAt": "2026-10-21T07:19:11.350Z",
+      "durationMs": 12,
+      "error": {
+        "message": "TC TC-020 total mismatch: expected 11.80, prepared 6.80"
+      }
+    },
+    {
+      "id": "TC-021",
+      "title": "Close fiscal day",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:11.362Z",
+      "durationMs": 7343,
+      "request": {
+        "fiscalDayNo": 4,
+        "fiscalDayDate": "2026-10-21",
+        "receiptCounter": 8,
+        "counters": [
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterTaxRate": 15,
+            "fiscalCounterValue": 1311
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterTaxRate": 15,
+            "fiscalCounterValue": 171
+          },
+          {
+            "fiscalCounterType": "BalanceByMoneyType",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterMoneyType": "Cash",
+            "fiscalCounterValue": 1846
+          },
+          {
+            "fiscalCounterType": "CreditNoteByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterTaxRate": 15,
+            "fiscalCounterValue": -115
+          },
+          {
+            "fiscalCounterType": "CreditNoteTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 7,
+            "fiscalCounterTaxRate": 15,
+            "fiscalCounterValue": -15
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 21,
+            "fiscalCounterTaxRate": 10,
+            "fiscalCounterValue": 220
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 21,
+            "fiscalCounterTaxRate": 10,
+            "fiscalCounterValue": 20
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 6,
+            "fiscalCounterTaxRate": 0,
+            "fiscalCounterValue": 300
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 82,
+            "fiscalCounterTaxRate": 20,
+            "fiscalCounterValue": 480
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 82,
+            "fiscalCounterTaxRate": 20,
+            "fiscalCounterValue": 80
+          },
+          {
+            "fiscalCounterType": "SaleByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 81,
+            "fiscalCounterTaxRate": 10,
+            "fiscalCounterValue": 550
+          },
+          {
+            "fiscalCounterType": "SaleTaxByTax",
+            "fiscalCounterCurrency": "LSL",
+            "fiscalCounterTaxID": 81,
+            "fiscalCounterTaxRate": 10,
+            "fiscalCounterValue": 50
+          }
+        ]
+      },
+      "response": {
+        "closeDay": {
+          "operationID": "0HNP4COMTKTQ2:00000053"
+        },
+        "status": {
+          "fiscalDayStatus": "FiscalDayClosed",
+          "fiscalDayReconciliationMode": "Auto",
+          "fiscalDayServerSignature": {
+            "certificateThumbprint": "4F0FA4141336EC6A92518EBDF1907CE65C4B5AF0",
+            "hash": "wKeIchsqIt2m0tKkCAiROKHPRYMPap1V6RTl96m5uwM=",
+            "signature": "mCmFji61ZO83Eq1EjOmP5v8w55Qsu0wfGZ95AszvJ+QWKkIQQD2f9MzoYu2abxwajzoZIYtwTH2kaGrZAIz40vV2MAdc11powcfN+qXQD2A1e2YXOtV8X/TZVrIG/aRm3yKQtbzU/GpJIO/xfCSGYzGggFQwFQ8uL56c1t4BeVuuxAcRtdEzPia2kEQVkak+eWjSfZN2FqDeebug828bvfwUNdtv3cL8tuanKbh6BgTP3u75MQ00VN7fXNYpsBqSOPGrPGE92dZBsOAntKcuxi6esuLViGrNy5P0JqP8jUhLibwXmlOPBum21OFKcFULjLsuNbZ8IFBcfT2/L99CHA=="
+          },
+          "fiscalDayClosed": "2026-10-21T09:19:15",
+          "lastReceiptGlobalNo": 131,
+          "lastFiscalDayNo": 4,
+          "operationID": "0HNP9ABGIFN7T:00000062"
+        }
+      },
+      "summary": {
+        "fiscalDayNo": 4,
+        "receiptCounter": 8,
+        "counters": 12,
+        "fiscalDayStatus": "FiscalDayClosed"
+      }
+    },
+    {
+      "id": "TC-004",
+      "title": "Issue new security certificate",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:18.705Z",
+      "durationMs": 5386,
+      "request": {
+        "certificateRequestSubject": "RSL-SN-0004-0000000812",
+        "twoStepsProcess": true
+      },
+      "response": {
+        "operationID": "0HNP9ABGIFNGJ:0000000E",
+        "certificate": {
+          "subject": "C=LS\nST=Lesotho\nO=Revenue Services Lesotho\nCN=RSL-SN-0004-0000000812",
+          "issuer": "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Certificate Issuer",
+          "validFrom": "Oct 21 07:19:23 2026 GMT",
+          "validTo": "Oct 21 07:19:23 2029 GMT",
+          "thumbprintHex": "61ACAFFCC71BBF4F1498458C236B32AF88DB1A06"
+        }
+      },
+      "summary": {
+        "operationID": "0HNP9ABGIFNGJ:0000000E",
+        "validTo": "Oct 21 07:19:23 2029 GMT",
+        "thumbprintHex": "61ACAFFCC71BBF4F1498458C236B32AF88DB1A06"
+      }
+    },
+    {
+      "id": "TC-006",
+      "title": "Confirm new security certificate",
+      "status": "pass",
+      "startedAt": "2026-10-21T07:19:24.091Z",
+      "durationMs": 6988,
+      "response": {
+        "confirm": {
+          "operationID": "0HNP9ABGIFMU8:00000097"
+        },
+        "verifiedStatus": {
+          "fiscalDayStatus": "FiscalDayClosed",
+          "lastFiscalDayNo": 4,
+          "lastReceiptGlobalNo": 131
+        }
+      },
+      "summary": {
+        "operationID": "0HNP9ABGIFMU8:00000097",
+        "thumbprintEncoding": "hex-upper",
+        "newThumbprintHex": "61ACAFFCC71BBF4F1498458C236B32AF88DB1A06",
+        "postConfirmStatus": "FiscalDayClosed"
+      }
+    }
+  ],
+  "summary": {
+    "total": 21,
+    "pass": 16,
+    "fail": 3,
+    "blocked": 0,
+    "skipped": 2,
+    "byId": [
+      {
+        "id": "TC-003",
+        "status": "pass"
+      },
+      {
+        "id": "TC-005",
+        "status": "pass"
+      },
+      {
+        "id": "TC-007",
+        "status": "pass"
+      },
+      {
+        "id": "TC-009",
+        "status": "pass"
+      },
+      {
+        "id": "TC-008",
+        "status": "pass"
+      },
+      {
+        "id": "TC-001",
+        "status": "skipped"
+      },
+      {
+        "id": "TC-002",
+        "status": "skipped"
+      },
+      {
+        "id": "TC-010",
+        "status": "pass"
+      },
+      {
+        "id": "TC-011",
+        "status": "fail"
+      },
+      {
+        "id": "TC-012",
+        "status": "pass"
+      },
+      {
+        "id": "TC-013",
+        "status": "pass"
+      },
+      {
+        "id": "TC-014",
+        "status": "fail"
+      },
+      {
+        "id": "TC-015",
+        "status": "pass"
+      },
+      {
+        "id": "TC-016",
+        "status": "pass"
+      },
+      {
+        "id": "TC-017",
+        "status": "pass"
+      },
+      {
+        "id": "TC-018",
+        "status": "pass"
+      },
+      {
+        "id": "TC-019",
+        "status": "pass"
+      },
+      {
+        "id": "TC-020",
+        "status": "fail"
+      },
+      {
+        "id": "TC-021",
+        "status": "pass"
+      },
+      {
+        "id": "TC-004",
+        "status": "pass"
+      },
+      {
+        "id": "TC-006",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-21T07:19:31.079Z"
+}

@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "prefabPath": "/home/emmanuel/.gradle/caches/modules-2/files-2.1/com.google.prefab/cli/2.1.0/aa32fec809c44fa531f01dcfb739b5b3304d3050/cli-2.1.0-all.jar",
+  "packages": [
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-nitro-modules/android/build/intermediates/prefab_package/release/prefab",
+    "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab",
+    "/home/emmanuel/.gradle/caches/9.3.1/transforms/3489f64a8ff9846b9797a8da52eeecde/transformed/hermes-android-250829098.0.17-release/prefab",
+    "/home/emmanuel/.gradle/caches/9.3.1/transforms/fedb7f356f76c77e418b31de4c23d70a/transformed/fbjni-0.7.0/prefab"
+  ]
+}

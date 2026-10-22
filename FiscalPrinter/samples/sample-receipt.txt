@@ -1,0 +1,10 @@
+INVOICE: INV-DEMO-1001
+CURRENCY: USD
+PAYMENT: CASH
+CUSTOMER: Walk-in Customer
+---
+ITEM | QTY | PRICE | TAX
+Demo Bread | 2 | 1.50 | STANDARD
+Demo Milk | 1 | 2.00 | STANDARD
+---
+TOTAL: 5.00

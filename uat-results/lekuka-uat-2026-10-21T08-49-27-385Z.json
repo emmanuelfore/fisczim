@@ -1,0 +1,125 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261021084925317",
+  "dryRun": true,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-21T08:49:27.025Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNP9ABGIFOJ8:0000000B"
+  },
+  "results": [
+    {
+      "id": "TC-005",
+      "title": "Get device configuration",
+      "status": "pass",
+      "startedAt": "2026-10-21T08:49:27.215Z",
+      "durationMs": 168,
+      "response": {
+        "operationID": "0HNP9ABGIFO3I:000000A0",
+        "applicableTaxes": [
+          {
+            "taxRate": 10,
+            "taxName": "Alcohol",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 81,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 20,
+            "taxName": "Tobacco",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 82,
+            "taxType": "PercentageLevy"
+          },
+          {
+            "taxRate": 0.9,
+            "taxName": "Plastic Levy",
+            "validFrom": "2024-12-01T00:00:00",
+            "taxID": 83,
+            "taxType": "FixedValueLevy"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 1,
+            "taxType": "VAT"
+          },
+          {
+            "taxName": "Exempt",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 4,
+            "taxType": "Exempt"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 6,
+            "taxType": "NonVAT"
+          },
+          {
+            "taxRate": 15,
+            "taxName": "15% VAT (Goods)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 7,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "10% VAT",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 21,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 10,
+            "taxName": "Withholding Tax (Resident)",
+            "validFrom": "2025-08-01T00:00:00",
+            "taxID": 101,
+            "taxType": "VAT"
+          },
+          {
+            "taxRate": 0,
+            "taxName": "0% VAT (Services)",
+            "validFrom": "2024-01-01T00:00:00",
+            "taxID": 121,
+            "taxType": "NonVAT"
+          }
+        ],
+        "deviceOperatingMode": "Online"
+      },
+      "summary": {
+        "taxCount": 10,
+        "deviceOperatingMode": "Online"
+      }
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "pass": 1,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "byId": [
+      {
+        "id": "TC-005",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-21T08:49:27.384Z"
+}

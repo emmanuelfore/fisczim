@@ -1,0 +1,47 @@
+{
+  "name": "fiscal-printer",
+  "version": "0.1.0",
+  "description": "FiscalPrinter — local virtual-print app: fiscalize then print QR receipt on a local printer",
+  "author": "Fiscal Stack",
+  "license": "MIT",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "bin": {
+    "fiscal-printer": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "electron .",
+    "app": "electron .",
+    "watch": "node src/cli.js watch",
+    "process": "node src/cli.js process",
+    "test:sample": "node src/cli.js process ./samples/sample-invoice.json",
+    "test:pos": "node src/cli.js process ./samples/sample-pos-receipt.txt",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.fiscalstack.fiscalprinter",
+    "productName": "FiscalPrinter",
+    "directories": { "output": "dist" },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "config.example.json",
+      "package.json"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "linux": {
+      "target": ["AppImage"]
+    }
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.8.1"
+  }
+}

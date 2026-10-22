@@ -1,0 +1,4 @@
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/Debug/2y1uo3v6/arm64-v8a/CMakeFiles/_CMakeLTOTest-CXX/bin/CMakeFiles/foo.dir
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/Debug/2y1uo3v6/arm64-v8a/CMakeFiles/_CMakeLTOTest-CXX/bin/CMakeFiles/boo.dir
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/Debug/2y1uo3v6/arm64-v8a/CMakeFiles/_CMakeLTOTest-CXX/bin/CMakeFiles/edit_cache.dir
+/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/Debug/2y1uo3v6/arm64-v8a/CMakeFiles/_CMakeLTOTest-CXX/bin/CMakeFiles/rebuild_cache.dir

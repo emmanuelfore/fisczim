@@ -1,0 +1,116 @@
+{
+  "buildFiles": [
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@hendrysetiadi/react-native-sunmi-printer/android/generated/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@react-native-community/datetimepicker/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/@react-native-community/netinfo/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-gesture-handler/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-nitro-modules/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-base64/android/generated/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-quick-crypto/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-svg/android/src/main/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native-webview/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/node_modules/react-native/ReactAndroid/cmake-utils/default-app-setup/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/emmanuel/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/RelWithDebInfo/156nt136/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/emmanuel/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/RelWithDebInfo/156nt136/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "react_codegen_safeareacontext::@7984cd80db47aa7b952a": {
+      "artifactName": "react_codegen_safeareacontext",
+      "abi": "x86_64",
+      "output": "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/156nt136/obj/x86_64/libreact_codegen_safeareacontext.so",
+      "runtimeFiles": [
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/fedb7f356f76c77e418b31de4c23d70a/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
+      ]
+    },
+    "react_codegen_rngesturehandler_codegen::@39f233abcd2c728bc6ec": {
+      "artifactName": "react_codegen_rngesturehandler_codegen",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react_codegen_QuickBase64Spec::@c10d6c8dd21476b871bf": {
+      "artifactName": "react_codegen_QuickBase64Spec",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react_codegen_RNCWebViewSpec::@eb48929f9f7453740a6c": {
+      "artifactName": "react_codegen_RNCWebViewSpec",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react_codegen_RNDateTimePickerCGen::@59b70ddc31ba2f8ef1d2": {
+      "artifactName": "react_codegen_RNDateTimePickerCGen",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "appmodules::@6890427a1f51a3e7e1df": {
+      "artifactName": "appmodules",
+      "abi": "x86_64",
+      "output": "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/156nt136/obj/x86_64/libappmodules.so",
+      "runtimeFiles": [
+        "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/156nt136/obj/x86_64/libreact_codegen_safeareacontext.so",
+        "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/156nt136/obj/x86_64/libreact_codegen_rnsvg.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/fedb7f356f76c77e418b31de4c23d70a/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
+      ]
+    },
+    "react_codegen_rnsvg::@4f40eb209d0c0b4a3b65": {
+      "artifactName": "react_codegen_rnsvg",
+      "abi": "x86_64",
+      "output": "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/build/intermediates/cxx/RelWithDebInfo/156nt136/obj/x86_64/libreact_codegen_rnsvg.so",
+      "runtimeFiles": [
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/a3ba18761cd29efe9d39b9dff50f654e/transformed/react-android-0.86.3-release/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/home/emmanuel/.gradle/caches/9.3.1/transforms/fedb7f356f76c77e418b31de4c23d70a/transformed/fbjni-0.7.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so"
+      ]
+    },
+    "react_codegen_RNCNetInfoSpec::@c36c96bfd5b5770618a5": {
+      "artifactName": "react_codegen_RNCNetInfoSpec",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react_codegen_RNSunmiPrinterSpec::@e354c9c50f1441abffa6": {
+      "artifactName": "react_codegen_RNSunmiPrinterSpec",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react-native-quick-base64::@e7fbd610d6131b198d81": {
+      "artifactName": "react-native-quick-base64",
+      "abi": "x86_64",
+      "output": "/home/emmanuel/Documents/PROJECTS/fisczim/mobile/android/app/.cxx/RelWithDebInfo/156nt136/x86_64/QuickBase64Spec_cxxmodule_autolinked_build/libreact-native-quick-base64.a",
+      "runtimeFiles": []
+    },
+    "react_codegen_rnasyncstorage::@1596841e19ec5b9eeffe": {
+      "artifactName": "react_codegen_rnasyncstorage",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react_codegen_NitroModulesSpec::@472a82f9c57d3d3b8644": {
+      "artifactName": "react_codegen_NitroModulesSpec",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    },
+    "react_codegen_QuickCrypto::@879f60a130e8dc86e983": {
+      "artifactName": "react_codegen_QuickCrypto",
+      "abi": "x86_64",
+      "runtimeFiles": []
+    }
+  }
+}

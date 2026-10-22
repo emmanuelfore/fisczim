@@ -1,2 +1,0 @@
--- This migration is a no-op. Migrations 0067 and 0068 now create the
--- correct column names directly. No column renames are needed.

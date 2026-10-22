@@ -40,27 +40,9 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
-// The desktop POS loads its bundled UI from an ephemeral loopback origin
-// (http://127.0.0.1:<random-port>) and calls this API cross-origin, so allow
-// any loopback origin regardless of port. Loopback origins can't be reached
-// from a remote machine, so this does not widen the public attack surface.
-const mainFiscalOrigin = /^https:\/\/(fiscalstack\.co\.zw|www\.fiscalstack\.co\.zw)(\/|$)/i;
-const lekukaOrigin = /^https:\/\/(fiscalstack\.co\.ls|www\.fiscalstack\.co\.ls|fiscalzone\.co\.zw|www\.fiscalzone\.co\.zw)(\/|$)/i;
-const loopbackOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
-const zohoOrigin = /^https:\/\/([a-z0-9-]+\.)*(zoho\.(com|eu|in|com\.au|jp|com\.cn)|zohocloud\.ca|zohocdn\.com)$/i;
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (
-      process.env.NODE_ENV === "development" ||
-      !origin ||
-      allowedOrigins.includes(origin) ||
-      loopbackOrigin.test(origin) ||
-      zohoOrigin.test(origin) ||
-      mainFiscalOrigin.test(origin) ||
-      lekukaOrigin.test(origin) ||
-      origin.endsWith(".zappsusercontent.com")
-    ) {
+    if (process.env.NODE_ENV === "development" || !origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));

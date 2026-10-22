@@ -299,7 +299,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       URL.revokeObjectURL(url);
       toast({
         title: "Script Download Ready",
-        description: `The ${fa.authorityShortName} workbook includes embedded sample PDFs.`,
+        description: `The ${fa.authorityShortName} workbook lists your fiscalized invoices, credit notes and debit notes.`,
         className: "bg-green-100 text-green-900",
       });
     },

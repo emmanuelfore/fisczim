@@ -1,1 +1,0 @@
-ALTER TABLE "companies" ALTER COLUMN "tin" DROP NOT NULL;

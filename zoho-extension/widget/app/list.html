@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>FiscalStack invoice list</title>
+    <script src="https://static.zohocdn.com/zohofinance/v1.0/zf_sdk.js"></script>
+    <style>
+      body { margin: 0; color: #24364b; font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      main { padding: 12px; } h1 { font-size: 14px; margin: 0 0 8px; } .summary { color: #526477; margin-bottom: 10px; }
+      ul { list-style: none; margin: 0; padding: 0; } li { border-top: 1px solid #e5edf4; padding: 8px 0; }
+      .name { display: block; font-weight: 600; } .badge { border-radius: 999px; display: inline-block; font-size: 11px; margin-top: 3px; padding: 2px 7px; }
+      .yes { background: #e8f8ee; color: #12623b; } .no { background: #fff3da; color: #835d00; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>FiscalStack status</h1>
+      <div id="summary" class="summary">Loading invoice statuses…</div>
+      <ul id="invoices"></ul>
+    </main>
+    <script>
+      const summary = document.getElementById('summary');
+      const list = document.getElementById('invoices');
+      const receipt = (invoice) => (invoice.custom_fields || []).find((field) => field.api_name === 'cf_fiscal_receipt_number')?.value || '';
+      window.onload = () => ZFAPPS.extension.init().then(async () => {
+        try {
+          const response = await ZFAPPS.get('invoices');
+          const invoices = response?.invoices || [];
+          const complete = invoices.filter((invoice) => receipt(invoice)).length;
+          summary.textContent = `${complete} of ${invoices.length} listed invoice${invoices.length === 1 ? '' : 's'} fiscalised`;
+          invoices.forEach((invoice) => {
+            const li = document.createElement('li'); const name = document.createElement('span'); const badge = document.createElement('span');
+            name.className = 'name'; name.textContent = invoice.invoice_number || 'Invoice';
+            badge.className = `badge ${receipt(invoice) ? 'yes' : 'no'}`;
+            badge.textContent = receipt(invoice) ? `Fiscalised · ${receipt(invoice)}` : 'Awaiting fiscalisation';
+            li.append(name, badge); list.append(li);
+          });
+        } catch (_) { summary.textContent = 'Unable to load invoice statuses.'; }
+      });
+    </script>
+  </body>
+</html>

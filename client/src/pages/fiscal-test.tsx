@@ -23,18 +23,10 @@ import {
   XCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-<<<<<<< Updated upstream:client/src/pages/fiscal-test.tsx
-import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
-import { getLekukaGatewayUrl } from "@shared/lekuka";
-=======
-<<<<<<< Updated upstream:client/src/pages/fdms-test.tsx
-=======
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { getLekukaGatewayUrl } from "@shared/lekuka";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LekukaUatPanel } from "@/components/lekuka-uat-panel";
->>>>>>> Stashed changes:client/src/pages/fiscal-test.tsx
->>>>>>> Stashed changes:client/src/pages/fdms-test.tsx
 
 export default function FiscalTestPage() {
   const { toast } = useToast();

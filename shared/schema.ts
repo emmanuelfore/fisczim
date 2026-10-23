@@ -5322,3 +5322,64 @@ export const sageFiscalEvents = pgTable("sage_fiscal_events", {
 
 export type SageConnection = typeof sageConnections.$inferSelect;
 export type SageFiscalEvent = typeof sageFiscalEvents.$inferSelect;
+
+// ─── Zoho Books Integration ──────────────────────────────────────────────────
+
+export type ZohoConnectionSettings = {
+  /** Prefix applied to the Zoho invoice number before fiscalising (e.g. "ZOHO-"). */
+  invoiceNumberPrefix?: string;
+  /** Default payment method sent to FiscalStack when Zoho has none. */
+  paymentMethod?: string;
+  /** Invoice statuses that should trigger fiscalisation. */
+  sentStatuses?: string[];
+  /** Explicit Zoho tax name/id → ZIMRA tax type mapping. */
+  taxMap?: Record<string, "STANDARD" | "ZERO_RATED" | "EXEMPT">;
+  /**
+   * Re-send the invoice email after the fiscal fields are written back, so the
+   * customer receives a PDF that already contains the QR code. Opt-in.
+   */
+  resendEmail?: boolean;
+  /** Override the default label used to locate each Zoho invoice custom field. */
+  customFieldLabels?: Record<string, string>;
+};
+
+export const zohoConnections = pgTable("zoho_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  orgId: text("org_id").notNull(),
+  region: text("region").default("com").notNull(), // com | eu | in | com.au | jp
+  apiRoot: text("api_root").default("https://www.zohoapis.com/books/v3").notNull(),
+  accountsServer: text("accounts_server").default("https://accounts.zoho.com").notNull(),
+  clientId: text("client_id").notNull(),
+  clientSecret: text("client_secret").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessToken: text("access_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  webhookToken: text("webhook_token").notNull().unique(),
+  webhookSecret: text("webhook_secret"),
+  settings: jsonb("settings").$type<ZohoConnectionSettings>(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyOrgIdx: unique("zoho_connections_company_org_idx").on(table.companyId, table.orgId),
+  companyIdIdx: index("zoho_connections_company_id_idx").on(table.companyId),
+}));
+
+export const zohoFiscalEvents = pgTable("zoho_fiscal_events", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  orgId: text("org_id").notNull(),
+  zohoInvoiceId: text("zoho_invoice_id").notNull(),
+  invoiceNumber: text("invoice_number"),
+  status: text("status").notNull(), // success, failed, skipped, duplicate
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  invoiceIdx: index("zoho_fiscal_events_invoice_idx").on(table.zohoInvoiceId, table.companyId),
+  statusIdx: index("zoho_fiscal_events_status_idx").on(table.status),
+}));
+
+export type ZohoConnection = typeof zohoConnections.$inferSelect;
+export type InsertZohoConnection = typeof zohoConnections.$inferInsert;
+export type ZohoFiscalEvent = typeof zohoFiscalEvents.$inferSelect;

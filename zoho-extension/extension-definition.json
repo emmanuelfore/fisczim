@@ -1,0 +1,54 @@
+{
+  "$schema": "https://fiscalstack.co.zw/schemas/zoho-books-extension-v1.json",
+  "name": "FiscalStack",
+  "version": "1.0.0",
+  "module": "invoice",
+  "globalFields": [
+    {
+      "name": "FiscalStack API base URL",
+      "placeholder": "{{FISCALSTACK_API_BASE_URL}}",
+      "type": "single_line",
+      "required": true,
+      "default": "https://fiscalstack.co.zw"
+    },
+    {
+      "name": "FiscalStack API key",
+      "placeholder": "{{FISCALSTACK_API_KEY}}",
+      "type": "single_line",
+      "required": true,
+      "visibility": "hidden"
+    },
+    {
+      "name": "Fiscal invoice number prefix",
+      "placeholder": "{{FISCALSTACK_INVOICE_PREFIX}}",
+      "type": "single_line",
+      "default": "ZOHO-"
+    }
+  ],
+  "customFields": [
+    { "label": "Fiscal QR Image", "apiName": "cf_fiscal_qr_image", "type": "url", "showOnPdf": false },
+    { "label": "Fiscal Code", "apiName": "cf_fiscal_code", "type": "string", "showOnPdf": true },
+    { "label": "Fiscal QR Data", "apiName": "cf_fiscal_qr_data", "type": "multiline", "showOnPdf": false },
+    { "label": "Fiscal Receipt Counter", "apiName": "cf_fiscal_receipt_counter", "type": "string", "showOnPdf": true },
+    { "label": "Fiscal Receipt Number", "apiName": "cf_fiscal_receipt_number", "type": "string", "showOnPdf": true, "showInList": true },
+    { "label": "Fiscal Day", "apiName": "cf_fiscal_day", "type": "string", "showOnPdf": true },
+    { "label": "ZIMRA Device ID", "apiName": "cf_zimra_device_id", "type": "string", "showOnPdf": true },
+    { "label": "Verification Code", "apiName": "cf_verification_code", "type": "string", "showOnPdf": true },
+    { "label": "Fiscal Verify URL", "apiName": "cf_fiscal_verify_url", "type": "url", "showOnPdf": true },
+    { "label": "Fiscal Status", "apiName": "cf_fiscal_status", "type": "string", "showOnPdf": true },
+    { "label": "Fiscal Date", "apiName": "cf_fiscal_date", "type": "date", "showOnPdf": true }
+  ],
+  "customButton": {
+    "name": "Fiscalise with FiscalStack",
+    "module": "invoice",
+    "location": "detail_page",
+    "visibility": "cf_fiscal_receipt_number is empty",
+    "function": "FiscalStack Fiscalise Now"
+  },
+  "customViews": [
+    { "name": "Fiscalised invoices", "criteria": "cf_fiscal_receipt_number is not empty" },
+    { "name": "Awaiting fiscalisation", "criteria": "cf_fiscal_receipt_number is empty AND status is sent" }
+  ],
+  "pdfTemplate": "pdf-template/fiscalstack-invoice-template.html",
+  "widget": "widget"
+}

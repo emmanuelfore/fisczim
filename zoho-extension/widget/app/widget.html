@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>FiscalStack status</title>
+    <script src="https://static.zohocdn.com/zohofinance/v1.0/zf_sdk.js"></script>
+    <style>
+      body { margin: 0; color: #24364b; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      main { padding: 14px; } h1 { font-size: 14px; margin: 0 0 12px; }
+      #state { border-radius: 7px; padding: 10px; background: #f1f5f9; }
+      .ok { background: #ecfdf3 !important; color: #12623b; } .wait { background: #fff8e6 !important; color: #835d00; }
+      p { margin: 4px 0; word-break: break-word; } a { color: #1268a3; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>FiscalStack</h1>
+      <div id="state" class="wait">Loading fiscal status…</div>
+    </main>
+    <script>
+      const view = document.getElementById('state');
+      const value = (fields, name) => (fields || []).find((field) => field.api_name === name)?.value || '';
+      window.onload = () => ZFAPPS.extension.init().then(async () => {
+        try {
+          const response = await ZFAPPS.get('invoice');
+          const invoice = response?.invoice || {};
+          const fields = invoice.custom_fields || [];
+          const receipt = value(fields, 'cf_fiscal_receipt_number');
+          const code = value(fields, 'cf_fiscal_code');
+          const verifyUrl = value(fields, 'cf_fiscal_verify_url');
+          const fiscalDay = value(fields, 'cf_fiscal_day');
+          if (!receipt) {
+            view.textContent = 'Awaiting fiscalisation. Select Fiscalise with FiscalStack on this invoice to continue.';
+            return;
+          }
+          view.className = 'ok';
+          view.replaceChildren();
+          const line = (text, strong) => {
+            const p = document.createElement('p');
+            if (strong) { const label = document.createElement('strong'); label.textContent = strong; p.append(label, ' '); }
+            p.append(document.createTextNode(text)); view.append(p);
+          };
+          line('Fiscalised', 'Status:');
+          line(receipt, 'Receipt:');
+          line(code, 'Code:');
+          if (verifyUrl.startsWith('https://')) {
+            const p = document.createElement('p'); const a = document.createElement('a');
+            a.target = '_blank'; a.rel = 'noopener'; a.href = verifyUrl; a.textContent = 'Verify with ZIMRA'; p.append(a); view.append(p);
+          }
+          if (fiscalDay) line(fiscalDay, 'Fiscal day:');
+        } catch (_) {
+          view.textContent = 'Fiscal status is available in the invoice custom fields.';
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,124 @@
+// Component: FiscalStack Fiscalise Invoice
+// Module: Invoices | custom-button input: invoice_id, organization
+// This function has no workflow or schedule. It is executed only when a user
+// selects "Fiscalise with FiscalStack" on an invoice that is not fiscalised.
+
+organizationId = organization.get("organization_id");
+apiRoot = organization.get("api_root_endpoint");
+invoiceResponse = zoho.books.getRecordsByID("invoices", organizationId, invoice_id);
+invoice = invoiceResponse.get("invoice");
+
+if(invoice == null)
+{
+	return {"status":"skipped","reason":"Invoice was not found"};
+}
+
+// The receipt number is the durable idempotency marker.
+customFields = ifnull(invoice.get("custom_fields"), List());
+alreadyFiscalised = false;
+for each field in customFields
+{
+	if(field.get("api_name") == "cf_fiscal_receipt_number" && field.get("value") != null && field.get("value").toString().trim() != "")
+	{
+		alreadyFiscalised = true;
+	}
+}
+if(alreadyFiscalised)
+{
+	return {"status":"duplicate"};
+}
+
+sentStates = {"sent","viewed","overdue","unpaid","partially_paid","paid"};
+if(!sentStates.contains(invoice.get("status").toString().toLowerCase()))
+{
+	return {"status":"skipped","reason":"Invoice has not been sent"};
+}
+
+items = List();
+for each line in ifnull(invoice.get("line_items"), List())
+{
+	if(line.get("line_item_category") != "header")
+	{
+		item = Map();
+		item.put("name", ifnull(line.get("name"), ifnull(line.get("description"), "Item")).toString().left(200));
+		item.put("quantity", ifnull(line.get("quantity"), 1).toDecimal());
+		item.put("unitPrice", ifnull(line.get("rate"), 0).toDecimal());
+		item.put("taxInclusive", ifnull(line.get("is_inclusive_tax"), false));
+		taxPercentage = ifnull(line.get("tax_percentage"), 0).toDecimal();
+		item.put("taxType", if(taxPercentage > 0, "STANDARD", "ZERO_RATED"));
+		if(line.get("hsn_or_sac") != null)
+		{
+			item.put("hsCode", line.get("hsn_or_sac").toString().left(8));
+		}
+		items.add(item);
+	}
+}
+if(items.isEmpty())
+{
+	return {"status":"failed","reason":"Invoice has no fiscalisable lines"};
+}
+
+payload = Map();
+payload.put("items", items);
+zohoInvoiceNumber = invoice.get("invoice_number").toString();
+fiscalPrefix = ifnull(FiscalStack_Invoice_Prefix, "ZOHO-").toString();
+fiscalInvoiceNumber = if(zohoInvoiceNumber.startsWith(fiscalPrefix), zohoInvoiceNumber, fiscalPrefix + zohoInvoiceNumber);
+payload.put("invoiceNumber", fiscalInvoiceNumber);
+payload.put("date", invoice.get("date"));
+payload.put("currency", if(invoice.get("currency_code") == "ZWG", "ZWG", "USD"));
+payload.put("paymentMethod", "CASH");
+
+buyer = Map();
+buyer.put("name", ifnull(invoice.get("customer_name"), "Walk-in customer"));
+if(invoice.get("customer_email") != null)
+{
+	buyer.put("email", invoice.get("customer_email").toString());
+}
+if(!buyer.isEmpty())
+{
+	payload.put("buyer", buyer);
+}
+
+headers = Map();
+headers.put("Content-Type", "application/json");
+// These three values are extension global-field variables. Bind them to the
+// generated fields when publishing (their generated names replace these names).
+headers.put("X-API-Key", FiscalStack_API_Key);
+baseUrl = FiscalStack_API_Base_URL.toString();
+fiscal = invokeurl
+[
+	url: baseUrl + "/api/v1/fiscalize"
+	type: POST
+	parameters: payload.toString()
+	headers: headers
+];
+
+if(fiscal == null || fiscal.get("success") != true)
+{
+	return {"status":"failed","reason":ifnull(fiscal.get("message"), "FiscalStack fiscalisation failed")};
+}
+
+qrResponse = invokeurl
+[
+	url: baseUrl + "/api/v1/zoho-extension/qr-url?invoice_number=" + encodeUrl(fiscalInvoiceNumber)
+	type: GET
+	headers: headers
+];
+
+receipt = fiscal.get("receipt");
+qrData = ifnull(fiscal.get("qrCode"), "").toString();
+updates = Map();
+updates.put("cf_fiscal_qr_image", ifnull(qrResponse.get("qr_image_url"), ""));
+updates.put("cf_fiscal_code", ifnull(fiscal.get("fiscalCode"), ""));
+updates.put("cf_fiscal_qr_data", qrData);
+updates.put("cf_fiscal_receipt_counter", ifnull(receipt.get("receiptCounter"), "").toString());
+updates.put("cf_fiscal_receipt_number", ifnull(fiscal.get("receiptNumber"), receipt.get("receiptGlobalNo")).toString());
+updates.put("cf_fiscal_day", ifnull(receipt.get("fiscalDayNo"), "").toString());
+updates.put("cf_zimra_device_id", ifnull(qrResponse.get("device_id"), ""));
+updates.put("cf_verification_code", if(qrData.length() >= 16, qrData.subString(qrData.length() - 16, qrData.length()), qrData));
+updates.put("cf_fiscal_verify_url", qrData);
+updates.put("cf_fiscal_status", "Fiscalised");
+updates.put("cf_fiscal_date", ifnull(receipt.get("receiptDate"), invoice.get("date")).toString());
+
+updateResult = zoho.books.updateRecord("invoices", organizationId, invoice_id, updates);
+return {"status":"success","receipt_number":updates.get("cf_fiscal_receipt_number"),"zoho_response":updateResult};

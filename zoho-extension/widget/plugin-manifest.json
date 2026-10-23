@@ -1,0 +1,22 @@
+{
+  "locale": ["en"],
+  "service": "FINANCE",
+  "modules": {
+    "widgets": [
+      {
+        "name": "FiscalStack fiscal status",
+        "location": "invoice.detail.sidebar",
+        "url": "/app/widget.html",
+        "logo": "/app/fiscalstack-mark.svg"
+      },
+      {
+        "name": "FiscalStack invoice list",
+        "location": "invoice.list.sidebar",
+        "url": "/app/list.html",
+        "logo": "/app/fiscalstack-mark.svg"
+      }
+    ]
+  },
+  "config": [],
+  "usedConnections": []
+}

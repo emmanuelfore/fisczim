@@ -1,0 +1,15 @@
+// Component: FiscalStack Fiscalise Now
+// Custom button: Invoices > Detail page
+// Visibility criterion: Fiscal Receipt Number is empty.
+// `invoice_id` and `organization` are supplied by the custom-button context.
+
+organizationId = organization.get("organization_id");
+apiRoot = organization.get("api_root_endpoint");
+result = invokeurl
+[
+	url: apiRoot + "/integrations/customfunctions/{{FISCALISE_FUNCTION_PLACEHOLDER}}/execute?organization_id=" + organizationId
+	type: POST
+	connection: "{{INTERNAL_ZOHO_BOOKS_CONNECTION}}"
+	parameters: {"invoice_id":invoice_id.toString()}
+];
+return {"status":"submitted","result":result};

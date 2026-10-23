@@ -221,6 +221,7 @@ export interface IStorage {
   // Invoices
   getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number, customerId?: string): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }>;
   getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]>;
+  getInvoiceByNumber(companyId: number, invoiceNumber: string): Promise<Invoice | undefined>;
   getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
   getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
   createInvoice(invoice: CreateInvoiceRequest, tx?: any): Promise<Invoice>;
@@ -1379,6 +1380,15 @@ export class DatabaseStorage implements IStorage {
       ...r.invoice,
       customer: r.customer || undefined
     }));
+  }
+
+  async getInvoiceByNumber(companyId: number, invoiceNumber: string): Promise<Invoice | undefined> {
+    const [invoice] = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.companyId, companyId), eq(invoices.invoiceNumber, invoiceNumber)))
+      .limit(1);
+    return invoice;
   }
 
   async getInvoicesPaginated(

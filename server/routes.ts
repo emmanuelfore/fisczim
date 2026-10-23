@@ -30,6 +30,8 @@ import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
+import zohoWebhookRouter from "./lib/zoho-webhook.js";
+import publicFiscalRouter from "./api/public-fiscal.js";
 import {
   checkCompanyAccess,
   createRequireAuthOrApiKey,
@@ -15200,6 +15202,12 @@ export async function registerRoutes(
 
   // Sage Business Cloud webhook
   app.use("/api/webhooks/sage", sageWebhookRouter);
+
+  // Zoho Books "invoice sent" webhook
+  app.use("/api/webhooks/zoho-books", zohoWebhookRouter);
+
+  // Public QR image referenced by the Zoho Books invoice template
+  app.use("/api/public/fiscal", publicFiscalRouter);
 
   // Sage OAuth 2.0 (connect / callback / status / disconnect)
   app.use("/api/sage/oauth", requireAuthOrApiKey, sageOAuthRouter);

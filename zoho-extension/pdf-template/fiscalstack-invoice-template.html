@@ -1,0 +1,51 @@
+<!-- Complete FiscalStack / ZIMRA Fiscal Tax Invoice. Replace {{...}} tokens
+with the corresponding Zoho Books Insert Placeholder values; see placeholders.md. -->
+<div class="invoice-page">
+  <header class="topbar">
+    <div class="seller-brand">
+      <img class="logo" src="{{ORGANISATION_LOGO}}" alt="{{ORGANISATION_NAME}}">
+      <div><div class="seller-name">{{ORGANISATION_NAME}}</div><div>{{ORGANISATION_ADDRESS}}</div><div>{{ORGANISATION_CITY}}, {{ORGANISATION_COUNTRY}}</div><div>Tel: {{ORGANISATION_PHONE}} · Email: {{ORGANISATION_EMAIL}}</div></div>
+    </div>
+    <div class="document-meta"><h1>FISCAL TAX INVOICE</h1><div><strong>Invoice No:</strong> {{INVOICE_NUMBER}}</div><div><strong>Invoice Date:</strong> {{INVOICE_DATE}}</div><div><strong>Due Date:</strong> {{INVOICE_DUE_DATE}}</div><div><strong>Currency:</strong> {{INVOICE_CURRENCY}}</div></div>
+  </header>
+
+  <section class="party-grid">
+    <div class="party-card"><h2>SELLER</h2><strong>{{ORGANISATION_NAME}}</strong><div>TIN: {{ORGANISATION_TIN}}</div><div>VAT No: {{ORGANISATION_VAT_NUMBER}}</div><div>Fiscal Device ID: {{ZIMRA_DEVICE_ID_PLACEHOLDER}}</div></div>
+    <div class="party-card"><h2>BUYER</h2><strong>{{CUSTOMER_NAME}}</strong><div>{{CUSTOMER_BILLING_ADDRESS}}</div><div>TIN: {{CUSTOMER_TIN}}</div><div>VAT No: {{CUSTOMER_VAT_NUMBER}}</div><div>Customer Ref: {{CUSTOMER_REFERENCE}}</div></div>
+  </section>
+
+  <section class="fiscal-meta">
+    <div><span>Fiscal Receipt No</span><strong>{{FISCAL_RECEIPT_NUMBER_PLACEHOLDER}}</strong></div><div><span>Receipt Counter</span><strong>{{FISCAL_RECEIPT_COUNTER_PLACEHOLDER}}</strong></div><div><span>Fiscal Day</span><strong>{{FISCAL_DAY_PLACEHOLDER}}</strong></div><div><span>Fiscal Date</span><strong>{{FISCAL_DATE_PLACEHOLDER}}</strong></div>
+  </section>
+
+  <table class="items"><thead><tr><th class="number">#</th><th>Description</th><th class="number">Qty</th><th class="number">Unit Price</th><th class="number">Discount</th><th class="number">Tax</th><th class="number">Tax Amount</th><th class="number">Line Total</th></tr></thead><tbody>
+    <!-- Insert Zoho's repeating Invoice Line Items row here. -->
+    {{INVOICE_LINE_ITEM_ROWS}}
+  </tbody></table>
+
+  <section class="totals-area">
+    <div class="payment"><h2>PAYMENT &amp; NOTES</h2><div><strong>Payment Terms:</strong> {{PAYMENT_TERMS}}</div><div><strong>Payment Method:</strong> {{PAYMENT_METHOD}}</div><div><strong>Notes:</strong> {{INVOICE_NOTES}}</div></div>
+    <table class="totals"><tr><td>Subtotal</td><td>{{INVOICE_SUBTOTAL}}</td></tr><tr><td>Discount</td><td>{{INVOICE_DISCOUNT}}</td></tr><tr><td>Tax Total</td><td>{{INVOICE_TAX_TOTAL}}</td></tr><tr class="grand"><td>GRAND TOTAL</td><td>{{INVOICE_TOTAL}}</td></tr><tr><td>Balance Due</td><td>{{INVOICE_BALANCE_DUE}}</td></tr></table>
+  </section>
+
+  <section class="tax-summary"><h2>TAX SUMMARY</h2><table><thead><tr><th>Tax Rate / Type</th><th>Taxable Amount</th><th>Tax Amount</th><th>Amount Incl. Tax</th></tr></thead><tbody>
+    <!-- Insert Zoho's repeating tax-summary row here. -->
+    {{TAX_SUMMARY_ROWS}}
+  </tbody></table></section>
+
+  <section class="zimra-proof">
+    <div class="qr-wrap"><img src="{{FISCAL_QR_IMAGE_PLACEHOLDER}}" width="132" height="132" alt="ZIMRA verification QR code"></div>
+    <div class="proof-fields"><h2>ZIMRA FISCALISATION</h2><div><strong>Fiscal Code:</strong> {{FISCAL_CODE_PLACEHOLDER}}</div><div><strong>Verification Code:</strong> {{VERIFICATION_CODE_PLACEHOLDER}}</div><div><strong>Verification URL:</strong> {{FISCAL_VERIFY_URL_PLACEHOLDER}}</div><div><strong>Status:</strong> {{FISCAL_STATUS_PLACEHOLDER}}</div><p>Scan the QR code or use the verification URL to validate this fiscal invoice.</p></div>
+  </section>
+  <footer><div>{{INVOICE_TERMS}}</div><div class="powered">Fiscalised by FiscalStack</div></footer>
+</div>
+<style>
+  * { box-sizing: border-box; } .invoice-page { color: #172b4d; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
+  .topbar { align-items: flex-start; border-bottom: 3px solid #103d66; display: flex; justify-content: space-between; padding-bottom: 13px; } .seller-brand { display: flex; gap: 12px; max-width: 57%; } .logo { max-height: 64px; max-width: 110px; object-fit: contain; } .seller-name { font-size: 13pt; font-weight: 700; margin-bottom: 4px; } .document-meta { text-align: right; } h1 { color: #103d66; font-size: 18pt; margin: 0 0 8px; }
+  h2 { color: #103d66; font-size: 9pt; letter-spacing: .05em; margin: 0 0 7px; } .party-grid { display: flex; gap: 12px; margin: 15px 0 11px; } .party-card { background: #f4f8fb; border: 1px solid #d7e2eb; min-height: 106px; padding: 10px; width: 50%; } .party-card div { margin-top: 3px; }
+  .fiscal-meta { border: 1px solid #9cb5c9; display: flex; margin: 0 0 14px; } .fiscal-meta div { border-right: 1px solid #d7e2eb; flex: 1; padding: 7px 9px; } .fiscal-meta div:last-child { border-right: 0; } .fiscal-meta span { color: #526477; display: block; font-size: 7.5pt; text-transform: uppercase; } .fiscal-meta strong { font-size: 10pt; }
+  table { border-collapse: collapse; width: 100%; } .items th { background: #103d66; color: #fff; font-size: 8pt; padding: 7px 5px; text-align: left; } .items td { border-bottom: 1px solid #d7e2eb; padding: 7px 5px; vertical-align: top; } .number { text-align: right !important; }
+  .totals-area { display: flex; gap: 16px; margin-top: 14px; } .payment { flex: 1; } .payment div { margin-bottom: 5px; } .totals { margin-left: auto; width: 265px; } .totals td { border-bottom: 1px solid #d7e2eb; padding: 5px; text-align: right; } .totals td:first-child { text-align: left; } .totals .grand td { background: #103d66; color: #fff; font-size: 10pt; font-weight: 700; }
+  .tax-summary { border-top: 1px solid #9cb5c9; margin-top: 15px; padding-top: 10px; } .tax-summary th { background: #e6f0f7; font-weight: 700; padding: 5px; text-align: left; } .tax-summary td { border-bottom: 1px solid #d7e2eb; padding: 5px; text-align: right; } .tax-summary td:first-child { text-align: left; }
+  .zimra-proof { background: #f2f8f5; border: 1px solid #84b99b; display: flex; gap: 14px; margin-top: 16px; padding: 11px; } .qr-wrap { width: 132px; } .proof-fields { flex: 1; } .proof-fields div { margin: 4px 0; word-break: break-word; } .proof-fields p { color: #3c5d4c; margin: 8px 0 0; } footer { border-top: 1px solid #d7e2eb; color: #526477; margin-top: 14px; padding-top: 8px; text-align: center; } .powered { color: #103d66; font-size: 8pt; font-weight: 700; margin-top: 5px; }
+</style>

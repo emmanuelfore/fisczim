@@ -1,0 +1,5 @@
+// Component: On Installation
+// All fields, button, views, PDF template and widgets are extension components,
+// so Zoho provisions them with the install. This hook deliberately
+// does not create components through scripts (which Zoho disallows).
+return {"status":"ready","message":"FiscalStack automation installed"};

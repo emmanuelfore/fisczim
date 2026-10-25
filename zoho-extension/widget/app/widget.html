@@ -6,38 +6,416 @@
     <title>FiscalStack status</title>
     <script src="https://static.zohocdn.com/zohofinance/v1.0/zf_sdk.js"></script>
     <style>
-      body { margin: 0; color: #24364b; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      main { padding: 14px; } h1 { font-size: 14px; margin: 0 0 12px; }
-      #state { border-radius: 7px; padding: 10px; background: #f1f5f9; }
+      body { margin: 0; color: #24364b; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; height: 100vh; display: flex; flex-direction: column; }
+      main { padding: 24px; flex: 1; } h1 { font-size: 24px; margin: 0 0 20px; display: flex; align-items: center; justify-content: space-between; }
+      #state { border-radius: 12px; padding: 24px; background: #f1f5f9; flex: 1; }
       .ok { background: #ecfdf3 !important; color: #12623b; } .wait { background: #fff8e6 !important; color: #835d00; }
-      p { margin: 4px 0; word-break: break-word; } a { color: #1268a3; }
+      p { margin: 12px 0; word-break: break-word; font-size: 16px; } a { color: #1268a3; font-size: 16px; }
+      
+      .download-btn {
+        display: inline-block;
+        margin-top: 16px;
+        padding: 10px 20px;
+        background: #12623b;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .download-btn :hover { background: #0e4a2e; }
+      .download-btn :disabled { background: #9ca3af; cursor: not-allowed; }
+      .close-day-btn {
+        display: inline-block;
+        margin-top: 16px;
+        margin-left: 12px;
+        padding: 10px 20px;
+        background: #dc2626;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .close-day-btn :hover { background: #b91c1c; }
+      .close-day-btn :disabled { background: #9ca3af; cursor: not-allowed; }
+      .send-btn {
+        display: inline-block;
+        margin-top: 16px;
+        margin-left: 12px;
+        padding: 10px 20px;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .send-btn :hover { background: #1d4ed8; }
+      .send-btn :disabled { background: #9ca3af; cursor: not-allowed; }
+      .fiscalise-btn {
+        display: inline-block;
+        margin-top: 16px;
+        margin-left: 12px;
+        padding: 10px 20px;
+        background: #12623b;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .fiscalise-btn :hover { background: #0e4a2e; }
+      .fiscalise-btn :disabled { background: #9ca3af; cursor: not-allowed; }
+      
+      .compact-toggle {
+        background: none;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #64748b;
+      }
+      .compact-toggle:hover { background: #f1f5f9; }
+      
+      .fiscal-day-status {
+        margin-top: 12px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .fiscal-day-open { background: #dcfce7; color: #166534; }
+      .fiscal-day-closed { background: #fee2e2; color: #991b1b; }
+      .fiscal-day-loading { background: #fef3c7; color: #92400e; }
+      
+      .currency-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
+        margin-left: 8px;
+      }
+      
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 8px;
+        vertical-align: middle;
+      }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      
+      .compact-mode .fiscal-details { display: none; }
+      .compact-mode p { margin: 6px 0; font-size: 14px; }
+      .compact-mode #state { padding: 16px; }
+      .compact-mode .download-btn,
+      .compact-mode .close-day-btn,
+      .compact-mode .send-btn,
+      .compact-mode .fiscalise-btn {
+        padding: 8px 16px;
+        font-size: 13px;
+        margin-top: 8px;
+      }
     </style>
   </head>
   <body>
     <main>
-      <h1>FiscalStack</h1>
+      <h1>
+        FiscalStack
+        <button class="compact-toggle" id="compactToggle">Compact</button>
+      </h1>
       <div id="state" class="wait">Loading fiscal status…</div>
     </main>
     <script>
       const view = document.getElementById('state');
       const value = (fields, name) => (fields || []).find((field) => field.api_name === name)?.value || '';
+      
+      // Compact mode toggle
+      let isCompact = false;
+      document.getElementById('compactToggle').addEventListener('click', () => {
+        isCompact = !isCompact;
+        document.body.classList.toggle('compact-mode', isCompact);
+        document.getElementById('compactToggle').textContent = isCompact ? 'Expand' : 'Compact';
+      });
+      
+      // Helper to add spinner to button
+      const setButtonLoading = (btn, loading, originalText) => {
+        if (loading) {
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner"></span>' + originalText;
+        } else {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      };
+      
+      // Fetch fiscal day status
+      const fetchFiscalDayStatus = async (apiKey, baseUrl) => {
+        try {
+          const response = await fetch(`${baseUrl}/api/v1/zoho-extension/fiscal-day-status`, {
+            headers: { 'X-API-Key': apiKey }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            return data;
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+        return null;
+      };
+      
       window.onload = () => ZFAPPS.extension.init().then(async () => {
         try {
-          const response = await ZFAPPS.get('invoice');
-          const invoice = response?.invoice || {};
-          const fields = invoice.custom_fields || [];
+          // Try to get invoice, credit note, or debit note
+          let response, documentType, documentNumber, documentData;
+          try {
+            response = await ZFAPPS.get('invoice');
+            documentType = 'invoice';
+            documentData = response?.invoice || {};
+            documentNumber = documentData.invoice_number || documentData.invoiceNumber || '';
+          } catch (e) {
+            try {
+              response = await ZFAPPS.get('creditnote');
+              documentType = 'creditnote';
+              documentData = response?.creditnote || {};
+              documentNumber = documentData.creditnote_number || documentData.creditnoteNumber || '';
+            } catch (e2) {
+              try {
+                response = await ZFAPPS.get('debitnote');
+                documentType = 'debitnote';
+                documentData = response?.debitnote || {};
+                documentNumber = documentData.debitnote_number || documentData.debitnoteNumber || '';
+              } catch (e3) {
+                view.textContent = 'Fiscal status is available in the custom fields.';
+                return;
+              }
+            }
+          }
+
+          const fields = documentData.custom_fields || [];
           const receipt = value(fields, 'cf_fiscal_receipt_number');
           const code = value(fields, 'cf_fiscal_code');
           const verifyUrl = value(fields, 'cf_fiscal_verify_url');
           const fiscalDay = value(fields, 'cf_fiscal_day');
+          const currency = documentData.currency_code || 'USD';
+
+          // For credit/debit notes, get the original invoice reference
+          let originalInvoiceNumber = null;
+          if (documentType === 'creditnote' || documentType === 'debitnote') {
+            originalInvoiceNumber = documentData.invoice_id || documentData.invoice_number || documentData.reference_invoice_number;
+          }
+
+          // Get extension config for API calls
+          const config = await ZFAPPS.extension.get('config');
+          const apiKey = config?.['FiscalStack_API_Key'] || config?.apiKey || '';
+          const baseUrl = config?.['FiscalStack_API_Base_URL'] || config?.baseUrl || '';
+
+          // Fetch and display fiscal day status
+          if (apiKey && baseUrl) {
+            const fiscalStatusDiv = document.createElement('div');
+            fiscalStatusDiv.className = 'fiscal-day-status fiscal-day-loading';
+            fiscalStatusDiv.textContent = 'Loading fiscal day status...';
+            view.appendChild(fiscalStatusDiv);
+
+            const fiscalStatus = await fetchFiscalDayStatus(apiKey, baseUrl);
+            if (fiscalStatus) {
+              fiscalStatusDiv.className = fiscalStatus.isOpen ? 'fiscal-day-status fiscal-day-open' : 'fiscal-day-status fiscal-day-closed';
+              fiscalStatusDiv.textContent = fiscalStatus.isOpen 
+                ? `Fiscal Day #${fiscalStatus.fiscalDayNo} is OPEN` 
+                : `Fiscal Day #${fiscalStatus.fiscalDayNo} is CLOSED`;
+            } else {
+              fiscalStatusDiv.style.display = 'none';
+            }
+          }
+
           if (!receipt) {
-            view.textContent = 'Awaiting fiscalisation. Select Fiscalise with FiscalStack on this invoice to continue.';
+            view.className = 'wait';
+            const docTypeLabel = documentType === 'creditnote' ? 'credit note' : (documentType === 'debitnote' ? 'debit note' : 'invoice');
+            
+            const statusText = document.createElement('p');
+            statusText.textContent = `Awaiting fiscalisation for ${docTypeLabel}.`;
+            view.appendChild(statusText);
+
+            // Add currency badge
+            const currencyBadge = document.createElement('span');
+            currencyBadge.className = 'currency-badge';
+            currencyBadge.textContent = currency;
+            statusText.appendChild(currencyBadge);
+
+            // Display original invoice for credit/debit notes
+            if ((documentType === 'creditnote' || documentType === 'debitnote') && originalInvoiceNumber) {
+              const p = document.createElement('p');
+              p.style.marginTop = '12px';
+              p.style.fontSize = '14px';
+              p.style.color = '#64748b';
+              p.textContent = `Original Invoice: ${originalInvoiceNumber}`;
+              view.appendChild(p);
+            }
+
+            // Add fiscalise button
+            const fiscaliseBtn = document.createElement('button');
+            fiscaliseBtn.className = 'fiscalise-btn';
+            const fiscaliseBtnText = `Fiscalise ${documentType === 'creditnote' ? 'Credit Note' : (documentType === 'debitnote' ? 'Debit Note' : 'Invoice')}`;
+            fiscaliseBtn.textContent = fiscaliseBtnText;
+            fiscaliseBtn.style.marginTop = '16px';
+            fiscaliseBtn.onclick = async () => {
+              try {
+                if (!confirm(`Are you sure you want to fiscalise this ${docTypeLabel}?`)) {
+                  return;
+                }
+
+                // For credit/debit notes, require reason and original invoice
+                let noteReason = null;
+                let relatedInvoiceNumber = null;
+                if (documentType === 'creditnote' || documentType === 'debitnote') {
+                  noteReason = prompt(`Please provide a reason for this ${docTypeLabel} (e.g., "Goods returned", "Price adjustment"):`);
+                  if (!noteReason) {
+                    alert(`A reason is required for ${docTypeLabel}s.`);
+                    return;
+                  }
+
+                  if (!originalInvoiceNumber) {
+                    relatedInvoiceNumber = prompt('Please enter the original invoice number (e.g., INV-197):');
+                    if (!relatedInvoiceNumber) {
+                      alert('Original invoice number is required for correction notes.');
+                      return;
+                    }
+                  } else {
+                    relatedInvoiceNumber = originalInvoiceNumber;
+                  }
+                }
+
+                setButtonLoading(fiscaliseBtn, true, 'Fiscalising...');
+
+                if (!apiKey) {
+                  alert('API key not configured. Please configure FiscalStack API key in extension settings.');
+                  setButtonLoading(fiscaliseBtn, false, fiscaliseBtnText);
+                  return;
+                }
+
+                if (!baseUrl) {
+                  alert('Base URL not configured. Please configure FiscalStack base URL in extension settings.');
+                  setButtonLoading(fiscaliseBtn, false, fiscaliseBtnText);
+                  return;
+                }
+
+                // Build fiscalisation payload
+                const items = (documentData.line_items || []).map(line => ({
+                  name: (line.name || line.description || 'Item').toString().substring(0, 200),
+                  quantity: line.quantity || 1,
+                  unitPrice: line.rate || 0,
+                  taxInclusive: line.is_inclusive_tax || false,
+                  taxType: (line.tax_percentage || 0) > 0 ? 'STANDARD' : 'ZERO_RATED',
+                  hsCode: line.hsn_or_sac ? line.hsn_or_sac.toString().substring(0, 8) : undefined
+                })).filter(item => item.name);
+
+                if (items.length === 0) {
+                  alert('No fiscalisable lines found.');
+                  setButtonLoading(fiscaliseBtn, false, fiscaliseBtnText);
+                  return;
+                }
+
+                const fiscalPrefix = config?.['FiscalStack_Invoice_Prefix'] || 'ZOHO-';
+                const fiscalDocumentNumber = documentNumber.startsWith(fiscalPrefix) ? documentNumber : fiscalPrefix + documentNumber;
+
+                const payload = {
+                  items,
+                  invoiceNumber: fiscalDocumentNumber,
+                  date: documentData.date,
+                  currency: documentData.currency_code === 'ZWG' ? 'ZWG' : 'USD',
+                  paymentMethod: 'CASH',
+                  transactionType: documentType === 'creditnote' ? 'CreditNote' : (documentType === 'debitnote' ? 'DebitNote' : 'FiscalInvoice'),
+                  buyer: {
+                    name: documentData.customer_name || 'Walk-in customer',
+                    email: documentData.customer_email || undefined
+                  },
+                  ...(documentType === 'creditnote' || documentType === 'debitnote' ? {
+                    relatedInvoiceNumber,
+                    creditNoteReason: noteReason
+                  } : {})
+                };
+
+                // Call the fiscalise endpoint
+                const fiscalResponse = await fetch(`${baseUrl}/api/v1/fiscalize`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                  },
+                  body: JSON.stringify(payload)
+                });
+
+                if (!fiscalResponse.ok) {
+                  const errorText = await fiscalResponse.text();
+                  throw new Error(`Fiscalisation failed: ${errorText}`);
+                }
+
+                const fiscalResult = await fiscalResponse.json();
+                if (!fiscalResult.success) {
+                  throw new Error(fiscalResult.message || 'Fiscalisation failed');
+                }
+
+                // Get QR URL
+                const qrResponse = await fetch(`${baseUrl}/api/v1/zoho-extension/qr-url?invoice_number=${encodeURIComponent(fiscalDocumentNumber)}`, {
+                  headers: {
+                    'X-API-Key': apiKey
+                  }
+                });
+
+                const qrResult = await qrResponse.json();
+
+                // Update custom fields
+                const updates = {
+                  cf_fiscal_qr_image: qrResult.qr_image_url || '',
+                  cf_fiscal_code: fiscalResult.fiscalCode || '',
+                  cf_fiscal_qr_data: fiscalResult.qrCode || '',
+                  cf_fiscal_receipt_counter: (fiscalResult.receipt?.receiptCounter || '').toString(),
+                  cf_fiscal_receipt_number: (fiscalResult.receiptNumber || fiscalResult.receipt?.receiptGlobalNo || '').toString(),
+                  cf_fiscal_day: (fiscalResult.receipt?.fiscalDayNo || '').toString(),
+                  cf_zimra_device_id: qrResult.device_id || '',
+                  cf_verification_code: (fiscalResult.qrCode || '').length >= 16 ? (fiscalResult.qrCode || '').substring(-16) : (fiscalResult.qrCode || ''),
+                  cf_fiscal_verify_url: fiscalResult.qrCode || '',
+                  cf_fiscal_status: 'Fiscalised',
+                  cf_fiscal_date: fiscalResult.receipt?.receiptDate || documentData.date
+                };
+
+                // Update the document in Zoho
+                await ZFAPPS.set(documentType, { custom_fields: updates });
+
+                alert(`${docTypeLabel.charAt(0).toUpperCase() + docTypeLabel.slice(1)} fiscalised successfully!`);
+                location.reload();
+              } catch (error) {
+                console.error('Fiscalisation error:', error);
+                alert('Failed to fiscalise. Please try again.');
+                setButtonLoading(fiscaliseBtn, false, fiscaliseBtnText);
+              }
+            };
+            view.appendChild(fiscaliseBtn);
             return;
           }
           view.className = 'ok';
           view.replaceChildren();
           const line = (text, strong) => {
             const p = document.createElement('p');
+            p.className = 'fiscal-details';
             if (strong) { const label = document.createElement('strong'); label.textContent = strong; p.append(label, ' '); }
             p.append(document.createTextNode(text)); view.append(p);
           };
@@ -49,6 +427,185 @@
             a.target = '_blank'; a.rel = 'noopener'; a.href = verifyUrl; a.textContent = 'Verify with ZIMRA'; p.append(a); view.append(p);
           }
           if (fiscalDay) line(fiscalDay, 'Fiscal day:');
+
+          // Add public invoice link
+          if (documentNumber) {
+            const p = document.createElement('p');
+            const a = document.createElement('a');
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.href = verifyUrl.replace('/qr?', '/invoice?');
+            const docTypeLabel = documentType === 'creditnote' ? 'Credit Note' : (documentType === 'debitnote' ? 'Debit Note' : 'Invoice');
+            a.textContent = `View ${docTypeLabel} (Public Link)`;
+            a.style.color = '#2563eb';
+            a.style.fontSize = '14px';
+            p.append(a);
+            view.append(p);
+          }
+
+          // Add download button
+          if (documentNumber) {
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'download-btn';
+            const docTypeLabel = documentType === 'creditnote' ? 'Credit Note' : (documentType === 'debitnote' ? 'Debit Note' : 'Invoice');
+            const downloadBtnText = `Download ${docTypeLabel} PDF`;
+            downloadBtn.textContent = downloadBtnText;
+            downloadBtn.onclick = async () => {
+              try {
+                setButtonLoading(downloadBtn, true, 'Downloading...');
+
+                if (!apiKey) {
+                  alert('API key not configured. Please configure FiscalStack API key in extension settings.');
+                  setButtonLoading(downloadBtn, false, downloadBtnText);
+                  return;
+                }
+
+                if (!baseUrl) {
+                  alert('Base URL not configured. Please configure FiscalStack base URL in extension settings.');
+                  setButtonLoading(downloadBtn, false, downloadBtnText);
+                  return;
+                }
+
+                // Build the PDF download URL
+                const pdfUrl = `${baseUrl}/api/v1/zoho-extension/invoice-pdf?invoice_number=${encodeURIComponent(documentNumber)}`;
+
+                // Fetch the PDF
+                const pdfResponse = await fetch(pdfUrl, {
+                  headers: {
+                    'X-API-Key': apiKey
+                  }
+                });
+
+                if (!pdfResponse.ok) {
+                  const errorText = await pdfResponse.text();
+                  throw new Error(`Failed to download PDF: ${errorText}`);
+                }
+
+                const blob = await pdfResponse.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${documentNumber}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+
+                setButtonLoading(downloadBtn, false, downloadBtnText);
+              } catch (error) {
+                console.error('Download error:', error);
+                alert('Failed to download PDF. Please try again.');
+                setButtonLoading(downloadBtn, false, downloadBtnText);
+              }
+            };
+            view.appendChild(downloadBtn);
+
+            // Add close day button
+            const closeDayBtn = document.createElement('button');
+            closeDayBtn.className = 'close-day-btn';
+            const closeDayBtnText = 'Close Fiscal Day';
+            closeDayBtn.textContent = closeDayBtnText;
+            closeDayBtn.onclick = async () => {
+              try {
+                if (!confirm('Are you sure you want to close the current fiscal day? This will increment the fiscal day counter.')) {
+                  return;
+                }
+
+                setButtonLoading(closeDayBtn, true, 'Closing...');
+
+                if (!apiKey) {
+                  alert('API key not configured. Please configure FiscalStack API key in extension settings.');
+                  setButtonLoading(closeDayBtn, false, closeDayBtnText);
+                  return;
+                }
+
+                if (!baseUrl) {
+                  alert('Base URL not configured. Please configure FiscalStack base URL in extension settings.');
+                  setButtonLoading(closeDayBtn, false, closeDayBtnText);
+                  return;
+                }
+
+                // Call the close day endpoint
+                const closeDayResponse = await fetch(`${baseUrl}/api/v1/zoho-extension/close-day`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                  }
+                });
+
+                if (!closeDayResponse.ok) {
+                  const errorText = await closeDayResponse.text();
+                  throw new Error(`Failed to close fiscal day: ${errorText}`);
+                }
+
+                const result = await closeDayResponse.json();
+                alert(`Fiscal day closed successfully. New fiscal day number: ${result.fiscalDayNo}`);
+
+                setButtonLoading(closeDayBtn, false, closeDayBtnText);
+              } catch (error) {
+                console.error('Close day error:', error);
+                alert('Failed to close fiscal day. Please try again.');
+                setButtonLoading(closeDayBtn, false, closeDayBtnText);
+              }
+            };
+            view.appendChild(closeDayBtn);
+
+            // Add send invoice button
+            const sendBtn = document.createElement('button');
+            sendBtn.className = 'send-btn';
+            const docTypeLabel = documentType === 'creditnote' ? 'Credit Note' : (documentType === 'debitnote' ? 'Debit Note' : 'Invoice');
+            const sendBtnText = `Send ${docTypeLabel}`;
+            sendBtn.textContent = sendBtnText;
+            sendBtn.onclick = async () => {
+              try {
+                const email = prompt('Enter customer email address:');
+                if (!email) return;
+
+                setButtonLoading(sendBtn, true, 'Sending...');
+
+                if (!apiKey) {
+                  alert('API key not configured. Please configure FiscalStack API key in extension settings.');
+                  setButtonLoading(sendBtn, false, sendBtnText);
+                  return;
+                }
+
+                if (!baseUrl) {
+                  alert('Base URL not configured. Please configure FiscalStack base URL in extension settings.');
+                  setButtonLoading(sendBtn, false, sendBtnText);
+                  return;
+                }
+
+                // Call the send invoice endpoint
+                const sendResponse = await fetch(`${baseUrl}/api/v1/zoho-extension/send-invoice`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                  },
+                  body: JSON.stringify({
+                    invoice_number: documentNumber,
+                    email: email
+                  })
+                });
+
+                if (!sendResponse.ok) {
+                  const errorText = await sendResponse.text();
+                  throw new Error(`Failed to send: ${errorText}`);
+                }
+
+                const result = await sendResponse.json();
+                alert(`${docTypeLabel} sent successfully!`);
+
+                setButtonLoading(sendBtn, false, sendBtnText);
+              } catch (error) {
+                console.error('Send error:', error);
+                alert('Failed to send. Please try again.');
+                setButtonLoading(sendBtn, false, sendBtnText);
+              }
+            };
+            view.appendChild(sendBtn);
+          }
         } catch (_) {
           view.textContent = 'Fiscal status is available in the invoice custom fields.';
         }

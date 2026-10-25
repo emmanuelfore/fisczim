@@ -2,7 +2,7 @@
   "$schema": "https://fiscalstack.co.zw/schemas/zoho-books-extension-v1.json",
   "name": "FiscalStack",
   "version": "1.0.0",
-  "module": "invoice",
+  "module": ["invoice", "creditnotes", "debitnotes"],
   "globalFields": [
     {
       "name": "FiscalStack API base URL",

@@ -265,6 +265,19 @@ export function assertLekukaTaxPreflight(
                 throw new Error(`LEKUKA tax error on "${label}": fixed levy ${levy.lekukaTaxId} requires appliedForQuantity.`);
             }
         }
+
+        const inlineAdditional = item.additionalTaxes || item.modifiers?.additionalTaxes || [];
+        for (const at of inlineAdditional) {
+            if (!at.taxID || !at.taxType) {
+                throw new Error(`LEKUKA tax error on "${label}": an inline additional tax is missing taxID or taxType.`);
+            }
+            if (!["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(at.taxType)) {
+                throw new Error(`LEKUKA tax error on "${label}": ${at.taxType} cannot be an inline additional tax.`);
+            }
+            if (at.taxType === "FixedValueLevy" && !(at.appliedForQuantity && Number(at.appliedForQuantity) > 0)) {
+                throw new Error(`LEKUKA tax error on "${label}": inline fixed levy ${at.taxID} requires appliedForQuantity.`);
+            }
+        }
     }
 }
 
@@ -322,6 +335,20 @@ function buildLekukaReceiptLines(
                 taxType: levyType,
                 taxRate: parseFloat(levy.rate),
                 appliedForQuantity: levy.appliedForQuantity ? parseFloat(levy.appliedForQuantity) : undefined,
+            });
+        }
+
+        // Pass-through additional taxes (Lekuka levies supplied inline)
+        const inlineAdditional = item.additionalTaxes || item.modifiers?.additionalTaxes || [];
+        for (const at of inlineAdditional) {
+            if (!at.taxID || !at.taxType) continue;
+            if (!["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(at.taxType)) continue;
+            additionalTaxes.push({
+                taxID: Number(at.taxID),
+                receiptLineId: index + 1,
+                taxType: at.taxType as "PercentageLevy" | "FixedValueLevy" | "WithholdingTax",
+                taxRate: Number(at.taxRate),
+                appliedForQuantity: at.appliedForQuantity ? Number(at.appliedForQuantity) : undefined,
             });
         }
 

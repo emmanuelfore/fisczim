@@ -5318,6 +5318,7 @@ export class DatabaseStorage implements IStorage {
         date: sql`date_trunc('day', ${invoices.issueDate})`,
         total: invoices.total,
         currency: invoices.currency,
+        transactionType: invoices.transactionType,
       })
       .from(invoices)
       .where(and(
@@ -5334,7 +5335,8 @@ export class DatabaseStorage implements IStorage {
       const key = format(new Date(row.date as string), 'MMM dd');
       const currency = row.currency || "USD";
       const totals = dailyTotals.get(key) || {};
-      totals[currency] = (totals[currency] || 0) + Number(row.total || 0);
+      const sign = row.transactionType === "CreditNote" ? -1 : 1;
+      totals[currency] = (totals[currency] || 0) + sign * Number(row.total || 0);
       dailyTotals.set(key, totals);
     }
 
@@ -5353,6 +5355,7 @@ export class DatabaseStorage implements IStorage {
         method: invoices.paymentMethod,
         total: invoices.total,
         currency: invoices.currency,
+        transactionType: invoices.transactionType,
       })
       .from(invoices)
       .where(and(
@@ -5368,7 +5371,8 @@ export class DatabaseStorage implements IStorage {
       const method = row.method || "CASH";
       const currency = row.currency || "USD";
       const existing = byMethod.get(method) || { method, total: 0, count: 0, byCurrency: {} };
-      const amount = Number(row.total || 0);
+      const sign = row.transactionType === "CreditNote" ? -1 : 1;
+      const amount = sign * Number(row.total || 0);
       existing.total += amount;
       existing.byCurrency[currency] = (existing.byCurrency[currency] || 0) + amount;
       existing.count += 1;
@@ -7653,7 +7657,8 @@ export class DatabaseStorage implements IStorage {
 
     const totalRevenueByCurrency = periodInvoices.reduce((totals: Record<string, number>, inv) => {
       const currency = inv.currency || "USD";
-      totals[currency] = (totals[currency] || 0) + Number(inv.total || 0);
+      const sign = inv.transactionType === "CreditNote" ? -1 : 1;
+      totals[currency] = (totals[currency] || 0) + sign * Number(inv.total || 0);
       return totals;
     }, {});
     const roundedRevenueByCurrency = Object.fromEntries(
@@ -7745,6 +7750,7 @@ export class DatabaseStorage implements IStorage {
         sku: products.sku,
         lineTotal: invoiceItems.lineTotal,
         exchangeRate: invoices.exchangeRate,
+        transactionType: invoices.transactionType,
       })
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
@@ -7760,7 +7766,8 @@ export class DatabaseStorage implements IStorage {
         sku: row.sku,
         revenue: 0,
       };
-      existing.revenue += Number(row.lineTotal || 0) / rate;
+      const sign = row.transactionType === "CreditNote" ? -1 : 1;
+      existing.revenue += sign * Number(row.lineTotal || 0) / rate;
       byProduct.set(row.productId, existing);
     }
 

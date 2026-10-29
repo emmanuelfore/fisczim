@@ -240,7 +240,7 @@ export default function Dashboard() {
 
   const totalSalesByCurrency = (operationalMetrics?.totalRevenueByCurrency || {}) as CurrencyAmounts;
   const vatCollectedByCurrency = invoices.reduce(
-    (acc, inv) => addCurrencyAmount(acc, inv.currency, inv.taxAmount),
+    (acc, inv) => addCurrencyAmount(acc, inv.currency, (inv.transactionType === "CreditNote" ? -1 : 1) * Number(inv.taxAmount || 0)),
     {} as CurrencyAmounts,
   );
   const connected = Boolean(

@@ -866,6 +866,14 @@ export async function registerRoutes(
     next();
   });
 
+  // Universal alias for fiscal endpoints (provider-agnostic: ZIMRA + LEKUKA)
+  app.use("/api/fiscal", requireAuthOrApiKey, (req, res, next) => {
+    if ((req as any).apiKeyCompanyId) {
+      req.url = `/api/companies/${(req as any).apiKeyCompanyId}/zimra${req.url}`;
+      return (app as any).handle(req, res);
+    }
+    next();
+  });
   const requireSuperAdmin = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     if (!req.user.isSuperAdmin) return res.status(403).json({ message: "SuperAdmin access required" });
@@ -5450,10 +5458,11 @@ export async function registerRoutes(
         
         if (!byPayment[key]) byPayment[key] = { count: 0, total: 0, currency, method };
         byPayment[key].count++;
-        byPayment[key].total += Number(s.total || 0);
+        const sign = s.transactionType === "CreditNote" ? -1 : 1;
+        byPayment[key].total += sign * Number(s.total || 0);
 
         if (!grandTotals[currency]) grandTotals[currency] = 0;
-        grandTotals[currency] += Number(s.total || 0);
+        grandTotals[currency] += sign * Number(s.total || 0);
       }
 
       const todayPosTransactions = await getCompanyPosTransactions(companyId, todayStart, todayEnd);

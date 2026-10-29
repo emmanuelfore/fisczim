@@ -562,7 +562,7 @@ const options: swaggerJsdoc.Options = {
                     },
                 }
             },
-            '/api/zimra/device-details': {
+            '/api/fiscal/device-details': {
                 get: {
                     summary: 'Get Card Details (GetCardDetails)',
                     tags: ['Fiscalisation API'],
@@ -573,7 +573,7 @@ const options: swaggerJsdoc.Options = {
                     },
                 }
             },
-            '/api/zimra/device-status': {
+            '/api/fiscal/device-status': {
                 get: {
                     summary: 'Get Device Status (GetDeviceStatus)',
                     tags: ['Fiscalisation API'],
@@ -584,7 +584,21 @@ const options: swaggerJsdoc.Options = {
                     },
                 }
             },
-            '/api/zimra/transact': {
+            '/api/fiscal/register': {
+                post: {
+                    summary: 'Register Fiscal Device',
+                    tags: ['Fiscalisation API'],
+                    responses: { 200: { description: 'Device registered successfully' } }
+                }
+            },
+            '/api/fiscal/verify-taxpayer': {
+                post: {
+                    summary: 'Verify Taxpayer Information',
+                    tags: ['Fiscalisation API'],
+                    responses: { 200: { description: 'Taxpayer verified' } }
+                }
+            },
+            '/api/fiscal/transact': {
                 post: {
                     summary: 'Transact (TransactM)',
                     tags: ['Fiscalisation API'],
@@ -621,80 +635,14 @@ const options: swaggerJsdoc.Options = {
                     },
                 }
             },
-            '/api/zimra/transact-ext': {
-                post: {
-                    summary: 'Transact Extended (TransactMExt)',
-                    tags: ['Fiscalisation API'],
-                    
-                    requestBody: {
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    required: ['Currency', 'InvoiceNumber', 'InvoiceAmount', 'InvoiceTaxAmount', 'InvoiceFlag', 'ItemsXML', 'Currencies'],
-                                    properties: {
-                                        Currency: { type: 'string' },
-                                        InvoiceNumber: { type: 'string' },
-                                        InvoiceAmount: { type: 'string' },
-                                        InvoiceTaxAmount: { type: 'string' },
-                                        InvoiceFlag: { type: 'string' },
-                                        InvoiceComment: { type: 'string' },
-                                        OriginalInvoiceNumber: { type: 'string' },
-                                        ItemsXML: { type: 'string' },
-                                        Currencies: { type: 'string' },
-                                        CustomerEmail: { type: 'string' },
-                                        CustomerRegisteredName: { type: 'string' },
-                                        CustomerTradeName: { type: 'string' },
-                                        CustomerVATNumber: { type: 'string' },
-                                        CustomerTIN: { type: 'string' },
-                                        CustomerTelephoneNumber: { type: 'string' },
-                                        CustomerFullAddress: { type: 'string' },
-                                        buyerProvince: { type: 'string' },
-                                        buyerStreet: { type: 'string' },
-                                        buyerHouseNo: { type: 'string' },
-                                        buyerCity: { type: 'string' },
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: 'Transaction Successful' },
-                        400: { description: 'Validation Error' },
-                    },
-                }
-            },
-            '/api/zimra/z-report': {
-                post: {
-                    summary: 'Unified Z-Report (open/close)',
-                    tags: ['Fiscalisation API'],
-                    
-                    requestBody: {
-                        content: {
-                            'application/json': {
-                                schema: {
-                                    type: 'object',
-                                    required: ['action'],
-                                    properties: { action: { type: 'string', enum: ['open', 'close'] } }
-                                }
-                            }
-                        }
-                    },
-                    responses: { 200: { description: 'Success' } }
-                }
-            },
-            '/api/zimra/transactions/{invoiceNumber}': {
+            '/api/fiscal/day/z-report': {
                 get: {
-                    summary: 'Get Transaction',
+                    summary: 'Get Fiscal Day Z-Report',
                     tags: ['Fiscalisation API'],
-                    parameters: [
-                        
-                        { in: 'path', name: 'invoiceNumber', required: true, schema: { type: 'string' } }
-                    ],
-                    responses: { 200: { description: 'Success' } }
+                    responses: { 200: { description: 'Z-Report data for the current fiscal day' } }
                 }
             },
-            '/api/zimra/transactions/unprocessed/summary': {
+            '/api/fiscal/transactions/unprocessed/summary': {
                 get: {
                     summary: 'Get UnProcessed Transaction Summary',
                     tags: ['Fiscalisation API'],
@@ -702,7 +650,7 @@ const options: swaggerJsdoc.Options = {
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/zimra/transactions/unprocessed': {
+            '/api/fiscal/transactions/unprocessed': {
                 get: {
                     summary: 'Get UnProcessed Transactions',
                     tags: ['Fiscalisation API'],
@@ -719,7 +667,7 @@ const options: swaggerJsdoc.Options = {
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/zimra/transactions/unprocessed/by-date': {
+            '/api/fiscal/transactions/unprocessed/by-date': {
                 get: {
                     summary: 'Get UnProcessed Transactions By Date',
                     tags: ['Fiscalisation API'],
@@ -739,12 +687,27 @@ const options: swaggerJsdoc.Options = {
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/zimra/config/reset': {
+            '/api/fiscal/config/reset': {
                 post: {
                     summary: 'Reset Device Counters',
                     tags: ['Fiscalisation API'],
                     
                     responses: { 200: { description: 'Success' } }
+                }
+            },
+            '/api/v1/fiscalize': {
+                post: {
+                    summary: 'Pass-through Fiscalization',
+                    tags: ['Fiscalisation API'],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            'application/json': {
+                                schema: { type: 'object', required: ['items'] }
+                            }
+                        }
+                    },
+                    responses: { 200: { description: 'Fiscalized receipt' } }
                 }
             }
         },

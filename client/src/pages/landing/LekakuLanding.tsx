@@ -74,7 +74,7 @@ function Nav() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer" }}
         >
-          <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 30, display: "block" }} />
+          <img src="/fiscalstack-full-logo.png" alt="FiscalStack" style={{ height: 44, display: "block" }} />
           <span style={{ display: "block", fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: GREEN, lineHeight: 1 }}>
             LESOTHO · RSL COMPLIANT
           </span>
@@ -660,7 +660,7 @@ function Footer() {
           <div style={{ maxWidth: 300 }}>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
               <span style={{ background: "#fff", borderRadius: 10, padding: "8px 12px", display: "inline-flex" }}>
-                <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 24, display: "block" }} />
+                <img src="/fiscalstack-full-logo.png" alt="FiscalStack" style={{ height: 32, display: "block" }} />
               </span>
               <span style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: "#93C5FD" }}>LESOTHO</span>
             </div>

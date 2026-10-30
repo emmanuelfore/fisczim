@@ -155,7 +155,7 @@ export default function LekakuAuth() {
           <Link href="/">
             <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
               <span style={{ background: "#fff", borderRadius: 14, padding: "12px 16px", display: "inline-flex", boxShadow: "0 16px 36px -18px rgba(2,6,23,0.55)" }}>
-                <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 32, display: "block" }} />
+                <img src="/fiscalstack-full-logo.png" alt="FiscalStack" style={{ height: 44, display: "block" }} />
               </span>
               <span style={{ fontSize: 10, letterSpacing: "0.22em", opacity: 0.8, fontFamily: "monospace" }}>LESOTHO</span>
             </span>
@@ -189,7 +189,7 @@ export default function LekakuAuth() {
         <div className="w-full max-w-[440px] flex flex-col items-center">
           <Link href="/">
             <span className="lg:hidden mb-6 inline-flex cursor-pointer">
-              <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 30, display: "block" }} />
+              <img src="/fiscalstack-full-logo.png" alt="FiscalStack" style={{ height: 38, display: "block" }} />
             </span>
           </Link>
 

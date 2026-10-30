@@ -1,0 +1,58 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261030142211359",
+  "dryRun": true,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-30T14:22:13.706Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNPKTL1GB37U:00000026"
+  },
+  "results": [
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "pass",
+      "startedAt": "2026-10-30T14:22:14.278Z",
+      "durationMs": 169,
+      "response": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastReceiptGlobalNo": 132,
+        "lastFiscalDayNo": 5,
+        "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+        "operationID": "0HNPKTL1GB37U:00000026"
+      },
+      "summary": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastFiscalDayNo": 5,
+        "lastReceiptGlobalNo": 132
+      }
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "pass": 1,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "byId": [
+      {
+        "id": "TC-007",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-30T14:22:14.447Z"
+}

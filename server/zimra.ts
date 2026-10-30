@@ -116,6 +116,8 @@ export interface ReceiptData {
     receiptNotes?: string;
     creditDebitNote?: any;
     fiscalDayNo?: number;
+    // Optional print form hint (FDMS spec: Receipt48 for thermal, InvoiceA4 for A4).
+    receiptPrintForm?: 'Receipt48' | 'InvoiceA4';
 }
 
 export interface TaxpayerAddress {
@@ -1126,6 +1128,7 @@ export class ZimraDevice {
             receiptTotal: parseFloat(invoice.total),
             receiptLinesTaxInclusive: invoice.taxInclusive ?? true,
             receiptNotes: invoice.notes || undefined,
+            receiptPrintForm: invoice.isPos ? 'Receipt48' : 'InvoiceA4',
         };
 
         // Determine Receipt Type

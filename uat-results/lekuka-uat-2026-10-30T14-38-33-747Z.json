@@ -1,0 +1,45 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261030143829956",
+  "dryRun": true,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-30T14:38:33.345Z",
+  "fiscalDay": null,
+  "results": [
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "fail",
+      "startedAt": "2026-10-30T14:38:33.470Z",
+      "durationMs": 276,
+      "error": {
+        "message": "LEKUKA request to /Device/v1/812/GetStatus failed (0)",
+        "statusCode": 0,
+        "details": "connect UNKNOWN 197.155.196.73:8443 - Local (undefined:undefined)"
+      }
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "pass": 0,
+    "fail": 1,
+    "blocked": 0,
+    "skipped": 0,
+    "byId": [
+      {
+        "id": "TC-007",
+        "status": "fail"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-30T14:38:33.746Z"
+}

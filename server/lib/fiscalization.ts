@@ -1210,7 +1210,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             creditDebitNote: creditDebitNote,
             receiptNotes: invoice.notes
                 ? (creditDebitNote ? `${invoice.notes} (Ref: ${originalInvoice?.invoiceNumber || 'Original'})` : invoice.notes)
-                : (receiptType !== 'FiscalInvoice' ? `Correction of data entry error (Ref: ${originalInvoice?.invoiceNumber || 'Original'})` : undefined)
+                : (receiptType !== 'FiscalInvoice' ? `Correction of data entry error (Ref: ${originalInvoice?.invoiceNumber || 'Original'})` : undefined),
+            receiptPrintForm: (isPos || invoice.isPos) ? 'Receipt48' : 'InvoiceA4',
         };
 
         vLog(`[Fiscalize] Prepared Receipt Data for Invoice ${invoiceId} (Date: ${receiptData.receiptDate}):`, JSON.stringify(receiptData, null, 2));

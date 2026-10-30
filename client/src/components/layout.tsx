@@ -498,11 +498,11 @@ export function Layout({
       icon: ShieldCheck,
       label: "Tax & Compliance",
       children: [
-        { icon: Server, label: `${fa.deviceLabel} Settings`, href: `/settings?tab=${fa.isLesotho ? "lekuka" : "zimra"}` },
+        { icon: Server, label: `${fa.deviceLabel} Settings`, href: "/tax-settings" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
         { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
         { icon: Activity, label: "API Logs", href: "/api-logs" },
-        { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
+        { icon: Activity, label: "Fiscal Test", href: "/fiscal-test" },
         { icon: FileText, label: `Tax & ${fa.authorityShortName} Report`, href: "/reports/tax" },
         { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
         {
@@ -570,7 +570,7 @@ export function Layout({
               {
                 icon: Eye,
                 label: "Super Admin Visibility",
-                href: "/superadmin-visibility",
+                href: "/system/mx-3f7a",
               },
             ]
           : []),
@@ -999,7 +999,7 @@ export function Layout({
         title: "Partnership Sales",
         subtitle: "Review co-branded sales and revenue splits.",
       };
-    if (location.startsWith("/superadmin-visibility"))
+    if (location.startsWith("/system/mx-3f7a"))
       return {
         title: "Super Admin Visibility",
         subtitle: "Control which companies other superadmins can access.",
@@ -1029,15 +1029,15 @@ export function Layout({
         title: "API Logs",
         subtitle: "Incoming API requests and responses.",
       };
-    if (location.startsWith("/zimra-settings"))
+    if (location.startsWith("/tax-settings"))
       return {
         title: fa.settingsLabel,
         subtitle: `Manage fiscal device and ${fa.authorityShortName} configuration.`,
       };
-    if (location.startsWith("/fdms-test"))
+    if (location.startsWith("/fiscal-test"))
       return {
-        title: "FDMS Test",
-        subtitle: "Test fiscal device connectivity and FDMS responses.",
+        title: "Fiscal Test",
+        subtitle: `Test fiscal device connectivity and ${fa.authorityShortName} responses.`,
       };
     if (location.startsWith("/accounting/coa"))
       return {

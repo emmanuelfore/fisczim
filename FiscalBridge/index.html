@@ -1,244 +1,1191 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FiscalBridge - Fiscal Interface</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FiscalBridge – Fiscal Interface</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="app-header">
-            <div class="logo">
-                <h1>FiscalBridge</h1>
-                <span class="subtitle">Fiscal Interface for FiscalStack</span>
-                <div class="company-display" id="headerCompanyName" style="font-weight: bold; margin-top: 4px; color: #4a5568;"></div>
-            </div>
-            <div class="status-indicator">
-                <span class="status-dot" id="statusDot"></span>
-                <span class="status-text" id="statusText">Disconnected</span>
-            </div>
-        </header>
 
-        <!-- Main Content -->
-        <main class="app-main">
-            <!-- Setup Wizard (shown when not configured) -->
-            <div id="setupWizard" class="wizard-container">
-                <div class="wizard-header">
-                    <h2>Setup Wizard</h2>
-                    <p>Configure FiscalBridge for your POS system</p>
-                </div>
+<!-- ═══════════════════════════════════════════════
+     SETUP WIZARD OVERLAY
+═══════════════════════════════════════════════ -->
+<div id="wizard-overlay">
+  <div class="wizard-shell">
+    <!-- Left rail -->
+    <aside class="wizard-rail">
+      <div class="wizard-logo">
+        FiscalBridge
+        <div class="wizard-logo-sub">Setup Wizard</div>
+      </div>
+      <ol class="wizard-steps-list" id="wizardStepsList">
+        <li class="wizard-step-item" data-wstep="1">
+          <span class="wizard-step-bullet">1</span>
+          <span class="wizard-step-label">API & Connection</span>
+        </li>
+        <li class="wizard-step-item" data-wstep="2">
+          <span class="wizard-step-bullet">2</span>
+          <span class="wizard-step-label">Folders</span>
+        </li>
+        <li class="wizard-step-item" data-wstep="3">
+          <span class="wizard-step-bullet">3</span>
+          <span class="wizard-step-label">Currencies</span>
+        </li>
+        <li class="wizard-step-item" data-wstep="4">
+          <span class="wizard-step-bullet">4</span>
+          <span class="wizard-step-label">Receipt Parsing</span>
+        </li>
+        <li class="wizard-step-item" data-wstep="5">
+          <span class="wizard-step-bullet">5</span>
+          <span class="wizard-step-label">Printer</span>
+        </li>
+        <li class="wizard-step-item" data-wstep="6">
+          <span class="wizard-step-bullet">6</span>
+          <span class="wizard-step-label">Finish</span>
+        </li>
+      </ol>
+    </aside>
 
-                <div class="wizard-steps">
-                    <!-- Step 1: Folder Configuration -->
-                    <div class="wizard-step active" data-step="1">
-                        <h3>Step 1: Folder Configuration</h3>
-                        <div class="form-group">
-                            <label>Source Folder (Receipts from POS)</label>
-                            <div class="input-group">
-                                <input type="text" id="sourceFolder" placeholder="/path/to/receipts">
-                                <button class="btn-secondary" id="browseSource">Browse</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Target Folder (Processed Receipts)</label>
-                            <div class="input-group">
-                                <input type="text" id="targetFolder" placeholder="/path/to/backup">
-                                <button class="btn-secondary" id="browseTarget">Browse</button>
-                            </div>
-                        </div>
-                    </div>
+    <!-- Right content -->
+    <div class="wizard-content">
 
-                    <!-- Step 2: Currency Configuration -->
-                    <div class="wizard-step" data-step="2">
-                        <h3>Step 2: Currency Configuration</h3>
-                        <div class="form-group">
-                            <label>Add Currencies</label>
-                            <div class="currency-list" id="currencyList">
-                                <div class="currency-item">
-                                    <input type="text" placeholder="Keyword (e.g., USD)" class="currency-keyword">
-                                    <input type="text" placeholder="Name (e.g., US Dollar)" class="currency-name">
-                                    <button class="btn-remove" onclick="removeCurrency(this)">Remove</button>
-                                </div>
-                            </div>
-                            <button class="btn-secondary" id="addCurrency">Add Currency</button>
-                        </div>
-                    </div>
-
-                    <!-- Step 3: Receipt Parsing Configuration -->
-                    <div class="wizard-step" data-step="3">
-                        <h3>Step 3: Receipt Parsing Configuration</h3>
-                        <div class="form-group">
-                            <label>Product Start Line Marker</label>
-                            <input type="text" id="productStartLine" value="Order No.">
-                        </div>
-                        <div class="form-group">
-                            <label>Product End Line Marker</label>
-                            <input type="text" id="productEndLine" value="Items count">
-                        </div>
-                        <div class="form-group">
-                            <label>Item Dot Counter</label>
-                            <input type="number" id="itemDotCounter" value="2">
-                        </div>
-                        <div class="form-group">
-                            <label>Multi-line Products</label>
-                            <select id="multiLineProduct">
-                                <option value="0">No</option>
-                                <option value="1">Yes</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>VAT Rate (Standard)</label>
-                            <input type="text" id="vatA" value="0.15">
-                        </div>
-                        <div class="form-group">
-                            <label>VAT Rate (Exempt)</label>
-                            <input type="text" id="vatE" value="0.00">
-                        </div>
-                    </div>
-
-                    <!-- Step 4: Printer Configuration -->
-                    <div class="wizard-step" data-step="4">
-                        <h3>Step 4: Printer Configuration</h3>
-                        <div class="form-group">
-                            <label>Select Printer</label>
-                            <select id="printerSelect">
-                                <option value="">Loading printers...</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Logo File Path</label>
-                            <div class="input-group">
-                                <input type="text" id="logoFile" placeholder="/path/to/logo.png">
-                                <button class="btn-secondary" id="browseLogo">Browse</button>
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin-top: 1rem; display: flex; justify-content: flex-start;">
-                            <button class="btn-primary" id="testPrint" style="width: auto;">Test Print</button>
-                        </div>
-                    </div>
-
-                    <!-- Step 5: API Configuration -->
-                    <div class="wizard-step" data-step="5">
-                        <h3>Step 5: API Configuration</h3>
-                        <div class="form-group">
-                            <label>Company Name</label>
-                            <input type="text" id="companyName" placeholder="Your Company Name">
-                        </div>
-                        <div class="form-group">
-                            <label>API Endpoint</label>
-                            <input type="text" id="apiEndpoint" value="https://fiscalstack.co.zw">
-                        </div>
-                        <div class="form-group">
-                            <label>API Key</label>
-                            <input type="text" id="apiKey" placeholder="Your API Key">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="wizard-footer">
-                    <button class="btn-secondary" id="prevStep" disabled>Previous</button>
-                    <button class="btn-primary" id="nextStep">Next</button>
-                    <button class="btn-success" id="finishSetup" style="display: none;">Finish Setup</button>
-                </div>
-            </div>
-
-            <!-- Main Dashboard (shown after setup) -->
-            <div id="mainDashboard" class="dashboard-container" style="display: none;">
-                <div class="dashboard-header">
-                    <h2>Dashboard</h2>
-                    <div class="dashboard-controls">
-                        <button class="btn-secondary" id="openSettings">Settings</button>
-                        <button class="btn-primary" id="startMonitoring">Start Monitoring</button>
-                        <button class="btn-danger" id="stopMonitoring" style="display: none;">Stop Monitoring</button>
-                    </div>
-                </div>
-
-                <div class="dashboard-stats">
-                    <div class="stat-card">
-                        <h3>Receipts Processed</h3>
-                        <p class="stat-value" id="receiptsProcessed">0</p>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Today's Total</h3>
-                        <p class="stat-value" id="todayTotal">$0.00</p>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Status</h3>
-                        <p class="stat-value" id="monitoringStatus">Idle</p>
-                    </div>
-                </div>
-
-                <div class="recent-activity">
-                    <h3>Recent Activity</h3>
-                    <div class="activity-list" id="activityList">
-                        <div class="activity-item">
-                            <span class="activity-time">--:--</span>
-                            <span class="activity-message">No recent activity</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="dashboard-actions">
-                    <button class="btn-primary" id="generateZReport">Generate Z-Report</button>
-                    <button class="btn-secondary" id="getDeviceStatus">Device Status</button>
-                    <button class="btn-secondary" id="getCardDetails">Card Details</button>
-                    <button class="btn-secondary" id="viewUnprocessed">Unprocessed</button>
-                    <button class="btn-secondary" id="openFiscalDay">Open Fiscal Day</button>
-                    <button class="btn-secondary" id="closeFiscalDay">Close Fiscal Day</button>
-                    <button class="btn-secondary" id="resetCounters">Reset Counters</button>
-                    <button class="btn-secondary" id="viewLogs">View Logs</button>
-                </div>
-            </div>
-        </main>
-
-        <!-- Settings Modal -->
-        <div id="settingsModal" class="modal" style="display: none;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Settings</h3>
-                    <button class="btn-close" id="closeSettings">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <!-- Reuse wizard steps for settings -->
-                    <div id="settingsContent"></div>
-                </div>
-                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 1rem;">
-                    <button class="btn-secondary" id="cancelSettingsBtn" onclick="document.getElementById('settingsModal').style.display='none'">Cancel</button>
-                    <button class="btn-primary" id="saveSettingsBtn">Save Settings</button>
-                </div>
-            </div>
+      <!-- Step 1: API -->
+      <div class="wizard-page active" data-wpage="1">
+        <h2 class="wizard-page-title">Connect to FiscalStack</h2>
+        <p class="wizard-page-sub">Enter your API credentials. Nothing else works until this step passes.</p>
+        <div class="wizard-body">
+          <div class="form-group">
+            <label for="wz-company">Company Name</label>
+            <input type="text" id="wz-company" placeholder="e.g. Acme Zimbabwe (Pvt) Ltd">
+          </div>
+          <div class="form-group">
+            <label for="wz-endpoint">API Endpoint</label>
+            <input type="text" id="wz-endpoint" placeholder="https://fiscalstack.co.zw">
+          </div>
+          <div class="form-group">
+            <label for="wz-apikey">API Key</label>
+            <input type="password" id="wz-apikey" placeholder="sk_live_...">
+          </div>
+          <button class="btn-secondary" id="wz-test-conn">Test Connection</button>
+          <div class="connection-test-result" id="wz-conn-result"></div>
         </div>
+        <div class="wizard-footer">
+          <button class="btn-secondary back-btn" id="wz-back" disabled>← Back</button>
+          <button class="btn-primary" id="wz-next">Next →</button>
+        </div>
+      </div>
 
-        <!-- Processing Modal -->
-        <div id="processingModal" class="modal" style="display: none;">
-            <div class="modal-content modal-small">
-                <div class="modal-body">
-                    <div class="spinner"></div>
-                    <p id="processingMessage">Processing receipt...</p>
-                </div>
+      <!-- Step 2: Folders -->
+      <div class="wizard-page" data-wpage="2">
+        <h2 class="wizard-page-title">Folder Configuration</h2>
+        <p class="wizard-page-sub">Set where FiscalBridge watches for receipts and where it moves processed files.</p>
+        <div class="wizard-body">
+          <div class="form-group">
+            <label for="wz-source">Source Folder (POS receipts)</label>
+            <div class="input-with-btn">
+              <input type="text" id="wz-source" placeholder="/path/to/source">
+              <button class="btn-secondary" id="wz-browse-source">Browse</button>
             </div>
-        </div>
-        <!-- Notification Modal -->
-        <div id="notificationModal" class="modal" style="display: none;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3 id="notificationTitle">Notification</h3>
-                    <button class="btn-close" onclick="document.getElementById('notificationModal').style.display='none'">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <pre id="notificationMessage" style="white-space: pre-wrap; font-family: monospace; font-size: 0.85rem; background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; max-height: 60vh; overflow-y: auto;"></pre>
-                </div>
-                <div class="modal-footer" style="display: flex; justify-content: flex-end;">
-                    <button class="btn-primary" onclick="document.getElementById('notificationModal').style.display='none'">Close</button>
-                </div>
+          </div>
+          <div class="form-group">
+            <label for="wz-target">Target Folder (processed)</label>
+            <div class="input-with-btn">
+              <input type="text" id="wz-target" placeholder="/path/to/processed">
+              <button class="btn-secondary" id="wz-browse-target">Browse</button>
             </div>
+          </div>
+          <div class="form-group">
+            <label for="wz-error">Error Folder (optional)</label>
+            <div class="input-with-btn">
+              <input type="text" id="wz-error" placeholder="/path/to/errors">
+              <button class="btn-secondary" id="wz-browse-error">Browse</button>
+            </div>
+          </div>
+          <div id="wz-folder-validation" style="font-size:.8rem; color: var(--danger); margin-top:8px;"></div>
         </div>
+        <div class="wizard-footer">
+          <button class="btn-secondary back-btn" id="wz-back-2">← Back</button>
+          <button class="btn-primary" id="wz-next-2">Next →</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Currencies -->
+      <div class="wizard-page" data-wpage="3">
+        <h2 class="wizard-page-title">Currencies</h2>
+        <p class="wizard-page-sub">Map currency keywords in receipt files to their names. Click a suggestion to add it.</p>
+        <div class="wizard-body">
+          <div class="suggestion-row">
+            <button class="suggestion-chip" data-kw="USD" data-name="US Dollar">+ USD</button>
+            <button class="suggestion-chip" data-kw="ZWG" data-name="ZiG (ZWG)">+ ZWG</button>
+            <button class="suggestion-chip" data-kw="ZAR" data-name="South African Rand">+ ZAR</button>
+          </div>
+          <div class="currency-list" id="wz-currency-list"></div>
+          <button class="btn-secondary mt-2" id="wz-add-currency">+ Add Currency</button>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn-secondary back-btn" id="wz-back-3">← Back</button>
+          <button class="btn-primary" id="wz-next-3">Next →</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Receipt Parsing -->
+      <div class="wizard-page" data-wpage="4">
+        <h2 class="wizard-page-title">Receipt Parsing Rules</h2>
+        <p class="wizard-page-sub">Configure how receipts are parsed. Use "Try it" to validate against a sample file.</p>
+        <div class="wizard-body">
+          <div class="form-group">
+            <label for="wz-preset">Invoicing System Preset</label>
+            <select id="wz-preset">
+              <option value="custom">Custom / Manual</option>
+              <option value="generic-pos">Generic POS</option>
+              <option value="sage">Sage Evolution</option>
+              <option value="pastel">Pastel Partner</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="wz-start-marker">Product Start Marker</label>
+            <input type="text" id="wz-start-marker" placeholder="e.g. Order No.">
+          </div>
+          <div class="form-group">
+            <label for="wz-end-marker">Product End Marker</label>
+            <input type="text" id="wz-end-marker" placeholder="e.g. Items count">
+          </div>
+          <div class="form-group">
+            <label for="wz-dot-counter">Item Dot Counter</label>
+            <input type="number" id="wz-dot-counter" value="2" min="1" max="10">
+          </div>
+          <div class="form-group">
+            <label for="wz-multiline">Multi-line Products</label>
+            <select id="wz-multiline">
+              <option value="0">No</option>
+              <option value="1">Yes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="wz-vata">VAT Standard Rate (%)</label>
+            <input type="text" id="wz-vata" value="15.5">
+          </div>
+          <div class="form-group">
+            <label for="wz-vate">VAT Exempt Rate (%)</label>
+            <input type="text" id="wz-vate" value="0">
+          </div>
+          <div class="form-group">
+            <label for="wz-try-file">Try It — Load Sample Receipt</label>
+            <input type="file" id="wz-try-file" accept=".pdf,.txt" style="height:auto;padding:6px;">
+          </div>
+          <div id="wz-try-result" style="display:none; margin-top:10px;"></div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn-secondary back-btn" id="wz-back-4">← Back</button>
+          <button class="btn-primary" id="wz-next-4">Next →</button>
+        </div>
+      </div>
+
+      <!-- Step 5: Printer -->
+      <div class="wizard-page" data-wpage="5">
+        <h2 class="wizard-page-title">Printer Setup</h2>
+        <p class="wizard-page-sub">Select your thermal printer and optionally upload a logo for receipts.</p>
+        <div class="wizard-body">
+          <div class="form-group">
+            <label for="wz-printer">Select Printer</label>
+            <select id="wz-printer"><option value="">Loading...</option></select>
+          </div>
+          <div class="form-group">
+            <label for="wz-logo">Company Logo (optional)</label>
+            <div class="input-with-btn">
+              <input type="text" id="wz-logo" placeholder="Path to logo image">
+              <button class="btn-secondary" id="wz-browse-logo">Browse</button>
+            </div>
+          </div>
+          <button class="btn-secondary" id="wz-test-print">Test Print</button>
+          <div id="wz-print-result" style="margin-top:8px; font-size:.8rem;"></div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn-secondary back-btn" id="wz-back-5">← Back</button>
+          <button class="btn-primary" id="wz-next-5">Next →</button>
+        </div>
+      </div>
+
+      <!-- Step 6: Finish -->
+      <div class="wizard-page" data-wpage="6">
+        <h2 class="wizard-page-title">Ready to Go</h2>
+        <p class="wizard-page-sub">Review your configuration. Click a section to edit it. Then start monitoring.</p>
+        <div class="wizard-body">
+          <div id="wz-summary" class="card"></div>
+          <div style="display:flex; gap:8px; margin-top:14px;">
+            <button class="btn-secondary" id="wz-export-config">Export Config JSON</button>
+            <button class="btn-secondary" id="wz-import-config">Import Config JSON</button>
+            <input type="file" id="wz-import-file" accept=".json" style="display:none;">
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button class="btn-secondary back-btn" id="wz-back-6">← Back</button>
+          <button class="btn-primary" id="wz-finish">Start Monitoring</button>
+        </div>
+      </div>
+
+    </div><!-- /wizard-content -->
+  </div><!-- /wizard-shell -->
+</div><!-- /wizard-overlay -->
+
+
+<!-- ═══════════════════════════════════════════════
+     MAIN APPLICATION SHELL
+═══════════════════════════════════════════════ -->
+<div class="app-container">
+
+  <!-- ─── Sidebar ─── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img src="assets/logo.png" alt="FiscalBridge Logo" class="sidebar-logo">
+      <div class="sidebar-title">
+        <h1>FiscalBridge</h1>
+        <span class="subtitle">Fiscal Interface</span>
+      </div>
     </div>
+    <nav class="sidebar-nav" aria-label="Main navigation">
+      <button class="nav-item active" data-page="dashboard" aria-current="page">
+        Dashboard
+      </button>
+      <button class="nav-item" data-page="documents">
+        Documents
+        <span class="badge" id="docsBadge" aria-label="0 documents">0</span>
+      </button>
+      <button class="nav-item" data-page="parser">
+        Parser Lab
+        <span class="badge badge-red" id="parserBadge" aria-label="0 needing review" style="display:none">0</span>
+      </button>
+      <button class="nav-item" data-page="fiscal">
+        Fiscal Device
+      </button>
+      <button class="nav-item" data-page="dayclose">
+        Day Close
+      </button>
+      <button class="nav-item" data-page="settings">
+        Settings
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="device-chip" id="deviceChip">
+        <span class="dot unknown" id="deviceDot"></span>
+        <span class="device-chip-text" id="deviceChipText">No device</span>
+      </div>
+    </div>
+  </aside>
 
-    <script src="receiptParser.js"></script>
-    <script src="dataModels.js"></script>
-    <script src="renderer.js"></script>
+  <!-- ─── Main area ─── -->
+  <main class="app-main">
+
+    <!-- Page header -->
+    <header class="page-header">
+      <div class="page-header-title">
+        <h2 id="pageTitle">Dashboard</h2>
+        <p id="pageSubtitle">Overview of fiscal activity</p>
+      </div>
+      <div class="watcher-pill" id="watcherPill">
+        <span class="wdot"></span>
+        <span id="watcherPillText">Not watching</span>
+      </div>
+      <!-- Connection Status Indicator -->
+      <div class="status-indicator" id="statusIndicator" title="Connection status">
+        <div class="status-dot" id="connectionStatusDot"></div>
+        <span class="status-text" id="connectionStatusText">Checking…</span>
+      </div>
+      <button class="btn-secondary" id="pauseResumeBtn" style="min-width:90px">Start</button>
+      <button class="btn-secondary btn-icon" id="refreshBtn" title="Refresh" aria-label="Refresh">↻</button>
+      <button class="btn-secondary btn-icon" id="settingsShortcut" title="Settings" aria-label="Open settings">⚙</button>
+    </header>
+
+    <!-- Toast container -->
+    <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Pages area -->
+    <div class="pages-area">
+
+      <!-- ── DASHBOARD ── -->
+      <section id="page-dashboard" class="page active" aria-label="Dashboard">
+        <!-- KPI row -->
+        <div class="kpis" id="kpiRow">
+          <div class="kpi-card">
+            <div class="kpi-label">Receipts Today</div>
+            <div class="kpi-value" id="kpiProcessed">0</div>
+            <div class="kpi-sub" id="kpiProcessedSub"></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Queued / Retrying</div>
+            <div class="kpi-value" id="kpiQueued">0</div>
+            <div class="kpi-sub" id="kpiQueuedSub"></div>
+          </div>
+          <div class="kpi-card" id="kpiReviewCard">
+            <div class="kpi-label">Needs Review</div>
+            <div class="kpi-value" id="kpiReview">0</div>
+            <div class="kpi-sub"><a href="#" id="kpiReviewLink" style="color:var(--danger);text-decoration:none;font-size:.75rem">View in Parser Lab →</a></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Today's Total</div>
+            <div class="kpi-value" id="kpiTotal">—</div>
+            <div class="kpi-sub" id="kpiTotalSub"></div>
+          </div>
+        </div>
+
+        <!-- Two-column layout -->
+        <div class="dash-cols">
+          <div class="dash-main">
+            <!-- Hourly chart -->
+            <div class="card" style="margin-bottom:14px">
+              <div class="card-header">
+                <h3>Receipts Fiscalised per Hour</h3>
+              </div>
+              <div class="bar-chart" id="hourlyChart"></div>
+            </div>
+            <!-- Recent Documents -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Recent Documents</h3>
+              </div>
+              <div class="tab-bar">
+                <button class="tab-btn active" data-tab="all">All</button>
+                <button class="tab-btn" data-tab="retrying">Retrying</button>
+                <button class="tab-btn" data-tab="needs_review">Needs review</button>
+              </div>
+              <div class="table-wrap">
+                <table id="recentDocsTable">
+                  <thead>
+                    <tr>
+                      <th>File</th>
+                      <th>Receipt No.</th>
+                      <th>Amount</th>
+                      <th>Status</th>
+                      <th>Fiscal Code</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recentDocsTbody">
+                    <tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">📄</div><h4>No documents yet</h4><p>Start monitoring to process receipts.</p></div></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-side">
+            <!-- Fiscal day card -->
+            <div class="fiscal-day-card" id="fiscalDayCard">
+              <div class="fdc-title">Fiscal Day</div>
+              <div class="fdc-day" id="fdcDay">Day —</div>
+              <div class="fdc-timer" id="fdcTimer">--:--:--</div>
+              <div class="fdc-meta" id="fdcMeta">Status unknown</div>
+            </div>
+            <!-- Checklist -->
+            <div class="card">
+              <div class="card-header"><h3>Ready to close day?</h3></div>
+              <ul class="checklist" id="closeChecklist">
+                <li class="checklist-item">
+                  <span class="check-dot unknown" id="chkFdms"></span>
+                  <span class="check-label">FDMS healthy</span>
+                  <span class="check-value" id="chkFdmsVal">—</span>
+                </li>
+                <li class="checklist-item">
+                  <span class="check-dot unknown" id="chkQueue"></span>
+                  <span class="check-label">Queue empty</span>
+                  <span class="check-value" id="chkQueueVal">—</span>
+                </li>
+                <li class="checklist-item">
+                  <span class="check-dot unknown" id="chkReview"></span>
+                  <span class="check-label">No files needing review</span>
+                  <span class="check-value" id="chkReviewVal">—</span>
+                </li>
+              </ul>
+              <button class="btn-primary" id="reviewCloseBtn" style="width:100%;margin-top:12px" data-navto="dayclose">Review &amp; Close Day</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── DOCUMENTS ── -->
+      <section id="page-documents" class="page" aria-label="Documents">
+        <div class="card">
+          <div class="card-header">
+            <h3>Document History</h3>
+            <div class="btn-group">
+              <button class="btn-secondary" id="exportCsvBtn">Export CSV</button>
+              <button class="btn-secondary" id="refreshDocsBtn">Refresh</button>
+            </div>
+          </div>
+          <div class="filters-row">
+            <input type="search" id="docSearch" placeholder="Search receipt no. or filename…">
+            <select id="docStatusFilter">
+              <option value="">All statuses</option>
+              <option value="fiscalised">Fiscalised</option>
+              <option value="queued">Queued</option>
+              <option value="retrying">Retrying</option>
+              <option value="needs_review">Needs Review</option>
+            </select>
+            <select id="docCurrencyFilter">
+              <option value="">All currencies</option>
+            </select>
+            <input type="date" id="docDateFilter" title="Filter by date">
+          </div>
+          <div class="table-wrap">
+            <table id="docsTable">
+              <thead>
+                <tr>
+                  <th data-col="fileName" class="sorted">File <span class="sort-icon">▼</span></th>
+                  <th data-col="receiptNo">Receipt No.</th>
+                  <th data-col="amount">Amount</th>
+                  <th data-col="status">Status</th>
+                  <th data-col="fiscalCode">Fiscal Code</th>
+                  <th data-col="processedAt">Time</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="docsTbody">
+                <tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">📂</div><h4>No documents</h4><p>Receipts processed today appear here.</p></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="docsPagination"></div>
+        </div>
+      </section>
+
+      <!-- ── PARSER LAB ── -->
+      <section id="page-parser" class="page" style="padding:12px 16px;" aria-label="Parser Lab">
+
+        <!-- ── Profile action bar ───────────────────────────────────────────── -->
+        <div class="card" style="margin-bottom:12px;padding:10px 14px;">
+          <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+            <label for="parserProfile" style="font-size:.78rem;font-weight:600;color:var(--ink-muted);white-space:nowrap">Profile</label>
+            <select id="parserProfile" style="min-width:200px;max-width:260px;"></select>
+            <span id="profileVersionBadge" style="font-size:.7rem;background:var(--surface-alt);border-radius:4px;padding:2px 7px;color:var(--ink-muted);"></span>
+            <button class="btn-secondary btn-sm" id="newProfileBtn" title="Create blank profile">＋ New</button>
+            <button class="btn-secondary btn-sm" id="dupProfileBtn"  title="Duplicate selected">⎘ Duplicate</button>
+            <button class="btn-secondary btn-sm" id="importProfileBtn" title="Import from JSON file">↑ Import</button>
+            <button class="btn-secondary btn-sm" id="exportProfileBtn" title="Export to JSON file">↓ Export</button>
+            <button class="btn-danger   btn-sm" id="delProfileBtn"  title="Delete all versions">✕ Delete</button>
+            <div style="flex:1"></div>
+            <label for="failedFilesSelect" style="font-size:.78rem;font-weight:600;color:var(--ink-muted);white-space:nowrap">Needs review</label>
+            <select id="failedFilesSelect" style="width:190px;"><option value="">— pick a file —</option></select>
+            <button class="btn-secondary btn-sm" id="loadFailedBtn">Load</button>
+          </div>
+        </div>
+
+        <!-- ── Two-pane layout ──────────────────────────────────────────────── -->
+        <div class="parser-layout" style="height:calc(100vh - 210px);">
+
+          <!-- LEFT: text viewer + file loader -->
+          <div class="parser-left">
+            <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden;padding:12px;">
+              <div class="tab-bar" style="margin-bottom:8px;">
+                <button class="tab-btn active" data-ptab="text">Extracted Text</button>
+                <button class="tab-btn" data-ptab="file">Load File</button>
+              </div>
+
+              <!-- Text view with role tinting -->
+              <div id="ptab-text" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+                <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+                  <span class="role-legend role-start">Start</span>
+                  <span class="role-legend role-end">End</span>
+                  <span class="role-legend role-item">Item</span>
+                  <span class="role-legend role-total">Total</span>
+                  <span class="role-legend role-vat">VAT</span>
+                  <span class="role-legend role-skip">Skip</span>
+                </div>
+                <div class="parser-text-area" id="parserTextLines" style="flex:1;"></div>
+              </div>
+
+              <!-- File / paste loader -->
+              <div id="ptab-file" style="display:none;padding:6px 0;overflow-y:auto;">
+                <div class="form-group">
+                  <label>Load PDF or TXT file</label>
+                  <input type="file" id="parserFileInput" accept=".pdf,.txt" style="height:auto;padding:6px;">
+                </div>
+                <div class="form-group">
+                  <label>Or paste raw text</label>
+                  <textarea id="parserRawText" rows="10" placeholder="Paste extracted invoice text here…" class="mono"></textarea>
+                </div>
+                <button class="btn-primary" id="loadTextBtn">Load Text →</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT: rules form + output tabs -->
+          <div class="parser-right">
+            <div class="card" style="flex:1;overflow-y:auto;padding:14px 16px;">
+
+              <!-- Action bar -->
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+                <h3 style="flex:1;margin:0;font-size:.95rem;">Profile Rules</h3>
+                <input id="profileNameInput" type="text" placeholder="Profile name…" style="width:180px;">
+                <input id="profileIdInput"   type="text" placeholder="id (no spaces)" style="width:160px;">
+                <button class="btn-primary btn-sm"   id="reRunParseBtn">▶ Re-run Parse</button>
+                <button class="btn-secondary btn-sm" id="runLast20Btn">⊟ Last 20 Files</button>
+                <button class="btn-success btn-sm"   id="saveProfileVersionBtn">✦ Save Version</button>
+              </div>
+
+              <!-- Output tabs -->
+              <div class="tab-bar" style="margin-bottom:12px;">
+                <button class="tab-btn active" data-rtab="rules">Rules</button>
+                <button class="tab-btn" data-rtab="json">JSON Output</button>
+                <button class="tab-btn" data-rtab="regression">Regression</button>
+              </div>
+
+              <!-- ── RULES TAB ──────────────────────────────────────────────── -->
+              <div id="rtab-rules">
+
+                <!-- ① Detection & Engine -->
+                <div class="rs-accordion open" data-acc="detection">
+                  <button class="rs-acc-header" aria-expanded="true">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Detection &amp; Engine</span>
+                    <span class="rs-acc-hint">fingerprints · extraction method</span>
+                  </button>
+                  <div class="rs-acc-body">
+                    <p class="rs-hint">First matching profile wins — add text or regex patterns that uniquely identify this layout.</p>
+                    <div id="fingerprintList" class="rs-list"></div>
+                    <button class="btn-secondary btn-sm" id="addFingerprintBtn">＋ Add Fingerprint</button>
+
+                    <div class="rs-divider"></div>
+                    <div class="rs-field-grid rs-grid-2">
+                      <div class="form-group">
+                        <label>Extraction Engine</label>
+                        <select id="pe-engine">
+                          <option value="layout">layout (pdftotext)</option>
+                          <option value="words">words (pdfplumber)</option>
+                        </select>
+                      </div>
+                      <div class="form-group">
+                        <label>Page Range</label>
+                        <input type="text" id="pe-pageRange" placeholder="all" value="all">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ② Locale -->
+                <div class="rs-accordion open" data-acc="locale">
+                  <button class="rs-acc-header" aria-expanded="true">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Locale &amp; Currency</span>
+                    <span class="rs-acc-hint">currency · date format · separators</span>
+                  </button>
+                  <div class="rs-acc-body">
+                    <div class="rs-field-grid rs-grid-5">
+                      <div class="form-group">
+                        <label>Currency ISO</label>
+                        <input type="text" id="pl-currencyIso" placeholder="USD">
+                      </div>
+                      <div class="form-group">
+                        <label>Symbol</label>
+                        <input type="text" id="pl-currencySym" placeholder="$">
+                      </div>
+                      <div class="form-group">
+                        <label>Date Format</label>
+                        <input type="text" id="pl-dateFormat" placeholder="DD/MM/YYYY">
+                      </div>
+                      <div class="form-group">
+                        <label>Decimal Sep</label>
+                        <input type="text" id="pl-decSep" value=".">
+                      </div>
+                      <div class="form-group">
+                        <label>Thousands Sep</label>
+                        <input type="text" id="pl-thouSep" value=",">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ③ Header Fields -->
+                <div class="rs-accordion open" data-acc="header">
+                  <button class="rs-acc-header" aria-expanded="true">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Header Fields</span>
+                    <span class="rs-acc-hint">invoice no. · date · reference · sales rep</span>
+                  </button>
+                  <div class="rs-acc-body">
+                    <p class="rs-hint">Map label text found on the document to a structured field name.</p>
+                    <div id="headerFieldList" class="rs-list"></div>
+                    <button class="btn-secondary btn-sm" id="addHeaderFieldBtn">＋ Add Header Field</button>
+                  </div>
+                </div>
+
+                <!-- ④ Parties -->
+                <div class="rs-accordion" data-acc="parties">
+                  <button class="rs-acc-header" aria-expanded="false">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Parties</span>
+                    <span class="rs-acc-hint">supplier · customer anchor text</span>
+                  </button>
+                  <div class="rs-acc-body" style="display:none">
+                    <div class="rs-field-grid rs-grid-2">
+                      <div class="rs-party-group">
+                        <div class="rs-party-label">Supplier</div>
+                        <div class="form-group"><label>Anchor text</label><input type="text" id="pp-supAnchor" placeholder="FROM"></div>
+                        <div class="form-group"><label>Lines to capture</label><input type="number" id="pp-supLines" value="4"></div>
+                      </div>
+                      <div class="rs-party-group">
+                        <div class="rs-party-label">Customer</div>
+                        <div class="form-group"><label>Anchor (top)</label><input type="text" id="pp-custAnchor" placeholder="TO"></div>
+                        <div class="form-group"><label>Anchor (bottom)</label><input type="text" id="pp-custAnchorBot" placeholder="Customer VAT No:"></div>
+                        <div class="form-group"><label>Lines to capture</label><input type="number" id="pp-custLines" value="4"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ⑤ Line Items -->
+                <div class="rs-accordion open" data-acc="lineitems">
+                  <button class="rs-acc-header" aria-expanded="true">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Line Items</span>
+                    <span class="rs-acc-hint">markers · column map · skip patterns</span>
+                  </button>
+                  <div class="rs-acc-body">
+                    <div class="rs-field-grid rs-grid-2">
+                      <div class="form-group"><label>Start Marker (regex)</label><input type="text" id="pl-start" placeholder="e.g. Description"></div>
+                      <div class="form-group"><label>Start Line Offset</label><input type="number" id="pl-startOffset" value="1"></div>
+                      <div class="form-group"><label>End Marker (regex)</label><input type="text" id="pl-end" placeholder="e.g. BANKING DETAILS"></div>
+                      <div class="form-group"><label>Item Dot Counter ≥</label><input type="number" id="pl-dot" value="2"></div>
+                    </div>
+                    <div class="rs-field-grid rs-grid-2">
+                      <div class="form-group">
+                        <label>Multi-line Products</label>
+                        <select id="pl-multi">
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                          <option value="auto">Auto</option>
+                        </select>
+                      </div>
+                      <div class="form-group">
+                        <label>Code Split Separator</label>
+                        <input type="text" id="pl-codeSplit" placeholder=" - ">
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label>Column Map <span class="rs-label-hint">(comma-separated, in layout order)</span></label>
+                      <input type="text" id="pl-colmap" placeholder="description,qty,unit_price_excl,disc_pct,vat_pct,total_excl,total_incl">
+                    </div>
+                    <div class="form-group">
+                      <label>Skip Patterns <span class="rs-label-hint">(comma-separated regexes)</span></label>
+                      <input type="text" id="pl-skip" placeholder="^Page \d+, ^Continued">
+                    </div>
+                    <div class="rule-result-row" id="plr-itemCount"></div>
+                  </div>
+                </div>
+
+                <!-- ⑥ Tax -->
+                <div class="rs-accordion open" data-acc="tax">
+                  <button class="rs-acc-header" aria-expanded="true">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Tax</span>
+                    <span class="rs-acc-hint">VAT rates · price basis</span>
+                  </button>
+                  <div class="rs-acc-body">
+                    <div class="rs-field-grid rs-grid-3">
+                      <div class="form-group"><label>VAT Standard (%)</label><input type="text" id="pl-vata" value="15"></div>
+                      <div class="form-group"><label>VAT Exempt (%)</label><input type="text" id="pl-vate" value="0"></div>
+                      <div class="form-group">
+                        <label>Price Basis</label>
+                        <select id="pl-priceBasis">
+                          <option value="exclusive">Exclusive</option>
+                          <option value="inclusive">Inclusive</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ⑦ Totals & Banking -->
+                <div class="rs-accordion" data-acc="totals">
+                  <button class="rs-acc-header" aria-expanded="false">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Totals &amp; Banking</span>
+                    <span class="rs-acc-hint">totals label map · bank block marker</span>
+                  </button>
+                  <div class="rs-acc-body" style="display:none">
+                    <p class="rs-hint">Map label text → field name (total_excl, vat, sub_total, rounding, grand_total, balance_due)</p>
+                    <div id="totalsLabelList" class="rs-list"></div>
+                    <button class="btn-secondary btn-sm" id="addTotalsLabelBtn">＋ Add Total Label</button>
+                    <div class="rs-divider"></div>
+                    <div class="form-group">
+                      <label>Bank Block Start Marker</label>
+                      <input type="text" id="pb-bankStart" placeholder="BANKING DETAILS">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ⑧ Validation -->
+                <div class="rs-accordion" data-acc="validation">
+                  <button class="rs-acc-header" aria-expanded="false">
+                    <span class="rs-acc-icon">▶</span>
+                    <span class="rs-acc-title">Validation</span>
+                    <span class="rs-acc-hint">tolerance · required fields</span>
+                  </button>
+                  <div class="rs-acc-body" style="display:none">
+                    <div class="rs-field-grid rs-grid-2">
+                      <div class="form-group"><label>Tolerance (M)</label><input type="number" id="pv-tol" value="0.02" step="0.01"></div>
+                      <div class="form-group">
+                        <label>Required Fields <span class="rs-label-hint">(comma-separated)</span></label>
+                        <input type="text" id="pv-required" placeholder="invoice_number,date,grand_total">
+                      </div>
+                    </div>
+                    <div id="parseValidationPill" style="margin-top:10px;"></div>
+                    <div id="whyFailedBox" class="why-failed-callout" style="display:none;"></div>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- ── JSON OUTPUT TAB ────────────────────────────────────────── -->
+              <div id="rtab-json" style="display:none;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                  <span style="font-size:.78rem;font-weight:600;color:var(--ink-muted)">Parse result</span>
+                  <button class="btn-secondary btn-sm" id="copyJsonBtn">⎘ Copy</button>
+                  <span id="confidencePill" style="margin-left:auto;font-size:.75rem;padding:2px 9px;border-radius:999px;background:var(--surface-alt);"></span>
+                </div>
+                <pre id="parseJsonOutput" class="mono" style="background:var(--surface-alt);border-radius:8px;padding:12px;font-size:.72rem;overflow:auto;max-height:calc(100vh - 300px);white-space:pre-wrap;"></pre>
+              </div>
+
+              <!-- ── REGRESSION TAB ─────────────────────────────────────────── -->
+              <div id="rtab-regression" style="display:none;">
+                <div style="font-size:.78rem;color:var(--ink-muted);margin-bottom:10px;">Re-parses the last 20 files using the <em>current draft rules</em> and diffs against their last saved output. Regressions are highlighted.</div>
+                <div id="last20Result"></div>
+              </div>
+
+              <!-- Parsed items (shown under Rules tab) -->
+              <div id="parsedItemsSection" style="margin-top:14px;">
+                <h4 style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-muted);margin-bottom:8px;">Parsed Items Preview</h4>
+                <div class="table-wrap" id="parsedItemsWrap">
+                  <table>
+                    <thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price Excl</th><th>VAT%</th><th>Total Excl</th><th>Total Incl</th></tr></thead>
+                    <tbody id="parsedItemsTbody"></tbody>
+                  </table>
+                </div>
+                <div style="margin-top:10px;">
+                  <button class="btn-primary" id="reprocessFileBtn" style="display:none;">Re-process This File via Watcher</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- Line role popover -->
+        <div class="line-popover" id="linePopover">
+          <div class="popover-item" data-role="role-start">Set as Product Start Marker</div>
+          <div class="popover-item" data-role="role-end">Set as Product End Marker</div>
+          <div class="popover-item" data-role="role-item">Mark as Item Row</div>
+          <div class="popover-item" data-role="role-total">Set as Total Line</div>
+          <div class="popover-item" data-role="role-vat">Set as VAT Line</div>
+          <div class="popover-item" data-role="role-skip">Mark as Skip Pattern</div>
+          <div class="popover-item" data-role="">Clear Role</div>
+        </div>
+      </section>
+
+      <!-- ── FISCAL DEVICE ── -->
+
+      <section id="page-fiscal" class="page" aria-label="Fiscal Device">
+        <div class="card" style="margin-bottom:14px;">
+          <div class="card-header">
+            <h3>Fiscal Device</h3>
+            <div class="btn-group">
+              <button class="btn-secondary" id="refreshDeviceBtn">Refresh Status</button>
+              <button class="btn-secondary" id="runConnTestBtn">Run Connection Test</button>
+            </div>
+          </div>
+
+          <div class="tab-bar">
+            <button class="tab-btn active" data-ftab="status">Device Status</button>
+            <button class="tab-btn" data-ftab="card">Card Details</button>
+          </div>
+
+          <div id="ftab-status">
+            <div id="fiscalDeviceGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;">
+              <!-- populated by JS -->
+              <div class="skeleton skeleton-text" style="height:40px;"></div>
+              <div class="skeleton skeleton-text" style="height:40px;"></div>
+            </div>
+            <div id="fiscalErrorState" style="display:none;" class="why-failed-callout" style="margin-top:14px;"></div>
+          </div>
+
+          <div id="ftab-card" style="display:none;">
+            <div id="cardDetailsContent">
+              <div class="empty-state">
+                <div class="empty-state-icon">💳</div>
+                <h4>Card Details</h4>
+                <p>Load card details from the FDMS.</p>
+                <button class="btn-secondary" id="loadCardDetailsBtn">Load Card Details</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── DAY CLOSE ── -->
+      <section id="page-dayclose" class="page" aria-label="Day Close">
+        <div class="day-close-layout">
+          <!-- Step indicator -->
+          <div class="step-indicator" id="dcStepIndicator">
+            <div class="step-node active" data-dcstep="1">
+              <div class="step-circle">1</div>
+              <div class="step-label">Pre-checks</div>
+            </div>
+            <div class="step-node" data-dcstep="2">
+              <div class="step-circle">2</div>
+              <div class="step-label">Summary</div>
+            </div>
+            <div class="step-node" data-dcstep="3">
+              <div class="step-circle">3</div>
+              <div class="step-label">Options</div>
+            </div>
+            <div class="step-node" data-dcstep="4">
+              <div class="step-circle">4</div>
+              <div class="step-label">Result</div>
+            </div>
+          </div>
+
+          <!-- Step 1: Pre-checks -->
+          <div class="card day-step active" id="dc-step-1">
+            <div class="card-header"><h3>Pre-close Checks</h3><button class="btn-secondary" id="dcRunChecksBtn">Run Checks</button></div>
+            <ul class="prechecks-list" id="dcPrechecksList">
+              <li class="precheck-item">
+                <span class="precheck-icon" id="dcRunChecksHint">ℹ</span>
+                <div class="precheck-desc"><strong>Click "Run Checks" to begin</strong><span>This will verify FDMS status, queue, and review queue.</span></div>
+              </li>
+            </ul>
+            <div style="margin-top:16px">
+              <button class="btn-secondary" id="dcOpenDayBtn">Open New Fiscal Day</button>
+            </div>
+          </div>
+
+          <!-- Step 2: Summary -->
+          <div class="card day-step" id="dc-step-2">
+            <div class="card-header"><h3>Day Summary</h3></div>
+            <div id="dcSummaryContent">
+              <div class="empty-state"><p>Run pre-checks first.</p></div>
+            </div>
+          </div>
+
+          <!-- Step 3: Options -->
+          <div class="card day-step" id="dc-step-3">
+            <div class="card-header"><h3>Close Fiscal Day</h3></div>
+            <div>
+              <p style="font-size:.85rem;color:var(--ink-muted);margin-bottom:16px;">Choose how to handle any remaining items before closing the day.</p>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--card-border);border-radius:8px;cursor:pointer;">
+                  <input type="radio" name="dcOption" value="resolve" style="width:auto;height:auto;margin-top:2px;">
+                  <div><strong style="font-size:.85rem">Resolve queued items first</strong><div style="font-size:.78rem;color:var(--ink-muted);margin-top:2px">Wait for queue to clear, then close.</div></div>
+                </label>
+                <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--card-border);border-radius:8px;cursor:pointer;">
+                  <input type="radio" name="dcOption" value="closeanyway" style="width:auto;height:auto;margin-top:2px;">
+                  <div><strong style="font-size:.85rem">Close anyway &amp; carry over</strong><div style="font-size:.78rem;color:var(--ink-muted);margin-top:2px">Queued items will retry in the next fiscal day.</div></div>
+                </label>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+              <button class="btn-secondary" id="dcBackBtn">← Back</button>
+              <button class="btn-danger" id="dcConfirmCloseBtn" disabled>Close Fiscal Day</button>
+            </div>
+          </div>
+
+          <!-- Step 4: Result -->
+          <div class="card day-step" id="dc-step-4">
+            <div class="card-header"><h3>Day Closed</h3></div>
+            <div id="dcResultContent">
+              <div class="empty-state"><div class="empty-state-icon">✅</div><h4>Fiscal day closed</h4></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+              <button class="btn-secondary" id="dcDownloadZBtn">Download Z-Report PDF</button>
+              <button class="btn-secondary" id="dcPrintZBtn">Print Z-Report</button>
+              <button class="btn-primary" id="dcOpenNextBtn">Open Next Day</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ── SETTINGS ── -->
+      <section id="page-settings" class="page" aria-label="Settings">
+        <div class="settings-layout">
+          <!-- Left nav -->
+          <ul class="settings-nav-list" id="settingsNavList">
+            <li class="settings-nav-item active" data-ssec="connection">Connection</li>
+            <li class="settings-nav-item" data-ssec="folders">Folders</li>
+            <li class="settings-nav-item" data-ssec="currencies">Currencies</li>
+            <li class="settings-nav-item" data-ssec="parsing">Parsing</li>
+            <li class="settings-nav-item" data-ssec="printer">Printer</li>
+            <li class="settings-nav-item" data-ssec="notifications">Notifications</li>
+            <li class="settings-nav-item" data-ssec="logs">Logs</li>
+            <li class="settings-nav-item" data-ssec="advanced">Advanced</li>
+            <li class="settings-nav-item" data-ssec="about">About</li>
+          </ul>
+
+          <div class="settings-content">
+            <!-- Connection -->
+            <div class="settings-section active card" id="ssec-connection">
+              <h3>Connection</h3>
+              <div class="form-group"><label for="cfg-company">Company Name</label><input type="text" id="cfg-company"></div>
+              <div class="form-group"><label for="cfg-country">Country / Region</label><select id="cfg-country"><option value="ZW">Zimbabwe (ZIMRA)</option><option value="LS">Lesotho (LRA)</option></select></div>
+              <div class="form-group"><label for="cfg-endpoint">API Endpoint</label><input type="text" id="cfg-endpoint"></div>
+              <div class="form-group"><label for="cfg-apikey">API Key</label><input type="password" id="cfg-apikey"></div>
+              <div class="btn-group">
+                <button class="btn-secondary" id="cfg-test-conn">Test Connection</button>
+                <button class="btn-primary" id="cfg-save-connection">Save</button>
+              </div>
+              <div class="connection-test-result" id="cfg-conn-result"></div>
+            </div>
+
+            <!-- Folders -->
+            <div class="settings-section card" id="ssec-folders">
+              <h3>Folders</h3>
+              <div class="form-group"><label for="cfg-source">Source Folder</label><div class="input-with-btn"><input type="text" id="cfg-source"><button class="btn-secondary" id="cfg-browse-source">Browse</button></div></div>
+              <div class="form-group"><label for="cfg-target">Target Folder</label><div class="input-with-btn"><input type="text" id="cfg-target"><button class="btn-secondary" id="cfg-browse-target">Browse</button></div></div>
+              <div class="form-group"><label for="cfg-error">Error Folder</label><div class="input-with-btn"><input type="text" id="cfg-error"><button class="btn-secondary" id="cfg-browse-error">Browse</button></div></div>
+              <button class="btn-primary" id="cfg-save-folders">Save</button>
+            </div>
+
+            <!-- Currencies -->
+            <div class="settings-section card" id="ssec-currencies">
+              <h3>Currencies</h3>
+              <div class="suggestion-row">
+                <button class="suggestion-chip" data-kw="USD" data-name="US Dollar">+ USD</button>
+                <button class="suggestion-chip" data-kw="ZWG" data-name="ZiG (ZWG)">+ ZWG</button>
+                <button class="suggestion-chip" data-kw="ZAR" data-name="South African Rand">+ ZAR</button>
+              </div>
+              <div class="currency-list" id="cfg-currency-list"></div>
+              <div class="btn-group mt-2">
+                <button class="btn-secondary" id="cfg-add-currency">+ Add Currency</button>
+                <button class="btn-primary" id="cfg-save-currencies">Save</button>
+              </div>
+            </div>
+
+            <!-- Parsing -->
+            <div class="settings-section card" id="ssec-parsing">
+              <h3>Parsing &amp; Profiles</h3>
+
+              <!-- ── Template / profile selector ── -->
+              <div class="form-group" style="margin-bottom:10px;">
+                <label style="font-weight:600;">Parser Template</label>
+                <p style="font-size:.78rem;color:var(--ink-muted);margin:3px 0 10px;">
+                  Choose how incoming files are matched to a parse profile.
+                </p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                  <label class="radio-card" id="pmode-auto-card" style="flex:1;min-width:180px;cursor:pointer;border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;gap:10px;align-items:flex-start;">
+                    <input type="radio" name="parserMode" id="pmode-auto" value="auto" style="width:auto;margin-top:3px;">
+                    <div>
+                      <div style="font-weight:600;font-size:.85rem;">Auto-detect</div>
+                      <div style="font-size:.75rem;color:var(--ink-muted);">Each file is matched against all profile fingerprints. Best match wins.</div>
+                    </div>
+                  </label>
+                  <label class="radio-card" id="pmode-pinned-card" style="flex:1;min-width:180px;cursor:pointer;border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;gap:10px;align-items:flex-start;">
+                    <input type="radio" name="parserMode" id="pmode-pinned" value="pinned" style="width:auto;margin-top:3px;">
+                    <div>
+                      <div style="font-weight:600;font-size:.85rem;">Pin to profile</div>
+                      <div style="font-size:.75rem;color:var(--ink-muted);">Always use one specific profile for all incoming files.</div>
+                    </div>
+                  </label>
+                </div>
+                <div id="pinnedProfileRow" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <label for="cfg-pinned-profile" style="font-size:.82rem;font-weight:600;white-space:nowrap;">Profile</label>
+                  <select id="cfg-pinned-profile" style="flex:1;min-width:200px;max-width:320px;">
+                    <option value="">Loading profiles…</option>
+                  </select>
+                  <a href="#" onclick="event.preventDefault();showPage('parser')" style="font-size:.75rem;color:var(--primary);">Edit in Parser Lab →</a>
+                </div>
+              </div>
+
+              <div class="rs-divider" style="margin:14px 0;"></div>
+
+              <h4 style="font-size:.83rem;font-weight:600;margin-bottom:10px;color:var(--ink-muted);">Legacy POS Parser Defaults</h4>
+              <div class="form-group"><label for="cfg-start">Product Start Marker</label><input type="text" id="cfg-start"></div>
+              <div class="form-group"><label for="cfg-end">Product End Marker</label><input type="text" id="cfg-end"></div>
+              <div class="form-group"><label for="cfg-dot">Item Dot Counter</label><input type="number" id="cfg-dot" min="1"></div>
+              <div class="form-group"><label for="cfg-multi">Multi-line Products</label><select id="cfg-multi"><option value="0">No</option><option value="1">Yes</option></select></div>
+              <div class="form-group"><label for="cfg-vata">VAT Standard (%)</label><input type="text" id="cfg-vata"></div>
+              <div class="form-group"><label for="cfg-vate">VAT Exempt (%)</label><input type="text" id="cfg-vate"></div>
+              <div class="btn-group">
+                <button class="btn-secondary" id="cfg-export-profile">Export Profile JSON</button>
+                <button class="btn-secondary" id="cfg-import-profile">Import Profile JSON</button>
+                <input type="file" id="cfg-profile-file" accept=".json" style="display:none;">
+                <button class="btn-primary" id="cfg-save-parsing">Save</button>
+              </div>
+            </div>
+
+            <!-- Printer -->
+            <div class="settings-section card" id="ssec-printer">
+              <h3>Printer &amp; Receipt Template</h3>
+              <div class="form-group"><label for="cfg-printer">Printer</label><select id="cfg-printer"></select></div>
+              <div class="form-group">
+                <label for="cfg-print-format">Paper Size</label>
+                <select id="cfg-print-format">
+                  <option value="thermal">Thermal (auto)</option>
+                  <option value="a4">A4</option>
+                </select>
+              </div>
+
+              <!-- 3 template cards -->
+              <div class="form-group">
+                <label>Receipt Template</label>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px;">
+                  <button id="tpl-btn-thermal80" class="tpl-card active" data-tpl="thermal80" onclick="selectTemplate('thermal80')">
+                    <div class="tpl-card-icon">🧾</div>
+                    <div class="tpl-card-name">80mm Thermal</div>
+                    <div class="tpl-card-desc">ZIMRA fiscal receipt — matches web POS exactly</div>
+                  </button>
+                  <button id="tpl-btn-thermal58" class="tpl-card" data-tpl="thermal58" onclick="selectTemplate('thermal58')">
+                    <div class="tpl-card-icon">📜</div>
+                    <div class="tpl-card-name">58mm Thermal</div>
+                    <div class="tpl-card-desc">Compact receipt for smaller printers</div>
+                  </button>
+                  <button id="tpl-btn-modernA4" class="tpl-card" data-tpl="modernA4" onclick="selectTemplate('modernA4')">
+                    <div class="tpl-card-icon">📄</div>
+                    <div class="tpl-card-name">Modern Blue A4</div>
+                    <div class="tpl-card-desc">Full A4 invoice — matches web invoice template</div>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group"><label for="cfg-logo">Company Logo</label><div class="input-with-btn"><input type="text" id="cfg-logo"><button class="btn-secondary" id="cfg-browse-logo">Browse</button></div></div>
+              <div class="form-group">
+                <label for="cfg-show-logo">Show Logo on Receipt</label>
+                <select id="cfg-show-logo"><option value="1">Yes</option><option value="0">No</option></select>
+              </div>
+              <div class="form-group">
+                <label for="cfg-show-qr">Show QR Code on Receipt</label>
+                <select id="cfg-show-qr"><option value="1">Yes</option><option value="0">No</option></select>
+              </div>
+              <div class="btn-group">
+                <button class="btn-secondary" id="cfg-test-print">Test Print</button>
+                <button class="btn-secondary" id="previewTemplateBtn">Preview</button>
+                <button class="btn-primary" id="saveTemplateBtn">Save Template Settings</button>
+              </div>
+              <div id="cfg-print-result" style="margin-top:8px;font-size:.8rem;"></div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="settings-section card" id="ssec-notifications">
+              <h3>Notifications</h3>
+              <div class="form-group">
+                <label><input type="checkbox" id="cfg-notify-fail" style="width:auto;height:auto;"> Show toast on fiscalisation failure</label>
+              </div>
+              <div class="form-group">
+                <label><input type="checkbox" id="cfg-notify-close" style="width:auto;height:auto;"> Daily close-day reminder</label>
+              </div>
+              <button class="btn-primary" id="cfg-save-notifications">Save</button>
+            </div>
+
+            <!-- Logs -->
+            <div class="settings-section card" id="ssec-logs">
+              <h3>Application Logs</h3>
+              <div class="log-controls">
+                <select id="logLevelFilter">
+                  <option value="">All levels</option>
+                  <option value="error">Error</option>
+                  <option value="warn">Warn</option>
+                  <option value="info">Info</option>
+                  <option value="debug">Debug</option>
+                </select>
+                <input type="search" id="logSearchInput" placeholder="Search logs…">
+                <button class="btn-secondary" id="refreshLogsBtn">Refresh</button>
+                <button class="btn-secondary" id="copyLogsBtn">Copy</button>
+                <button class="btn-secondary" id="exportDiagBtn">Export Diagnostics</button>
+              </div>
+              <div class="log-viewer" id="logViewer"></div>
+            </div>
+
+            <!-- Advanced -->
+            <div class="settings-section card" id="ssec-advanced">
+              <h3>Advanced</h3>
+              <div class="danger-zone">
+                <div class="danger-zone-title">⚠ Danger Zone</div>
+                <p style="font-size:.82rem;color:var(--ink-muted);margin-bottom:12px;">These actions are irreversible and will be written to the audit log.</p>
+                <div class="form-group">
+                  <label for="resetConfirmInput">Type <strong>reset</strong> to enable counter reset</label>
+                  <input type="text" id="resetConfirmInput" placeholder="Type 'reset' to confirm" autocomplete="off">
+                </div>
+                <button class="btn-danger" id="resetCountersBtn" disabled>Reset Device Counters</button>
+                <hr class="section-divider">
+                <div class="btn-group">
+                  <button class="btn-secondary" id="clearCacheBtn">Clear Local Cache</button>
+                  <button class="btn-secondary" id="exportDiagBtn2">Export Diagnostics Zip</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- About -->
+            <div class="settings-section card" id="ssec-about">
+              <h3>About FiscalBridge</h3>
+              <dl style="display:grid;grid-template-columns:140px 1fr;gap:8px;font-size:.85rem;">
+                <dt style="color:var(--ink-muted)">Version</dt><dd id="aboutVersion">1.0.0</dd>
+                <dt style="color:var(--ink-muted)">Built for</dt><dd>FiscalStack / ZIMRA</dd>
+                <dt style="color:var(--ink-muted)">License</dt><dd>MIT – Fiscal Stack</dd>
+              </dl>
+              <div class="btn-group mt-3">
+                <button class="btn-secondary" id="wz-export-config-settings">Export Config JSON</button>
+                <button class="btn-secondary" id="wz-import-config-settings">Import Config JSON</button>
+                <input type="file" id="wz-import-file-settings" accept=".json" style="display:none;">
+              </div>
+            </div>
+          </div><!-- /settings-content -->
+        </div>
+      </section>
+
+    </div><!-- /pages-area -->
+  </main>
+</div><!-- /app-container -->
+
+
+<!-- ══ Confirm Dialog ══ -->
+<div class="modal-overlay" id="confirmDialog">
+  <div class="modal-box">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmMessage">This action cannot be undone.</p>
+    <div class="confirm-input-wrap" id="confirmInputWrap" style="display:none;">
+      <label id="confirmInputLabel">Type to confirm</label>
+      <input type="text" id="confirmInput" autocomplete="off">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="confirmCancelBtn">Cancel</button>
+      <button class="btn-danger" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Detail Drawer ══ -->
+<div class="detail-drawer-overlay" id="detailDrawerOverlay"></div>
+<div class="detail-drawer" id="detailDrawer">
+  <div class="drawer-header">
+    <h3 id="drawerTitle">Document</h3>
+    <button class="btn-ghost btn-icon" id="closeDrawerBtn" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-footer" id="drawerFooter"></div>
+</div>
+
+<!-- ══ PDF Preview Modal ══ -->
+<div class="modal-overlay" id="pdfModalOverlay"></div>
+<div class="modal pdf-modal" id="pdfModal">
+  <div class="modal-header">
+    <h3 id="pdfModalTitle">PDF Preview</h3>
+    <button class="btn-ghost btn-icon" id="closePdfModalBtn" aria-label="Close">✕</button>
+  </div>
+  <div class="modal-body pdf-modal-body" id="pdfModalBody">
+    <div class="pdf-pages pdf-pages--single" id="pdfPages"></div>
+    <div class="pdf-sheet pdf-sheet--a4" id="pdfSheet" hidden>
+      <iframe id="pdfPreviewFrame" title="Document preview"></iframe>
+    </div>
+  </div>
+  <div class="pdf-modal-footer">
+    <span class="pdf-modal-meta" id="pdfModalMeta"></span>
+    <div class="pdf-modal-actions">
+      <button class="btn-secondary" id="pdfModalPrintBtn" type="button">Print</button>
+      <button class="btn-secondary" id="pdfModalDownloadBtn" type="button">Download</button>
+      <button class="btn-primary" id="closePdfModalFooterBtn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="dataModels.js"></script>
+<script src="receiptParser.js"></script>
+<script src="renderer.js"></script>
 </body>
 </html>

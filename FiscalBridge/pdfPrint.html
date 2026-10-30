@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>FiscalBridge PDF print</title>
+<style>
+  @page { size: A4; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  #pages { margin: 0; }
+  .page {
+    height: 1122px; /* A4 minus a hair, so a full-page canvas cannot spill */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    break-after: page;
+  }
+  .page:last-child { break-after: auto; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="pages"></div>
+<script src="pdfPrintPage.js"></script>
+</body>
+</html>

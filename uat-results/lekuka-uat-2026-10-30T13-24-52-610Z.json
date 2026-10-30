@@ -1,0 +1,141 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261030132411540",
+  "dryRun": true,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-30T13:24:13.231Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNPKTL1GB2F5:00000014"
+  },
+  "results": [
+    {
+      "id": "TC-003",
+      "title": "Get server certificate",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:24:21.551Z",
+      "durationMs": 670,
+      "response": {
+        "certificateCount": 1,
+        "certificateValidTill": "2035-01-17T09:07:39",
+        "subjects": [
+          "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Signer"
+        ]
+      },
+      "summary": {
+        "certificateValidTill": "2035-01-17T09:07:39"
+      }
+    },
+    {
+      "id": "TC-005",
+      "title": "Get device configuration",
+      "status": "fail",
+      "startedAt": "2026-10-30T13:24:22.222Z",
+      "durationMs": 30018,
+      "error": {
+        "message": "LEKUKA request to /Device/v2/812/GetConfig failed (0)",
+        "statusCode": 0,
+        "details": "timeout of 30000ms exceeded"
+      }
+    },
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:24:52.240Z",
+      "durationMs": 207,
+      "response": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastReceiptGlobalNo": 132,
+        "lastFiscalDayNo": 5,
+        "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+        "operationID": "0HNPKTL1GB2F5:00000014"
+      },
+      "summary": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastFiscalDayNo": 5,
+        "lastReceiptGlobalNo": 132
+      }
+    },
+    {
+      "id": "TC-009",
+      "title": "Ping gateway",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:24:52.447Z",
+      "durationMs": 162,
+      "response": {
+        "reportingFrequency": 5,
+        "operationID": "0HNPKTL1GB2FK:00000005"
+      },
+      "summary": {
+        "operationID": "0HNPKTL1GB2FK:00000005"
+      }
+    },
+    {
+      "id": "TC-001",
+      "title": "Device registration",
+      "status": "skipped",
+      "startedAt": "2026-10-30T13:24:52.610Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded from automated runs"
+      ]
+    },
+    {
+      "id": "TC-002",
+      "title": "Taxpayer information verification",
+      "status": "skipped",
+      "startedAt": "2026-10-30T13:24:52.610Z",
+      "durationMs": 0,
+      "notes": [
+        "Requires a spare device ID and activation key — excluded from automated runs"
+      ]
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "pass": 3,
+    "fail": 1,
+    "blocked": 0,
+    "skipped": 2,
+    "byId": [
+      {
+        "id": "TC-003",
+        "status": "pass"
+      },
+      {
+        "id": "TC-005",
+        "status": "fail"
+      },
+      {
+        "id": "TC-007",
+        "status": "pass"
+      },
+      {
+        "id": "TC-009",
+        "status": "pass"
+      },
+      {
+        "id": "TC-001",
+        "status": "skipped"
+      },
+      {
+        "id": "TC-002",
+        "status": "skipped"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-30T13:24:52.610Z"
+}

@@ -1,0 +1,92 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261030132132059",
+  "dryRun": false,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-30T13:21:34.786Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNPKTL1GB2DT:0000000E"
+  },
+  "results": [
+    {
+      "id": "TC-004",
+      "title": "Issue new security certificate",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:21:39.997Z",
+      "durationMs": 386,
+      "request": {
+        "certificateRequestSubject": "RSL-SN-0004-0000000812",
+        "twoStepsProcess": true
+      },
+      "response": {
+        "operationID": "0HNPKTL1GB2C3:0000003C",
+        "certificate": {
+          "subject": "C=LS\nST=Lesotho\nO=Revenue Services Lesotho\nCN=RSL-SN-0004-0000000812",
+          "issuer": "C=LS\nO=Revenue Services Lesotho\nCN=RSL Lekuka ** TEST ** Certificate Issuer",
+          "validFrom": "Oct 30 13:21:40 2026 GMT",
+          "validTo": "Oct 30 13:21:40 2029 GMT",
+          "thumbprintHex": "09616BD7A37DB0787F1E1F62C7F1A3275A568A98"
+        }
+      },
+      "summary": {
+        "operationID": "0HNPKTL1GB2C3:0000003C",
+        "validTo": "Oct 30 13:21:40 2029 GMT",
+        "thumbprintHex": "09616BD7A37DB0787F1E1F62C7F1A3275A568A98"
+      }
+    },
+    {
+      "id": "TC-006",
+      "title": "Confirm new security certificate",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:21:40.383Z",
+      "durationMs": 2922,
+      "response": {
+        "confirm": {
+          "operationID": "0HNPKTL1GB2CU:0000002E"
+        },
+        "verifiedStatus": {
+          "fiscalDayStatus": "FiscalDayCloseFailed",
+          "lastFiscalDayNo": 5,
+          "lastReceiptGlobalNo": 132
+        }
+      },
+      "summary": {
+        "operationID": "0HNPKTL1GB2CU:0000002E",
+        "thumbprintEncoding": "hex-upper",
+        "newThumbprintHex": "09616BD7A37DB0787F1E1F62C7F1A3275A568A98",
+        "postConfirmStatus": "FiscalDayCloseFailed"
+      }
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "byId": [
+      {
+        "id": "TC-004",
+        "status": "pass"
+      },
+      {
+        "id": "TC-006",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-30T13:21:43.306Z"
+}

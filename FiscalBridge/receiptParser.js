@@ -327,4 +327,7 @@ if (typeof window !== 'undefined') {
   window.ReceiptParser = ReceiptParser;
 }
 
-module.exports = ReceiptParser;
+// Node.js export (for main process)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ReceiptParser;
+}

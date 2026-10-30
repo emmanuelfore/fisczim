@@ -1528,6 +1528,79 @@ export async function runLekukaUat(opts: RunLekukaUatOptions): Promise<UatReport
   return report;
 }
 
+/**
+ * Attempts to reconcile a fiscal day left in FiscalDayCloseFailed. LEKUKA
+ * allows closeDay from either Opened or CloseFailed; the response/status
+ * separates a bad device signature from red receipts and counter mismatches.
+ */
+export async function reconcileLekukaFiscalDay(opts: {
+  companyId: number;
+  fiscalDayDate?: string;
+  receiptCounter?: number;
+  counters?: LekukaFiscalDayCounter[];
+  dryRun?: boolean;
+}): Promise<any> {
+  const companyResult = await pool.query<CompanyRow>(
+    `SELECT id, name, tin, vat_number, zimra_environment, lekuka_gateway_url,
+            fdms_device_id, fdms_device_serial_no,
+            zimra_private_key, zimra_certificate,
+            current_fiscal_day_no, fiscal_day_open, fiscal_day_opened_at,
+            last_receipt_global_no, daily_receipt_count, last_fiscal_hash
+       FROM companies WHERE id = $1`,
+    [opts.companyId],
+  );
+  const company = companyResult.rows[0];
+  if (!company) throw new Error(`Company ${opts.companyId} not found`);
+  if (!company.fdms_device_id) throw new Error(`Company ${opts.companyId} has no LEKUKA device ID`);
+  if (!company.zimra_private_key || !company.zimra_certificate) {
+    throw new Error(`Company ${opts.companyId} is missing its LEKUKA client certificate/key`);
+  }
+
+  const device = new LekukaDevice({
+    baseUrl: (company.lekuka_gateway_url || getLekukaGatewayUrl(company.zimra_environment)).trim(),
+    deviceId: String(company.fdms_device_id).trim(),
+    privateKey: company.zimra_private_key,
+    certificate: company.zimra_certificate,
+    deviceModelName: "Server",
+    deviceModelVersion: "1.0",
+  });
+
+  const before = await device.getStatus();
+  const fiscalDayNo = Number(before?.lastFiscalDayNo || company.current_fiscal_day_no || 1);
+  const fiscalDayDate =
+    opts.fiscalDayDate ||
+    (company.fiscal_day_opened_at
+      ? formatLocalDate(new Date(company.fiscal_day_opened_at))
+      : formatLocalDate(new Date()));
+  const request = {
+    fiscalDayNo,
+    fiscalDayDate,
+    receiptCounter: opts.receiptCounter ?? company.daily_receipt_count ?? 0,
+    counters: opts.counters || [],
+  };
+
+  if (opts.dryRun) return { before, request, dryRun: true };
+  if (before?.fiscalDayStatus !== "FiscalDayCloseFailed") {
+    return { before, request, skipped: `Fiscal day is ${before?.fiscalDayStatus}, not FiscalDayCloseFailed` };
+  }
+
+  let response: any = null;
+  let error: unknown = null;
+  try {
+    response = await device.closeDay(request);
+  } catch (err) {
+    error = errorToJson(err);
+  }
+
+  let after = await device.getStatus();
+  for (let attempt = 0; attempt < 10 && after?.fiscalDayStatus === "FiscalDayCloseInitiated"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    after = await device.getStatus();
+  }
+
+  return { before, request, response, error, after };
+}
+
 const runs = new Map<string, UatRunState>();
 const companyRuns = new Map<number, string[]>();
 

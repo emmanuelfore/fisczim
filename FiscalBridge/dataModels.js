@@ -262,7 +262,9 @@ if (typeof window !== 'undefined') {
   window.FiscalConfig = FiscalConfig;
 }
 
-module.exports = {
+// Node.js export (for main process)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
     Receipt,
     ReceiptLine,
     ReceiptTax,
@@ -278,4 +280,5 @@ module.exports = {
     VatTotal,
     DeviceStatus,
     FiscalConfig
-};
+  };
+}

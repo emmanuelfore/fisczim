@@ -81,6 +81,26 @@ export interface LekukaReceiptPayment {
   paymentAmount: number;
 }
 
+export type LekukaFiscalCounterType =
+  | "SaleByTax"
+  | "SaleTaxByTax"
+  | "CreditNoteByTax"
+  | "CreditNoteTaxByTax"
+  | "DebitNoteByTax"
+  | "DebitNoteTaxByTax"
+  | "BalanceByMoneyType"
+  | "PayoutByTax"
+  | "PayoutTaxByTax";
+
+export interface LekukaFiscalDayCounter {
+  fiscalCounterType: LekukaFiscalCounterType;
+  fiscalCounterCurrency: string;
+  fiscalCounterTaxID?: number;
+  fiscalCounterTaxRate?: number;
+  fiscalCounterMoneyType?: string;
+  fiscalCounterValue: number;
+}
+
 export interface LekukaReceipt {
   receiptType: "Receipt" | "FiscalInvoice" | "Payout" | "CreditNote" | "DebitNote";
   receiptCurrency: "LSL";
@@ -258,6 +278,75 @@ export function getLekukaReceiptSignatureInput(receipt: LekukaReceipt, deviceId:
   return `${deviceId}${prepared.receiptType.toUpperCase()}${prepared.receiptCurrency.toUpperCase()}${prepared.receiptGlobalNo}${prepared.receiptDate}${Math.round(prepared.receiptTotal! * 100)}${taxInput}${previousReceiptHash || ""}`;
 }
 
+const FISCAL_COUNTER_ORDER: Record<LekukaFiscalCounterType, number> = {
+  SaleByTax: 0,
+  SaleTaxByTax: 1,
+  CreditNoteByTax: 2,
+  CreditNoteTaxByTax: 3,
+  DebitNoteByTax: 4,
+  DebitNoteTaxByTax: 5,
+  BalanceByMoneyType: 6,
+  PayoutByTax: 7,
+  PayoutTaxByTax: 8,
+};
+
+const MONEY_TYPE_ORDER: Record<string, number> = {
+  Cash: 0,
+  Card: 1,
+  MobileWallet: 2,
+  Coupon: 3,
+  Credit: 4,
+  BankTransfer: 5,
+  Other: 6,
+};
+
+const toCents = (value: number) => {
+  const cents = Math.round(value * 100);
+  return cents === 0 ? 0 : cents;
+};
+
+/**
+ * Fiscal period signature input per LEKUKA spec 13.3.1. Counters are ordered
+ * by type enum, currency, then tax ID / money type and tax rate; values are in
+ * cents and zero-value counters are excluded.
+ */
+export function getLekukaFiscalDaySignatureInput(params: {
+  deviceId: number | string;
+  fiscalDayNo: number;
+  fiscalDayDate: string;
+  counters: LekukaFiscalDayCounter[];
+}): string {
+  const counters = params.counters
+    .filter((counter) => toCents(counter.fiscalCounterValue) !== 0)
+    .sort((a, b) => {
+      const byType = (FISCAL_COUNTER_ORDER[a.fiscalCounterType] ?? 99) - (FISCAL_COUNTER_ORDER[b.fiscalCounterType] ?? 99);
+      if (byType !== 0) return byType;
+
+      const byCurrency = String(a.fiscalCounterCurrency).localeCompare(String(b.fiscalCounterCurrency));
+      if (byCurrency !== 0) return byCurrency;
+
+      const aMoney = a.fiscalCounterTaxID === undefined ? MONEY_TYPE_ORDER[a.fiscalCounterMoneyType || ""] ?? 99 : -1;
+      const bMoney = b.fiscalCounterTaxID === undefined ? MONEY_TYPE_ORDER[b.fiscalCounterMoneyType || ""] ?? 99 : -1;
+      if (aMoney !== bMoney) return aMoney - bMoney;
+
+      const byTax = (a.fiscalCounterTaxID ?? 0) - (b.fiscalCounterTaxID ?? 0);
+      if (byTax !== 0) return byTax;
+
+      return (a.fiscalCounterTaxRate ?? -1) - (b.fiscalCounterTaxRate ?? -1);
+    });
+
+  const counterInput = counters.map((counter) => {
+    const middle = counter.fiscalCounterType === "BalanceByMoneyType"
+      ? String(counter.fiscalCounterMoneyType || "").toUpperCase()
+      : counter.fiscalCounterTaxRate === undefined
+        ? ""
+        : counter.fiscalCounterTaxRate.toFixed(2);
+    return `${counter.fiscalCounterType.toUpperCase()}${String(counter.fiscalCounterCurrency).toUpperCase()}${middle}${toCents(counter.fiscalCounterValue)}`;
+  }).join("");
+
+  return `${params.deviceId}${params.fiscalDayNo}${params.fiscalDayDate}${counterInput}`;
+}
+
 /**
  * First 16 hex chars of MD5 over the device signature (hex form) — LEKUKA
  * spec section 11 "receiptQrData". Must be derived from the DEVICE
@@ -421,34 +510,34 @@ export class LekukaDevice {
   }
 
   /** LEKUKA spec stage 4 — close the fiscal day and reconcile. */
-  closeDay(data?: { fiscalDayNo?: number; receiptCounter?: number; globalCounter?: number; fiscalDayDeviceSignature?: string; counters?: unknown[] }) {
+  closeDay(data?: { fiscalDayNo?: number; fiscalDayDate?: string; receiptCounter?: number; counters?: LekukaFiscalDayCounter[] }) {
     const fiscalDayNo = data?.fiscalDayNo ?? 1;
+    const fiscalDayDate = data?.fiscalDayDate ?? new Date().toISOString().slice(0, 10);
     const receiptCounter = data?.receiptCounter ?? 0;
-    const globalCounter = data?.globalCounter ?? 0;
     const counters = data?.counters || [];
 
-    // Compute device signature over the close-day data (FDMS spec 13.2.1)
+    // Device signature per LEKUKA spec 13.3.1 (deviceID, fiscalDayNo,
+    // fiscalDayDate, ordered counters).
     let deviceSignature = { hash: "", signature: "" };
     if (this.privateKey) {
-      try {
-        const input = `${this.deviceId}${fiscalDayNo}${receiptCounter}${globalCounter}${JSON.stringify(counters)}`;
-        const hash = crypto.createHash("sha256").update(input, "utf8").digest("base64");
-        const signer = crypto.createSign("RSA-SHA256");
-        signer.update(input, "utf8");
-        signer.end();
-        const signature = signer.sign(this.privateKey, "base64");
-        deviceSignature = { hash, signature };
-      } catch (e) {
-        console.error("[LEKUKA] CloseDay signature error:", e);
-      }
+      const input = getLekukaFiscalDaySignatureInput({
+        deviceId: this.deviceId,
+        fiscalDayNo,
+        fiscalDayDate,
+        counters,
+      });
+      const hash = crypto.createHash("sha256").update(input, "utf8").digest("base64");
+      const signer = crypto.createSign("RSA-SHA256");
+      signer.update(input, "utf8");
+      signer.end();
+      deviceSignature = { hash, signature: signer.sign(this.privateKey, "base64") };
     }
 
-    return this.request<any>("POST", "v1", "CloseDay", {
+    return this.request<any>("POST", "v2", "CloseDay", {
       FiscalDayNo: fiscalDayNo,
-      ReceiptCounter: receiptCounter,
-      GlobalCounter: globalCounter,
-      FiscalDayDeviceSignature: deviceSignature,
       FiscalDayCounters: counters,
+      FiscalDayDeviceSignature: deviceSignature,
+      ReceiptCounter: receiptCounter,
     });
   }
 
@@ -458,18 +547,21 @@ export class LekukaDevice {
   }
 
   /** LEKUKA spec stage 2 — issue a new security certificate (maintenance/renewal). */
-  issueCertificate(certificateRequest: string) {
-    return this.request<any>("POST", "v1", "IssueCertificate", { certificateRequest });
+  issueCertificate(certificateRequest: string, twoStepsProcess = true) {
+    return this.request<any>("POST", "v2", "IssueCertificate", { certificateRequest, twoStepsProcess });
   }
 
   /** LEKUKA spec stage 2 — confirm certificate validity (maintenance/renewal). */
-  confirmCertificate() {
-    return this.request<any>("POST", "v1", "ConfirmCertificate");
+  confirmCertificate(thumbprint?: string) {
+    return this.request<any>("POST", "v2", "ConfirmCertificate", thumbprint ? { thumbprint } : undefined);
   }
 
-  /** LEKUKA spec stage 2 — retrieve the server certificate during registration. */
+  /** LEKUKA spec 4.12 — public endpoint, no client certificate required. */
   getServerCertificate() {
-    return this.request<any>("GET", "v1", "GetServerCertificate");
+    const endpoint = "/Public/v1/GetServerCertificate";
+    return this.client.get<any>(endpoint).then((response) => response.data).catch((error: any) => {
+      throw new LekukaApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
+    });
   }
 
   /** LEKUKA spec stage 5 — batch-submit cached offline transactions after reconnect. */

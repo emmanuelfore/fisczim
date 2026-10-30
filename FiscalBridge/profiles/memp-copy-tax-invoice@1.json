@@ -1,0 +1,138 @@
+{
+  "id": "memp-copy-tax-invoice",
+  "name": "MEMP Copy Tax Invoice",
+  "version": 1,
+  "system": "MEMP",
+  "priority": 10,
+
+  "detection": [
+    { "type": "text_contains",    "value": "COPY TAX INVOICE" },
+    { "type": "text_contains_ci", "value": "BANKING DETAILS" }
+  ],
+
+  "extraction": {
+    "engine": "layout",
+    "page_range": "all",
+    "header_strip": [],
+    "footer_strip": []
+  },
+
+  "locale": {
+    "decimal_sep":      ".",
+    "thousands_sep":    ",",
+    "currency_symbol":  "M",
+    "currency_iso":     "LSL",
+    "date_format":      "DD/MM/YYYY",
+    "negative_format":  "-{amount}"
+  },
+
+  "header_fields": [
+    {
+      "name":      "invoice_number",
+      "label":     "NUMBER:",
+      "type":      "string",
+      "terminator": "eol",
+      "required":  true
+    },
+    {
+      "name":        "date",
+      "label":       "DATE:",
+      "skip_labels": ["DUE DATE:"],
+      "type":        "date",
+      "required":    true
+    },
+    {
+      "name":      "due_date",
+      "label":     "DUE DATE:",
+      "type":      "date",
+      "required":  false
+    },
+    {
+      "name":        "reference",
+      "label_regex": "REFERENCE[:\\s]*",
+      "type":        "string",
+      "required":    false,
+      "default":     null
+    }
+  ],
+
+  "parties": {
+    "supplier": {
+      "anchor": "FROM",
+      "side":   "left",
+      "lines":  4
+    },
+    "customer": {
+      "anchor": "TO",
+      "side":   "right",
+      "lines":  4
+    }
+  },
+
+  "bank": {
+    "start_marker": "BANKING DETAILS",
+    "fields": [
+      { "name": "bank_name",      "label": "Bank" },
+      { "name": "account_name",   "label": "Account Name" },
+      { "name": "account_number", "label": "Account" },
+      { "name": "branch_code",    "label": "Branch Code" },
+      { "name": "swift",          "label": "Swift Code" }
+    ]
+  },
+
+  "line_items": {
+    "start_marker":       "Description",
+    "start_line_offset":  1,
+    "end_marker":         "BANKING DETAILS",
+    "item_dot_counter":   2,
+    "row_regex":          null,
+    "multiline_products": "no",
+    "column_map": [
+      "description",
+      "qty",
+      "unit_price_excl",
+      "disc_pct",
+      "vat_pct",
+      "total_excl",
+      "total_incl"
+    ],
+    "code_split": { "separator": " - ", "position": "first" },
+    "skip_patterns": ["^Page \\d+", "^Continued", "^Description\\s+Quantity"]
+  },
+
+  "tax": {
+    "vat_standard_pct": 15,
+    "vat_exempt_pct":   0,
+    "zero_rated_class": null,
+    "price_basis":      "exclusive",
+    "rounding_mode":    "document"
+  },
+
+  "totals": {
+    "label_map": {
+      "Excl. Total":     "total_excl",
+      "VAT Amount":      "vat",
+      "Sub Total":       "sub_total",
+      "Total Rounding":  "rounding",
+      "Grand Total":     "grand_total",
+      "BALANCE DUE":     "balance_due"
+    }
+  },
+
+  "validation": {
+    "tolerance": 0.02,
+    "checks": [
+      { "id": "lines_excl_sum",    "severity": "fail" },
+      { "id": "excl_plus_vat",     "severity": "fail" },
+      { "id": "lines_incl_sum",    "severity": "warn" },
+      { "id": "allowed_vat_rates", "severity": "warn", "rates": [0, 15] }
+    ],
+    "required_fields": ["invoice_number", "date", "grand_total"]
+  },
+
+  "post_processing": [
+    { "field": "description", "op": "trim" },
+    { "field": "description", "op": "collapse_spaces" },
+    { "field": "description", "op": "regex_replace", "pattern": "\\s+\\(\\s+", "replacement": " (" }
+  ]
+}

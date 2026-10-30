@@ -1,0 +1,76 @@
+{
+  "suite": "LEKUKA UAT",
+  "runId": "20261030132910025",
+  "dryRun": true,
+  "noRenewal": false,
+  "company": {
+    "id": 126,
+    "name": "Lekuka supermarket",
+    "tin": "200153280-9",
+    "deviceId": "812",
+    "serialNo": "SN-0004",
+    "environment": "test",
+    "gateway": "https://lekukaapi.rsl.org.ls:8443"
+  },
+  "startedAt": "2026-10-30T13:29:12.206Z",
+  "fiscalDay": {
+    "fiscalDayStatus": "FiscalDayCloseFailed",
+    "lastReceiptGlobalNo": 132,
+    "lastFiscalDayNo": 5,
+    "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+    "operationID": "0HNPKTL1GB2HE:0000000D"
+  },
+  "results": [
+    {
+      "id": "TC-007",
+      "title": "Get fiscal day status",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:29:25.479Z",
+      "durationMs": 3067,
+      "response": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastReceiptGlobalNo": 132,
+        "lastFiscalDayNo": 5,
+        "fiscalDayClosingErrorCode": "ReceiptsWithValidationErrors",
+        "operationID": "0HNPKTL1GB2HE:0000000D"
+      },
+      "summary": {
+        "fiscalDayStatus": "FiscalDayCloseFailed",
+        "lastFiscalDayNo": 5,
+        "lastReceiptGlobalNo": 132
+      }
+    },
+    {
+      "id": "TC-009",
+      "title": "Ping gateway",
+      "status": "pass",
+      "startedAt": "2026-10-30T13:29:28.546Z",
+      "durationMs": 5179,
+      "response": {
+        "reportingFrequency": 5,
+        "operationID": "0HNPKTL1GB2HE:0000000F"
+      },
+      "summary": {
+        "operationID": "0HNPKTL1GB2HE:0000000F"
+      }
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "blocked": 0,
+    "skipped": 0,
+    "byId": [
+      {
+        "id": "TC-007",
+        "status": "pass"
+      },
+      {
+        "id": "TC-009",
+        "status": "pass"
+      }
+    ]
+  },
+  "finishedAt": "2026-10-30T13:29:33.726Z"
+}

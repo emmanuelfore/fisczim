@@ -1,0 +1,12 @@
+{
+  "deviceDetails": null,
+  "deviceStatus": null,
+  "fiscalisations": [],
+  "auditLog": [
+    {
+      "id": "audit-1793363070780-p05pj",
+      "timestamp": "2026-10-30T12:24:30.780Z",
+      "action": "dayOpen"
+    }
+  ]
+}

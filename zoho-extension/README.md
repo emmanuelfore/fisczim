@@ -30,14 +30,18 @@ committed.
 
 ## Required FiscalStack API surface
 
-The extension calls only two API-key authenticated endpoints:
+The extension calls four API-key authenticated endpoints:
 
 1. `POST /api/v1/fiscalize` to create the ZIMRA fiscal receipt.
 2. `GET /api/v1/zoho-extension/qr-url?invoice_number=...` to obtain the signed
    public image URL placed in the invoice field.
+3. `GET /api/v1/zoho-extension/invoice-pdf?invoice_number=...` to download the
+   fiscalised invoice as a PDF.
+4. `POST /api/v1/zoho-extension/close-day` to close the current fiscal day and
+   increment the fiscal day counter.
 
-The second endpoint is implemented in this repository and keeps the FiscalStack
-company id and QR-signing key outside Zoho.
+The second, third, and fourth endpoints are implemented in this repository and keep the
+FiscalStack company id and QR-signing key outside Zoho.
 
 ## Tenant experience
 

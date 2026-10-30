@@ -1,0 +1,23 @@
+MEMP Trading                              COPY TAX INVOICE
+FROM
+MEMP Trading (Pvt) Ltd
+VAT No: 100200300
+
+NUMBER: INV0010565
+DATE: 02/10/2026
+DUE DATE: 01/11/2026
+
+Acme Holdings (Pvt) Ltd
+Customer VAT No: 220123456
+
+Description                    Qty    Excl Price   Disc %   VAT %   Excl Total   Incl Total
+-------------------------------------------------------------------------------------------
+GAD002 - Gadget                1.00   100.00       0.00     15.00   100.00       115.00
+Excl. Total:   100.00
+VAT:   15.00
+Sub-Total:   115.00
+Total:   115.00
+
+BANKING DETAILS
+Bank: CBZ Bank
+Account No: 0123456789

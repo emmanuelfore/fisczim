@@ -9,7 +9,8 @@
     "start": "electron .",
     "dev": "electron .",
     "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "test:parser": "node tests/parserEngine.test.js"
   },
   "build": {
     "appId": "com.fiscalstack.fiscalbridge",
@@ -21,21 +22,47 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "emmanuelfore",
+          "repo": "fisczim"
         }
       ]
     },
     "linux": {
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "emmanuelfore",
+          "repo": "fisczim"
+        }
+      ]
     }
   },
   "dependencies": {
     "chokidar": "^3.5.3",
     "electron-log": "^5.2.4",
+    "electron-updater": "^6.8.11",
+    "pdfjs-dist": "^3.11.174",
     "qrcode": "^1.5.3"
   },
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^26.8.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emmanuelfore/fisczim.git"
   }
 }

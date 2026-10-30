@@ -1,0 +1,150 @@
+{
+  "id": "memp-tax-invoice",
+  "name": "MEMP Tax Invoice (Sage)",
+  "version": 1,
+  "system": "Sage Evolution",
+  "priority": 8,
+
+  "detection": [
+    { "type": "text_contains",    "value": "Tax Invoice" },
+    { "type": "text_contains_ci", "value": "Customer VAT No" },
+    { "type": "text_contains_ci", "value": "BANKING DETAILS" }
+  ],
+
+  "extraction": {
+    "engine": "layout",
+    "page_range": "all"
+  },
+
+  "locale": {
+    "decimal_sep":      ".",
+    "thousands_sep":    ",",
+    "currency_symbol":  "M",
+    "currency_iso":     "LSL",
+    "date_format":      "DD/MM/YYYY"
+  },
+
+  "header_fields": [
+    {
+      "name":       "invoice_number",
+      "label":      "Number:",
+      "type":       "string",
+      "terminator": "eol",
+      "required":   true
+    },
+    {
+      "name":        "date",
+      "label":       "Date:",
+      "skip_labels": ["Due Date"],
+      "type":        "date",
+      "required":    true
+    },
+    {
+      "name":     "due_date",
+      "label":    "Due Date",
+      "type":     "date",
+      "required": false
+    },
+    {
+      "name":     "sales_rep",
+      "label":    "Sales Rep:",
+      "type":     "string",
+      "required": false,
+      "default":  null
+    },
+    {
+      "name":     "reference",
+      "label":    "Reference:",
+      "type":     "string",
+      "required": false,
+      "default":  null
+    }
+  ],
+
+  "parties": {
+    "supplier": {
+      "anchor": "",
+      "lines":  3,
+      "_comment": "No FROM anchor in standard Sage layout — engine falls back to VAT-No heuristic to find company name"
+    },
+    "customer": {
+      "anchor_bottom": "Customer VAT No:",
+      "lines":         3
+    }
+  },
+
+  "bank": {
+    "start_marker": "BANKING DETAILS",
+    "fields": [
+      { "name": "bank_name",      "label": "Bank" },
+      { "name": "account_name",   "label": "Account Name" },
+      { "name": "account_number", "label": "Account Number" },
+      { "name": "branch_name",    "label": "Branch Name" },
+      { "name": "branch_code",    "label": "Branch Code" },
+      { "name": "swift",          "label": "Swift Code" }
+    ]
+  },
+
+  "line_items": {
+    "start_marker":       "Description",
+    "start_line_offset":  0,
+    "end_marker":         "BANKING DETAILS",
+    "item_dot_counter":   2,
+    "row_regex":          null,
+    "multiline_products": "auto",
+    "column_map": [
+      "description",
+      "qty",
+      "unit_price_excl",
+      "disc_pct",
+      "vat_pct",
+      "total_excl",
+      "total_incl"
+    ],
+    "code_split": { "separator": " - ", "position": "first" },
+    "skip_patterns": [
+      "^Page \\d+",
+      "^Continued",
+      "^Description\\s+Quantity",
+      "^Description\\s+Qty",
+      "^THANK YOU",
+      "^Bring proof"
+    ]
+  },
+
+  "tax": {
+    "vat_standard_pct": 15,
+    "vat_exempt_pct":   0,
+    "price_basis":      "exclusive"
+  },
+
+  "totals": {
+    "label_map": {
+      "Total Discount":   "discount",
+      "Total Exclusive":  "total_excl",
+      "Total VAT":        "vat",
+      "Sub Total":        "sub_total",
+      "Total Rounding":   "rounding",
+      "Grand Total":      "grand_total",
+      "Total":            "grand_total",
+      "Balance Due":      "balance_due",
+      "BALANCE DUE":      "balance_due"
+    }
+  },
+
+  "validation": {
+    "tolerance": 0.02,
+    "checks": [
+      { "id": "lines_excl_sum",    "severity": "warn" },
+      { "id": "excl_plus_vat",     "severity": "fail" },
+      { "id": "lines_incl_sum",    "severity": "warn" },
+      { "id": "allowed_vat_rates", "severity": "warn", "rates": [0, 15] }
+    ],
+    "required_fields": ["invoice_number", "date", "grand_total"]
+  },
+
+  "post_processing": [
+    { "field": "description", "op": "trim" },
+    { "field": "description", "op": "collapse_spaces" }
+  ]
+}

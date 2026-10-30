@@ -667,7 +667,13 @@ function Router() {
       <Route path="/zimra-settings">
         {() => <ProtectedRoute component={ZimraSettingsPage} />}
       </Route>
+      <Route path="/lekuka-settings">
+        {() => <ProtectedRoute component={ZimraSettingsPage} />}
+      </Route>
       <Route path="/zimra-logs">
+        {() => <ProtectedRoute component={ZimraLogsPage} />}
+      </Route>
+      <Route path="/lekuka-logs">
         {() => <ProtectedRoute component={ZimraLogsPage} />}
       </Route>
       <Route path="/jobs">

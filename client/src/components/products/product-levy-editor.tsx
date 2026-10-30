@@ -116,16 +116,16 @@ export function ProductLevyEditor({
   };
 
   return (
-    <div className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+    <div className="space-y-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-bold text-emerald-900">Additional taxes</p>
-          <p className="text-xs text-emerald-700/80">
+          <p className="text-sm font-bold text-blue-900">Additional taxes</p>
+          <p className="text-xs text-blue-700/80">
             Stack one or more levies on top of the main tax — each is sent as an additional tax on every sale line.
           </p>
         </div>
         {draft.length > 0 && (
-          <span className="shrink-0 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-bold text-white">
+          <span className="shrink-0 rounded-full bg-blue-600 px-2.5 py-0.5 text-[11px] font-bold text-white">
             {draft.length} selected
           </span>
         )}
@@ -146,7 +146,7 @@ export function ProductLevyEditor({
                 key={t.id}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border bg-white p-2.5 transition-colors",
-                  selected ? "border-emerald-300" : "border-slate-200",
+                  selected ? "border-blue-300" : "border-slate-200",
                 )}
               >
                 <Checkbox checked={selected} onCheckedChange={(c) => toggle(t.id, !!c)} />
@@ -186,7 +186,7 @@ export function ProductLevyEditor({
           size="sm"
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending || loadingAssignments}
-          className="bg-emerald-700 hover:bg-emerald-800 text-white"
+          className="bg-blue-600 hover:bg-blue-700 text-white"
         >
           {saveMutation.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

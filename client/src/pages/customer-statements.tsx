@@ -23,6 +23,8 @@ import { CustomerStatementPDF } from "@/components/reports/customer-statement-pd
 import { useCompany } from "@/hooks/use-companies";
 import { format } from "date-fns";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 /* ── helpers ── */
 function fmt(value: any, decimals = 2): string {
   const n = Number(value);
@@ -172,7 +174,7 @@ export default function CustomerStatements() {
       {/* Loading */}
       {isLoading && (
         <div className="flex justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <LoadingRows rows={5} />
         </div>
       )}
 

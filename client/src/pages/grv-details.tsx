@@ -32,6 +32,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 
 type SupplierInvoiceLinePreview = {
@@ -277,9 +278,7 @@ export default function GrvDetailsPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-slate-500">
-          <Loader2 className="w-6 h-6 animate-spin mr-2 text-primary" /> Loading Goods Received Voucher...
-        </div>
+        <PageSkeleton stats={0} rows={6} />
       </Layout>
     );
   }

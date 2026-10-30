@@ -19,7 +19,13 @@ export const pool = new Pool({
     rejectUnauthorized: false
   },
   max: isDevelopment ? 10 : 15,
-  idleTimeoutMillis: 30000,
+  // Thirty seconds was too aggressive for a remote host over a high-latency
+  // link: connections were torn down between login bursts, so the first
+  // request after an idle period paid a fresh TCP + TLS handshake that could
+  // exceed the connect timeout and surface as a 500 ("database connection").
+  // Two minutes keeps the pool warm across the gaps without holding sockets
+  // indefinitely.
+  idleTimeoutMillis: 120_000,
   // Dashboard bursts fan out ~8 concurrent requests and every authenticated
   // request checks out a connection twice (auth getUser, then the handler).
   // On this high-latency link each acquisition takes seconds, so a max of 5
@@ -29,7 +35,7 @@ export const pool = new Pool({
   // connections can take several seconds, so keep a reliability-first window
   // rather than falsely declaring the database unavailable during a slow
   // handshake.
-  connectionTimeoutMillis: 15_000,
+  connectionTimeoutMillis: 30_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
 });
@@ -47,3 +53,27 @@ export const db = drizzle(pool, {
   schema,
   logger: process.env.DRIZZLE_LOG_QUERIES === "true",
 });
+
+// A dropped or refused connection is worth retrying; a constraint or syntax
+// error is not. Used sparingly on read paths that gate the whole app.
+export function isTransientDbError(err: unknown): boolean {
+  const message = String((err as any)?.message ?? err);
+  return /connection (terminated|timeout|refused)|timeout exceeded when trying to connect|ECONNRESET|ETIMEDOUT|ECONNREFUSED|server closed the connection|Connection terminated|57P0[123]/i.test(
+    message,
+  );
+}
+
+export async function withDbRetry<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+  delayMs = 400,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= attempts - 1 || !isTransientDbError(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * 2 ** attempt));
+    }
+  }
+}

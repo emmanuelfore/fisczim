@@ -8,6 +8,7 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: 5000,
+        ALLOW_REGISTRATION: "true",
         DATABASE_URL: "postgresql://user:password@localhost:5432/fisczim"
       }
     },
@@ -20,6 +21,7 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 5002,
         COUNTRY_SCOPE: "lesotho",
+        ALLOW_REGISTRATION: "true",
         DATABASE_URL: "postgresql://user:password@localhost:5432/fisczim"
       }
     }

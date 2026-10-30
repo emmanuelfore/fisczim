@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useBranchContext } from "@/lib/branch-context";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const STATUS_META = {
   DRAFT: {
@@ -127,9 +128,7 @@ export default function StockTransferDetailsPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex h-[calc(100vh-200px)] items-center justify-center text-slate-500">
-          <Loader2 className="h-8 w-8 animate-spin mr-2 text-primary" /> Loading Transfer...
-        </div>
+        <PageSkeleton stats={0} rows={6} />
       </Layout>
     );
   }

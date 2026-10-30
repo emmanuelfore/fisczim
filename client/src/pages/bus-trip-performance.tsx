@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   Clock,
   Download,
-  Loader2,
   Search,
   Users,
   XCircle,
@@ -338,8 +337,14 @@ export default function BusTripPerformancePage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex h-40 items-center justify-center text-slate-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
+            <div className="space-y-2" aria-busy="true">
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-12 animate-pulse rounded-lg bg-slate-100"
+                  style={{ animationDelay: `${i * 70}ms` }}
+                />
+              ))}
             </div>
           ) : isError ? (
             <div className="flex h-40 items-center justify-center text-red-600">

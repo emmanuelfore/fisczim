@@ -21,6 +21,8 @@ import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Link } from "wouter";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const ITEMS_PER_PAGE = 20;
 const ADJUSTMENT_TYPES = [
   "ADJUSTMENT",
@@ -153,8 +155,7 @@ export default function InventoryStockCountsPage() {
                 <tr>
                   <td colSpan={5} className="p-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-3">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                      Loading stock counts...
+                      <LoadingRows rows={5} />
                     </div>
                   </td>
                 </tr>

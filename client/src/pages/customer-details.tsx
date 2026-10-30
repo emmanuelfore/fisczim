@@ -57,6 +57,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { LoadingRows, PageSkeleton } from "@/components/ui/page-skeleton";
+
 export default function CustomerDetailsPage() {
   const [, params] = useRoute("/customers/:id");
   const [, setLocation] = useLocation();
@@ -196,9 +198,7 @@ export default function CustomerDetailsPage() {
   if (isLoadingCustomer)
     return (
       <Layout>
-        <div className="flex justify-center p-8">
-          <Loader2 className="animate-spin" />
-        </div>
+        <PageSkeleton stats={0} />
       </Layout>
     );
   if (!customer)
@@ -506,7 +506,7 @@ export default function CustomerDetailsPage() {
             <CardContent>
               {isLoadingStatement ? (
                 <div className="flex justify-center p-8">
-                  <Loader2 className="animate-spin text-primary" />
+                  <LoadingRows rows={4} />
                 </div>
               ) : statementData ? (
                 <div className="space-y-6">

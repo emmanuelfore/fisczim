@@ -29,6 +29,8 @@ import { downloadExcel } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const ITEMS_PER_PAGE = 20;
 
 export default function ExpensesPage() {
@@ -204,7 +206,7 @@ export default function ExpensesPage() {
           <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                <LoadingRows rows={4} />
               </div>
             ) : paginatedExpenses?.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
@@ -302,7 +304,7 @@ export default function ExpensesPage() {
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-slate-500">
                     <div className="flex items-center justify-center py-12">
-                      <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+                      <LoadingRows rows={4} />
                     </div>
                   </td>
                 </tr>

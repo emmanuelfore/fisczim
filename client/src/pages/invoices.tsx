@@ -114,6 +114,7 @@ import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useBranchContext } from "@/lib/branch-context";
 import { usePermissions } from "@/hooks/use-permissions";
 import { pdf } from "@react-pdf/renderer";
+import { LoadingRows, PanelSkeleton } from "@/components/ui/page-skeleton";
 
 // ── Preview panel (used by invoice-details split view) ──────────────────────
 export function InvoicePreviewPanel({
@@ -250,12 +251,7 @@ export function InvoicePreviewPanel({
     }
   };
 
-  if (isLoading)
-    return (
-      <div className="flex items-center justify-center h-full text-slate-400">
-        <Loader2 className="w-6 h-6 animate-spin" />
-      </div>
-    );
+  if (isLoading) return <PanelSkeleton />;
   if (!invoice) return null;
 
   const isCreditNote = invoice.transactionType === "CreditNote";
@@ -1311,8 +1307,8 @@ export default function InvoicesPage() {
             <CardContent className="p-0">
               {/* Table */}
               {isLoading ? (
-                <div className="flex h-56 items-center justify-center text-[#64748B]">
-                  <Loader2 className="w-6 h-6 animate-spin" />
+                <div className="p-4">
+                  <LoadingRows rows={6} />
                 </div>
               ) : displayedInvoices.length === 0 ? (
                 <div className="flex h-56 flex-col items-center justify-center gap-3 text-[#64748B]">

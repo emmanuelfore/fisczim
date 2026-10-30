@@ -84,6 +84,9 @@ import {
   Store,
   List,
   PieChart,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Utensils,
 } from "lucide-react";
 import { RefreshCw, ClipboardCheck, Users } from "lucide-react";
 import { POSReceipt } from "@/components/pos-receipt";
@@ -98,7 +101,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { DialogDescription } from "@/components/ui/dialog";
 import {
@@ -130,6 +132,11 @@ import { ReceiptTemplate } from "@/lib/printer/receipt-template";
 import { useBranchContext } from "@/lib/branch-context";
 import { Switch } from "@/components/ui/switch";
 import { EscPosVisualizer } from "@/components/EscPosVisualizer";
+import { currentBrand } from "@/lib/branding";
+
+// The lekuka (Lesotho) build trades only in LSL, so POS is single-currency there.
+const IS_LESOTHO_BRANCH = currentBrand === "fiscalstack_lesotho";
+const POS_DEFAULT_CURRENCY = IS_LESOTHO_BRANCH ? "LSL" : "USD";
 
 interface CartItem {
   productId: number;
@@ -388,7 +395,7 @@ export default function POSPage() {
         vatNumber: newCustomer.vatNumber,
         isActive: true,
         customerType: "individual",
-        currency: "USD",
+        currency: POS_DEFAULT_CURRENCY,
       });
       setSelectedCustomerId(result.id.toString());
       setIsQuickAddCustomerOpen(false);
@@ -438,7 +445,7 @@ export default function POSPage() {
   const [splitMethod, setSplitMethod] = useState<string>("CASH");
   const [splitAmount, setSplitAmount] = useState<string>("");
   const [selectedCurrencyCode, setSelectedCurrencyCode] =
-    useState<string>("USD");
+    useState<string>(POS_DEFAULT_CURRENCY);
   const [isFiscalized, setIsFiscalized] = useState(true);
   const [pendingPrintQueue, setPendingPrintQueue] = useState<number[]>([]);
   const pendingPrintEnqueuedAtRef = useRef<Record<number, number>>({});
@@ -527,6 +534,13 @@ export default function POSPage() {
   );
   const [shiftBalance, setShiftBalance] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Cash Drop / Payout state
+  const [isCashDropOpen, setIsCashDropOpen] = useState(false);
+  const [cashDropType, setCashDropType] = useState<"DROP" | "PAYOUT">("DROP");
+  const [cashDropAmount, setCashDropAmount] = useState("");
+  const [cashDropNote, setCashDropNote] = useState("");
+  const [cashDropProcessing, setCashDropProcessing] = useState(false);
 
   // Custom quantity/reverse-price dialog state (replaces browser prompt())
   const [qtyDialog, setQtyDialog] = useState<{
@@ -705,7 +719,7 @@ export default function POSPage() {
       }
       if (savedCustomerId && savedCustomerId !== "null" && savedCustomerId !== "undefined") setSelectedCustomerId(savedCustomerId);
       if (savedDiscount) setOrderDiscount(parseFloat(savedDiscount));
-      if (savedCurrency) setSelectedCurrencyCode(savedCurrency);
+      if (savedCurrency && !IS_LESOTHO_BRANCH) setSelectedCurrencyCode(savedCurrency);
       if (savedPaymentMethod) setPaymentMethod(savedPaymentMethod);
     } catch (e) {
       console.error("[POS] Failed to load persisted session:", e);
@@ -1644,7 +1658,7 @@ export default function POSPage() {
         subtotal: subtotal.toString(),
         taxAmount: taxAmount.toString(),
         total: total.toString(),
-        currency: selectedCurrencyCode || "USD",
+        currency: selectedCurrencyCode || POS_DEFAULT_CURRENCY,
         items: cart.map(item => ({
           productId: item.productId,
           description: item.name,
@@ -1781,7 +1795,7 @@ export default function POSPage() {
 
     const currencyInfoLocal = resolvedCurrencies?.find(
       (c: any) => c.code === selectedCurrencyCode,
-    ) || { code: "USD", exchangeRate: "1" };
+    ) || { code: POS_DEFAULT_CURRENCY, exchangeRate: "1" };
     const exchangeRate = Number(currencyInfoLocal.exchangeRate) || 1;
 
     if (
@@ -1824,7 +1838,7 @@ export default function POSPage() {
     try {
       const currency = resolvedCurrencies?.find(
         (c: any) => c.code === selectedCurrencyCode,
-      ) || { code: "USD", exchangeRate: "1" };
+      ) || { code: POS_DEFAULT_CURRENCY, exchangeRate: "1" };
       invoiceData = {
         companyId,
         branchId: selectedBranchId,
@@ -3095,6 +3109,42 @@ export default function POSPage() {
     }
   };
 
+  // Cash Drop / Payout handler
+  const handleCashDrop = async () => {
+    if (!currentShift?.id) {
+      toast({ title: "No open shift", description: "Open a shift first.", variant: "destructive" });
+      return;
+    }
+    const amount = parseFloat(cashDropAmount);
+    if (!amount || amount <= 0) {
+      toast({ title: "Invalid amount", description: "Enter a valid amount.", variant: "destructive" });
+      return;
+    }
+    setCashDropProcessing(true);
+    try {
+      const res = await apiFetch(`/api/pos/shifts/${currentShift.id}/transaction`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: cashDropType,
+          amount,
+          reason: cashDropNote || (cashDropType === "DROP" ? "Cash Drop" : "Payout"),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to record transaction");
+      toast({
+        title: cashDropType === "DROP" ? "Cash Drop Recorded" : "Payout Recorded",
+        description: `$${amount.toFixed(2)} ${cashDropType === "DROP" ? "removed from drawer" : "paid out"}.`,
+      });
+      setCashDropAmount("");
+      setCashDropNote("");
+      setIsCashDropOpen(false);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setCashDropProcessing(false);
+    }
+  };
+
   // ── Reprint receipts ─────────────────────────────────────────────────────
   const handleReprintLast = async () => {
     setIsReprintOpen(true);
@@ -3585,7 +3635,7 @@ export default function POSPage() {
                 <span className="max-w-[70px] truncate">Change</span>
                 <ChevronDown className="h-3 w-3" />
               </SelectTrigger>
-              <SelectContent className="rounded-xl border-slate-200 shadow-2xl">
+              <SelectContent className="w-[280px] max-w-[90vw] rounded-xl border-slate-200 shadow-2xl">
                 {resolvedCustomers?.map((c: any) => (
                   <SelectItem
                     key={c.id}
@@ -3617,6 +3667,15 @@ export default function POSPage() {
               }}
             >
               <UserPlus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg bg-slate-100 text-slate-600 hover:text-primary"
+              title="Add New Customer"
+              onClick={() => setIsQuickAddCustomerOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -3868,12 +3927,16 @@ export default function POSPage() {
             {normalizeAppMode(resolvedCompany?.appMode) === "restaurant" && selectedTableId ? (
               <Button
                 variant="outline"
-                className="h-12 gap-2 font-black uppercase tracking-widest text-[10px] border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100 hover:text-orange-700 transition-all rounded-xl shadow-sm active:scale-95 group"
+                className="h-12 gap-2 font-black uppercase tracking-widest text-[10px] border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-600 hover:from-orange-100 hover:to-amber-100 hover:text-orange-700 transition-all rounded-xl shadow-md active:scale-95 group relative overflow-hidden"
                 disabled={cart.length === 0 || isProcessing}
                 onClick={sendRestaurantOrder}
               >
-                <ClipboardCheck className="h-4 w-4 group-hover:scale-110 transition-transform" />
-                Send
+                {isProcessing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Utensils className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                )}
+                Send to Kitchen
               </Button>
             ) : (
               <Button
@@ -4089,82 +4152,6 @@ export default function POSPage() {
                   </div>
                 </div>
 
-                {/* Mobile Customer Selector (Compact) */}
-                <div className="md:hidden">
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 gap-1 text-xs font-bold text-slate-700 bg-slate-100/50 hover:bg-slate-100 rounded-lg border border-slate-200/50"
-                      >
-                        <User className="h-3 w-3 text-slate-500" />
-                        <span className="truncate max-w-[60px]">
-                          {resolvedCustomers
-                            ?.find(
-                              (c: any) =>
-                                c.id.toString() === selectedCustomerId,
-                            )
-                            ?.name.split(" ")[0] || "Guest"}
-                        </span>
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[90%] rounded-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Select Customer</DialogTitle>
-                        <DialogDescription className="sr-only">
-                          Choose a customer for this transaction.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <Button
-                          variant="outline"
-                          className="w-full justify-start gap-2 h-12"
-                          onClick={() => {
-                            const walkIn = resolvedCustomers?.find(
-                              (c: any) =>
-                                c.name.toLowerCase().includes("walk-in") ||
-                                c.name.toLowerCase().includes("cash"),
-                            );
-                            if (walkIn)
-                              setSelectedCustomerId(walkIn.id.toString());
-                          }}
-                        >
-                          <UserPlus className="h-4 w-4" />
-                          <span>Select Walk-in / Cash</span>
-                        </Button>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label>Search Customer</Label>
-                            <Button
-                              variant="link"
-                              className="h-auto p-0 text-primary text-[10px] font-black uppercase"
-                              onClick={() => setIsQuickAddCustomerOpen(true)}
-                            >
-                              + Quick Add
-                            </Button>
-                          </div>
-                          <Select
-                            value={selectedCustomerId}
-                            onValueChange={setSelectedCustomerId}
-                          >
-                            <SelectTrigger className="h-12">
-                              <SelectValue placeholder="Select Customer" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {resolvedCustomers?.map((c: any) => (
-                                <SelectItem key={c.id} value={c.id.toString()}>
-                                  {c.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-
                 {/* Mobile Total Indicator */}
                 {activeView === "products" && (
                   <div className="md:hidden flex items-center gap-2 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 shrink-0">
@@ -4322,6 +4309,42 @@ export default function POSPage() {
                           </span>
                         </div>
                       </DropdownMenuItem>
+                    )}
+
+                    {currentShift && (
+                      <>
+                        <DropdownMenuSeparator className="bg-slate-50" />
+                        <DropdownMenuItem
+                          className="p-3 rounded-xl focus:bg-blue-50 cursor-pointer"
+                          onClick={() => {
+                            setCashDropType("DROP");
+                            setCashDropAmount("");
+                            setCashDropNote("");
+                            setIsCashDropOpen(true);
+                          }}
+                        >
+                          <ArrowDownToLine className="h-4 w-4 mr-3 text-blue-500" />
+                          <div className="flex flex-col">
+                            <span className=" font-bold text-slate-700">Cash Drop</span>
+                            <span className="text-[10px] text-slate-400">Remove excess cash from drawer</span>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="p-3 rounded-xl focus:bg-amber-50 cursor-pointer"
+                          onClick={() => {
+                            setCashDropType("PAYOUT");
+                            setCashDropAmount("");
+                            setCashDropNote("");
+                            setIsCashDropOpen(true);
+                          }}
+                        >
+                          <ArrowUpFromLine className="h-4 w-4 mr-3 text-amber-500" />
+                          <div className="flex flex-col">
+                            <span className=" font-bold text-slate-700">Payout</span>
+                            <span className="text-[10px] text-slate-400">Pay expense from till</span>
+                          </div>
+                        </DropdownMenuItem>
+                      </>
                     )}
 
                     <DropdownMenuSeparator className="bg-slate-50" />
@@ -4502,22 +4525,24 @@ export default function POSPage() {
               </div>
 
               {/* Global Currency Switcher - Hyper Compact */}
-              <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
-                {["USD", "ZWG"].map((cc) => (
-                  <button
-                    key={cc}
-                    onClick={() => setSelectedCurrencyCode(cc)}
-                    className={cn(
-                      "px-2 py-1 rounded-md text-[9px] font-black transition-all",
-                      selectedCurrencyCode === cc
-                        ? "bg-white text-primary shadow-sm border border-slate-100"
-                        : "text-slate-400 hover:text-slate-600",
-                    )}
-                  >
-                    {cc}
-                  </button>
-                ))}
-              </div>
+              {!IS_LESOTHO_BRANCH && (
+                <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
+                  {["USD", "ZWG"].map((cc) => (
+                    <button
+                      key={cc}
+                      onClick={() => setSelectedCurrencyCode(cc)}
+                      className={cn(
+                        "px-2 py-1 rounded-md text-[9px] font-black transition-all",
+                        selectedCurrencyCode === cc
+                          ? "bg-white text-primary shadow-sm border border-slate-100"
+                          : "text-slate-400 hover:text-slate-600",
+                      )}
+                    >
+                      {cc}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Grid / List View Toggle - Always Visible */}
               <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
@@ -4625,67 +4650,6 @@ export default function POSPage() {
 
             {/* Integrated Controls & Profile - Compacted to prevent scrolling */}
             <div className="flex items-center gap-1 shrink-0">
-              {/* Customer Selector - Premium */}
-              <div className="flex items-center gap-0.5 bg-slate-100/40 p-0.5 rounded-lg border border-slate-200/20 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 rounded-md bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-primary hover:bg-white p-0"
-                  onClick={() => {
-                    const walkIn = resolvedCustomers?.find(
-                      (c: any) =>
-                        c.name.toLowerCase().includes("walk-in") ||
-                        c.name.toLowerCase().includes("cash"),
-                    );
-                    if (walkIn) setSelectedCustomerId(walkIn.id.toString());
-                    else
-                      toast({
-                        title: "No Walk-in Customer",
-                        description: "Create 'Walk-in' first.",
-                      });
-                  }}
-                  title="Select Walk-in"
-                >
-                  <UserPlus className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 rounded-md bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-emerald-600 hover:bg-white p-0"
-                  onClick={() => setIsQuickAddCustomerOpen(true)}
-                  title="Add New Customer"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-                <Select
-                  value={selectedCustomerId}
-                  onValueChange={setSelectedCustomerId}
-                >
-                  <SelectTrigger
-                    className="h-8 border-none bg-transparent hover:bg-slate-200/30 transition-all font-bold text-slate-700 px-2 flex items-center gap-1.5"
-                    title="Select Customer"
-                  >
-                    <User className="h-4 w-4 text-slate-500 shrink-0" />
-                    <span className="truncate text-xs max-w-[80px]">
-                      {resolvedCustomers
-                        ?.find((c: any) => c.id.toString() === selectedCustomerId)
-                        ?.name.split(" ")[0] || "Guest"}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-slate-200 shadow-2xl">
-                    {resolvedCustomers?.map((c: any) => (
-                      <SelectItem
-                        key={c.id}
-                        value={c.id.toString()}
-                        className="focus:bg-primary/5 rounded-lg py-2.5"
-                      >
-                        <div className="font-bold text-slate-700">{c.name}</div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
               <div className="h-6 w-px bg-slate-200 mx-0.5 hidden lg:block" />
 
               {/* Quick Action Pills - Compact */}
@@ -4868,6 +4832,42 @@ export default function POSPage() {
                           </span>
                         </div>
                       </DropdownMenuItem>
+                    )}
+
+                    {currentShift && (
+                      <>
+                        <DropdownMenuSeparator className="bg-slate-50" />
+                        <DropdownMenuItem
+                          className="p-3 rounded-xl focus:bg-blue-50 cursor-pointer"
+                          onClick={() => {
+                            setCashDropType("DROP");
+                            setCashDropAmount("");
+                            setCashDropNote("");
+                            setIsCashDropOpen(true);
+                          }}
+                        >
+                          <ArrowDownToLine className="h-4 w-4 mr-3 text-blue-500" />
+                          <div className="flex flex-col">
+                            <span className=" font-bold text-slate-700">Cash Drop</span>
+                            <span className="text-[10px] text-slate-400">Remove excess cash from drawer</span>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="p-3 rounded-xl focus:bg-amber-50 cursor-pointer"
+                          onClick={() => {
+                            setCashDropType("PAYOUT");
+                            setCashDropAmount("");
+                            setCashDropNote("");
+                            setIsCashDropOpen(true);
+                          }}
+                        >
+                          <ArrowUpFromLine className="h-4 w-4 mr-3 text-amber-500" />
+                          <div className="flex flex-col">
+                            <span className=" font-bold text-slate-700">Payout</span>
+                            <span className="text-[10px] text-slate-400">Pay expense from till</span>
+                          </div>
+                        </DropdownMenuItem>
+                      </>
                     )}
                     <DropdownMenuSeparator className="bg-slate-50" />
                     <DropdownMenuItem
@@ -5100,13 +5100,14 @@ export default function POSPage() {
 
             <ScrollArea className="flex-1 -mx-2 px-2">
               {isLoadingProducts && resolvedProducts.length === 0 ? (
-                <div className="flex items-center justify-center min-h-[400px]">
-                  <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                    <p className="text-slate-400 font-medium">
-                      Loading Inventory...
-                    </p>
-                  </div>
+                <div className="grid grid-cols-2 gap-2 py-2 sm:grid-cols-3 lg:grid-cols-4" aria-busy="true">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-24 animate-pulse rounded-xl bg-slate-100"
+                      style={{ animationDelay: `${i * 60}ms` }}
+                    />
+                  ))}
                 </div>
               ) : resolvedProducts.length === 0 ? (
                 <div className="flex items-center justify-center min-h-[400px]">
@@ -5447,7 +5448,7 @@ export default function POSPage() {
                     <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
                     <div className="relative">
                       <span className="absolute left-0 top-1/2 -translate-y-1/2 text-xl sm:text-2xl font-black text-slate-200 group-focus-within:text-primary transition-colors">
-                        $
+                        {IS_LESOTHO_BRANCH ? currencyInfo.symbol : "$"}
                       </span>
                       <Input
                         id="checkout-paid-amount"
@@ -5650,7 +5651,7 @@ export default function POSPage() {
                                     )?.exchangeRate || 1,
                                   );
                                 const change = Math.max(0, sumParams - req);
-                                const currencyInfoLocal = currencies?.find((c) => c.code === selectedCurrencyCode) || { symbol: "$", code: "USD" };
+                                const currencyInfoLocal = currencies?.find((c) => c.code === selectedCurrencyCode) || (IS_LESOTHO_BRANCH ? currencyInfo : { symbol: "$", code: "USD" });
                                 return `+ ${currencyInfoLocal.symbol || currencyInfoLocal.code}${change.toFixed(2)}`;
                               })()}
                             </h3>
@@ -5758,6 +5759,117 @@ export default function POSPage() {
                     </div>
                   ))
                 )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Cash Drop / Payout Dialog ── */}
+          <Dialog open={isCashDropOpen} onOpenChange={setIsCashDropOpen}>
+            <DialogContent className="sm:max-w-[400px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
+              <DialogHeader className="sr-only">
+                <DialogTitle>{cashDropType === "DROP" ? "Cash Drop" : "Payout"}</DialogTitle>
+                <DialogDescription>
+                  {cashDropType === "DROP" ? "Remove excess cash from the drawer" : "Record a cash payout from the till"}
+                </DialogDescription>
+              </DialogHeader>
+              {/* Header */}
+              <div className={cn(
+                "p-7 text-white",
+                cashDropType === "DROP" ? "bg-blue-600" : "bg-amber-500"
+              )}>
+                <div className="flex items-center gap-3 mb-2">
+                  {cashDropType === "DROP" ? (
+                    <ArrowDownToLine className="h-7 w-7 text-white" />
+                  ) : (
+                    <ArrowUpFromLine className="h-7 w-7 text-white" />
+                  )}
+                  <h3 className="text-xl font-black">
+                    {cashDropType === "DROP" ? "Cash Drop" : "Cash Payout"}
+                  </h3>
+                </div>
+                <p className="text-xs opacity-70 font-bold uppercase tracking-widest">
+                  {cashDropType === "DROP"
+                    ? "Remove surplus cash from the drawer. This reduces the till balance."
+                    : "Pay an expense directly from the till. Records against the shift."}
+                </p>
+              </div>
+              {/* Form */}
+              <div className="p-7 space-y-5 bg-white">
+                {/* Toggle DROP / PAYOUT */}
+                <div className="flex rounded-xl overflow-hidden border border-slate-200">
+                  <button
+                    className={cn(
+                      "flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all",
+                      cashDropType === "DROP"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-slate-400 hover:bg-slate-50"
+                    )}
+                    onClick={() => setCashDropType("DROP")}
+                  >
+                    Cash Drop
+                  </button>
+                  <button
+                    className={cn(
+                      "flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all",
+                      cashDropType === "PAYOUT"
+                        ? "bg-amber-500 text-white"
+                        : "bg-white text-slate-400 hover:bg-slate-50"
+                    )}
+                    onClick={() => setCashDropType("PAYOUT")}
+                  >
+                    Payout
+                  </button>
+                </div>
+
+                {/* Amount */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Amount
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300 text-lg">$</span>
+                    <Input
+                      type="number"
+                      value={cashDropAmount}
+                      onChange={(e) => setCashDropAmount(e.target.value)}
+                      className="h-14 pl-9 text-xl font-black bg-slate-50 border-slate-200 rounded-xl focus:ring-4 focus:ring-primary/5"
+                      placeholder="0.00"
+                      autoFocus
+                      onKeyDown={(e) => e.key === "Enter" && handleCashDrop()}
+                    />
+                  </div>
+                </div>
+
+                {/* Reason */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    {cashDropType === "DROP" ? "Reason / Reference" : "Description (Expense)"}
+                  </label>
+                  <Input
+                    type="text"
+                    value={cashDropNote}
+                    onChange={(e) => setCashDropNote(e.target.value)}
+                    className="h-12 bg-slate-50 border-slate-200 rounded-xl font-medium"
+                    placeholder={cashDropType === "DROP" ? "e.g. End-of-hour drop" : "e.g. Supplier payment, cleaning supplies"}
+                    onKeyDown={(e) => e.key === "Enter" && handleCashDrop()}
+                  />
+                </div>
+
+                {/* Action */}
+                <Button
+                  className={cn(
+                    "w-full h-14 rounded-xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 text-white",
+                    cashDropType === "DROP" ? "bg-blue-600 hover:bg-blue-700" : "bg-amber-500 hover:bg-amber-600"
+                  )}
+                  disabled={cashDropProcessing || !cashDropAmount || parseFloat(cashDropAmount) <= 0}
+                  onClick={handleCashDrop}
+                >
+                  {cashDropProcessing ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    cashDropType === "DROP" ? "Record Cash Drop" : "Record Payout"
+                  )}
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -6093,7 +6205,7 @@ export default function POSPage() {
                         invoiceNo: "TEST-0001",
                         issueDate: new Date().toISOString(),
                         total: 10.0,
-                        currency: "USD",
+                        currency: POS_DEFAULT_CURRENCY,
                         items: [
                           {
                             description: "Test Product",
@@ -6606,8 +6718,14 @@ export default function POSPage() {
               </div>
               <div className="flex-1 overflow-y-auto p-4 bg-white space-y-2">
                 {reprintListLoading && (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+                  <div className="space-y-2 py-2" aria-busy="true">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="h-12 animate-pulse rounded-lg bg-slate-100"
+                        style={{ animationDelay: `${i * 60}ms` }}
+                      />
+                    ))}
                   </div>
                 )}
                 {!reprintListLoading && reprintList.length === 0 && (
@@ -7113,7 +7231,7 @@ export default function POSPage() {
                                 {cashier.count} sales
                               </span>
                               <span className=" font-black text-slate-900">
-                                {cashier.currency || "USD"} {Number(cashier.total).toFixed(2)}
+                                {cashier.currency || POS_DEFAULT_CURRENCY} {Number(cashier.total).toFixed(2)}
                               </span>
                             </div>
                           </div>
@@ -7146,7 +7264,7 @@ export default function POSPage() {
                                   {method.count} payments
                                 </span>
                                 <span className=" font-black text-emerald-700">
-                                  {method.currency || "USD"} {Number(method.total).toFixed(2)}
+                                  {method.currency || POS_DEFAULT_CURRENCY} {Number(method.total).toFixed(2)}
                                 </span>
                               </div>
                             </div>
@@ -7196,7 +7314,7 @@ export default function POSPage() {
                                 </span>
                               </div>
                               <span className=" font-black text-slate-900">
-                                {item.currency || "USD"} {Number(item.total).toFixed(2)}
+                                {item.currency || POS_DEFAULT_CURRENCY} {Number(item.total).toFixed(2)}
                               </span>
                             </div>
                           ))}

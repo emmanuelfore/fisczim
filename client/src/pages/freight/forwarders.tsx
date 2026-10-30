@@ -9,6 +9,8 @@ import { PageHeader } from "@/components/page-header";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { CreateForwarderDialog } from "@/components/freight/create-forwarder-dialog";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function FreightForwardersPage() {
   const { activeCompanyId } = useActiveCompany(true);
   const companyId = activeCompanyId || 0;
@@ -45,7 +47,7 @@ export default function FreightForwardersPage() {
       <div className="grid grid-cols-1 gap-4">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+            <LoadingRows rows={4} />
           </div>
         ) : filtered?.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-slate-500">

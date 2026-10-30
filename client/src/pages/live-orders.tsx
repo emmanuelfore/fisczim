@@ -13,7 +13,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Loader2,
   Utensils,
   CheckCircle2,
   Clock,
@@ -27,6 +26,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function LiveOrdersPage() {
   const { activeCompanyId } = useActiveCompany();
@@ -50,9 +50,7 @@ export default function LiveOrdersPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex h-[400px] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <PageSkeleton />
       </Layout>
     );
   }

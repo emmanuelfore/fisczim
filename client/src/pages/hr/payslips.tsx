@@ -12,6 +12,7 @@ import { format } from "date-fns";
 import { downloadExcel } from "@/lib/export-utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function HRPayslips() {
   const { runId } = useParams();
@@ -31,9 +32,7 @@ export default function HRPayslips() {
   if (isLoading) {
     return (
       <HRLayout>
-        <div className="flex h-96 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
+        <PageSkeleton />
       </HRLayout>
     );
   }

@@ -882,13 +882,27 @@ function PaymentDetailView({
     pdfGenerating
   ) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-400 gap-3 py-20 bg-white/50 m-6 rounded-2xl border border-dashed border-slate-200">
-        <Loader2 className="w-8 h-8 animate-spin text-primary/40" />
-        <p className="font-bold uppercase tracking-widest text-[10px]">
-          {pdfGenerating
-            ? "Generating A4 Receipt..."
-            : "Loading Payment Data..."}
-        </p>
+      <div className="m-6 space-y-4 rounded-2xl border border-dashed border-slate-200 bg-white/60 p-6" aria-busy="true">
+        {pdfGenerating ? (
+          <div className="flex items-center gap-3 text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-primary/60" />
+            <p className="text-xs font-bold uppercase tracking-widest">
+              Generating A4 Receipt...
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="h-6 w-48 animate-pulse rounded-lg bg-slate-100" />
+            <div className="h-24 animate-pulse rounded-xl bg-slate-50" />
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-10 animate-pulse rounded-lg bg-slate-100"
+                style={{ animationDelay: `${i * 70}ms` }}
+              />
+            ))}
+          </>
+        )}
       </div>
     );
   }

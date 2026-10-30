@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function SuppliersPage() {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -157,7 +159,7 @@ export default function SuppliersPage() {
           <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                <LoadingRows rows={4} />
               </div>
             ) : paginatedSuppliers?.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
@@ -289,7 +291,7 @@ export default function SuppliersPage() {
                 <tr>
                   <td colSpan={4} className="p-8 text-center text-slate-500">
                     <div className="flex items-center justify-center py-12">
-                      <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                      <LoadingRows rows={4} />
                     </div>
                   </td>
                 </tr>

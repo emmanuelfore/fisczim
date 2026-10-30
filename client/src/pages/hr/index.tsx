@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { HRLayout } from "@/pages/hr/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
-import { Users, FileSpreadsheet, CalendarCheck, Banknote, Building2, AlertCircle, ChevronRight, Loader2 } from "lucide-react";
+import { Users, FileSpreadsheet, CalendarCheck, Banknote, Building2, AlertCircle, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,8 +40,14 @@ export default function HRDashboard() {
         </div>
 
         {isLoading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4" aria-busy="true">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-28 animate-pulse rounded-xl border border-slate-200/60 bg-white"
+                style={{ animationDelay: `${i * 90}ms` }}
+              />
+            ))}
           </div>
         ) : (
           <div className="space-y-6">

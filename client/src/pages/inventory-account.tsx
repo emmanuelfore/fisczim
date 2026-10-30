@@ -41,7 +41,6 @@ import {
   ClipboardCheck,
   Clock,
   CheckCircle2,
-  Loader2,
   Plus,
   XCircle,
   Info,
@@ -56,6 +55,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { format } from "date-fns";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -305,8 +306,7 @@ export default function InventoryAccountPage() {
                   <tr>
                     <td colSpan={9} className="p-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-3">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                        Loading goods received...
+                        <LoadingRows rows={5} />
                       </div>
                     </td>
                   </tr>
@@ -578,8 +578,7 @@ export default function InventoryAccountPage() {
                     <tr>
                       <td colSpan={5} className="p-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                          Loading pending GDNs...
+                          <LoadingRows rows={5} />
                         </div>
                       </td>
                     </tr>

@@ -73,6 +73,8 @@ import {
   ArrowRight,
 } from "lucide-react";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 type TypeFilter = "all" | "product" | "service";
 
 export default function ProductsPage() {
@@ -461,8 +463,7 @@ export default function ProductsPage() {
             {isLoading ? (
               <div className="p-12 text-center text-slate-500">
                 <div className="flex flex-col items-center justify-center gap-3">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                  Loading...
+                  <LoadingRows rows={5} />
                 </div>
               </div>
             ) : paginatedItems?.length === 0 ? (
@@ -640,8 +641,7 @@ export default function ProductsPage() {
                 <tr>
                   <td colSpan={8} className="p-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-3">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                      Loading...
+                      <LoadingRows rows={5} />
                     </div>
                   </td>
                 </tr>

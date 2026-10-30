@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Banknote, Landmark, Loader2 } from "lucide-react";
 import { HRLayout } from "./layout";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function LoansAdvances() {
   const { activeCompanyId: companyId } = useActiveCompany();
   const { toast } = useToast();
@@ -172,7 +174,7 @@ export default function LoansAdvances() {
                 {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={7} className="h-32 text-center">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-500" />
+                      <LoadingRows rows={4} />
                     </TableCell>
                   </TableRow>
                 ) : loans.length === 0 ? (

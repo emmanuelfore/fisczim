@@ -7,7 +7,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DataTableProps<TData> {
@@ -31,8 +30,16 @@ export function DataTable<TData extends { id: number | string }>({
 }: DataTableProps<TData>) {
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-40">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <div className="overflow-hidden rounded-md border border-slate-100 p-3" aria-busy="true" aria-label="Loading">
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-10 animate-pulse rounded-lg bg-slate-100"
+              style={{ animationDelay: `${i * 70}ms` }}
+            />
+          ))}
+        </div>
       </div>
     );
   }

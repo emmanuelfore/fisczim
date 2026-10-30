@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const CATEGORY_COLORS: Record<string, string> = {
   BASIC:      "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   ALLOWANCE:  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -164,8 +166,7 @@ export function IncomesTab() {
                     <TableRow>
                       <TableCell colSpan={6} className="h-32 text-center">
                         <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-                          <span>Loading earning types...</span>
+                          <LoadingRows rows={4} />
                         </div>
                       </TableCell>
                     </TableRow>

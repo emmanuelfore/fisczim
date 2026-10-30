@@ -30,6 +30,7 @@ import { format, differenceInDays } from "date-fns";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 
 export default function SalesOrderDetailsPage() {
@@ -57,7 +58,7 @@ export default function SalesOrderDetailsPage() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
-  if (isLoading) return <Layout><div className="p-8 flex justify-center items-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div></Layout>;
+  if (isLoading) return <Layout><PageSkeleton stats={0} rows={6} /></Layout>;
   if (error) return <Layout><div className="p-8 text-center text-slate-500">Error loading sales order: {error.message}</div></Layout>;
   if (!order) return <Layout><div className="p-8 text-center text-slate-500">Sales Order not found (ID: {id}). Please check if the sales order exists.</div></Layout>;
 

@@ -57,6 +57,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { ALL_PERMISSIONS, PERMISSION_GROUPS as SYSTEM_PERMISSION_GROUPS } from "@shared/permissions";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 type AccessRole = {
   id: number;
@@ -403,7 +404,7 @@ export default function TeamSettingsPage() {
   if (isLoadingCompanies) {
     return (
       <Layout>
-        <div className="p-8">Loading...</div>
+        <PageSkeleton />
       </Layout>
     );
   }

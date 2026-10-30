@@ -6,9 +6,11 @@ import { apiFetch } from "@/lib/api";
 import { PaymentReceiptPDF } from "@/components/invoices/payment-receipt-pdf";
 import { pdf } from "@react-pdf/renderer";
 import { useState, useEffect } from "react";
-import { Loader2, ArrowLeft, Download, Printer } from "lucide-react";
+import { ArrowLeft, Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 export default function PaymentPreviewPage() {
   const [, params] = useRoute("/payments/:id/preview");
@@ -113,7 +115,7 @@ export default function PaymentPreviewPage() {
           <div className="w-full max-w-[850px] bg-white shadow-2xl rounded-xl overflow-hidden min-h-[1100px]">
             {isLoading || pdfGenerating ? (
               <div className="flex flex-col items-center justify-center h-[600px] text-slate-400 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin" />
+                <LoadingRows rows={5} />
                 <p className="font-medium">Preparing A4 Preview...</p>
               </div>
             ) : pdfBlobUrl ? (

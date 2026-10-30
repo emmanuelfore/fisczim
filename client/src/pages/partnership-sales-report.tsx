@@ -7,8 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Download } from "lucide-react";
+import { Download } from "lucide-react";
 import { downloadCsv, generateCsv } from "@/lib/report-utils";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 export default function PartnershipSalesReportPage() {
   const { activeCompany } = useActiveCompany();
@@ -87,7 +89,7 @@ export default function PartnershipSalesReportPage() {
           <CardHeader><CardTitle>By Partner</CardTitle></CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+              <LoadingRows rows={4} />
             ) : summary.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-500">No partnership invoices in this period.</p>
             ) : (

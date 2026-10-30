@@ -17,7 +17,6 @@ import {
   ClipboardList,
   Edit2,
   FileText,
-  Loader2,
   MoreHorizontal,
   Package,
 } from "lucide-react";
@@ -29,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import PurchaseReturnFormPage from "./purchase-return-form";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const STATUS_META = {
   DRAFT: {
@@ -79,9 +79,7 @@ export default function PurchaseReturnDetailsPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-slate-500">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading Purchase Return...
-        </div>
+        <PageSkeleton stats={0} rows={6} />
       </Layout>
     );
   }

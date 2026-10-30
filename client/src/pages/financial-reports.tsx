@@ -32,6 +32,7 @@ import { BalanceSheetView } from "@/components/reports/balance-sheet-view";
 import { CashFlowView } from "@/components/reports/cash-flow-view";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { downloadExcel } from "@/lib/export-utils";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function FinancialReportsPage() {
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
@@ -76,9 +77,7 @@ export default function FinancialReportsPage() {
   if (isLoadingActive) {
     return (
       <Layout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        </div>
+        <PageSkeleton />
       </Layout>
     );
   }

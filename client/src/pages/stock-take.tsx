@@ -32,6 +32,8 @@ import * as XLSX from "xlsx";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { StockCountSheetPDF } from "@/components/inventory/stock-count-sheet-pdf";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 type StockTakeProduct = Product & {
   branchStock?: number | string | null;
   unit?: string | null;
@@ -343,8 +345,7 @@ export default function StockTakePage() {
             <ScrollArea className="flex-1 px-4 py-3">
               {isLoading ? (
                 <div className="py-24 text-center text-slate-500">
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-violet-600" />
-                  Loading products...
+                  <LoadingRows rows={5} />
                 </div>
               ) : filteredProducts.length === 0 ? (
                 <div className="py-24 text-center text-slate-500">

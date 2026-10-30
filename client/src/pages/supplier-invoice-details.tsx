@@ -17,6 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const STATUS_META = {
   unpaid: { label: "Unpaid", icon: Clock, badge: "border-amber-200 bg-amber-50 text-amber-700" },
@@ -79,9 +80,7 @@ export default function SupplierInvoiceDetailsPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex h-[calc(100vh-200px)] items-center justify-center text-slate-500">
-          <Loader2 className="h-8 w-8 animate-spin mr-2 text-primary" /> Loading Bill...
-        </div>
+        <PageSkeleton stats={0} rows={6} />
       </Layout>
     );
   }

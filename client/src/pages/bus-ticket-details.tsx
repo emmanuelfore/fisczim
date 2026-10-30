@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import {
   CalendarRange,
   Download,
-  Loader2,
   Search,
   Ticket,
   Users,
@@ -25,6 +24,8 @@ import {
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { useBusReport, useBusRoutes, useBusConductors, useBusVehicles } from "@/hooks/use-bus-ticketing";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 const HARARE_OFFSET_MS = 2 * 60 * 60 * 1000;
 
@@ -365,7 +366,7 @@ export default function BusTicketDetailsPage() {
         <CardContent>
           {isLoading ? (
             <div className="flex h-40 items-center justify-center text-slate-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <LoadingRows rows={4} />
             </div>
           ) : isError ? (
             <div className="flex h-40 items-center justify-center text-red-600">

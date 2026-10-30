@@ -13,6 +13,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { CashCollectionReport } from "@/components/reports/payments-reports";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function CashCollectionReportPage() {
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
@@ -27,9 +28,7 @@ export default function CashCollectionReportPage() {
   if (isLoadingActive) {
     return (
       <Layout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
+        <PageSkeleton />
       </Layout>
     );
   }

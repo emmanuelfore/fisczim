@@ -45,6 +45,8 @@ import {
 } from "recharts";
 import { format } from "date-fns";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function InventoryReportsPage() {
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const [searchTerm, setSearchTerm] = useState("");
@@ -433,7 +435,7 @@ export default function InventoryReportsPage() {
                   <tr>
                     <td colSpan={6} className="p-12 text-center text-slate-400">
                       <div className="flex flex-col items-center justify-center gap-4">
-                        <div className="w-8 h-8 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                        <LoadingRows rows={5} />
                         <span className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">
                           Calculating stock assets...
                         </span>

@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Loader2, UserRound, CalendarCheck, FileText, PhoneCall, Save } from "lucide-react";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const LEAVE_TYPES = ["ANNUAL", "SICK", "MATERNITY", "PATERNITY", "COMPASSIONATE", "STUDY"];
 
@@ -78,9 +79,7 @@ export default function HRSelfService() {
   if (isLoading) {
     return (
       <HRLayout>
-        <div className="flex h-96 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
+        <PageSkeleton />
       </HRLayout>
     );
   }

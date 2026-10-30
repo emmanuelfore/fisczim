@@ -188,7 +188,7 @@ export interface IStorage {
 
   // Companies
   createCompany(company: InsertCompany, userId: string): Promise<Company>;
-  getCompanies(userId: string): Promise<Company[]>;
+  getCompanies(userId: string, knownUser?: User | null): Promise<Company[]>;
   getCompany(id: number): Promise<Company | undefined>;
   getCompanyByApiKey(apiKey: string): Promise<Company | undefined>;
   updateCompany(id: number, data: Partial<InsertCompany>): Promise<Company>;
@@ -827,8 +827,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Companies
-  async getCompanies(userId: string): Promise<(Company & { role: string })[]> {
-    const user = await this.getUser(userId);
+  // `knownUser` lets callers that already resolved the authenticated user (the
+  // auth middleware caches it per request) skip a second DB round-trip here.
+  async getCompanies(userId: string, knownUser?: User | null): Promise<(Company & { role: string })[]> {
+    const user = knownUser ?? await this.getUser(userId);
     const isSystemAdmin = user?.email ? Buffer.from(String(user.email).toLowerCase()).toString('base64') === "YWRtaW5AemltcmEuY28uenc=" : false;
     console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}, isSystemAdmin: ${isSystemAdmin}`);
 

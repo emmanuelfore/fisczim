@@ -5,12 +5,13 @@ import { Truck, Package, AlertTriangle, CheckCircle, Clock } from "lucide-react"
 import { useConsignments } from "@/hooks/use-freight";
 import { Badge } from "@/components/ui/badge";
 import { Layout } from "@/components/layout";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function FreightDashboardPage() {
   const { activeCompanyId } = useActiveCompany(true);
   const { data: consignments, isLoading } = useConsignments(activeCompanyId || 0);
 
-  if (isLoading) return <div className="p-8 text-center text-slate-500">Loading dashboard metrics...</div>;
+  if (isLoading) return <PageSkeleton />;
 
   const inTransitCount = consignments?.filter((c: any) => c.status === "IN_TRANSIT" || c.status === "AT_PORT").length || 0;
   

@@ -10,7 +10,6 @@ import {
   Plus,
   Search,
   FileText,
-  Loader2,
   RefreshCw,
   Calendar,
   MoreHorizontal,
@@ -42,6 +41,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
 import { PageHeader } from "@/components/page-header";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 export default function RecurringInvoicesPage() {
   const selectedCompanyId = parseInt(
@@ -119,8 +120,7 @@ export default function RecurringInvoicesPage() {
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                        <p>Loading schedules...</p>
+                        <LoadingRows rows={4} />
                       </div>
                     </td>
                   </tr>

@@ -30,6 +30,7 @@ import { isLesothoDomain } from "@/lib/country-detect";
 import { DailySalesTable } from "@/components/reports/daily-sales-table";
 import { User } from "@shared/schema";
 import { downloadExcel } from "@/lib/export-utils";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function DailySalesLedgerPage() {
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
@@ -130,9 +131,7 @@ export default function DailySalesLedgerPage() {
   if (isLoadingActive) {
     return (
       <Layout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        </div>
+        <PageSkeleton />
       </Layout>
     );
   }
@@ -322,11 +321,14 @@ export default function DailySalesLedgerPage() {
 
       <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
         {isLoadingSales ? (
-          <div className="flex flex-col items-center justify-center min-h-[400px] bg-white/50 backdrop-blur-sm rounded-[2rem] border border-slate-100">
-            <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-slate-500 font-medium animate-pulse">
-              Fetching sales entries...
-            </p>
+          <div className="space-y-2 rounded-[2rem] border border-slate-100 bg-white p-4" aria-busy="true">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-11 animate-pulse rounded-xl bg-slate-100"
+                style={{ animationDelay: `${i * 70}ms` }}
+              />
+            ))}
           </div>
         ) : (
           <DailySalesTable

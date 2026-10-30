@@ -11,7 +11,10 @@ export function useActiveCompany(
     // become the active company for this session.
     const { user } = useAuth();
     const resolvedUserScopeKey = userScopeKey ?? user?.id ?? null;
-    const { data: companies, isLoading, refetch } = useCompanies(enabled, resolvedUserScopeKey);
+    // Without a session there are no memberships to load, so don't fire a
+    // guaranteed-401 companies request from the theme/branch providers that
+    // mount on the public landing and auth pages.
+    const { data: companies, isLoading, refetch } = useCompanies(enabled && !!user, resolvedUserScopeKey);
     const [activeCompanyId, setActiveCompanyId] = useState<number | null>(() => {
         const stored = localStorage.getItem("selectedCompanyId");
         return stored ? parseInt(stored) : null;

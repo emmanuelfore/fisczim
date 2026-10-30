@@ -52,6 +52,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function ZimraLogs() {
   const { user } = useAuth();
@@ -134,7 +135,7 @@ export default function ZimraLogs() {
   if (isLoadingCompanies)
     return (
       <Layout>
-        <div className="p-8">Loading...</div>
+        <PageSkeleton />
       </Layout>
     );
 

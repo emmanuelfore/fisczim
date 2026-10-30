@@ -230,6 +230,50 @@
   @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600;
 }
 
+/* Loading indicators */
+@keyframes loading-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+@keyframes loading-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.loading-bar-fill {
+  animation: loading-bar 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
+.loading-fade {
+  animation: loading-fade 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .loading-bar-fill {
+    animation: none;
+    transform: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+
+  .loading-fade {
+    animation: none;
+  }
+}
+
 /* Global Print Adjustments */
 @media print {
 

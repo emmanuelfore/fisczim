@@ -57,7 +57,7 @@ export default function ZimraSettingsPage() {
   if (isLoading)
     return (
       <Layout>
-        <div className="p-8">Loading...</div>
+        <PageSkeleton />
       </Layout>
     );
   if (!currentCompany)
@@ -778,6 +778,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 function AdvancedResetControls({ company }: { company: any }) {
   const fa = useFiscalAuthority();

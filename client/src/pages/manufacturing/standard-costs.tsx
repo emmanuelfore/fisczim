@@ -157,7 +157,17 @@ export default function StandardCostsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>}
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={7} className="p-4">
+                    <div className="space-y-2" aria-busy="true">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+                      ))}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
               {!isLoading && (standardCosts as any[])?.length === 0 && (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No standard costs defined yet.</TableCell></TableRow>
               )}

@@ -162,10 +162,10 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { NAV_PERMISSION_MAP } from "@shared/permissions";
 import { useCompanies } from "@/hooks/use-companies";
 import { useActiveCompany } from "@/hooks/use-active-company";
-import { Loader2 } from "lucide-react";
 import { insertBusRouteSchema, type BusRouteCloud } from "@shared/schema";
 import { useIsOnline } from "@/hooks/use-is-online";
 import { useBranding } from "@/hooks/use-branding";
+import { brand } from "@/lib/branding";
 import { ThemeManager } from "@/components/theme-manager";
 import { getCompanyHomeRoute } from "@/lib/company-home-route";
 function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
@@ -184,32 +184,77 @@ function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   return loading && !timedOut;
 }
 
-function LoadingScreen({ message = "Loading…" }: { message?: string }) {
+// Initial gate only — a quiet brand mark and a thin indeterminate line read as
+// "starting", not "stalled", and match the light app theme so there is no dark flash.
+function LoadingScreen({ message }: { message?: string }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 gap-4">
-      <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
-      <p className="text-sm text-slate-300">{message}</p>
-      {/* Skeleton blocks: perceived as "content is loading", not "broken". */}
-      <div className="w-full max-w-sm space-y-2" aria-hidden="true">
-        <div className="h-10 rounded-xl bg-white/5 animate-pulse" />
-        <div className="h-10 rounded-xl bg-white/5 animate-pulse [animation-delay:150ms]" />
-        <div className="h-10 rounded-xl bg-white/5 animate-pulse [animation-delay:300ms]" />
+    <div className="min-h-screen grid place-items-center bg-background px-6" role="status" aria-live="polite">
+      <div className="loading-fade flex flex-col items-center gap-4">
+        <img src={brand.logo} alt="" className="h-8 w-auto opacity-80" />
+        <div className="relative h-1 w-44 overflow-hidden rounded-full bg-slate-200/80">
+          <div className="loading-bar-fill absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary" />
+        </div>
+        {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
       </div>
     </div>
   );
 }
 
-function StartupProblem({ message = "We could not load your workspace." }: { message?: string }) {
+// Lazy route loads: a 3px bar instead of blanking the whole screen, so navigating
+// between pages feels like a page transition rather than a reload.
+function RouteFallback() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 gap-4 text-center">
-      <h1 className="text-lg font-semibold">Workspace unavailable</h1>
-      <p className="max-w-md text-sm text-slate-300">{message}</p>
-      <button
-        onClick={() => window.location.reload()}
-        className="rounded-md bg-indigo-500 px-4 py-2 text-sm font-medium hover:bg-indigo-400"
-      >
-        Retry
-      </button>
+    <div className="fixed inset-x-0 top-0 z-[9999] h-[3px] overflow-hidden" role="status" aria-label="Loading">
+      <div className="loading-bar-fill h-full w-1/3 rounded-r-full bg-primary" />
+    </div>
+  );
+}
+
+// A company-list failure is almost always a transient network/DB blip right
+// after login. Keep the user here and retry on a backoff instead of dead-ending
+// on a "check the database" screen that only a full page reload can escape.
+function WorkspaceReconnect({ onRetry }: { onRetry: () => unknown }) {
+  const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+
+  const runRetry = () => {
+    setRetrying(true);
+    void Promise.resolve(onRetry()).finally(() => setRetrying(false));
+  };
+
+  useEffect(() => {
+    const delay = Math.min(2000 * 2 ** Math.min(attempt, 4), 20000);
+    const timer = window.setTimeout(() => {
+      setAttempt((a) => a + 1);
+      runRetry();
+    }, delay);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+
+  return (
+    <div className="min-h-screen grid place-items-center bg-background px-6" role="status" aria-live="polite">
+      <div className="loading-fade flex w-full max-w-sm flex-col items-center gap-4 text-center">
+        <img src={brand.logo} alt="" className="h-8 w-auto opacity-80" />
+        <div className="relative h-1 w-44 overflow-hidden rounded-full bg-slate-200/80">
+          <div className="loading-bar-fill absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">
+            {retrying ? "Reconnecting to your workspace…" : "Your workspace is taking a moment"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            We retry automatically — nothing is lost.
+          </p>
+        </div>
+        <button
+          onClick={runRetry}
+          disabled={retrying}
+          className="rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
+        >
+          Retry now
+        </button>
+      </div>
     </div>
   );
 }
@@ -224,6 +269,7 @@ function ProtectedRoute({
     data: companies,
     isLoading: isLoadingCompanies,
     isError: isCompaniesError,
+    refetch: refetchCompanies,
   } = useCompanies(!!user, user?.id ?? null);
   const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(
     !!user,
@@ -262,8 +308,11 @@ function ProtectedRoute({
   // No user at all — if offline send to /pos (they may have cached data),
   // if online send to /auth
   if (!user) return <Redirect to="/auth" />;
-  if (isCompaniesError && !Array.isArray(companies)) {
-    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+  // Memberships are still resolving: login warm-up, a slow link, or the query's
+  // retry backoff. Show one honest, self-healing state instead of a shell with
+  // no company context (empty dashboards, dead navigation).
+  if (!Array.isArray(companies)) {
+    return <WorkspaceReconnect onRetry={refetchCompanies} />;
   }
 
   // Redirect to onboarding if online and company list is definitively empty
@@ -301,6 +350,7 @@ function OnboardingRoute() {
     data: companies,
     isLoading: isLoadingCompanies,
     isError,
+    refetch: refetchCompanies,
   } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
@@ -313,7 +363,7 @@ function OnboardingRoute() {
   // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
   if (!isOnline || isError) {
     if (!Array.isArray(companies)) {
-      return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+      return <WorkspaceReconnect onRetry={refetchCompanies} />;
     }
     const role = Array.isArray(companies)
       ? (companies[0] as any)?.role
@@ -326,7 +376,7 @@ function OnboardingRoute() {
     );
   }
   if (!Array.isArray(companies)) {
-    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    return <WorkspaceReconnect onRetry={refetchCompanies} />;
   }
 
   // If we have companies, we shouldn't be here
@@ -343,6 +393,7 @@ function AuthRedirect() {
     data: companies,
     isLoading: isLoadingCompanies,
     isError,
+    refetch: refetchCompanies,
   } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
@@ -353,12 +404,12 @@ function AuthRedirect() {
   if (!user) return <Redirect to="/auth" />;
   if (!isOnline || isError) {
     if (!Array.isArray(companies)) {
-      return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+      return <WorkspaceReconnect onRetry={refetchCompanies} />;
     }
     return <Redirect to={getCompanyHomeRoute(companies, user)} />;
   }
   if (!Array.isArray(companies)) {
-    return <StartupProblem message="Your company list could not be loaded. Check the database connection, then retry." />;
+    return <WorkspaceReconnect onRetry={refetchCompanies} />;
   }
 
   return <Redirect to={getCompanyHomeRoute(companies, user)} />;
@@ -372,7 +423,7 @@ function Router() {
   if (isLoading) return <LoadingScreen />;
 
   return (
-    <Suspense fallback={<LoadingScreen />}>
+    <Suspense fallback={<RouteFallback />}>
     <Switch>
       <Route path="/auth">{user ? <AuthRedirect /> : <AuthPage />}</Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />

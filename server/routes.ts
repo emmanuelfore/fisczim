@@ -55,7 +55,7 @@ import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { APPROVAL_TYPES, ALL_PERMISSION_KEYS } from "../shared/permissions.js";
-import { db } from "./db";
+import { db, withDbRetry } from "./db";
 import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, isNotNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import {
@@ -2083,7 +2083,12 @@ export async function registerRoutes(
   // Company Routes
   app.get(api.companies.list.path, requireAuth, async (req, res) => {
     try {
-      const companies = await storage.getCompanies((req as any).user?.id);
+      // The auth middleware already resolved (and cached) this request's user.
+      // Reusing it avoids a second multi-second DB checkout on a route that
+      // runs during every login.
+      const companies = await withDbRetry(() =>
+        storage.getCompanies((req as any).user?.id, (req as any).user),
+      );
       res.json(companies);
     } catch (err: any) {
       console.error("List Companies Error:", err);
@@ -10887,8 +10892,10 @@ export async function registerRoutes(
       const device = lekukaDeviceFromCompany(company);
       const result = await device.closeDay({
         fiscalDayNo: req.body.fiscalDayNo ?? company.currentFiscalDayNo,
+        fiscalDayDate: company.fiscalDayOpenedAt
+          ? new Date(new Date(company.fiscalDayOpenedAt).getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          : undefined,
         receiptCounter: req.body.receiptCounter ?? company.dailyReceiptCount,
-        globalCounter: req.body.globalCounter ?? company.lastReceiptGlobalNo,
         counters: req.body.counters,
       });
       await storage.updateCompany(companyId, {
@@ -10981,7 +10988,16 @@ export async function registerRoutes(
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
       const device = lekukaDeviceFromCompany(company);
-      const result = await device.confirmCertificate();
+      let thumbprint: string | undefined;
+      if (company.zimraCertificate) {
+        try {
+          const der = new crypto.X509Certificate(company.zimraCertificate).raw;
+          thumbprint = crypto.createHash("sha1").update(der).digest("hex").toUpperCase();
+        } catch {
+          // Leave undefined; the gateway confirms the pending certificate.
+        }
+      }
+      const result = await device.confirmCertificate(thumbprint);
       res.json(result);
     } catch (err: any) {
       console.error("LEKUKA certificate/confirm error:", err?.message || err);

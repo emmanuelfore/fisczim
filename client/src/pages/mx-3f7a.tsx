@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Loader2, Search, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 type CompanyVisibility = {
   id: number;
   name: string;
@@ -170,8 +172,7 @@ export default function SystemConfigPage() {
           <CardContent>
             {companiesQuery.isLoading ? (
               <div className="flex h-40 items-center justify-center text-slate-500">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Loading companies
+                <LoadingRows rows={4} />
               </div>
             ) : companiesQuery.isError ? (
               <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">

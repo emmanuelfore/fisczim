@@ -15,6 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const CAT_COLORS: Record<string, string> = {
   STATUTORY: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
   COMPANY: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
@@ -182,8 +184,7 @@ export function DeductionsTab() {
                 {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
-                      Loading records...
+                      <LoadingRows rows={4} />
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (

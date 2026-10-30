@@ -34,6 +34,8 @@ import { Plus, Loader2, Settings2, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { BankExportSettingsModal } from "@/components/hr/BankExportSettingsModal";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export function StatutoryTab() {
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
@@ -233,8 +235,7 @@ export function StatutoryTab() {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                    Loading rules...
+                    <LoadingRows rows={4} />
                   </TableCell>
                 </TableRow>
               ) : !rules?.length ? (

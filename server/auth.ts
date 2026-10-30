@@ -1,5 +1,6 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage.js";
+import { withDbRetry } from "./db.js";
 import { User as DbUser } from "../shared/schema.js";
 import { verifyAccessToken } from "./lib/jwt.js";
 
@@ -73,8 +74,10 @@ export function setupAuth(app: Express) {
 
       // Get user from database (cached briefly to avoid a repeat
       // multi-second round-trip on every request of a dashboard burst).
+      // A dropped connection here used to 503 the request that runs right
+      // after login, so retry the transient cases before giving up.
       const cached = getCachedUser(payload.userId);
-      const user = cached ?? await storage.getUser(payload.userId);
+      const user = cached ?? await withDbRetry(() => storage.getUser(payload.userId));
       if (user && !cached) setCachedUser(user);
 
       if (user) {

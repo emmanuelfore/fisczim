@@ -119,7 +119,13 @@ Make sure your `.env` file on the server has:
 NODE_ENV=production
 DATABASE_URL=your_production_db_url
 PORT=5000
+ALLOW_REGISTRATION=true
 ```
+
+`ALLOW_REGISTRATION` must be exactly `true` for self-serve signup to work in
+production — otherwise `POST /api/auth/register` returns
+`403 Registration is currently disabled`. The PM2 ecosystem files set it per
+app; a value in `.env` overrides them.
 
 ## Nginx Configuration (Optional)
 

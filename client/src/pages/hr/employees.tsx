@@ -59,6 +59,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function HREmployees() {
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
@@ -1003,8 +1005,7 @@ export default function HREmployees() {
                   {isLoading ? (
                     <TableRow>
                       <TableCell colSpan={5} className="h-48 text-center">
-                        <Loader2 className="h-6 w-6 animate-spin text-blue-500 mx-auto" />
-                        <p className="text-sm text-slate-500 mt-2">Loading directory...</p>
+                        <LoadingRows rows={4} />
                       </TableCell>
                     </TableRow>
                   ) : filteredEmployees.length === 0 ? (
@@ -1219,7 +1220,7 @@ export default function HREmployees() {
             <div className="space-y-4 pt-2">
               {!timelineData ? (
                 <div className="h-32 flex items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  <LoadingRows rows={4} />
                 </div>
               ) : timelineData.events?.length === 0 ? (
                 <p className="text-sm text-slate-400 text-center py-8">No recorded history events yet.</p>
@@ -1346,7 +1347,7 @@ export default function HREmployees() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-[300px]">
                     {isLoadingRecurring ? (
-                      <div className="text-center py-4"><Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto" /></div>
+                      <LoadingRows rows={4} />
                     ) : recurringItems.length === 0 ? (
                       <p className="text-xs text-slate-500 text-center py-4">No custom items assigned to this employee.</p>
                     ) : (

@@ -49,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function ApiLogs() {
   const { user } = useAuth();
@@ -115,7 +116,7 @@ export default function ApiLogs() {
   if (isLoadingCompanies)
     return (
       <Layout>
-        <div className="p-8 flex items-center justify-center">Loading...</div>
+        <PageSkeleton />
       </Layout>
     );
 

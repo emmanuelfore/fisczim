@@ -18,7 +18,6 @@ import {
   Edit2,
   Eye,
   FileText,
-  Loader2,
   Package,
   Plus,
   Search,
@@ -26,6 +25,7 @@ import {
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
 // ─────────────────────────────────────────────
 // Status meta
 // ─────────────────────────────────────────────
@@ -194,8 +194,7 @@ export default function PurchaseReturnsPage() {
               {isLoading ? (
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-slate-400">
-                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                    Loading purchase returns...
+                    <LoadingRows rows={4} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

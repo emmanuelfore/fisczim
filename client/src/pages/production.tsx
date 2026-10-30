@@ -59,6 +59,7 @@ export default function ProductionPage() {
 
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [inputs, setInputs] = useState<ProductionLine[]>([newLine()]);
   const [outputs, setOutputs] = useState<ProductionLine[]>([newLine()]);
 
@@ -72,6 +73,19 @@ export default function ProductionPage() {
       ),
     [products],
   );
+
+  const filteredTrackedProducts = useMemo(
+    () =>
+      categoryFilter
+        ? trackedProducts.filter((p: any) => p.category === categoryFilter)
+        : trackedProducts,
+    [trackedProducts, categoryFilter],
+  );
+
+  const productCategories = useMemo(() => {
+    const cats = new Set(trackedProducts.map((p: any) => p.category || "Uncategorized"));
+    return Array.from(cats).filter(Boolean);
+  }, [trackedProducts]);
 
   const productMap = useMemo(
     () => new Map(trackedProducts.map((product: any) => [product.id, product])),
@@ -236,7 +250,7 @@ export default function ProductionPage() {
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {trackedProducts.map((product: any) => (
+                      {filteredTrackedProducts.map((product: any) => (
                         <SelectItem key={product.id} value={String(product.id)}>
                           {product.name} {product.sku ? `(${product.sku})` : ""}
                         </SelectItem>
@@ -294,7 +308,7 @@ export default function ProductionPage() {
     <Layout>
       <PageHeader
         title="Production"
-        subtitle="Convert known input quantities into finished stock before selling"
+        subtitle="Kitchen & bar prep — convert raw inputs into finished portions, batches, or product variants"
         actions={
           <Link href="/products">
             <Button variant="outline" className="rounded-xl">
@@ -333,12 +347,28 @@ export default function ProductionPage() {
                   className="min-h-[82px] rounded-xl"
                 />
               </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Filter Products by Category</Label>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="h-11 rounded-xl">
+                    <SelectValue placeholder="All categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">All categories</SelectItem>
+                    {productCategories.map((cat: string) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardContent>
           </Card>
 
           {isLoading ? (
-            <div className="flex h-64 items-center justify-center rounded-2xl border border-slate-200 bg-white">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+            <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4" aria-busy="true">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+              ))}
             </div>
           ) : (
             <>
@@ -356,21 +386,31 @@ export default function ProductionPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-xl bg-slate-50 p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Input cost
-                </p>
-                <p className="mt-1 text-xl font-black text-slate-900">
-                  {inputCost.toFixed(2)}
-                </p>
+            <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Input cost
+                  </p>
+                  <p className="mt-1 text-xl font-black text-slate-900">
+                    {inputCost.toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Output qty
+                  </p>
+                  <p className="mt-1 text-xl font-black text-slate-900">
+                    {outputQty.toFixed(2)}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl bg-slate-50 p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Output qty
+              <div className="rounded-xl bg-indigo-50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                  Est. cost / unit
                 </p>
-                <p className="mt-1 text-xl font-black text-slate-900">
-                  {outputQty.toFixed(2)}
+                <p className="mt-1 text-xl font-black text-indigo-900">
+                  {outputQty > 0 ? (inputCost / outputQty).toFixed(2) : "—"}
                 </p>
               </div>
             </div>

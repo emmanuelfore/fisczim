@@ -21,6 +21,8 @@ import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { Link } from "wouter";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const ITEMS_PER_PAGE = 20;
 
 export default function InventoryTransactionsPage() {
@@ -98,7 +100,7 @@ export default function InventoryTransactionsPage() {
                 <tr>
                   <td colSpan={5} className="p-8 text-center text-slate-500">
                     <div className="flex items-center justify-center py-12">
-                      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      <LoadingRows rows={4} />
                     </div>
                   </td>
                 </tr>

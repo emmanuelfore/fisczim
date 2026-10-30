@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import PurchaseOrderFormPage from "./purchase-order-form";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const STATUS_META = {
   DRAFT: { label: "Draft", icon: FileText, badge: "border-slate-200 bg-slate-50 text-slate-600" },
@@ -47,9 +48,7 @@ export default function PurchaseOrderDetailsPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-slate-500">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading Purchase Order...
-        </div>
+        <PageSkeleton stats={0} rows={6} />
       </Layout>
     );
   }

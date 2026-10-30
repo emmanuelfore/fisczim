@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useConsignments } from "@/hooks/use-freight";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { format, parseISO } from "date-fns";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
@@ -12,7 +13,7 @@ export default function FreightReportsPage() {
   const { activeCompanyId } = useActiveCompany(true);
   const { data: consignments, isLoading } = useConsignments(activeCompanyId || 0);
 
-  if (isLoading) return <div className="p-8 text-center text-slate-500">Loading reports data...</div>;
+  if (isLoading) return <PageSkeleton />;
 
   // Process data for Costs by Month
   const costsByMonthMap: Record<string, number> = {};

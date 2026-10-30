@@ -57,6 +57,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
@@ -273,8 +274,7 @@ export default function PurchaseOrdersPage() {
           <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
             {isLoading ? (
               <div className="p-12 text-center text-slate-400">
-                <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                Loading purchase orders...
+                <LoadingRows rows={4} />
               </div>
             ) : filtered.length === 0 ? (
               <div className="p-12 text-center text-slate-400">
@@ -421,8 +421,7 @@ export default function PurchaseOrdersPage() {
               {isLoading ? (
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-slate-400">
-                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                    Loading purchase orders...
+                    <LoadingRows rows={4} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

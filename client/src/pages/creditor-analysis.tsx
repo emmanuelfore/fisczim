@@ -23,6 +23,7 @@ import {
 import { format } from "date-fns";
 import { formatCurrency, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 type AnalysisData = {
   supplier: any;
@@ -48,10 +49,7 @@ export default function CreditorAnalysisPage() {
   if (isLoading)
     return (
       <Layout>
-        <div className="flex items-center justify-center h-64">
-          <span className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
-          Loading Analysis...
-        </div>
+        <PageSkeleton />
       </Layout>
     );
   if (isError)

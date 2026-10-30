@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const BLANK_FORM = {
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "" as string,
@@ -189,7 +191,7 @@ export function TaxTablesTab() {
           <CardContent className="p-0">
             {isLoading ? (
               <div className="h-48 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                <LoadingRows rows={4} />
               </div>
             ) : taxConfigs.length === 0 ? (
               <div className="h-48 flex flex-col items-center justify-center text-slate-400 space-y-2">

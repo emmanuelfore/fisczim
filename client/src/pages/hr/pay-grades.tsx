@@ -35,6 +35,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Plus, DollarSign, Briefcase, Loader2, RefreshCw } from "lucide-react";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
 // The shape of the data
 type PayGrade = {
   id: number;
@@ -253,7 +254,7 @@ export function PayGradesTab() {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-32 text-center">
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                    <LoadingRows rows={4} />
                   </TableCell>
                 </TableRow>
               ) : !payGrades?.length ? (

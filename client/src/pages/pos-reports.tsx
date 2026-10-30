@@ -88,6 +88,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function PosReportsPage() {
   const { activeCompany } = useActiveCompany();
   const companyId = activeCompany?.id;
@@ -636,7 +638,7 @@ export default function PosReportsPage() {
                 <CardContent className="h-[350px]">
                   {isLoading ? (
                     <div className="h-full flex flex-col items-center justify-center gap-4">
-                      <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                      <LoadingRows rows={5} />
                       <p className=" text-slate-400 animate-pulse">
                         Analyzing revenue data...
                       </p>
@@ -949,7 +951,7 @@ export default function PosReportsPage() {
                   {isLoading ? (
                     <TableRow>
                       <TableCell colSpan={4} className="text-center py-20">
-                        <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
+                        <LoadingRows rows={5} />
                       </TableCell>
                     </TableRow>
                   ) : dailySalesGroups.length === 0 ? (
@@ -1095,7 +1097,7 @@ export default function PosReportsPage() {
                                     colSpan={6}
                                     className="text-center py-20"
                                   >
-                                    <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-2" />
+                                    <LoadingRows rows={5} />
                                     <p className="text-slate-400">
                                       Fetching records...
                                     </p>

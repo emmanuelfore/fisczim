@@ -44,6 +44,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function BulkPriceAdjustmentPage() {
   const [, setLocation] = useLocation();
   const { activeCompanyId } = useActiveCompany();
@@ -569,7 +571,7 @@ export default function BulkPriceAdjustmentPage() {
           <CardContent className="p-0 flex-1 flex flex-col justify-between">
             {productsLoading ? (
               <div className="flex flex-col items-center justify-center py-32 text-slate-400">
-                <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                <LoadingRows rows={5} />
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
                   Loading catalog matrix...
                 </span>

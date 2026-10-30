@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   Clock,
   FileText,
-  Loader2,
   Package,
   Plus,
   Search,
@@ -27,6 +26,8 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { useBranchContext } from "@/lib/branch-context";
 
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 const STATUS_META = {
   DRAFT: {
@@ -209,8 +210,7 @@ export default function StockTransfersPage() {
                 {isLoading ? (
                   <tr>
                     <td colSpan={6} className="p-10 text-center text-slate-500">
-                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                      Loading transfers...
+                      <LoadingRows rows={4} />
                     </td>
                   </tr>
                 ) : filteredTransfers.length === 0 ? (

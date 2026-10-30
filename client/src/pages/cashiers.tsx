@@ -27,6 +27,8 @@ import { Loader2, Plus, Trash2, UserCog, Mail } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function CashiersPage() {
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const { toast } = useToast();
@@ -181,10 +183,7 @@ export default function CashiersPage() {
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-12">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary/50" />
-                    <p className="text-muted-foreground mt-2 ">
-                      Loading cashiers...
-                    </p>
+                    <LoadingRows rows={5} />
                   </TableCell>
                 </TableRow>
               ) : cashiers?.length === 0 ? (

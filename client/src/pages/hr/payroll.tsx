@@ -60,6 +60,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 const money = (value: unknown, currency = "USD") =>
   new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
     Number(value || 0),
@@ -405,8 +407,7 @@ export default function HRPayrollRuns() {
                   {isLoading ? (
                     <TableRow>
                       <TableCell colSpan={6} className="h-48 text-center">
-                        <Loader2 className="h-6 w-6 animate-spin text-indigo-500 mx-auto" />
-                        <p className="text-sm text-slate-500 mt-2">Loading payroll cycles...</p>
+                        <LoadingRows rows={4} />
                       </TableCell>
                     </TableRow>
                   ) : runs.length === 0 ? (

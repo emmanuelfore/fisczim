@@ -10,9 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, CheckCircle2, XCircle, ClipboardCheck } from "lucide-react";
+import { CheckCircle2, XCircle, ClipboardCheck } from "lucide-react";
 import { APPROVAL_TYPE_LABELS, type ApprovalType } from "@shared/permissions";
 import { format } from "date-fns";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 type ApprovalRequest = {
   id: number;
@@ -105,7 +107,7 @@ export default function ApprovalsPage() {
               <TabsContent value={status} className="mt-4">
                 {isLoading ? (
                   <div className="flex justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                    <LoadingRows rows={4} />
                   </div>
                 ) : requests.length === 0 ? (
                   <p className="py-12 text-center text-sm text-slate-500">No {status} requests.</p>

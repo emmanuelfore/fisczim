@@ -98,6 +98,8 @@ import { DateRange } from "react-day-picker";
 import { useAuth } from "@/hooks/use-auth";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function InvoiceDetailsPage() {
   const { user } = useAuth();
   const fa = useFiscalAuthority();
@@ -456,7 +458,7 @@ export default function InvoiceDetailsPage() {
           <div className="flex-1 overflow-y-auto">
             {listLoading ? (
               <div className="flex items-center justify-center h-32">
-                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                <LoadingRows rows={4} />
               </div>
             ) : listInvoices?.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 text-slate-400 gap-2">
@@ -647,7 +649,7 @@ export default function InvoiceDetailsPage() {
         <div className="flex min-h-[calc(100vh-104px)] min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <LoadingRows rows={5} />
             </div>
           ) : !invoice ? (
             <div className="flex items-center justify-center h-full text-slate-400">

@@ -103,9 +103,11 @@ export function useAuth() {
         }
       });
 
-      // If auth client already has a user from localStorage (restored before this effect ran),
-      // the listener above won't fire retroactively — resolve init immediately.
-      if (!authInitDone && auth.isAuthenticated()) {
+      // The auth client restores its session synchronously from localStorage, so
+      // by now it either has a session or there is nothing to wait for. The
+      // listener above never replays the current state, which used to leave
+      // signed-out visitors on the loading screen until the failsafe fired.
+      if (!authInitDone) {
         window.clearTimeout(failSafe);
         authInitDone = true;
         notifyAuthInitListeners();
@@ -127,6 +129,12 @@ export function useAuth() {
       // Do not open IndexedDB while the application is starting. POS opens its
       // own offline store after the user chooses the terminal login flow.
       if (!getIsOnline()) {
+        return null;
+      }
+
+      // No stored session → there is nothing to restore, so don't make the login
+      // screen wait on a round trip that can only come back 401.
+      if (!auth.isAuthenticated()) {
         return null;
       }
 
@@ -397,9 +405,16 @@ export function useAuth() {
     return updatedUser;
   };
 
+  // A restored session already carries its user, so paint with it and let
+  // /api/user revalidate in the background. Waiting for that round trip used to
+  // hold the whole app on the loading screen for seconds on a cold load.
+  const cachedUser = auth.isAuthenticated() ? auth.getUser() : null;
+
   return {
-    user: userQuery.data ?? null,
-    isLoading: isAuthLoading || (userQuery.isPending && userQuery.fetchStatus !== "idle"),
+    user: userQuery.data !== undefined ? userQuery.data : (cachedUser ?? null),
+    isLoading:
+      isAuthLoading ||
+      (!cachedUser && userQuery.isPending && userQuery.fetchStatus !== "idle"),
     loginWithGoogle,
     loginWithPassword,
     loginWithOfflinePin,

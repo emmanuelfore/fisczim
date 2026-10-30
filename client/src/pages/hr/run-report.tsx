@@ -3,12 +3,13 @@ import { useParams, Link } from "wouter";
 import { HRLayout } from "@/pages/hr/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
-import { Loader2, ArrowLeft, Download, Printer, FileBarChart2, Landmark } from "lucide-react";
+import { ArrowLeft, Download, Printer, FileBarChart2, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
 import { downloadExcel } from "@/lib/export-utils";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const money = (v: any) =>
   Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -27,9 +28,7 @@ export default function HrRunReport() {
   if (isLoading) {
     return (
       <HRLayout>
-        <div className="flex h-96 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
+        <PageSkeleton />
       </HRLayout>
     );
   }

@@ -16,6 +16,7 @@ import { GoodsIssueForm } from "@/components/manufacturing/goods-issue-form";
 import { TimeConfirmationForm } from "@/components/manufacturing/time-confirmation-form";
 import { CompleteProductionRunDialog } from "@/components/manufacturing/complete-production-run-dialog";
 import { useState } from "react";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function ProductionRunDetails() {
   const { id } = useParams();
@@ -52,7 +53,7 @@ export default function ProductionRunDetails() {
     }
   });
 
-  if (isLoading) return <Skeleton className="h-96 w-full" />;
+  if (isLoading) return <PageSkeleton stats={0} rows={6} />;
   if (!wo) return <div>Production Run not found</div>;
 
   return (

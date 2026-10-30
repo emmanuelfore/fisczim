@@ -30,18 +30,18 @@ export function useCompanies(
 ) {
   return useQuery({
     queryKey: [api.companies.list.path, userScopeKey ?? "anon"],
-    queryFn: () => withCompanyLoadTimeout((async () => {
+    queryFn: async () => {
       if (!getIsOnline()) {
         const cached = await getCachedCompaniesList(userScopeKey);
         if (cached && cached.length > 0) return cached;
         throw new Error("Offline and no cached companies available");
       }
       try {
-        const res = await apiFetch(api.companies.list.path);
+        const res = await withCompanyLoadTimeout(apiFetch(api.companies.list.path));
         if (res.status === 401) {
           throw new Error("Unauthorized while fetching companies");
         }
-        if (!res.ok) throw new Error("Failed to fetch companies");
+        if (!res.ok) throw new Error(`Failed to fetch companies (${res.status})`);
         const companies = api.companies.list.responses[200].parse(await res.json());
         // POS storage is useful offline, but it must never hold the primary
         // application route in a loading state.
@@ -52,13 +52,24 @@ export function useCompanies(
         }
         return companies;
       } catch (err) {
-        console.warn("Companies fetch failed:", err);
+        // Login can land while the database is still warming up. A failed
+        // membership fetch must not strand the user: the last list cached for
+        // this user is enough to open the workspace and route them. The query
+        // still revalidates on the next mount.
+        console.warn("Companies fetch failed, trying the cached list:", err);
+        const cached = await getCachedCompaniesList(userScopeKey).catch(() => undefined);
+        if (cached && cached.length > 0) return cached;
         throw err instanceof Error ? err : new Error("Failed to load companies");
       }
-    })()),
+    },
     enabled,
-    retry: 1,
-    retryDelay: 1_000,
+    retry: (failureCount, error) => {
+      // A rejected session is definitive — apiFetch already refreshed or
+      // redirected to the login screen, so retrying cannot help.
+      if (/Unauthorized/i.test(error?.message ?? "")) return false;
+      return failureCount < 4;
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
 }
 

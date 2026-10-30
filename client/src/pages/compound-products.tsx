@@ -48,7 +48,11 @@ export default function CompoundProductsPage() {
           {/* Mobile */}
           <div className="grid grid-cols-1 gap-4 p-4 md:hidden">
             {isLoading ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
+              <div className="space-y-2" aria-busy="true">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-14 animate-pulse rounded-xl bg-slate-100" />
+                ))}
+              </div>
             ) : filtered?.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
                 <Layers className="w-10 h-10 mx-auto mb-3 text-slate-300" />
@@ -106,7 +110,15 @@ export default function CompoundProductsPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-slate-500">Loading...</td></tr>
+                  <tr>
+                    <td colSpan={6} className="p-4">
+                      <div className="space-y-2" aria-busy="true">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
                 ) : filtered?.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-12 text-center text-slate-500">

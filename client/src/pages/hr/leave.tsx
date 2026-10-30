@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Calendar, Clock, Plane, Loader2 } from "lucide-react";
 import { HRLayout } from "./layout";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function LeaveManagement() {
   const { activeCompanyId: companyId } = useActiveCompany();
   const { toast } = useToast();
@@ -176,7 +178,7 @@ export default function LeaveManagement() {
                 {isLoadingRequests ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-32 text-center">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-500" />
+                      <LoadingRows rows={4} />
                     </TableCell>
                   </TableRow>
                 ) : leaveRequests.length === 0 ? (

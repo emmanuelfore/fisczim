@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
-  Loader2,
   ArrowLeft,
   TrendingUp,
   DownloadCloud,
@@ -401,12 +400,11 @@ export default function RecentSalesPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-96 text-center">
-                    <div className="flex flex-col items-center gap-4">
-                      <Loader2 className="w-10 h-10 animate-spin text-primary/50" />
-                      <p className="font-bold text-slate-400 animate-pulse uppercase tracking-widest text-[10px]">
-                        Synchronizing Ledger...
-                      </p>
+                  <TableCell colSpan={6} className="p-4">
+                    <div className="space-y-2" aria-busy="true">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+                      ))}
                     </div>
                   </TableCell>
                 </TableRow>

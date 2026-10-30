@@ -9,12 +9,13 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Loader2, ArrowLeft, Utensils, Monitor } from "lucide-react";
+import { ArrowLeft, Utensils, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useUpdateCompany } from "@/hooks/use-companies";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function RestaurantLayoutPage() {
   const { user } = useAuth();
@@ -23,11 +24,7 @@ export default function RestaurantLayoutPage() {
   const updateCompany = useUpdateCompany(company?.id || 0);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <PageSkeleton stats={0} />;
   }
 
   if (!company) {

@@ -37,6 +37,7 @@ import {
   UserCog,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 export default function SubscriptionPage() {
   const { user } = useAuth();
@@ -210,7 +211,7 @@ export default function SubscriptionPage() {
   if (loadingCompany || loadingSubs)
     return (
       <Layout>
-        <div className="p-8">Loading...</div>
+        <PageSkeleton />
       </Layout>
     );
 

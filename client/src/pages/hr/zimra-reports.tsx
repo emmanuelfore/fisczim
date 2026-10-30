@@ -14,6 +14,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 type P2Result = {
   month: string;
   employeeCount: number;
@@ -303,7 +305,7 @@ export default function ZimraReports() {
           <CardContent className="p-0">
             {remittancesLoading ? (
               <div className="h-40 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                <LoadingRows rows={4} />
               </div>
             ) : remittances.length === 0 ? (
               <div className="h-40 flex flex-col items-center justify-center text-slate-400 gap-2">

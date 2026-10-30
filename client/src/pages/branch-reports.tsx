@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 type BranchPerformanceRow = {
   branchId: number | null;
   branchName: string;
@@ -222,8 +224,7 @@ export default function BranchReportsPage() {
               {isLoading ? (
                 <tr>
                   <td colSpan={7} className="p-10 text-center text-slate-500">
-                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                    Loading branch report...
+                    <LoadingRows rows={4} />
                   </td>
                 </tr>
               ) : rows.length === 0 ? (

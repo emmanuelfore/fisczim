@@ -17,8 +17,10 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { format } from "date-fns";
-import { Loader2, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 export default function AuditLogsPage() {
   const selectedCompanyId = parseInt(
@@ -67,8 +69,7 @@ export default function AuditLogsPage() {
                   <TableRow>
                     <TableCell colSpan={5} className="text-center h-24">
                       <div className="flex items-center justify-center gap-2 text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading logs...
+                        <LoadingRows rows={4} />
                       </div>
                     </TableCell>
                   </TableRow>

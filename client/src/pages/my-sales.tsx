@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
-  Loader2,
   ArrowLeft,
   Receipt,
   ChevronDown,
@@ -30,6 +29,7 @@ import { useCompany } from "@/hooks/use-companies";
 import { POSReceipt } from "@/components/pos-receipt";
 import { cn } from "@/lib/utils";
 import { getIsOnline } from "@/lib/online-state";
+import { LoadingRows, PageSkeleton } from "@/components/ui/page-skeleton";
 
 function SaleItems({ tx }: { tx: any }) {
   const isOffline = typeof tx.id === "string" || tx._offline;
@@ -41,7 +41,7 @@ function SaleItems({ tx }: { tx: any }) {
   if (isLoading && !hasItems) {
     return (
       <div className="flex items-center justify-center py-4">
-        <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+        <LoadingRows rows={4} />
       </div>
     );
   }
@@ -194,9 +194,7 @@ export default function MySalesPage() {
   if (isLoading) {
     return (
       <PosLayout>
-        <div className="flex h-[80vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <PageSkeleton stats={0} rows={6} />
       </PosLayout>
     );
   }

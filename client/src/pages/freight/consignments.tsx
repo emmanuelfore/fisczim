@@ -15,6 +15,8 @@ import { usePurchaseOrders } from "@/hooks/use-purchase-orders";
 import { useInventoryLocations } from "@/hooks/use-stock-transfers";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
+
 export default function ConsignmentsPage() {
   const { activeCompanyId } = useActiveCompany(true);
   const companyId = activeCompanyId || 0;
@@ -134,7 +136,7 @@ export default function ConsignmentsPage() {
           <div className="grid grid-cols-1 gap-4">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                <LoadingRows rows={4} />
               </div>
             ) : filtered?.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-slate-500">

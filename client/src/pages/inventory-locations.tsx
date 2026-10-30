@@ -57,6 +57,7 @@ import {
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
+import { LoadingRows } from "@/components/ui/page-skeleton";
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
@@ -375,8 +376,7 @@ export default function InventoryLocationsPage() {
       {/* ── Location grid ── */}
       {isLoading ? (
         <div className="flex items-center justify-center py-24 text-slate-400">
-          <Loader2 className="mr-2 h-6 w-6 animate-spin" />
-          Loading locations…
+          <LoadingRows rows={4} />
         </div>
       ) : filtered.length === 0 ? (
         <Card className="rounded-2xl border-dashed border-slate-200">

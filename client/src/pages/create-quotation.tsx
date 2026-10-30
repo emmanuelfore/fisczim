@@ -38,7 +38,6 @@ import { useLocation } from "wouter";
 import {
   Plus,
   Trash2,
-  Loader2,
   ArrowLeft,
   Check,
   ChevronsUpDown,

@@ -1,6 +1,7 @@
 import { useBranding } from "@/hooks/use-branding";
 import FiscalStackLanding from "./landing/FiscalStackLanding";
 import FiscalZoneLanding from "./landing/FiscalZoneLanding";
+import LekakuLanding from "./landing/LekakuLanding";
 
 export default function LandingPage() {
   const { currentBrand } = useBranding();
@@ -9,7 +10,9 @@ export default function LandingPage() {
     return <FiscalZoneLanding />;
   }
 
-  // Lesotho uses the same FiscalStack layout but the component
-  // already detects the domain and swaps ZIMRA → RSL / LEKUKA at runtime.
+  if (currentBrand === "fiscalstack_lesotho") {
+    return <LekakuLanding />;
+  }
+
   return <FiscalStackLanding />;
 }

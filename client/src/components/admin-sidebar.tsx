@@ -14,11 +14,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 // LEKAKU Admin Sidebar — structure + theme per spec, but keeps original menu items
-const SIDEBAR_BG = "#FAF8F2";
-const SIDEBAR_BORDER = "#EDE9DD";
-const SIDEBAR_TEXT = "#10231A";
-const SIDEBAR_MUTED = "#5A6660";
-const SIDEBAR_ACTIVE = "#1B4F9C";
+const SIDEBAR_BG = "#F8FAFC";
+const SIDEBAR_BORDER = "#E2E8F0";
+const SIDEBAR_TEXT = "#0F172A";
+const SIDEBAR_MUTED = "#64748B";
+const SIDEBAR_ACTIVE = "#2563EB";
 
 type NavItem = {
   label: string;
@@ -185,7 +185,7 @@ export function AdminSidebar({
         style={{ width: 72, top: 10, height: "calc(100vh - 10px)", background: SIDEBAR_BG, borderRight: `1px solid ${SIDEBAR_BORDER}` }}
       >
         <div className="h-[80px] flex items-center justify-center shrink-0 relative overflow-hidden" style={{ borderBottom: `1px solid rgba(255,255,255,0.12)`, background: "linear-gradient(135deg, #1B4F9C 0%, #143A75 100%)" }}>
-          <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#064E3B" }} />
+          <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#1E3A8A" }} />
           <div className="w-10 h-10 rounded-[10px] bg-white flex items-center justify-center shadow-sm">
             <img src={brand.logo} alt={brand.name} className="h-6 w-6 object-contain rounded" />
           </div>
@@ -235,7 +235,7 @@ export function AdminSidebar({
           padding: "0 20px 0 20px",
         }}
       >
-        <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#064E3B" }} />
+        <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#1E3A8A" }} />
         <div aria-hidden className="absolute -right-10 -top-16 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, rgba(123,227,168,0.22) 0%, transparent 70%)" }} />
         <div aria-hidden className="absolute right-16 bottom-0 w-24 h-10 rounded-full" style={{ background: "rgba(255,255,255,0.06)", filter: "blur(12px)" }} />
         <div className="relative flex items-center w-full">

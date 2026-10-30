@@ -63,6 +63,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
+import { AdminSidebar } from "@/components/admin-sidebar";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import {
   DropdownMenu,
@@ -147,6 +148,7 @@ export function Layout({
     user?.id ?? null,
   );
   const { brand, currentBrand } = useBranding();
+  const isLekaku = currentBrand === "fiscalstack_lesotho";
   const fa = useFiscalAuthority();
   const { toast } = useToast();
   const { t } = useI18n();
@@ -1481,10 +1483,30 @@ export function Layout({
           "min-h-screen bg-slate-50 flex transition-all duration-300 admin-shell admin-blueprint",
           currentBrand === "fiscalzone"
             ? "fz-admin"
-            : "font-sans selection:bg-blue-500/20",
+            : isLekaku
+              ? "lekaku-branch bg-[#F8FAFC] font-['Public_Sans',system-ui,sans-serif]"
+              : "font-sans selection:bg-blue-500/20",
         )}
       >
+        {isLekaku && (
+          <>
+            <AdminSidebar
+              collapsed={isSidebarCollapsed}
+              navItems={navItems}
+              onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
+            />
+            {isMobileMenuOpen && (
+              <div className="lg:hidden fixed inset-0 z-50 flex">
+                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
+                <div className="relative">
+                  <AdminSidebar collapsed={false} navItems={navItems} forceVisible onNavigate={() => setIsMobileMenuOpen(false)} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
         {/* Primary Navigation Sidebar */}
+        {!isLekaku && (
         <aside
           className={cn(
             "admin-sidebar bg-[#0f172a] border-r border-slate-800/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col overflow-hidden transition-all duration-500 ease-in-out",
@@ -2067,6 +2089,7 @@ export function Layout({
             </DropdownMenu>
           </div>
         </aside>
+        )}
 
         {/* Main Administrative Workspace */}
         <div

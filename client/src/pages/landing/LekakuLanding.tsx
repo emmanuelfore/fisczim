@@ -5,19 +5,18 @@
 // here on purpose for separate Lesotho hosting.
 import { useState, type CSSProperties } from "react";
 import { useLocation } from "wouter";
-import { LesothoMark } from "@/components/lesotho-logo";
 
 const WHATSAPP_LS = "26658123456";
 const waUrl = (msg: string) =>
   `https://wa.me/${WHATSAPP_LS}?text=${encodeURIComponent(msg)}`;
 
-const BLUE = "#1B4F9C";
-const BLUE_DARK = "#143A75";
+const BLUE = "#2563EB";
+const BLUE_DARK = "#1E3A8A";
 const GREEN = BLUE;
 const GREEN_DARK = BLUE_DARK;
-const INK = "#0F2440";
-const PAPER = "#FAF8F2";
-const STONE = "#EDE9DD";
+const INK = "#0F172A";
+const PAPER = "#F8FAFC";
+const STONE = "#E2E8F0";
 
 const fontHead = "'Fraunces', Georgia, serif";
 const fontBody = "'Public Sans', system-ui, sans-serif";
@@ -75,14 +74,9 @@ function Nav() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer" }}
         >
-          <LesothoMark />
-          <span style={{ textAlign: "left", lineHeight: 1.1 }}>
-            <span style={{ display: "block", fontFamily: fontHead, fontWeight: 700, fontSize: 20, color: INK }}>
-              FiscalStack
-            </span>
-            <span style={{ display: "block", fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: GREEN }}>
-              LESOTHO · RSL COMPLIANT
-            </span>
+          <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 30, display: "block" }} />
+          <span style={{ display: "block", fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: GREEN, lineHeight: 1 }}>
+            LESOTHO · RSL COMPLIANT
           </span>
         </button>
         <nav className="lk-nav-links" style={{ display: "flex", gap: 22 }}>
@@ -189,7 +183,7 @@ function Hero() {
             Fiscalisation software for{" "}
             <em style={{ color: GREEN, fontWeight: 400 }}>Lesotho businesses.</em>
           </h1>
-          <p style={{ fontFamily: fontBody, fontSize: 17, lineHeight: 1.7, color: "#3D4A43", maxWidth: 520 }}>
+          <p style={{ fontFamily: fontBody, fontSize: 17, lineHeight: 1.7, color: "#475569", maxWidth: 520 }}>
             Connect your business to RSL, automate compliant fiscal invoices,
             and run point of sale through one seamless system — in loti,
             online or off.
@@ -222,7 +216,7 @@ function Hero() {
                 key={b}
                 style={{
                   fontFamily: fontMono, fontSize: 11, background: "#fff",
-                  border: `1px solid ${STONE}`, borderRadius: 999, padding: "5px 12px", color: "#3D4A43",
+                  border: `1px solid ${STONE}`, borderRadius: 999, padding: "5px 12px", color: "#475569",
                 }}
               >
                 {b}
@@ -236,14 +230,14 @@ function Hero() {
           style={{
             background: INK, borderRadius: 28, padding: 28, color: "#fff",
             fontFamily: fontBody, position: "relative", overflow: "hidden",
-            boxShadow: "0 30px 80px rgba(16,35,26,0.35)",
+            boxShadow: "0 30px 80px rgba(15,23,42,0.35)",
           }}
         >
           <div
             aria-hidden
             style={{
               position: "absolute", inset: 0,
-              background: "radial-gradient(ellipse 70% 60% at 80% 10%, rgba(27,79,156,0.45) 0%, transparent 65%), radial-gradient(ellipse 60% 55% at 10% 95%, rgba(27,79,156,0.5) 0%, transparent 60%)",
+              background: "radial-gradient(ellipse 70% 60% at 80% 10%, rgba(37,99,235,0.45) 0%, transparent 65%), radial-gradient(ellipse 60% 55% at 10% 95%, rgba(37,99,235,0.5) 0%, transparent 60%)",
             }}
           />
           <div style={{ position: "relative" }}>
@@ -306,7 +300,7 @@ function Hero() {
           ].map(([v, l]) => (
             <div key={l} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
               <span style={{ fontFamily: fontHead, fontWeight: 700, fontSize: 22, color: GREEN_DARK }}>{v}</span>
-              <span style={{ fontFamily: fontBody, fontSize: 13, color: "#5A6660" }}>{l}</span>
+              <span style={{ fontFamily: fontBody, fontSize: 13, color: "#64748B" }}>{l}</span>
             </div>
           ))}
         </div>
@@ -324,7 +318,7 @@ function Mission() {
         <h2 style={{ fontFamily: fontHead, fontSize: "clamp(1.8rem,3.6vw,2.6rem)", color: INK, margin: "12px 0 14px", letterSpacing: "-0.02em" }}>
           Simplifying fiscalisation for modern businesses.
         </h2>
-        <p style={{ fontFamily: fontBody, fontSize: 16, lineHeight: 1.75, color: "#3D4A43" }}>
+        <p style={{ fontFamily: fontBody, fontSize: 16, lineHeight: 1.75, color: "#475569" }}>
           Reporting to the revenue authority matters — but it shouldn't slow
           you down or add extra work. FiscalStack keeps you compliant quietly
           in the background, so you can get on with serving customers from
@@ -406,7 +400,7 @@ function Features() {
         <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", color: INK, margin: "10px 0 12px", letterSpacing: "-0.02em" }}>
           Everything compliance needs, nothing it doesn't.
         </h2>
-        <p style={{ fontFamily: fontBody, fontSize: 16, color: "#5A6660", maxWidth: 560 }}>
+        <p style={{ fontFamily: fontBody, fontSize: 16, color: "#64748B", maxWidth: 560 }}>
           Leading software features that keep Basotho businesses selling.
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginTop: 40 }}>
@@ -414,7 +408,7 @@ function Features() {
             <div key={f.t} style={{ background: PAPER, border: `1px solid ${STONE}`, borderRadius: 20, padding: "26px 24px" }}>
               <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: BLUE, marginBottom: 10 }}>{f.tag}</div>
               <h3 style={{ fontFamily: fontHead, fontSize: 20, color: INK, margin: "0 0 8px" }}>{f.t}</h3>
-              <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, color: "#3D4A43", margin: 0 }}>{f.d}</p>
+              <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, color: "#475569", margin: 0 }}>{f.d}</p>
             </div>
           ))}
         </div>
@@ -441,7 +435,7 @@ function Integrations() {
         <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", color: INK, margin: "10px 0 12px", letterSpacing: "-0.02em" }}>
           Plays well with the systems you already use.
         </h2>
-        <p style={{ fontFamily: fontBody, fontSize: 16, color: "#5A6660", maxWidth: 600 }}>
+        <p style={{ fontFamily: fontBody, fontSize: 16, color: "#64748B", maxWidth: 600 }}>
           No rip-and-replace. FiscalStack handles RSL fiscalisation and day-to-day
           selling, while invoices, customers and reports flow into your accounting
           system or ERP — through guided exports and API.
@@ -463,7 +457,7 @@ function Integrations() {
                 </div>
                 <h3 style={{ fontFamily: fontHead, fontSize: 20, color: INK, margin: 0 }}>{g.name}</h3>
               </div>
-              <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, color: "#3D4A43", margin: 0 }}>{g.d}</p>
+              <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, color: "#475569", margin: 0 }}>{g.d}</p>
             </div>
           ))}
           <div style={{ background: INK, color: "#fff", borderRadius: 20, padding: "26px 24px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
@@ -527,7 +521,7 @@ function Support() {
           <h2 style={{ fontFamily: fontHead, fontSize: "clamp(1.8rem,3.4vw,2.6rem)", color: INK, margin: "10px 0 12px" }}>
             Live help from people who know RSL.
           </h2>
-          <p style={{ fontFamily: fontBody, fontSize: 15, lineHeight: 1.75, color: "#3D4A43" }}>
+          <p style={{ fontFamily: fontBody, fontSize: 15, lineHeight: 1.75, color: "#475569" }}>
             Get up and running in minutes with our Maseru-based team beside
             you — setup, remote assistance and guidance through your first
             fiscalisation. From onboarding to troubleshooting, we're committed
@@ -544,7 +538,7 @@ function Support() {
               <div style={{ fontFamily: fontBody, fontWeight: 700, fontSize: 15, color: INK, marginBottom: 4 }}>
                 <span style={{ color: GREEN, marginRight: 8 }}>✓</span>{t}
               </div>
-              <div style={{ fontFamily: fontBody, fontSize: 13.5, color: "#5A6660", lineHeight: 1.6 }}>{d}</div>
+              <div style={{ fontFamily: fontBody, fontSize: 13.5, color: "#64748B", lineHeight: 1.6 }}>{d}</div>
             </div>
           ))}
         </div>
@@ -568,15 +562,15 @@ function Testimonials() {
           <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", color: INK, margin: "10px 0 8px" }}>
             Trusted by Basotho merchants.
           </h2>
-          <p style={{ fontFamily: fontBody, fontSize: 14, color: "#5A6660" }}>Rated 4.9/5 for end-user satisfaction.</p>
+          <p style={{ fontFamily: fontBody, fontSize: 14, color: "#64748B" }}>Rated 4.9/5 for end-user satisfaction.</p>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14 }}>
           {quotes.map(([q, a, r]) => (
             <div key={a} style={{ background: "#fff", border: `1px solid ${STONE}`, borderRadius: 20, padding: "28px 26px" }}>
               <div style={{ fontFamily: fontHead, fontSize: 40, lineHeight: 1, color: GREEN, opacity: 0.35 }}>"</div>
-              <p style={{ fontFamily: fontBody, fontSize: 14.5, lineHeight: 1.7, color: "#10231A", margin: "0 0 20px" }}>{q}</p>
+              <p style={{ fontFamily: fontBody, fontSize: 14.5, lineHeight: 1.7, color: "#0F172A", margin: "0 0 20px" }}>{q}</p>
               <div style={{ fontFamily: fontBody, fontWeight: 700, fontSize: 14, color: INK }}>{a}</div>
-              <div style={{ fontFamily: fontMono, fontSize: 11, color: "#5A6660" }}>{r}</div>
+              <div style={{ fontFamily: fontMono, fontSize: 11, color: "#64748B" }}>{r}</div>
             </div>
           ))}
         </div>
@@ -598,7 +592,7 @@ function Pricing() {
         <div style={{ textAlign: "center" }}>
           <div style={{ fontFamily: fontMono, fontSize: 11, letterSpacing: "0.18em", color: GREEN }}>PRICING IN LOTI</div>
           <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", color: INK, margin: "10px 0" }}>Fair prices, no surprises.</h2>
-          <p style={{ fontFamily: fontBody, color: "#5A6660" }}>Pay by bank transfer or card, invoiced in loti.</p>
+          <p style={{ fontFamily: fontBody, color: "#64748B" }}>Pay by bank transfer or card, invoiced in loti.</p>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14, marginTop: 40 }}>
           {plans.map((p) => (
@@ -649,7 +643,7 @@ function Faq() {
             <button onClick={() => setOpen(open === i ? null : i)} style={{ width: "100%", display: "flex", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: fontHead, fontWeight: 700, fontSize: 17, color: INK, textAlign: "left" }}>
               {q}<span style={{ color: GREEN }}>{open === i ? "−" : "+"}</span>
             </button>
-            {open === i && <p style={{ fontFamily: fontBody, fontSize: 14.5, lineHeight: 1.7, color: "#3D4A43" }}>{a}</p>}
+            {open === i && <p style={{ fontFamily: fontBody, fontSize: 14.5, lineHeight: 1.7, color: "#475569" }}>{a}</p>}
           </div>
         ))}
       </div>
@@ -664,12 +658,11 @@ function Footer() {
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "56px 24px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 32, marginBottom: 40 }}>
           <div style={{ maxWidth: 300 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-              <LesothoMark size={34} color="#fff" />
-              <div>
-                <div style={{ fontFamily: fontHead, fontWeight: 700, fontSize: 18 }}>FiscalStack</div>
-                <div style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: "#93C5FD" }}>LESOTHO</div>
-              </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+              <span style={{ background: "#fff", borderRadius: 10, padding: "8px 12px", display: "inline-flex" }}>
+                <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 24, display: "block" }} />
+              </span>
+              <span style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: "0.14em", color: "#93C5FD" }}>LESOTHO</span>
             </div>
             <p style={{ fontFamily: fontBody, fontSize: 13, opacity: 0.6, lineHeight: 1.65 }}>
               RSL-compliant fiscalization, accounting and POS for the Kingdom of Lesotho. Khotso · Pula · Nala.
@@ -723,7 +716,7 @@ export default function LekakuLanding() {
         <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2.2rem,4.6vw,3.6rem)", color: INK, margin: "0 0 12px" }}>
           Ready to start?
         </h2>
-        <p style={{ fontFamily: fontBody, color: "#5A6660", marginBottom: 28 }}>Rea u amohela — join Basotho businesses invoicing in loti with RSL confidence.</p>
+        <p style={{ fontFamily: fontBody, color: "#64748B", marginBottom: 28 }}>Rea u amohela — join Basotho businesses invoicing in loti with RSL confidence.</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <a href="/auth?mode=signup" style={{ fontFamily: fontBody, fontWeight: 700, background: GREEN_DARK, color: "#fff", padding: "14px 32px", borderRadius: 999, textDecoration: "none" }}>
             Start free trial

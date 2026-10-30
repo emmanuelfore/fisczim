@@ -15,12 +15,11 @@ import { isElectron } from "@/lib/utils";
 import { isStorageBroken } from "@/lib/offline-db";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSwitcher } from "@/components/language-switcher";
-import { LesothoMark } from "@/components/lesotho-logo";
 
-// Same blue as the main FiscalStack brand so the Lesotho site matches main.
 const BLUE_DARK = "#1E3A8A";
 const BLUE = "#2563EB";
 const INK = "#0F172A";
+const MUTED = "#64748B";
 
 export default function LekakuAuth() {
   const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
@@ -137,7 +136,7 @@ export default function LekakuAuth() {
     return (
       <div className="flex items-center justify-center min-h-screen flex-col gap-4" style={{ background: "#F8FAFC" }}>
         <Loader2 className="w-8 h-8 animate-spin" style={{ color: BLUE }} />
-        <p className="animate-pulse" style={{ color: "#64748B" }}>{t("Syncing organization profile...")}</p>
+        <p className="animate-pulse" style={{ color: MUTED }}>{t("Syncing organization profile...")}</p>
       </div>
     );
   }
@@ -149,17 +148,16 @@ export default function LekakuAuth() {
       {/* Left — Lesotho brand panel */}
       <div
         className="hidden lg:flex flex-col justify-between"
-        style={{ width: "44%", background: BLUE_DARK, color: "#fff", padding: 48, position: "relative", overflow: "hidden" }}
+        style={{ width: "44%", background: `linear-gradient(160deg, ${BLUE_DARK} 0%, #1D4ED8 58%, ${BLUE} 100%)`, color: "#fff", padding: 48, position: "relative", overflow: "hidden" }}
       >
-        <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 70% 50% at 85% 10%, rgba(37,99,235,0.45) 0%, transparent 65%), radial-gradient(ellipse 60% 50% at 5% 95%, rgba(255,255,255,0.08) 0%, transparent 60%)" }} />
+        <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse 70% 50% at 85% 10%, rgba(255,255,255,0.16) 0%, transparent 65%), radial-gradient(ellipse 60% 50% at 5% 95%, rgba(255,255,255,0.08) 0%, transparent 60%)" }} />
         <div style={{ position: "relative" }}>
           <Link href="/">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-              <LesothoMark size={38} color="#fff" />
-              <span>
-                <span style={{ display: "block", fontWeight: 800, fontSize: 20, fontFamily: "Georgia, serif" }}>FiscalStack</span>
-                <span style={{ display: "block", fontSize: 10, letterSpacing: "0.16em", opacity: 0.75, fontFamily: "monospace" }}>LESOTHO</span>
+            <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+              <span style={{ background: "#fff", borderRadius: 14, padding: "12px 16px", display: "inline-flex", boxShadow: "0 16px 36px -18px rgba(2,6,23,0.55)" }}>
+                <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 32, display: "block" }} />
               </span>
+              <span style={{ fontSize: 10, letterSpacing: "0.22em", opacity: 0.8, fontFamily: "monospace" }}>LESOTHO</span>
             </span>
           </Link>
         </div>
@@ -173,7 +171,7 @@ export default function LekakuAuth() {
           <ul style={{ listStyle: "none", padding: 0, marginTop: 28, display: "flex", flexDirection: "column", gap: 12 }}>
             {["LEKAKU fiscalized receipts with RSL QR", "LSL-first books · 15% VAT handled", "Cash, card & bank payments", "Offline POS for the highlands"].map((f) => (
               <li key={f} style={{ display: "flex", gap: 10, fontSize: 14, opacity: 0.9 }}>
-                <span style={{ color: "#93C5FD" }}>✓</span>{f}
+                <span style={{ color: "#BFDBFE" }}>✓</span>{f}
               </li>
             ))}
           </ul>
@@ -190,24 +188,23 @@ export default function LekakuAuth() {
         </div>
         <div className="w-full max-w-[440px] flex flex-col items-center">
           <Link href="/">
-            <span className="lg:hidden mb-6 inline-flex items-center gap-2 cursor-pointer" style={{ color: INK, fontWeight: 800, fontFamily: "Georgia, serif", fontSize: 22 }}>
-              <LesothoMark size={30} color={BLUE_DARK} />
-              FiscalStack
+            <span className="lg:hidden mb-6 inline-flex cursor-pointer">
+              <img src="/fiscalstack-logo.png" alt="FiscalStack" style={{ height: 30, display: "block" }} />
             </span>
           </Link>
 
-          <Card className="w-full border shadow-[0_24px_60px_-24px_rgba(15,23,42,0.18)]" style={{ borderColor: "#E2E8F0" }}>
+          <Card className="w-full border shadow-[0_24px_60px_-24px_rgba(15,23,42,0.25)]" style={{ borderColor: "#E2E8F0" }}>
             <CardHeader className="text-center pb-4 pt-8">
               <div
                 className="mx-auto mb-3"
-                style={{ fontFamily: "monospace", fontSize: 10, letterSpacing: "0.16em", color: BLUE, background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.2)", borderRadius: 999, padding: "4px 12px", display: "inline-block" }}
+                style={{ fontFamily: "monospace", fontSize: 10, letterSpacing: "0.16em", color: BLUE, background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.22)", borderRadius: 999, padding: "4px 12px", display: "inline-block" }}
               >
                 RSL · KINGDOM OF LESOTHO
               </div>
               <CardTitle className="text-[22px] font-bold tracking-tight" style={{ color: INK }}>
                 {mode === "login" ? t("Welcome back") : t("Create your Lesotho workspace")}
               </CardTitle>
-              <CardDescription className="text-[15px] mt-2" style={{ color: "#64748B" }}>
+              <CardDescription className="text-[15px] mt-2" style={{ color: MUTED }}>
                 {mode === "login"
                   ? t("Sign in to invoice in loti and stay LEKAKU compliant.")
                   : t("Start free — LSL billing, RSL compliant.")}
@@ -218,7 +215,7 @@ export default function LekakuAuth() {
                 <div className="mb-4 p-3 rounded-md bg-red-50 text-red-500 border border-red-100 text-sm">{error}</div>
               )}
               {successMsg && (
-                <div className="mb-4 p-3 rounded-md bg-emerald-50 text-emerald-600 border border-emerald-100 text-sm">{successMsg}</div>
+                <div className="mb-4 p-3 rounded-md bg-blue-50 text-blue-600 border border-blue-100 text-sm">{successMsg}</div>
               )}
               {isElectron() && isBrokenStorage && (
                 <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
@@ -251,11 +248,11 @@ export default function LekakuAuth() {
                       onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} required className="h-11" />
                   </div>
                   <Button type="submit" className="w-full h-11 text-[15px] font-semibold mt-2 text-white"
-                    style={{ background: BLUE_DARK }} disabled={isLoggingIn}>
+                    style={{ background: BLUE }} disabled={isLoggingIn}>
                     {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                     {t("Sign In")}
                   </Button>
-                  <div className="text-center text-sm mt-6" style={{ color: "#64748B" }}>
+                  <div className="text-center text-sm mt-6" style={{ color: MUTED }}>
                     {t("Don't have an account?")}{" "}
                     <button type="button" onClick={() => { setMode("signup"); setError(null); }}
                       className="font-semibold hover:underline" style={{ color: BLUE }}>
@@ -286,11 +283,11 @@ export default function LekakuAuth() {
                       onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })} required minLength={6} className="h-11" />
                   </div>
                   <Button type="submit" className="w-full h-11 text-[15px] font-semibold mt-2 text-white"
-                    style={{ background: BLUE_DARK }} disabled={isLoggingIn}>
+                    style={{ background: BLUE }} disabled={isLoggingIn}>
                     {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                     {t("Create Account")}
                   </Button>
-                  <div className="text-center text-sm mt-6" style={{ color: "#64748B" }}>
+                  <div className="text-center text-sm mt-6" style={{ color: MUTED }}>
                     {t("Already have access?")}{" "}
                     <button type="button" onClick={() => { setMode("login"); setError(null); }}
                       className="font-semibold hover:underline" style={{ color: BLUE }}>

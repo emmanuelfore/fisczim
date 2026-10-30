@@ -60,7 +60,7 @@ function CompanyAvatarCollapsed() {
               key={company.id}
               onClick={() => setCompany(company.id)}
               className="flex items-center gap-2.5 p-2 rounded-lg cursor-pointer mb-0.5"
-              style={activeCompany.id === company.id ? { background: "#ECFDF5", color: SIDEBAR_ACTIVE } : { color: "#475569" }}
+              style={activeCompany.id === company.id ? { background: "#EFF6FF", color: SIDEBAR_ACTIVE } : { color: "#475569" }}
             >
               <span className="text-xs font-medium truncate">{company.name}</span>
             </DropdownMenuItem>
@@ -132,11 +132,11 @@ function CompanySelectorMini() {
                 "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
                 activeCompany.id === company.id ? "" : "text-slate-600",
               )}
-              style={activeCompany.id === company.id ? { background: "#ECFDF5", color: SIDEBAR_ACTIVE } : undefined}
+              style={activeCompany.id === company.id ? { background: "#EFF6FF", color: SIDEBAR_ACTIVE } : undefined}
             >
               <div
                 className="w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold relative"
-                style={activeCompany.id === company.id ? { background: "#A7F3D0", color: "#065F46" } : { background: "#F1F5F9", color: "#94A3B8" }}
+                style={activeCompany.id === company.id ? { background: "#BFDBFE", color: "#1E40AF" } : { background: "#F1F5F9", color: "#94A3B8" }}
               >
                 {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
               </div>
@@ -184,7 +184,7 @@ export function AdminSidebar({
         className="fixed left-0 bottom-0 z-10 hidden lg:flex flex-col"
         style={{ width: 72, top: 10, height: "calc(100vh - 10px)", background: SIDEBAR_BG, borderRight: `1px solid ${SIDEBAR_BORDER}` }}
       >
-        <div className="h-[80px] flex items-center justify-center shrink-0 relative overflow-hidden" style={{ borderBottom: `1px solid rgba(255,255,255,0.12)`, background: "linear-gradient(135deg, #1B4F9C 0%, #143A75 100%)" }}>
+        <div className="h-[80px] flex items-center justify-center shrink-0 relative overflow-hidden" style={{ borderBottom: `1px solid rgba(255,255,255,0.12)`, background: "linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 100%)" }}>
           <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#1E3A8A" }} />
           <div className="w-10 h-10 rounded-[10px] bg-white flex items-center justify-center shadow-sm">
             <img src={brand.logo} alt={brand.name} className="h-6 w-6 object-contain rounded" />
@@ -228,15 +228,15 @@ export function AdminSidebar({
           top: 10,
           width: 300,
           height: 80,
-          background: "linear-gradient(135deg, #1B4F9C 0%, #143A75 100%)",
+          background: "linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 100%)",
           borderBottom: `1px solid rgba(255,255,255,0.12)`,
           borderRadius: "0 0 14px 0",
-          boxShadow: "0 8px 24px rgba(10,92,60,0.28), 0 2px 6px rgba(16,35,26,0.12)",
+          boxShadow: "0 8px 24px rgba(30,58,138,0.28), 0 2px 6px rgba(16,35,26,0.12)",
           padding: "0 20px 0 20px",
         }}
       >
         <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#1E3A8A" }} />
-        <div aria-hidden className="absolute -right-10 -top-16 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, rgba(123,227,168,0.22) 0%, transparent 70%)" }} />
+        <div aria-hidden className="absolute -right-10 -top-16 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, rgba(96,165,250,0.22) 0%, transparent 70%)" }} />
         <div aria-hidden className="absolute right-16 bottom-0 w-24 h-10 rounded-full" style={{ background: "rgba(255,255,255,0.06)", filter: "blur(12px)" }} />
         <div className="relative flex items-center w-full">
           <img src={brand.logo} alt={brand.name} className="h-9 w-auto object-contain" style={{ filter: "brightness(0) invert(1)" }} />
@@ -296,7 +296,7 @@ export function AdminSidebar({
                               <button
                                 onClick={() => toggleGroup(child.label)}
                                 className="w-full flex items-center justify-between rounded-[8px] px-3 h-8 text-[13px] transition-colors text-left"
-                                style={{ color: childGroupActive ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: childGroupActive ? 600 : 400, background: childGroupActive ? "#EDE9DD" : "transparent" }}
+                                style={{ color: childGroupActive ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: childGroupActive ? 600 : 400, background: childGroupActive ? "#EFF6FF" : "transparent" }}
                               >
                                 <span className="flex items-center">
                                   {child.label}
@@ -311,7 +311,7 @@ export function AdminSidebar({
                                       <Link key={grand.label} href={grand.href!}>
                                         <div
                                           className="h-7 flex items-center rounded-[8px] px-3 text-[12px] transition-colors"
-                                          style={{ color: ca ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: ca ? 600 : 400, background: ca ? "#EDE9DD" : "transparent" }}
+                                          style={{ color: ca ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: ca ? 600 : 400, background: ca ? "#EFF6FF" : "transparent" }}
                                         >
                                           {grand.label}
                                         </div>
@@ -328,7 +328,7 @@ export function AdminSidebar({
                           <Link key={child.label} href={child.href!}>
                             <div
                               className="h-8 flex items-center rounded-[8px] px-3 text-[13px] transition-colors"
-                              style={{ color: ca ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: ca ? 600 : 400, background: ca ? "#EDE9DD" : "transparent" }}
+                              style={{ color: ca ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: ca ? 600 : 400, background: ca ? "#EFF6FF" : "transparent" }}
                             >
                               {child.label}
                             </div>

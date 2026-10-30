@@ -1484,10 +1484,21 @@ export function Layout({
           currentBrand === "fiscalzone"
             ? "fz-admin"
             : isLekaku
-              ? "lekaku-branch bg-[#F8FAFC] font-['Public_Sans',system-ui,sans-serif]"
+              ? "lekaku-branch bg-[#F8FAFC] pt-[10px] font-['Public_Sans',system-ui,sans-serif]"
               : "font-sans selection:bg-blue-500/20",
         )}
       >
+        {isLekaku && (
+          <div
+            aria-hidden
+            className="fixed top-0 left-0 right-0 z-[100] pointer-events-none"
+            style={{
+              height: 10,
+              background:
+                "linear-gradient(90deg, #1E3A8A 0% 22%, #FFFFFF 22% 26%, #2563EB 26% 48%, #0F172A 48% 52%, #2563EB 52% 74%, #FFFFFF 74% 78%, #1E3A8A 78% 100%)",
+            }}
+          />
+        )}
         {isLekaku && (
           <>
             <AdminSidebar
@@ -2094,12 +2105,25 @@ export function Layout({
         {/* Main Administrative Workspace */}
         <div
           className={cn(
-            "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out",
-            isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[264px]",
+            "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out relative",
+            isLekaku
+              ? "z-[30] bg-[#F8FAFC] lg:rounded-tl-[16px] lg:overflow-hidden lg:border-l lg:border-t lg:border-[#E2E8F0]"
+              : "z-auto",
+            isLekaku
+              ? (isSidebarCollapsed ? "lg:ml-[72px]" : "lg:ml-[236px]")
+              : (isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[264px]"),
           )}
         >
           {/* Top Header */}
-          <header className="admin-header h-[80px] bg-[#F8FAFC]/90 backdrop-blur-md flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 border-b border-slate-200 lg:border-b-0 lg:bg-[#F8FAFC] lg:relative lg:backdrop-blur-none">
+          <header
+            className={cn(
+              "admin-header h-[80px] flex items-center justify-between gap-3 px-4 sm:px-6 sticky",
+              isLekaku
+                ? "bg-[#F8FAFC] top-[10px] z-[30] lg:rounded-tl-[16px]"
+                : "bg-[#F8FAFC]/90 backdrop-blur-md z-40 border-b border-slate-200 lg:border-b-0 lg:bg-[#F8FAFC] lg:relative lg:backdrop-blur-none",
+              isLekaku && !isSidebarCollapsed && "lg:pl-[80px]",
+            )}
+          >
             {/* Mobile Menu Toggle */}
             <Button
               variant="ghost"
@@ -2356,11 +2380,13 @@ export function Layout({
               </div>
             )}
 
-          {/* Page Content */}
+          {/* Page Content — Lekaku is flush at the top so the hero sits under the header */}
           <main
             className={cn(
-              "flex-1 max-w-[1600px] w-full mx-auto",
-              "px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1",
+              "flex-1 w-full mx-auto",
+              isLekaku
+                ? "max-w-none px-0 pb-8 pt-0"
+                : "max-w-[1600px] px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1",
             )}
           >
             {isImmersiveRoute ? (

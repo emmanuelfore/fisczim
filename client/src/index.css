@@ -414,6 +414,19 @@ body:hover::-webkit-scrollbar-thumb {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Portalled UI (dialogs, dropdowns, toasts) lives outside .lekaku-branch */
+body:has(.lekaku-branch) {
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 214 95% 93%;
+  --accent-foreground: 221 83% 53%;
+  --ring: 221 83% 53%;
+  --sidebar-primary: 221 83% 53%;
+  --sidebar-ring: 221 83% 53%;
+  --sidebar-accent: 214 95% 93%;
+  --sidebar-accent-foreground: 221 83% 53%;
+}
+
 /* Headings: use Inter, no serif */
 .lekaku-branch h1,
 .lekaku-branch h2,
@@ -424,6 +437,10 @@ body:hover::-webkit-scrollbar-thumb {
 .lekaku-branch .font-display {
   font-family: var(--lekaku-font) !important;
   letter-spacing: var(--lk-ls-title);
+}
+/* Beat .admin-blueprint .font-display (Outfit) from the layout style block */
+.lekaku-branch.admin-blueprint .font-display {
+  font-family: var(--lekaku-font) !important;
 }
 
 /* Page title */
@@ -583,4 +600,43 @@ body:hover::-webkit-scrollbar-thumb {
 .lekaku-branch .bg-blue-50,
 .lekaku-branch .bg-purple-50 { background-color: #eff6ff !important; }
 .lekaku-branch .bg-slate-50 { background-color: #F8FAFC !important; }
+.lekaku-branch .bg-slate-100 { background-color: #F1F5F9 !important; }
 .lekaku-branch .border-slate-200 { border-color: #E2E8F0 !important; }
+.lekaku-branch .border-slate-100 { border-color: #E2E8F0 !important; }
+.lekaku-branch .text-slate-900 { color: #0F172A !important; }
+.lekaku-branch .text-slate-600 { color: #475569 !important; }
+.lekaku-branch .text-slate-500 { color: #64748B !important; }
+
+.lekaku-branch .hover\:bg-violet-50:hover,
+.lekaku-branch .hover\:bg-indigo-50:hover,
+.lekaku-branch .hover\:bg-blue-50:hover { background-color: #dbeafe !important; }
+
+.lekaku-branch .from-violet-600,
+.lekaku-branch .via-indigo-600,
+.lekaku-branch .to-blue-600 {
+  --tw-gradient-from: #2563EB !important;
+  --tw-gradient-via: #2563EB !important;
+  --tw-gradient-to: #1D4ED8 !important;
+}
+.lekaku-branch .shadow-indigo-500\/20 { --tw-shadow-color: rgba(37, 99, 235, 0.2) !important; }
+
+.lekaku-branch .btn-gradient {
+  background: linear-gradient(to right, #2563EB, #1D4ED8) !important;
+}
+
+.lekaku-branch ::-webkit-scrollbar-thumb {
+  background-image: linear-gradient(to bottom, #1E3A8A, #60A5FA) !important;
+}
+
+/* Lekaku content column: flush header, padded paper shell */
+.lekaku-branch .page-shell {
+  padding: 24px 32px 32px !important;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
+@media (max-width: 768px) {
+  .lekaku-branch .page-shell {
+    padding: 16px 16px 24px !important;
+  }
+}

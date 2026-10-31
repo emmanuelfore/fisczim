@@ -205,7 +205,7 @@ class DeviceStatus {
         this.deviceId = '';
         this.deviceModelName = '';
         this.deviceModelVersion = '';
-        this.fiscalDayStatus = ''; // FiscalDayOpen, FiscalDayClosed
+        this.fiscalDayStatus = ''; // FiscalDayOpened, FiscalDayClosed, FiscalDayCloseFailed
         this.fiscalDayNo = 0;
         this.fiscalDate = '';
         this.receiptCounter = 0;

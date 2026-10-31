@@ -31,8 +31,33 @@ let dashTab = 'all';
 let pdfPreviewDoc = null;
 let pdfPreviewBlobUrl = null;
 let pdfPreviewMode = null;
-// Normalise fiscal day status from server (FiscalDayOpened/Open) or (FiscalDayClosed/Closed)
-function _fiscalDayOpen(s) { return s === 'FiscalDayOpen' || s === 'FiscalDayOpened'; }
+let pdfPreviewShowingFiscal = false;
+// Normalise fiscal day status. Gateways return FiscalDayOpened / FiscalDayClosed /
+// FiscalDayCloseFailed; older code paths wrote the short forms Open/Closed/Opened.
+function _fiscalDayState(s) {
+  const v = String(s || '').trim().toLowerCase();
+  if (v === 'fiscaldayopened' || v === 'fiscaldayopen' || v === 'opened' || v === 'open') return 'open';
+  if (v === 'fiscaldayclosed' || v === 'closed') return 'closed';
+  if (v === 'fiscaldayclosefailed' || v === 'closefailed' || v === 'close failed') return 'failed';
+  return 'unknown';
+}
+function _fiscalDayOpen(s) { return _fiscalDayState(s) === 'open'; }
+function _fiscalDayCloseFailed(s) { return _fiscalDayState(s) === 'failed'; }
+function _fiscalDayLabel(s) {
+  const st = _fiscalDayState(s);
+  if (st === 'open')   return 'Open';
+  if (st === 'closed') return 'Closed';
+  if (st === 'failed') return 'Close failed';
+  return s ? String(s) : 'Unknown';
+}
+// Gateway close-failure codes → human text (raw code when unknown)
+function _fiscalCloseReason(code) {
+  if (!code) return '';
+  const map = { ReceiptsWithValidationErrors: 'receipts with validation errors' };
+  return map[code] || String(code);
+}
+// Last live device probe, shared by the header chip, day card and close checklist
+let _lastDeviceCheck = { ok: null, error: '', at: 0 };
 
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
@@ -54,6 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   safeInit('pdfModal', setupPdfModal);
   safeInit('confirmDialog', setupConfirmDialog);
   safeInit('statusIndicator', setupStatusIndicator);
+  safeInit('branding', refreshCompanyBranding);
   window.fiscalBridgeAPI.onReceiptFileAdded(handleReceiptFile);
   safeInit('folderWatchError', () => {
     window.fiscalBridgeAPI.onFolderWatchError((e) => showToast('Folder watcher error: ' + e.error, 'error'));
@@ -61,6 +87,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   safeInit('trayWatchToggle', () => {
     window.fiscalBridgeAPI.onTrayToggleWatch(() => {
       if (isMonitoring) stopMonitoring(); else startMonitoring();
+    });
+  });
+  safeInit('trayFiscalDay', () => {
+    window.fiscalBridgeAPI.onTrayFiscalDay((kind) => {
+      if (kind === 'close') {
+        showPage('dayclose');
+        goToDCStep(1);
+        runDayClosePreChecks();
+      } else if (kind === 'open') {
+        handleOpenFiscalDay();
+      }
+    });
+  });
+  safeInit('offlineSync', () => {
+    window.fiscalBridgeAPI.onOfflineSyncComplete(async (result) => {
+      await reloadDocuments();
+      const results = result.results || [];
+      const synced = results.filter(r => r.ok).length;
+      const failed = results.length - synced;
+      if (synced) showToast(`Synced ${synced} offline receipt${synced === 1 ? '' : 's'} to ZIMRA`, 'success');
+      if (failed) showToast(`${failed} offline receipt${failed === 1 ? '' : 's'} still pending sync`, 'warning');
+      refreshDashboard();
     });
   });
   
@@ -95,6 +143,7 @@ function migrateConfigV2(c) {
     c.sourceFolder = c.sourceFolder || (c.folders && c.folders.source) || '';
     c.targetFolder = c.targetFolder || (c.folders && c.folders.target) || '';
     c.errorFolder  = c.errorFolder  || (c.folders && c.folders.error)  || '';
+    c.originalFolder = c.originalFolder || (c.folders && c.folders.original) || '';
     c.printFormat  = c.printFormat  || 'thermal';
     c.preferredPrinter = c.preferredPrinter || c.printerName || null;
     c.parserProfiles = c.parserProfiles || [{
@@ -396,7 +445,8 @@ async function renderFiscalDayCard() {
     const fiscalDayStatus = fc.fiscalDayStatus || fc.Data?.fiscalDayStatus;
     const fiscalDayNo = fc.fiscalDayNo || fc.FiscalDay || fc.Data?.FiscalDay || fc.Data?.lastFiscalDayNo;
     
-    const isOpen = _fiscalDayOpen(fiscalDayStatus);
+    const state = _fiscalDayState(fiscalDayStatus);
+    const isOpen = state === 'open';
     const dayNo  = fiscalDayNo || '—';
     const company = config.companyName || 'FiscalBridge';
 
@@ -405,7 +455,15 @@ async function renderFiscalDayCard() {
     const fdcTimer = document.getElementById('fdcTimer');
     
     if (fdcDay) fdcDay.textContent = `${company} · Day ${dayNo}`;
-    if (fdcMeta) fdcMeta.textContent = isOpen ? `Opened ${fc.fiscalDate ? new Date(fc.fiscalDate).toLocaleString() : ''}` : 'Fiscal day closed';
+    if (fdcMeta) {
+      if (isOpen) fdcMeta.textContent = `Opened ${fc.fiscalDate ? new Date(fc.fiscalDate).toLocaleString() : ''}`.trim();
+      else if (state === 'failed') {
+        const reason = _fiscalCloseReason(fc.fiscalDayClosingErrorCode);
+        fdcMeta.textContent = `Close failed${reason ? ` (${reason})` : ''} — the day is still open on the gateway`;
+      }
+      else if (state === 'closed') fdcMeta.textContent = 'Fiscal day closed';
+      else fdcMeta.textContent = 'Status unknown';
+    }
 
     if (isOpen && fc.fiscalDate && !fiscalDayOpenTime) {
       fiscalDayOpenTime = new Date(fc.fiscalDate).getTime();
@@ -413,13 +471,16 @@ async function renderFiscalDayCard() {
     if (!isOpen) {
       fiscalDayOpenTime = null;
       if (fdcTimer) {
-        fdcTimer.textContent = 'Closed';
-        fdcTimer.style.color = '#F87171';
+        fdcTimer.textContent = state === 'failed' ? 'Close failed' : state === 'closed' ? 'Closed' : '—';
+        fdcTimer.style.color = state === 'failed' ? '#F59E0B' : state === 'closed' ? '#F87171' : '';
       }
       if (fiscalDayTimerInterval) { clearInterval(fiscalDayTimerInterval); fiscalDayTimerInterval = null; }
     } else if (fiscalDayOpenTime && !fiscalDayTimerInterval) {
       updateFiscalDayTimer();
       fiscalDayTimerInterval = setInterval(updateFiscalDayTimer, 1000);
+    } else if (!fiscalDayOpenTime && fdcTimer) {
+      fdcTimer.textContent = '--:--:--';
+      fdcTimer.style.color = '';
     }
   } catch (e) {
     console.error('Error rendering fiscal day card:', e);
@@ -447,18 +508,30 @@ function updateCloseChecklist() {
   const queued = documents.filter(d => d.status === 'queued' || d.status === 'retrying').length;
   const review = documents.filter(d => d.status === 'needs_review').length;
 
+  // ok: true → green, false → red, null → still unknown
   const setChk = (dotId, valId, ok, val) => {
     const dot = document.getElementById(dotId);
     const valEl = document.getElementById(valId);
-    if (dot) { dot.className = `check-dot ${ok ? '' : 'fail'}`; }
+    if (dot) { dot.className = `check-dot ${ok === true ? '' : ok === false ? 'fail' : 'unknown'}`; }
     if (valEl) valEl.textContent = val;
   };
 
   setChk('chkQueue',  'chkQueueVal',  queued === 0, queued === 0 ? 'OK' : `${queued} pending`);
   setChk('chkReview', 'chkReviewVal', review === 0, review === 0 ? 'OK'  : `${review} files`);
-  // FDMS: pull from last known device status
-  const fdmsOk = _fiscalDayOpen(config.fiscalDayStatus);
-  setChk('chkFdms', 'chkFdmsVal', fdmsOk, fdmsOk ? 'Healthy' : 'Check device');
+
+  // FDMS row is device health, NOT day state: a closed or close-failed day still
+  // means the device is reachable. Only a failed probe is a red error.
+  const state  = _fiscalDayState(config.fiscalDayStatus);
+  const dayTxt = config.fiscalDayNo != null ? `Day ${config.fiscalDayNo}` : 'Day —';
+  if (_lastDeviceCheck.ok) {
+    const reason = state === 'failed' ? _fiscalCloseReason(config.fiscalDayClosingErrorCode) : '';
+    const dayState = state === 'open' ? 'open' : state === 'failed' ? `close failed${reason ? ` (${reason})` : ''}` : state === 'closed' ? 'closed' : 'status unknown';
+    setChk('chkFdms', 'chkFdmsVal', true, `Healthy · ${dayTxt} ${dayState}`);
+  } else if (_lastDeviceCheck.ok === false) {
+    setChk('chkFdms', 'chkFdmsVal', false, _lastDeviceCheck.error || 'Unreachable');
+  } else {
+    setChk('chkFdms', 'chkFdmsVal', null, 'Checking…');
+  }
 }
 
 async function updateDeviceChip() {
@@ -478,20 +551,26 @@ async function updateDeviceChip() {
     if (liveOk) {
       const data = r.data?.Data || r.data || {};
       if (data.fiscalDayStatus) config.fiscalDayStatus = data.fiscalDayStatus;
+      if (data.fiscalDayOpenedAt) config.fiscalDate = data.fiscalDayOpenedAt;
+      config.fiscalDayClosingErrorCode = data.fiscalDayClosingErrorCode || '';
       const dayNo = r.data?.FiscalDay ?? data.lastFiscalDayNo;
       if (dayNo !== undefined && dayNo !== null && dayNo !== '') config.fiscalDayNo = dayNo;
       const devId = r.data?.DeviceID || r.data?.DeviceSerialNumber;
       if (devId) config.deviceId = devId;
+      _lastDeviceCheck = { ok: true, error: '', at: Date.now() };
+    } else {
+      _lastDeviceCheck = { ok: false, error: (r && r.error) || 'Device unreachable', at: Date.now() };
     }
   } catch (e) {
     console.error('Failed to fetch live device status:', e);
     liveOk = false;
+    _lastDeviceCheck = { ok: false, error: e.message, at: Date.now() };
   }
 
   const dot = document.getElementById('deviceDot');
   const txt = document.getElementById('deviceChipText');
-  const isOpen = _fiscalDayOpen(config.fiscalDayStatus);
-  if (dot) dot.className = `dot ${isOpen ? '' : 'offline'}`;
+  // Chip dot = connectivity, not day-open state.
+  if (dot) dot.className = `dot ${liveOk === true ? '' : liveOk === false ? 'offline' : 'unknown'}`;
   if (txt) {
     const devId = config.deviceId ? String(config.deviceId).slice(0, 10) : 'No device';
     txt.textContent = `${devId} · Day ${config.fiscalDayNo ?? '—'}`;
@@ -504,6 +583,7 @@ async function updateDeviceChip() {
       companyName: config.companyName || null,
       deviceId: config.deviceId != null ? String(config.deviceId) : null,
       fiscalDay: config.fiscalDayNo != null ? String(config.fiscalDayNo) : null,
+      fiscalDayStatus: config.fiscalDayStatus || null,
       tin: config.tin || null
     });
   } catch (e) {
@@ -586,11 +666,11 @@ function renderDocumentsTable() {
         <td class="td-mono">${esc(d.fileName||'—')}</td>
         <td class="td-mono">${esc(d.receiptNo||'—')}</td>
         <td class="td-mono">${d.amount ? parseFloat(d.amount).toFixed(2)+' '+(d.currency||'') : '—'}</td>
-        <td>${statusPill(d.status)}</td>
+        <td>${statusPill(d.status, d.offline)}</td>
         <td class="td-mono" style="font-size:.72rem">${esc(d.fiscalCode||'—')}</td>
         <td class="td-muted">${d.processedAt ? new Date(d.processedAt).toLocaleTimeString() : '—'}</td>
         <td class="td-action">
-          <button class="btn-icon" onclick="handlePreviewPdf('${d.id}');event.stopPropagation()" title="Preview PDF" ${!d.filePath ? 'disabled' : ''}>👁</button>
+          <button class="btn-icon" onclick="handlePreviewPdf('${d.id}');event.stopPropagation()" title="Preview document" ${(!d.filePath && !d.invoiceData) ? 'disabled' : ''}>👁</button>
           <button class="btn-icon" onclick="handlePrintDocument('${d.id}');event.stopPropagation()" title="Print" ${(!d.filePath && !d.invoiceData) ? 'disabled' : ''}>🖨</button>
           <button class="btn-icon" onclick="handleDownloadFile('${d.id}');event.stopPropagation()" title="Download File" ${!d.filePath ? 'disabled' : ''}>⬇</button>
           ${d.status==='needs_review' ? `<button class="btn-ghost" style="font-size:.75rem" onclick="openParserWithFile('${d.id}');event.stopPropagation()">Fix</button>` : ''}
@@ -627,6 +707,7 @@ function setupPdfModal() {
   document.getElementById('closePdfModalFooterBtn').addEventListener('click', closePdfModal);
   document.getElementById('pdfModalDownloadBtn').addEventListener('click', downloadPreviewedFile);
   document.getElementById('pdfModalPrintBtn').addEventListener('click', printPreviewedFile);
+  document.getElementById('pdfModalSourceBtn').addEventListener('click', togglePreviewSource);
 }
 
 function openDrawer(id) {
@@ -641,7 +722,7 @@ function openDrawer(id) {
         ${kv('Receipt No.', doc.receiptNo)}
         ${kv('File', doc.fileName)}
         ${kv('Amount', doc.amount ? parseFloat(doc.amount).toFixed(2)+' '+(doc.currency||'') : '—')}
-        ${kv('Status', statusPill(doc.status))}
+        ${kv('Status', statusPill(doc.status, doc.offline))}
         ${kv('Fiscal Code', doc.fiscalCode)}
         ${kv('Processed', doc.processedAt ? new Date(doc.processedAt).toLocaleString() : '—')}
       </dl>
@@ -658,7 +739,7 @@ function openDrawer(id) {
     buttons = `
       <button class="btn-primary" onclick="handleReprint('${id}')">Reprint</button>
       <button class="btn-secondary" onclick="handlePrintDocument('${id}')">Print</button>
-      <button class="btn-secondary" onclick="handlePreviewPdf('${id}')">View PDF</button>
+      <button class="btn-secondary" onclick="handlePreviewPdf('${id}')">Preview</button>
     `;
   } else {
     buttons = `
@@ -696,10 +777,11 @@ async function handleReSend(id) {
 
 async function handleReParse(id) {
   const doc = documents.find(d => d.id == id);
-  if (!doc || !doc.filePath) { showToast('No file path stored', 'error'); return; }
+  const sourcePath = _docOriginalPath(doc);
+  if (!doc || !sourcePath) { showToast('No file path stored', 'error'); return; }
   closeDrawer();
   showToast('Re-parsing file…', 'info');
-  const r = await readTextFromFile(doc.filePath);
+  const r = await readTextFromFile(sourcePath);
   if (!r.success) { showToast('Cannot read file: ' + r.error, 'error'); return; }
 
   const _rePinnedId = config.parserMode === 'pinned' ? (config.pinnedProfileId || null) : null;
@@ -745,10 +827,79 @@ async function handleReprint(id) {
   showToast('Reprinting receipt…', 'info');
   
   try {
-    await printFiscalReceipt(doc.invoiceData, doc.apiResponse || {});
+    await printFiscalReceipt(doc.invoiceData, doc.apiResponse || {}, _docTemplateKey(doc));
     showToast('Receipt reprinted', 'success');
   } catch (err) {
     showToast('Reprint failed: ' + err.message, 'error');
+  }
+}
+
+// ─── Fiscal document preview / print helpers ──────────────────────────────────
+/** True when the document carries an authority fiscal result (QR, code, counters). */
+function _docHasFiscalData(doc) {
+  const f = doc && doc.apiResponse;
+  if (!f) return false;
+  return !!(f.fiscalCode || f.receiptGlobalNo || f.qrCode || f.qrCodeData ||
+            f.verificationCode || f.receiptVerificationCode || f.receiptCounter);
+}
+
+/** A4 invoices keep the A4 layout when fiscalised; thermal stays on the configured template. */
+function _docTemplateKey(doc) {
+  const src = (doc && (doc.fileName || doc.filePath)) || '';
+  if (/\.pdf$/i.test(src)) return 'modernA4';
+  return PRINT_TEMPLATES[config.printTemplate || 'thermal80'] ? (config.printTemplate || 'thermal80') : 'thermal80';
+}
+
+async function _openFiscalPreview(doc) {
+  const tplKey = _docTemplateKey(doc);
+  const tpl = PRINT_TEMPLATES[tplKey] || PRINT_TEMPLATES.thermal80;
+  const html = await _buildDocHtml(doc.invoiceData, doc.apiResponse || {}, tplKey);
+  const blob = new Blob([html], { type: 'text/html' });
+  const isA4 = tpl.format === 'a4';
+  openPdfModal(URL.createObjectURL(blob), {
+    a4: isA4,
+    title: `Fiscal ${isA4 ? 'Invoice' : 'Receipt'} - ${doc.receiptNo || doc.invoiceData?.invoiceNumber || doc.fileName || ''}`,
+    meta: isA4 ? 'A4 · 210 × 297 mm · fiscalised' : `${tpl.label} · fiscalised`,
+  });
+  pdfPreviewShowingFiscal = true;
+  updatePreviewSourceToggle();
+}
+
+/** Where the untouched source file for this record lives. */
+function _docOriginalPath(doc) {
+  if (!doc) return null;
+  return doc.originalPendingPath || doc.originalPath || doc.filePath || null;
+}
+
+function _docHasOriginalPdf(doc) {
+  const p = _docOriginalPath(doc);
+  return !!(p && /\.pdf$/i.test(p));
+}
+
+function updatePreviewSourceToggle() {
+  const btn = document.getElementById('pdfModalSourceBtn');
+  if (!btn) return;
+  const canToggle = !!(pdfPreviewDoc && _docHasFiscalData(pdfPreviewDoc) && _docHasOriginalPdf(pdfPreviewDoc));
+  btn.hidden = !canToggle;
+  btn.textContent = pdfPreviewShowingFiscal ? 'Original PDF' : 'Fiscalised document';
+}
+
+async function togglePreviewSource() {
+  const doc = pdfPreviewDoc;
+  if (!doc) return;
+  try {
+    if (pdfPreviewShowingFiscal) {
+      const rendered = await window.fiscalBridgeAPI.renderPdfPages(_docOriginalPath(doc), { maxPages: 10, dpi: 150 });
+      if (!rendered || !rendered.success || !rendered.pages || !rendered.pages.length) {
+        showToast('Original PDF could not be rendered', 'error');
+        return;
+      }
+      openPdfPagePreview(doc, rendered.pages);
+    } else {
+      await _openFiscalPreview(doc);
+    }
+  } catch (err) {
+    showToast('Could not switch preview: ' + _printErrorText(err), 'error');
   }
 }
 
@@ -758,14 +909,24 @@ async function handlePreviewPdf(id) {
   pdfPreviewDoc = doc;
 
   const isPdfSource = !!doc.filePath && /\.pdf$/i.test(doc.fileName || doc.filePath);
+  const hasFiscal = !!(doc.invoiceData && _docHasFiscalData(doc));
 
-  // Prefer the original document so the preview reflects the invoice on disk.
-  // Pages are rasterised in the main process: Electron's PDF viewer cannot
-  // render blob/data PDFs inside this window.
+  // A fiscalised document is what the customer receives; the source PDF is the
+  // pre-fiscalisation input and is only shown when no fiscal result exists.
+  if (hasFiscal) {
+    showToast('Loading fiscalised document…', 'info');
+    try {
+      await _openFiscalPreview(doc);
+      return;
+    } catch (err) {
+      console.warn('[Preview] Fiscal preview failed:', err.message);
+    }
+  }
+
   if (isPdfSource) {
     showToast('Loading PDF preview…', 'info');
     try {
-      const rendered = await window.fiscalBridgeAPI.renderPdfPages(doc.filePath, { maxPages: 10, dpi: 150 });
+      const rendered = await window.fiscalBridgeAPI.renderPdfPages(_docOriginalPath(doc) || doc.filePath, { maxPages: 10, dpi: 150 });
       if (rendered && rendered.success && rendered.pages && rendered.pages.length) {
         openPdfPagePreview(doc, rendered.pages);
         return;
@@ -774,26 +935,6 @@ async function handlePreviewPdf(id) {
     } catch (err) {
       console.warn('[Preview] PDF render failed:', err.message);
     }
-  }
-
-  // Fiscalised document whose source is gone: fall back to the generated receipt
-  if (doc.status === 'fiscalised' && doc.invoiceData && doc.apiResponse) {
-    try {
-      const tpl = PRINT_TEMPLATES[config.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
-      const f = await _withQrImage(doc.invoiceData, doc.apiResponse);
-      const html = buildReceiptHTML(doc.invoiceData, f, config);
-      const blob = new Blob([html], { type: 'text/html' });
-      const isA4 = tpl.format === 'a4';
-      openPdfModal(URL.createObjectURL(blob), {
-        a4: isA4,
-        title: `Fiscal Receipt - ${doc.receiptNo || doc.fileName}`,
-        meta: isA4 ? 'A4 · 210 × 297 mm' : tpl.label,
-      });
-      showToast('Loading fiscal receipt preview…', 'info');
-    } catch (err) {
-      showToast('Failed to load fiscal receipt: ' + err.message, 'error');
-    }
-    return;
   }
 
   showToast(isPdfSource
@@ -840,6 +981,8 @@ function openPdfPagePreview(doc, pages) {
     title: doc.fileName || 'PDF Preview',
     meta: single ? sizeLabel : `${pages.length} pages · ${sizeLabel}`,
   });
+  pdfPreviewShowingFiscal = false;
+  updatePreviewSourceToggle();
 }
 
 function openPdfModal(blobUrl, { a4 = true, title = 'Preview', meta = '' } = {}) {
@@ -883,15 +1026,14 @@ async function printPdfDocument(doc) {
   }
 }
 
-async function printFiscalDocument(doc) {
-  showToast('Printing fiscal receipt…', 'info');
+async function printFiscalDocument(doc, templateKey) {
+  showToast('Printing fiscal document…', 'info');
   try {
-    const tpl = PRINT_TEMPLATES[config.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
-    const f = await _withQrImage(doc.invoiceData, doc.apiResponse || {});
-    const html = buildReceiptHTML(doc.invoiceData, f, config);
+    const tpl = PRINT_TEMPLATES[templateKey || config.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
+    const html = await _buildDocHtml(doc.invoiceData, doc.apiResponse || {}, templateKey);
     const r = await window.fiscalBridgeAPI.printReceipt(html, config.printerName, tpl.format);
     if (r && r.success === false) throw new Error(r.error || 'Print failed');
-    showToast(r && r.usedDefault ? 'Configured printer unavailable — receipt sent to default printer' : 'Fiscal receipt sent to printer', 'success');
+    showToast(r && r.usedDefault ? 'Configured printer unavailable — document sent to default printer' : 'Fiscal document sent to printer', 'success');
   } catch (err) {
     showToast('Print failed: ' + _printErrorText(err), 'error');
   }
@@ -901,6 +1043,9 @@ async function handlePrintDocument(id) {
   const doc = documents.find(d => d.id == id);
   if (!doc) { showToast('Document not found', 'error'); return; }
 
+  // Fiscalised documents print as the fiscalised document (QR, logo, counters),
+  // never as the pre-fiscalisation source file.
+  if (doc.invoiceData && _docHasFiscalData(doc)) { await printFiscalDocument(doc, _docTemplateKey(doc)); return; }
   if (doc.filePath && /\.pdf$/i.test(doc.fileName || doc.filePath)) { await printPdfDocument(doc); return; }
   if (doc.invoiceData) { await printFiscalDocument(doc); return; }
   showToast('Nothing available to print', 'error');
@@ -910,7 +1055,9 @@ async function printPreviewedFile() {
   const doc = pdfPreviewDoc;
   if (!doc) return;
 
-  // Print exactly what the preview shows: the source PDF, or its fiscal receipt
+  // Always print the fiscalised document when one exists; the original PDF is
+  // only printed for documents that have not been fiscalised.
+  if (doc.invoiceData && _docHasFiscalData(doc)) { await printFiscalDocument(doc, _docTemplateKey(doc)); return; }
   if (pdfPreviewMode === 'pdf' && doc.filePath) { await printPdfDocument(doc); return; }
   if (doc.invoiceData) { await printFiscalDocument(doc); return; }
   showToast('Nothing available to print', 'error');
@@ -920,14 +1067,20 @@ async function downloadPreviewedFile() {
   const doc = pdfPreviewDoc;
   if (!doc) return;
 
-  // Prefer the original file, matching what the preview shows
-  if (doc.filePath) {
+  // Download what the preview shows: the fiscalised copy, or the original when
+  // the user switched to it.
+  const downloadPath = (pdfPreviewShowingFiscal || !_docHasFiscalData(doc)) ? doc.filePath : _docOriginalPath(doc);
+  if (downloadPath) {
     try {
-      const r = await window.fiscalBridgeAPI.readReceiptFile(doc.filePath);
+      const r = await window.fiscalBridgeAPI.readReceiptFile(downloadPath);
       if (r && r.success) {
-        const isPdf = /\.pdf$/i.test(doc.fileName || doc.filePath);
+        const isPdf = /\.pdf$/i.test(downloadPath);
+        const shownFiscal = pdfPreviewShowingFiscal || !_docHasFiscalData(doc);
+        const name = shownFiscal
+          ? (downloadPath.split(/[\\/]/).pop() || doc.fileName || 'document')
+          : (doc.fileName || downloadPath.split(/[\\/]/).pop() || 'document');
         _saveBlob(new Blob([r.content], { type: isPdf ? 'application/pdf' : 'application/octet-stream' }),
-          doc.fileName || 'document');
+          isPdf || /\.[a-z0-9]+$/i.test(name) ? name : name + '.pdf');
         showToast('File downloaded', 'success');
         return;
       }
@@ -939,8 +1092,7 @@ async function downloadPreviewedFile() {
   // Source no longer on disk: download the generated receipt instead
   if (doc.status === 'fiscalised' && doc.invoiceData && doc.apiResponse) {
     try {
-      const f = await _withQrImage(doc.invoiceData, doc.apiResponse);
-      const html = buildReceiptHTML(doc.invoiceData, f, config);
+      const html = await _buildDocHtml(doc.invoiceData, doc.apiResponse, _docTemplateKey(doc));
       _saveBlob(new Blob([html], { type: 'text/html' }), `Fiscal_${doc.receiptNo || doc.fileName}.html`);
       showToast('Fiscal receipt downloaded', 'success');
     } catch (err) {
@@ -969,9 +1121,17 @@ async function handleDownloadFile(id) {
   // For fiscalised documents, download the generated fiscal receipt
   if (doc.status === 'fiscalised' && doc.invoiceData && doc.apiResponse) {
     try {
-      const tpl = PRINT_TEMPLATES[config.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
-      const f = await _withQrImage(doc.invoiceData, doc.apiResponse);
-      const html = buildReceiptHTML(doc.invoiceData, f, config);
+      // New records archive the rendered fiscal PDF; hand that over as-is
+      if ((doc.originalPath || doc.originalPendingPath) && doc.filePath) {
+        const pdf = await window.fiscalBridgeAPI.readReceiptFile(doc.filePath);
+        if (pdf && pdf.success) {
+          _saveBlob(new Blob([pdf.content], { type: 'application/pdf' }),
+            doc.filePath.split(/[\\/]/).pop() || `FISCAL_${doc.receiptNo || doc.id}.pdf`);
+          showToast('Fiscal document downloaded', 'success');
+          return;
+        }
+      }
+      const html = await _buildDocHtml(doc.invoiceData, doc.apiResponse, _docTemplateKey(doc));
       
       // Create a blob with the HTML
       const blob = new Blob([html], { type: 'text/html' });
@@ -1027,9 +1187,75 @@ function closePdfModal() {
   }
   pdfPreviewDoc = null;
   pdfPreviewMode = null;
+  pdfPreviewShowingFiscal = false;
+  const sourceBtn = document.getElementById('pdfModalSourceBtn');
+  if (sourceBtn) sourceBtn.hidden = true;
 }
 
 // ─── Receipt processing ────────────────────────────────────────────────────────
+
+// Offline signing is only attempted when the server is unreachable (status 0).
+// An API rejection must never be turned into a locally signed receipt.
+async function tryOfflineFiscalise(invoiceData, docRecord) {
+  const api = window.fiscalBridgeAPI;
+  if (!api.signOfflineFiscal) {
+    return { attempted: true, success: false, error: 'Offline signing is not available in this build' };
+  }
+  let state = null;
+  try { state = await api.getOfflineFiscalState(); } catch (e) { state = null; }
+  if (!state || !state.ready) {
+    return { attempted: true, success: false, error: (state && state.reason) || 'Offline signing is not bootstrapped' };
+  }
+  try {
+    const r = await api.signOfflineFiscal(invoiceData, docRecord.id);
+    if (r && r.success && r.fiscal) {
+      return { attempted: true, success: true, queueId: r.queueId, fiscal: r.fiscal };
+    }
+    return { attempted: true, success: false, error: (r && r.error) || 'Offline signing failed' };
+  } catch (e) {
+    return { attempted: true, success: false, error: e.message };
+  }
+}
+
+async function completeOfflineFiscalisation({ invoiceData, docRecord, offline, sourcePath }) {
+  const archive = await archiveFiscalisedDocument({
+    sourcePath,
+    invoiceData,
+    fiscal: offline.fiscal,
+    fileName: docRecord.fileName,
+  });
+  await window.fiscalBridgeAPI.addDocument({
+    ...docRecord,
+    filePath: archive.filePath,
+    originalPath: archive.originalPath,
+    originalPendingPath: archive.originalPendingPath,
+    unlinkPending: archive.unlinkPending,
+    movePending: archive.movePending || undefined,
+    receiptNo: invoiceData.invoiceNumber,
+    amount: _totalFromItems(invoiceData.items),
+    currency: invoiceData.currency || 'USD',
+    status: 'fiscalised',
+    offline: true,
+    queueId: offline.queueId,
+    fiscalCode: offline.fiscal.fiscalCode,
+    invoiceData,
+    apiResponse: { ...offline.fiscal, message: 'Issued offline — queued for ZIMRA sync' },
+    parseError: undefined,
+  });
+  documents = await window.fiscalBridgeAPI.getDocuments() || [];
+  updateBadges();
+  refreshDashboard();
+  showToast('Issued offline — queued: ' + (invoiceData.invoiceNumber || docRecord.fileName), 'warning');
+  showSystemNotification(
+    'FiscalBridge - Issued Offline',
+    `Invoice ${invoiceData.invoiceNumber || 'Unknown'} signed offline and queued for sync when the connection returns`,
+    'warning'
+  );
+  if (config.printerName) {
+    await printFiscalReceipt(invoiceData, offline.fiscal, _docTemplateKey(docRecord));
+  }
+}
+
 async function handleReceiptFile(data, existingDocId = null) {
   const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
   const fileName = data.filePath.split('/').pop();
@@ -1040,11 +1266,19 @@ async function handleReceiptFile(data, existingDocId = null) {
     return;
   }
 
+  // Fiscal copies and backup originals must never be fiscalised again, even if
+  // a folder is (mis)configured inside the watched source tree.
+  const _inArchiveFolder = (folder) =>
+    !!folder && !_sameFolder(folder, config.sourceFolder) && _isInFolder(data.filePath, folder);
+  if (/^FISCAL_/i.test(fileName) || _inArchiveFolder(config.targetFolder) || _inArchiveFolder(config.originalFolder)) {
+    console.log(`[${timestamp}] [FILE] Ignoring archived file: ${fileName}`);
+    return;
+  }
+
   // Leftover source from an earlier copy that was fiscalised but not unlinked
   const unlinkOwner = documents.find(d =>
     d.status === 'fiscalised' && d.unlinkPending === data.filePath
-  );
-  if (unlinkOwner) {
+  );  if (unlinkOwner) {
     console.log(`[${timestamp}] [FILE] Removing already-archived leftover: ${fileName}`);
     if (await archiveStuckDocument(unlinkOwner)) await reloadDocuments();
     return;
@@ -1054,7 +1288,9 @@ async function handleReceiptFile(data, existingDocId = null) {
   // Reconciliation passes existingDocId to reprocess its own record.
   const existingDoc = existingDocId
     ? documents.find(d => d.id === existingDocId)
-    : documents.find(d => d.filePath === data.filePath);
+    : documents.find(d => d.filePath === data.filePath ||
+                          d.originalPath === data.filePath ||
+                          d.originalPendingPath === data.filePath);
   if (existingDoc && !existingDocId) {
     console.log(`[${timestamp}] [FILE] Skipping already processed file: ${fileName}`);
     // Fiscalised, but the file never left the inbox (earlier move failure)
@@ -1153,13 +1389,19 @@ async function handleReceiptFile(data, existingDocId = null) {
     const result = await fiscalizeInvoice(invoiceData);
     console.log(`[${timestamp}] [API] Result: ${result.success ? 'OK' : 'FAILED'}`);
     if (result.success) {
-      const archive = await moveToTarget(data.filePath, data.targetFolder);
-      console.log(`[${timestamp}] [FILE] Archive: ${archive.movePending ? 'FAILED' : 'OK'} → ${archive.filePath}`);
-      if (archive.movePending) console.warn(`[${timestamp}] [FILE] Archiving failed; will retry automatically`);
+      const archive = await archiveFiscalisedDocument({
+        sourcePath: data.filePath,
+        invoiceData,
+        fiscal: result.data,
+        fileName: docRecord.fileName,
+      });
+      console.log(`[${timestamp}] [FILE] Archive: ${archive.filePath}${archive.movePending ? ' (original pending move)' : ''}`);
 
       await window.fiscalBridgeAPI.addDocument({
         ...docRecord,
         filePath: archive.filePath,
+        originalPath: archive.originalPath,
+        originalPendingPath: archive.originalPendingPath,
         unlinkPending: archive.unlinkPending,
         movePending: archive.movePending || undefined,
         receiptNo: invoiceData.invoiceNumber,
@@ -1180,24 +1422,37 @@ async function handleReceiptFile(data, existingDocId = null) {
       );
       if (config.printerName) {
         console.log(`[${timestamp}] [PRINT] Printing to: ${config.printerName}`);
-        await printFiscalReceipt(invoiceData, result.data || {});
+        await printFiscalReceipt(invoiceData, result.data || {}, _docTemplateKey(docRecord));
       }
     } else {
-      const is4xx = /4\d\d/.test(String(result.status || ''));
-      console.error(`[${timestamp}] [FAIL] Invoice ${invoiceData.invoiceNumber} — ${result.error || 'API error'}`);
-      await window.fiscalBridgeAPI.addDocument({
-        ...docRecord,
-        status: is4xx ? 'needs_review' : 'retrying',
-        parseError: result.error,
-        apiResponse: result.data,
-        invoiceData,
-      });
-      showToast((is4xx ? 'Needs review' : 'Retrying') + ': ' + (result.error || 'API error'), 'error');
-      showSystemNotification(
-        'FiscalBridge - Fiscalisation Error',
-        `${is4xx ? 'Needs review' : 'Retrying'}: ${invoiceData.invoiceNumber || docRecord.fileName} - ${result.error || 'API error'}`,
-        'error'
-      );
+      // Server unreachable: sign a real receipt locally so the customer gets a
+      // compliant fiscal receipt now; the queue forwards it on reconnect.
+      const offline = result.status === 0
+        ? await tryOfflineFiscalise(invoiceData, docRecord)
+        : { attempted: false, success: false };
+      if (offline.success) {
+        console.log(`[${timestamp}] [OFFLINE] Invoice ${invoiceData.invoiceNumber} signed locally, queued ${offline.queueId}`);
+        await completeOfflineFiscalisation({ invoiceData, docRecord, offline, sourcePath: data.filePath });
+      } else {
+        const is4xx = /4\d\d/.test(String(result.status || ''));
+        const reason = offline.attempted
+          ? `${result.error || 'Server unreachable'} | Offline signing unavailable: ${offline.error}`
+          : result.error;
+        console.error(`[${timestamp}] [FAIL] Invoice ${invoiceData.invoiceNumber} — ${reason || 'API error'}`);
+        await window.fiscalBridgeAPI.addDocument({
+          ...docRecord,
+          status: is4xx ? 'needs_review' : 'retrying',
+          parseError: reason,
+          apiResponse: result.data,
+          invoiceData,
+        });
+        showToast((is4xx ? 'Needs review' : 'Retrying') + ': ' + (reason || 'API error'), 'error');
+        showSystemNotification(
+          'FiscalBridge - Fiscalisation Error',
+          `${is4xx ? 'Needs review' : 'Retrying'}: ${invoiceData.invoiceNumber || docRecord.fileName} - ${reason || 'API error'}`,
+          'error'
+        );
+      }
     }
   } catch (err) {
     console.error(`[${timestamp}] [FAIL] Invoice ${docRecord.fileName} — ${err.message}`);
@@ -1239,6 +1494,12 @@ function _isInFolder(filePath, folder) {
   return norm(filePath).startsWith(norm(folder) + '/');
 }
 
+function _sameFolder(a, b) {
+  if (!a || !b) return false;
+  const norm = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return norm(a) === norm(b);
+}
+
 // Archive the receipt file and report what still needs doing if it fails.
 async function moveToTarget(sourcePath, targetFolder) {
   const r = await window.fiscalBridgeAPI.moveReceiptFile(sourcePath, targetFolder);
@@ -1248,8 +1509,55 @@ async function moveToTarget(sourcePath, targetFolder) {
   return { filePath: sourcePath, movePending: true };
 }
 
-// A fiscalised receipt must not stay in the inbox. Retries the pending unlink,
-// or re-archives a file whose earlier move failed.
+function _fiscalPdfBaseName(invoiceData, fileName, sourcePath) {
+  const num = String((invoiceData && invoiceData.invoiceNumber) || '').trim();
+  if (num) return `FISCAL_${num}`;
+  const base = String(fileName || sourcePath || 'document').split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  return `${base || 'document'}_fiscal`;
+}
+
+/**
+ * Archive a fiscalised document: the rendered fiscal copy (QR, logo, counters)
+ * goes to the target folder and the untouched source goes to the originals
+ * backup folder.
+ */
+async function archiveFiscalisedDocument({ sourcePath, invoiceData, fiscal, fileName }) {
+  const targetFolder = config.targetFolder;
+  if (!targetFolder || !sourcePath) return { filePath: sourcePath, movePending: true };
+  const originalFolder = config.originalFolder || targetFolder;
+
+  let fiscalPath = null;
+  try {
+    const tplKey = _docTemplateKey({ fileName, filePath: sourcePath });
+    const tpl = PRINT_TEMPLATES[tplKey] || PRINT_TEMPLATES.thermal80;
+    const html = await _buildDocHtml(invoiceData, fiscal || {}, tplKey);
+    const base = _fiscalPdfBaseName(invoiceData, fileName, sourcePath);
+    const r = await window.fiscalBridgeAPI.writeFiscalPdf(html, targetFolder, base, tpl.format);
+    if (r && r.success) fiscalPath = r.path;
+    else console.warn('[Archive] Fiscal PDF not written:', r && r.error);
+  } catch (err) {
+    console.warn('[Archive] Fiscal PDF failed:', err.message);
+  }
+
+  if (!fiscalPath) {
+    // Never lose the file: fall back to archiving the source itself
+    return moveToTarget(sourcePath, targetFolder);
+  }
+
+  const moved = await window.fiscalBridgeAPI.moveReceiptFile(sourcePath, originalFolder);
+  const movedOk = !!(moved && moved.success);
+  const copiedOnly = !!(moved && !moved.success && moved.copied);
+  return {
+    filePath: fiscalPath,
+    originalPath: (movedOk || copiedOnly) ? moved.targetPath : undefined,
+    originalPendingPath: (movedOk || copiedOnly) ? undefined : sourcePath,
+    unlinkPending: copiedOnly ? sourcePath : undefined,
+    movePending: (movedOk || copiedOnly) ? undefined : true,
+  };
+}
+
+// A fiscalised receipt must not stay in the inbox. Retries the pending unlink
+// or a source move that failed at fiscalisation time.
 async function archiveStuckDocument(doc) {
   try {
     if (!doc || doc.status !== 'fiscalised' || !doc.filePath) return false;
@@ -1263,18 +1571,40 @@ async function archiveStuckDocument(doc) {
       return true;
     }
 
+    // Source still in the inbox because the move to the originals folder failed
+    if (doc.originalPendingPath) {
+      if (!config.originalFolder) return false;
+      if (!(await window.fiscalBridgeAPI.fileExists(doc.originalPendingPath))) {
+        await window.fiscalBridgeAPI.addDocument({ ...doc, originalPendingPath: undefined, movePending: undefined });
+        return true;
+      }
+      if (_isInFolder(doc.originalPendingPath, config.originalFolder)) return false;
+      const archive = await moveToTarget(doc.originalPendingPath, config.originalFolder);
+      if (archive.movePending) return false;
+      await window.fiscalBridgeAPI.addDocument({
+        ...doc,
+        originalPath: archive.filePath,
+        originalPendingPath: undefined,
+        unlinkPending: archive.unlinkPending,
+        movePending: undefined,
+      });
+      return true;
+    }
+
+    // Records written before the fiscal copy existed: filePath is the original
+    if (doc.originalPath) return false;
     if (!config.targetFolder) return false;
     if (!_isInFolder(doc.filePath, config.sourceFolder)) return false;
     // Never touch files already in the target (also guards target-inside-source)
     if (_isInFolder(doc.filePath, config.targetFolder)) return false;
     if (!(await window.fiscalBridgeAPI.fileExists(doc.filePath))) return false;
 
-    const archive = await moveToTarget(doc.filePath, config.targetFolder);
-    if (archive.movePending) return false;
+    const legacyArchive = await moveToTarget(doc.filePath, config.targetFolder);
+    if (legacyArchive.movePending) return false;
     await window.fiscalBridgeAPI.addDocument({
       ...doc,
-      filePath: archive.filePath,
-      unlinkPending: archive.unlinkPending,
+      filePath: legacyArchive.filePath,
+      unlinkPending: legacyArchive.unlinkPending,
       movePending: undefined,
     });
     return true;
@@ -1291,12 +1621,17 @@ async function retryDocument(doc) {
   console.log('[Retry] Re-fiscalising', doc.invoiceData.invoiceNumber || doc.fileName);
   const result = await fiscalizeInvoice(doc.invoiceData);
   if (result.success) {
-    const archive = config.targetFolder
-      ? await moveToTarget(doc.filePath, config.targetFolder)
-      : { filePath: doc.filePath };
+    const archive = await archiveFiscalisedDocument({
+      sourcePath: _docOriginalPath(doc),
+      invoiceData: doc.invoiceData,
+      fiscal: result.data,
+      fileName: doc.fileName,
+    });
     await window.fiscalBridgeAPI.addDocument({
       ...doc,
       filePath: archive.filePath,
+      originalPath: archive.originalPath || doc.originalPath,
+      originalPendingPath: archive.originalPendingPath,
       unlinkPending: archive.unlinkPending,
       movePending: archive.movePending || undefined,
       receiptNo: doc.invoiceData.invoiceNumber,
@@ -1308,16 +1643,31 @@ async function retryDocument(doc) {
       parseError: undefined,
     });
     showToast('Retried: ' + (doc.invoiceData.invoiceNumber || doc.fileName), 'success');
-    if (config.printerName) await printFiscalReceipt(doc.invoiceData, result.data || {});
+    if (config.printerName) await printFiscalReceipt(doc.invoiceData, result.data || {}, _docTemplateKey(doc));
   } else {
-    const is4xx = /4\d\d/.test(String(result.status || ''));
-    await window.fiscalBridgeAPI.addDocument({
-      ...doc,
-      status: is4xx ? 'needs_review' : 'retrying',
-      parseError: result.error,
-      apiResponse: result.data,
-    });
-    if (is4xx) showToast('Needs review: ' + (doc.invoiceData.invoiceNumber || doc.fileName), 'error');
+    const offline = result.status === 0
+      ? await tryOfflineFiscalise(doc.invoiceData, doc)
+      : { attempted: false, success: false };
+    if (offline.success) {
+      await completeOfflineFiscalisation({
+        invoiceData: doc.invoiceData,
+        docRecord: doc,
+        offline,
+        sourcePath: _docOriginalPath(doc),
+      });
+    } else {
+      const is4xx = /4\d\d/.test(String(result.status || ''));
+      const reason = offline.attempted
+        ? `${result.error || 'Server unreachable'} | Offline signing unavailable: ${offline.error}`
+        : result.error;
+      await window.fiscalBridgeAPI.addDocument({
+        ...doc,
+        status: is4xx ? 'needs_review' : 'retrying',
+        parseError: reason,
+        apiResponse: result.data,
+      });
+      if (is4xx) showToast('Needs review: ' + (doc.invoiceData.invoiceNumber || doc.fileName), 'error');
+    }
   }
 }
 
@@ -1518,7 +1868,8 @@ async function getDeviceStatus() {
       return { success: false, error: `Server returned ${response.status} ${response.statusText} \u2014 not JSON. Check your API endpoint in Settings.` };
     }
     const data = await response.json();
-    return response.ok ? { success: true, data } : { success: false, error: data.message || `Error ${response.status}` };
+    if (response.ok) return { success: true, data };
+    return { success: false, error: data.Message || data.message || data.details || `Error ${response.status}` };
   } catch (err) { return { success: false, error: err.message }; }
 }
 
@@ -1670,9 +2021,10 @@ function setupParserLab() {
     const id = sel.value;
     if (!id) { showToast('Pick a file first','warning'); return; }
     const doc = documents.find(d => d.id == id);
-    if (!doc || !doc.filePath) { showToast('No file path for this record','error'); return; }
-    parserCurrentFile = doc.filePath;
-    const r = await readTextFromFile(doc.filePath);
+    const sourcePath = _docOriginalPath(doc);
+    if (!doc || !sourcePath) { showToast('No file path for this record','error'); return; }
+    parserCurrentFile = sourcePath;
+    const r = await readTextFromFile(sourcePath);
     if (!r.success) { showToast('Cannot read file','error'); return; }
     document.getElementById('parserRawText').value = r.text;
     parseTextAndRender(r.text);
@@ -2117,8 +2469,9 @@ async function runOnLast20() {
   let pass = 0, fail = 0, rows = [];
   for (const doc of last20) {
     try {
-      if (!doc.filePath) { fail++; rows.push({name:doc.fileName||doc.id,status:'no path'}); continue; }
-      const r = await readTextFromFile(doc.filePath);
+      const sourcePath = _docOriginalPath(doc);
+      if (!sourcePath) { fail++; rows.push({name:doc.fileName||doc.id,status:'no path'}); continue; }
+      const r = await readTextFromFile(sourcePath);
       if (!r.success) { fail++; rows.push({name:doc.fileName,status:'read error'}); continue; }
       const pr = await window.fiscalBridgeAPI.parseText(r.text, p.id);
       const res = pr?.result;
@@ -2202,6 +2555,8 @@ async function loadFiscalDevice() {
         deviceSerialNumber: r.data?.DeviceSerialNumber || cardData.SERIALNUMBER || fc.deviceSerialNumber,
         fiscalDayNo:        r.data?.FiscalDay || d.lastFiscalDayNo || fc.fiscalDayNo,
         fiscalDayStatus:    d.fiscalDayStatus || fc.fiscalDayStatus,
+        fiscalDate:         d.fiscalDayOpenedAt || fc.fiscalDate,
+        fiscalDayClosingErrorCode: d.fiscalDayClosingErrorCode || fc.fiscalDayClosingErrorCode || '',
         receiptGlobalNo:    d.lastReceiptGlobalNo ?? fc.receiptGlobalNo,
         receiptCounter:     fc.receiptCounter,
         previousReceiptHash: fc.previousReceiptHash,
@@ -2209,20 +2564,23 @@ async function loadFiscalDevice() {
         branchName:         cardData.COMPANYNAME || fc.companyName,
         tin:                cardData.TIN || fc.tin,
         vatNumber:          cardData.VAT || fc.vatNumber,
+        logoUrl:            cardData.LOGOURL || cardData.logoUrl || fc.logoUrl,
       };
       Object.assign(config, merged);
+      _lastDeviceCheck = { ok: true, error: '', at: Date.now() };
       const fields = [
         ['Device ID',         merged.deviceId || '—'],
         ['Serial Number',     merged.deviceSerialNumber || '—'],
         ['Company',           merged.branchName || '—'],
         ['TIN',               merged.tin || '—'],
-        ['Status',            merged.fiscalDayStatus || '—'],
+        ['Status',            _fiscalDayLabel(merged.fiscalDayStatus)],
         ['Fiscal Day No.',    merged.fiscalDayNo || '—'],
         ['Receipt Counter',   merged.receiptCounter ?? '—'],
         ['Global Receipt No.', merged.receiptGlobalNo ?? '—'],
         ['Last Hash',         merged.previousReceiptHash ? String(merged.previousReceiptHash).slice(0,16) + '…' : '—'],
         ['Environment',       merged.environment || '—'],
       ];
+      if (merged.fiscalDayClosingErrorCode) fields.push(['Close Error', merged.fiscalDayClosingErrorCode]);
       grid.innerHTML = fields.map(([k,v])=>`
         <div style="padding:8px 0;border-bottom:1px solid var(--table-divider)">
           <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-muted)">${esc(k)}</div>
@@ -2231,6 +2589,7 @@ async function loadFiscalDevice() {
       updateDeviceChip();
     } else {
       grid.innerHTML = '';
+      _lastDeviceCheck = { ok: false, error: r.error || 'Device unreachable', at: Date.now() };
       errEl.innerHTML = `<strong>Error</strong> ${esc(r.error||'Unknown error')}<br><small style="opacity:.7">Check your API endpoint and key in Settings → Connection.</small>`;
       errEl.style.display = '';
     }
@@ -2257,6 +2616,25 @@ async function loadCardDetails() {
       Object.entries(d).map(([k,v])=>`<dt style="color:var(--ink-muted)">${esc(labels[k]||k)}</dt><dd class="mono">${esc(String(v))}</dd>`).join('')+'</dl>';
   } else {
     el.innerHTML = `<div class="why-failed-callout"><strong>Error</strong> ${esc(r.error)}</div>`;
+  }
+}
+
+// Pull the company profile so fiscal documents match the logo uploaded in the
+// web app; the desktop's own logo file remains the fallback.
+async function refreshCompanyBranding() {
+  if (!config.apiEndpoint || !config.apiKey) return;
+  try {
+    const r = await getCardDetails();
+    if (!r.success) return;
+    const d = r.data?.Data || r.data || {};
+    const logoUrl = d.LOGOURL || d.logoUrl || '';
+    if (logoUrl && logoUrl !== config.logoUrl) {
+      config.logoUrl = logoUrl;
+      _logoSrcCache = { key: '', src: '' };
+      await saveConfig();
+    }
+  } catch (e) {
+    console.warn('[Branding] Company logo lookup failed:', e.message);
   }
 }
 
@@ -2307,25 +2685,46 @@ async function runDayClosePreChecks() {
   const queued   = documents.filter(d => d.status === 'queued' || d.status === 'retrying').length;
   const reviewed = documents.filter(d => d.status === 'needs_review').length;
   let fdmsOk = false, fdmsLabel = 'Checking…';
+  let liveStatus = '';
   try {
     const dr = await getDeviceStatus();
     fdmsOk = !!dr.success;
     if (dr.success) {
       // RevMax: { Code, Message, DeviceID, Data: { fiscalDayStatus, lastFiscalDayNo, ... } }
-      const status = dr.data?.Data?.fiscalDayStatus || dr.data?.fiscalDayStatus || '';
-      fdmsLabel = status === 'FiscalDayOpened' ? 'Open' : status === 'FiscalDayClosed' ? 'Closed' : (status || 'OK');
-      if (dr.data?.Data) Object.assign(config, dr.data.Data);
+      const d = dr.data?.Data || dr.data || {};
+      liveStatus = d.fiscalDayStatus || dr.data?.fiscalDayStatus || '';
+      if (liveStatus) config.fiscalDayStatus = liveStatus;
+      config.fiscalDayClosingErrorCode = d.fiscalDayClosingErrorCode || '';
+      if (d.fiscalDayOpenedAt) config.fiscalDate = d.fiscalDayOpenedAt;
+      const dayNo = dr.data?.FiscalDay || d.lastFiscalDayNo;
+      if (dayNo !== undefined && dayNo !== null && dayNo !== '') config.fiscalDayNo = dayNo;
       if (dr.data?.DeviceID) config.deviceId = dr.data.DeviceID;
-      if (dr.data?.FiscalDay) config.fiscalDayNo = dr.data.FiscalDay;
+      const stateTxt = _fiscalDayState(liveStatus);
+      fdmsLabel = stateTxt === 'unknown' ? 'Reachable' : `Reachable · day ${_fiscalDayLabel(liveStatus).toLowerCase()}`;
+      _lastDeviceCheck = { ok: true, error: '', at: Date.now() };
     } else {
       fdmsLabel = dr.error || 'Error';
+      _lastDeviceCheck = { ok: false, error: fdmsLabel, at: Date.now() };
     }
-  } catch {}
+  } catch (e) {
+    fdmsLabel = e.message || 'Error';
+    _lastDeviceCheck = { ok: false, error: fdmsLabel, at: Date.now() };
+  }
   btn.textContent = 'Re-check'; btn.disabled = false;
+
+  const dayState = _fiscalDayState(liveStatus || config.fiscalDayStatus);
+  // A close-failed day is still open on the gateway; retrying the close is the fix.
+  const dayReady  = dayState === 'open' || dayState === 'failed';
+  const dayDetail = dayState === 'failed' ? 'Open — previous close failed' : _fiscalDayLabel(liveStatus || config.fiscalDayStatus);
+  const closeReason = dayState === 'failed' ? _fiscalCloseReason(config.fiscalDayClosingErrorCode) : '';
 
   const checks = [
     { label:'FDMS connection',        ok: fdmsOk,       detail: fdmsLabel },
-    { label:'Fiscal day is open',     ok: config.fiscalDayStatus==='FiscalDayOpen', detail: config.fiscalDayStatus||'Unknown' },
+    { label:'Fiscal day is open',     ok: dayReady,     detail: dayDetail },
+    ...(dayState === 'failed' ? [{
+      label: 'Last close completed', ok: false,
+      detail: `Close failed${closeReason ? ` (${closeReason})` : ''} — retry close or reconcile with RSL`,
+    }] : []),
     { label:'All files fiscalised',   ok: queued === 0, detail: queued === 0 ? 'OK' : `${queued} still pending` },
     { label:'No files needing review',ok: reviewed === 0,detail: reviewed === 0 ? 'OK' : `${reviewed} file(s)` },
   ];
@@ -2404,6 +2803,7 @@ async function submitDayClose() {
         ${result.fiscalCode ? `<div class="card" style="margin-top:12px"><div class="card-title">Fiscal Code</div><div class="mono">${esc(result.fiscalCode)}</div></div>` : ''}`;
       goToDCStep(4);
       showToast('Fiscal day closed successfully', 'success');
+      refreshDashboard();
     } else {
       showToast('Close failed: '+(result.message||'Unknown error'), 'error');
       btn.textContent = 'Retry Close'; btn.disabled = false;
@@ -2428,7 +2828,7 @@ async function handleOpenFiscalDay() {
       const result = await response.json();
       if (response.ok) {
         await window.fiscalBridgeAPI.openFiscalDay();
-        Object.assign(config, { fiscalDayStatus: 'FiscalDayOpen', fiscalDate: new Date().toISOString() });
+        Object.assign(config, { fiscalDayStatus: 'FiscalDayOpened', fiscalDate: new Date().toISOString() });
         fiscalDayOpenTime = Date.now();
         if (!fiscalDayTimerInterval) {
           fiscalDayTimerInterval = setInterval(updateFiscalDayTimer, 1000);
@@ -2515,10 +2915,15 @@ function setupSettings() {
     const f = await window.fiscalBridgeAPI.browseFolder();
     if (f) document.getElementById('cfg-error').value = f;
   });
+  document.getElementById('cfg-browse-original').addEventListener('click', async () => {
+    const f = await window.fiscalBridgeAPI.browseFolder();
+    if (f) document.getElementById('cfg-original').value = f;
+  });
   document.getElementById('cfg-save-folders').addEventListener('click', async () => {
     config.sourceFolder = document.getElementById('cfg-source').value;
     config.targetFolder = document.getElementById('cfg-target').value;
     config.errorFolder  = document.getElementById('cfg-error').value;
+    config.originalFolder = document.getElementById('cfg-original').value;
     await saveConfig(); showToast('Folder settings saved','success');
   });
 
@@ -2677,6 +3082,7 @@ async function populateSettings() {
   s('cfg-source').value     = config.sourceFolder  || '';
   s('cfg-target').value     = config.targetFolder  || '';
   s('cfg-error').value      = config.errorFolder   || '';
+  s('cfg-original').value   = config.originalFolder || '';
   s('cfg-start').value = config.productStartLine || (config.parserProfiles&&config.parserProfiles[0]&&config.parserProfiles[0].productStartLine) || '';
   s('cfg-end').value   = config.productEndLine   || (config.parserProfiles&&config.parserProfiles[0]&&config.parserProfiles[0].productEndLine)   || '';
   s('cfg-dot').value   = config.itemDotCounter   || '2';
@@ -3054,7 +3460,10 @@ function _buildThermal(width, invoice, fiscal, cfg) {
     <div class="center small">Verify at: ${verifyUrl}</div>
   `;
 
-  const logoHtml = cfg.logoFile ? `<div class="center"><img src="${esc(cfg.logoFile)}" style="max-height:60px;max-width:92%;margin-bottom:6px"></div>` : '';
+  // _logoSrc is authoritative once resolved ('' means "no logo"), so a failed
+  // embed never leaks a raw local path into a data:/blob: document.
+  const logoSrc = cfg._logoSrc !== undefined ? cfg._logoSrc : (cfg.logoUrl || cfg.logoFile || '');
+  const logoHtml = logoSrc ? `<div class="center"><img src="${esc(logoSrc)}" style="max-height:60px;max-width:92%;margin-bottom:6px"></div>` : '';
   const invoiceTotal = parseFloat(invoice.total || invoice.invoiceAmount || 0);
 
   return `<html><head><style>
@@ -3137,6 +3546,9 @@ function _buildModernA4(invoice, fiscal, cfg) {
               text: '#0f172a', muted: '#64748b', border: '#dbe3ef', radius: 6 };
   const compact   = cfg.templateDensity === 'compact';
   const qrPlace   = cfg.qrPlacement || 'header-right'; // header-right | header-center | footer
+  // '' means the logo was resolved and is unavailable — never fall back to a
+  // raw local path, which data:/blob: documents cannot load.
+  const logoSrc   = cfg._logoSrc !== undefined ? cfg._logoSrc : (cfg.logoUrl || cfg.logoFile || '');
   const n2        = v => (Number.isFinite(+v) ? (+v).toFixed(2) : '0.00');
   const fmtDate   = d => {
     if (!d) return '';
@@ -3265,7 +3677,7 @@ function _buildModernA4(invoice, fiscal, cfg) {
 
   <!-- 0. Header: logo | verification | QR -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${compact ? 7 : 10}pt;padding-bottom:10pt;border-bottom:1px solid ${T.border}">
-    <div style="width:28%">${cfg.logoFile ? `<img src="${esc(cfg.logoFile)}" style="width:108pt;height:50pt;object-fit:contain;object-position:left">` : ''}</div>
+    <div style="width:28%">${logoSrc ? `<img src="${esc(logoSrc)}" style="width:108pt;height:50pt;object-fit:contain;object-position:left">` : ''}</div>
     <div style="width:44%;text-align:center;display:flex;flex-direction:column;align-items:center">
       ${qrPlace === 'header-center' ? `<div style="margin-bottom:3pt">${qrTag(62)}</div>` : ''}
       ${isFiscal && !isQuote ? `<div style="font-size:9pt;font-weight:700;color:#1e293b;margin-bottom:1pt">Verification Code: ${esc(verCode)}</div>
@@ -3416,6 +3828,36 @@ async function _withQrImage(invoice, fiscal) {
   return f;
 }
 
+// Logos are embedded so preview, print and the archived PDF all show them and
+// work offline. The web app's company logo is preferred (one source of truth);
+// the desktop's "Company Logo" file is the fallback. An empty result means
+// "no logo" — never fall back to a raw path a data:/blob: document cannot load.
+let _logoSrcCache = { key: '', src: '' };
+async function _resolveLogoSrc(cfg) {
+  const webLogo = (cfg && cfg.logoUrl) || '';
+  const localLogo = (cfg && cfg.logoFile) || '';
+  const key = `${webLogo}|${localLogo}`;
+  if (_logoSrcCache.key === key) return _logoSrcCache.src;
+  let src = '';
+  for (const candidate of [webLogo, localLogo]) {
+    if (!candidate || src) continue;
+    try {
+      const r = await window.fiscalBridgeAPI?.readImageDataUrl?.(candidate);
+      if (r && r.success) src = r.dataUrl;
+    } catch (e) {
+      console.warn('[Logo] Could not load', candidate, '-', e.message);
+    }
+  }
+  _logoSrcCache = { key, src };
+  return src;
+}
+
+async function _buildDocHtml(invoice, fiscal, templateKey) {
+  const cfg = { ...config, _logoSrc: await _resolveLogoSrc(config) };
+  const f = await _withQrImage(invoice, fiscal);
+  return buildReceiptHTML(invoice, f, cfg, templateKey);
+}
+
 // ── The 3 canonical templates ─────────────────────────────────────────────────
 const PRINT_TEMPLATES = {
   thermal80: {
@@ -3437,16 +3879,16 @@ const PRINT_TEMPLATES = {
 // Alias for old configs
 PRINT_TEMPLATES.standard = PRINT_TEMPLATES.thermal80;
 
-function buildReceiptHTML(invoice, fiscal, cfg) {
-  const tpl = PRINT_TEMPLATES[cfg.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
+function buildReceiptHTML(invoice, fiscal, cfg, templateKey) {
+  const key = templateKey || cfg.printTemplate || 'thermal80';
+  const tpl = PRINT_TEMPLATES[key] || PRINT_TEMPLATES.thermal80;
   return tpl.generate(invoice, fiscal, cfg);
 }
 
 
-async function printFiscalReceipt(invoice, fiscal) {
-  const tpl = PRINT_TEMPLATES[config.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
-  const f = await _withQrImage(invoice, fiscal);
-  const html = buildReceiptHTML(invoice, f, config);
+async function printFiscalReceipt(invoice, fiscal, templateKey) {
+  const tpl = PRINT_TEMPLATES[templateKey || config.printTemplate || 'thermal80'] || PRINT_TEMPLATES.thermal80;
+  const html = await _buildDocHtml(invoice, fiscal, templateKey);
   try { 
     const r = await window.fiscalBridgeAPI.printReceipt(html, config.printerName, tpl.format);
     if (r && r.success === false) throw new Error(r.error || 'Print failed');
@@ -3570,17 +4012,25 @@ function renderHeaderFiscalStatus() {
   const fiscalDayStatus = config.fiscalDayStatus || config.Data?.fiscalDayStatus;
   const fiscalDayNo = config.fiscalDayNo || config.FiscalDay || config.Data?.FiscalDay || config.Data?.lastFiscalDayNo;
   
-  const isOpen = _fiscalDayOpen(fiscalDayStatus);
+  const state  = _fiscalDayState(fiscalDayStatus);
   const dayNo  = fiscalDayNo ? `Day ${fiscalDayNo}` : 'No Day';
   const company = config.companyName ? `${config.companyName} · ` : '';
-  if (isOpen) {
+  if (state === 'open') {
     pill.style.background = 'var(--pill-ok-bg)';
     pill.style.color = 'var(--pill-ok-text)';
     pill.textContent = `${company}${dayNo} Open`;
-  } else {
+  } else if (state === 'failed') {
+    pill.style.background = '#FEF3C7';
+    pill.style.color = '#92400E';
+    pill.textContent = `${company}${dayNo} Close failed`;
+  } else if (state === 'closed') {
     pill.style.background = 'var(--pill-offline-bg)';
     pill.style.color = 'var(--pill-offline-text)';
     pill.textContent = `${company}${dayNo} Closed`;
+  } else {
+    pill.style.background = 'var(--pill-offline-bg)';
+    pill.style.color = 'var(--pill-offline-text)';
+    pill.textContent = `${company}Status unknown`;
   }
 }
 
@@ -3598,7 +4048,8 @@ function timeAgo(ts) {
   return `${Math.round(sec/3600)}h ago`;
 }
 
-function statusPill(status) {
+function statusPill(status, offline) {
+  if (offline) return '<span class="pill pill-queued">Offline — queued</span>';
   const map = {
     fiscalised:   ['pill-ok',     'Fiscalised'],
     queued:       ['pill-queued', 'Queued'],

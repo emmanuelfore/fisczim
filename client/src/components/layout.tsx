@@ -1519,14 +1519,13 @@ export function Layout({
                   )}
                 </div>
               ) : (
-                <img
-                  src={brand.logo}
-                  alt={brand.name}
-                  className={cn(
-                    "transition-all rounded-lg",
-                    isSidebarCollapsed ? "h-6 w-6 object-contain" : "h-8",
-                  )}
-                />
+                !isSidebarCollapsed && (
+                  <img
+                    src={brand.logo}
+                    alt={brand.name}
+                    className="transition-all rounded-lg object-contain w-[180px] h-auto"
+                  />
+                )
               )}
             </div>
             <Button

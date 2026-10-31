@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('fiscalBridgeAPI', {
   onTrayToggleWatch: (callback) => {
     ipcRenderer.on('tray-toggle-watch', () => callback());
   },
+  onTrayFiscalDay: (callback) => {
+    ipcRenderer.on('tray-fiscal-day', (_e, kind) => callback(kind));
+  },
 
   // File Operations
   readReceiptFile: (filePath) => ipcRenderer.invoke('read-receipt-file', filePath),
@@ -84,10 +87,19 @@ contextBridge.exposeInMainWorld('fiscalBridgeAPI', {
   parseA4Pdf: (filePath) => ipcRenderer.invoke('parse-a4-pdf', filePath),
   printPdfFile: (filePath, printerName) =>
     ipcRenderer.invoke('print-pdf-file', filePath, printerName),
+  writeFiscalPdf: (html, targetDir, baseName, format) =>
+    ipcRenderer.invoke('write-fiscal-pdf', html, targetDir, baseName, format),
+  readImageDataUrl: (filePath) => ipcRenderer.invoke('read-image-data-url', filePath),
 
   // Enterprise Queue / Observability
   getQueueHealth: () => ipcRenderer.invoke('get-queue-health'),
   syncOfflineQueue: (cfg) => ipcRenderer.invoke('sync-offline-queue', cfg),
+
+  // ── Offline fiscal signing ─────────────────────────────────────────────────
+  getOfflineFiscalState: () => ipcRenderer.invoke('get-offline-fiscal-state'),
+  bootstrapOfflineFiscal: () => ipcRenderer.invoke('bootstrap-offline-fiscal'),
+  signOfflineFiscal: (invoice, docId) => ipcRenderer.invoke('sign-offline-fiscal', invoice, docId),
+  onOfflineSyncComplete: (cb) => ipcRenderer.on('offline-sync-complete', (_e, result) => cb(result)),
   getMetrics: () => ipcRenderer.invoke('get-metrics'),
   recordSync: (success, failure) => ipcRenderer.invoke('record-sync', success, failure),
 

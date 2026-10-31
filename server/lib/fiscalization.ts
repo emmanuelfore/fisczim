@@ -1367,7 +1367,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             try {
                 await persistRetryAnchor();
                 vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
-                result = await device.submitReceipt(receiptData, prevHash, true);
+                // Forward the till's offline signature only when its counters
+                // were accepted as-is; submitReceipt verifies it against the
+                // exact prepared payload and re-signs on any mismatch.
+                const offlineSignatureToReuse = (!rebasedOfflineNumbers && invoice.fiscalSignature)
+                    ? invoice.fiscalSignature
+                    : undefined;
+                result = await device.submitReceipt(receiptData, prevHash, true, offlineSignatureToReuse);
                 vTimeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
             } catch (submitErr: any) {
                 // Auto-Open Retry Logic: Trigger on ZIMRA error code 310 or RCPT01 (FiscalDayClosed).
@@ -1884,7 +1890,7 @@ export const processInvoiceFiscalizationLEKUKA = async (
                     fiscalDayOpenedAt: new Date(),
                     currentFiscalDayNo: newDayNo,
                     dailyReceiptCount: 0,
-                    lastFiscalDayStatus: "Opened",
+                    lastFiscalDayStatus: "FiscalDayOpened",
                 } as any);
                 // Reload company to pick up the new day number
                 company = await storage.getCompany(companyId);

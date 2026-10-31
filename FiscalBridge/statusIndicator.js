@@ -26,6 +26,7 @@ class StatusIndicator extends EventEmitter {
       companyName: null,
       deviceId: null,
       fiscalDay: null,
+      fiscalDayStatus: null,
       tin: null
     };
   }

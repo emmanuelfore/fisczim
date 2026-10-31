@@ -97,7 +97,7 @@ class ConfigManager {
      * Open fiscal day
      */
     openFiscalDay() {
-        this.config.fiscalDayStatus = 'FiscalDayOpen';
+        this.config.fiscalDayStatus = 'FiscalDayOpened';
         this.config.fiscalDayNo++;
         this.config.fiscalDate = new Date().toISOString();
         this.config.receiptCounter = 0;
@@ -116,7 +116,8 @@ class ConfigManager {
      * Check if fiscal day is open
      */
     isFiscalDayOpen() {
-        return this.config.fiscalDayStatus === 'FiscalDayOpen';
+        const s = String(this.config.fiscalDayStatus || '').trim().toLowerCase();
+        return s === 'fiscaldayopened' || s === 'fiscaldayopen' || s === 'opened' || s === 'open';
     }
 
     /**

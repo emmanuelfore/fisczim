@@ -463,6 +463,7 @@ input::placeholder { color: var(--ink-faint); }
 }
 .check-dot.fail { background: var(--danger); }
 .check-dot.warn { background: #F59E0B; }
+.check-dot.unknown { background: #8A9BAE; }
 .check-label { flex: 1; opacity: .85; }
 .check-value { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; opacity: .7; }
 

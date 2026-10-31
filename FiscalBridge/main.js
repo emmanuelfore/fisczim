@@ -16,6 +16,9 @@ const documentStore = require('./documentStore');
 const deviceStore   = require('./deviceStore');
 const profileStore  = require('./profileStore');
 const parserEngine  = require('./parserEngine');
+const fiscalChain   = require('./fiscalChain');
+const enterpriseQueue = require('./enterpriseQueue');
+const { writeFiscalPdf } = require('./fiscalPdf');
 const { getInstance: getStatusIndicator } = require('./statusIndicator');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -90,20 +93,24 @@ function migrateConfig(config) {
   if (!c.errorFolder) {
     c.errorFolder = path.join(homeDir, 'FiscalBridge', 'errors');
   }
+  if (!c.originalFolder) {
+    c.originalFolder = path.join(homeDir, 'FiscalBridge', 'originals');
+  }
   
   // Ensure folders object is consistent with top-level folder properties
   if (!c.folders) {
-    c.folders = { source: c.sourceFolder, target: c.targetFolder, error: c.errorFolder };
+    c.folders = { source: c.sourceFolder, target: c.targetFolder, error: c.errorFolder, original: c.originalFolder };
   } else {
     // Prefer top-level properties over nested folders object
     c.folders.source = c.sourceFolder;
     c.folders.target = c.targetFolder;
     c.folders.error = c.errorFolder;
+    c.folders.original = c.originalFolder;
   }
   
   // Create default folders if they don't exist
   try {
-    [c.sourceFolder, c.targetFolder, c.errorFolder].forEach(folder => {
+    [c.sourceFolder, c.targetFolder, c.errorFolder, c.originalFolder].forEach(folder => {
       if (folder && !fs.existsSync(folder)) {
         fs.mkdirSync(folder, { recursive: true });
         log.info('[Config] Created default folder:', folder);
@@ -166,6 +173,108 @@ async function resolvePrintFallback(event, printerName) {
   return { error: `Printer "${printerName}" is unavailable. Connect it or choose another printer in Settings.` };
 }
 
+// ── Offline fiscal signing ───────────────────────────────────────────────────
+let lastBootstrapAt = 0;
+let offlineTimer = null;
+
+function notifyRenderer(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  try { mainWindow.webContents.send(channel, payload); } catch { /* renderer unavailable */ }
+}
+
+async function bootstrapOfflineFiscal({ force = false } = {}) {
+  const config = readConfig();
+  if (!config.apiEndpoint || !config.apiKey) throw new Error('API endpoint or key not configured');
+  if (!force && Date.now() - lastBootstrapAt < 5 * 60 * 1000) return fiscalChain.getState();
+  const state = await fiscalChain.bootstrap({
+    apiEndpoint: config.apiEndpoint,
+    apiKey: config.apiKey,
+  });
+  lastBootstrapAt = Date.now();
+  return state;
+}
+
+function applySyncResults(results) {
+  let changed = 0;
+  for (const result of results || []) {
+    if (!result.idempotencyKey) continue;
+    const doc = documentStore.getDocuments().find((d) => d.queueId === result.idempotencyKey);
+    if (!doc) continue;
+
+    if (result.ok) {
+      const body = result.body || {};
+      const receipt = body.receipt || {};
+      documentStore.updateDocument(doc.id, {
+        status: 'fiscalised',
+        offline: false,
+        syncedAt: new Date().toISOString(),
+        fiscalCode: body.fiscalCode || doc.fiscalCode,
+        apiResponse: {
+          fiscalCode: body.fiscalCode || doc.fiscalCode,
+          qrCode: body.qrCode || doc.apiResponse?.qrCode,
+          verificationCode: body.verificationCode || doc.apiResponse?.verificationCode,
+          receiptGlobalNo: receipt.receiptGlobalNo ?? body.receiptNumber ?? doc.apiResponse?.receiptGlobalNo,
+          receiptCounter: receipt.receiptCounter ?? doc.apiResponse?.receiptCounter,
+          fiscalDayNo: receipt.fiscalDayNo ?? doc.apiResponse?.fiscalDayNo,
+          message: 'Synced from offline queue',
+          offline: false,
+        },
+        parseError: undefined,
+      });
+      changed += 1;
+    } else if (result.permanent) {
+      documentStore.updateDocument(doc.id, {
+        status: 'needs_review',
+        parseError: 'Sync rejected: ' + (result.body?.message || result.body?.error || `HTTP ${result.status}`),
+      });
+      changed += 1;
+    } else if (result.status) {
+      documentStore.updateDocument(doc.id, {
+        parseError: 'Sync failed: ' + (result.body?.message || `HTTP ${result.status}`),
+      });
+      changed += 1;
+    }
+  }
+  return changed;
+}
+
+async function flushOfflineQueue(config) {
+  const result = await enterpriseQueue.syncQueue({
+    apiEndpoint: config.apiEndpoint,
+    apiKey: config.apiKey,
+    endpoint: '/api/v1/fiscalize',
+    passphrase: config.passphrase,
+  });
+  const changed = applySyncResults(result.results);
+  if (result.remaining === 0) {
+    try { await bootstrapOfflineFiscal({ force: true }); } catch { /* stay on cached state */ }
+  }
+  if (changed > 0 || result.results.length > 0) {
+    notifyRenderer('offline-sync-complete', result);
+  }
+  return result;
+}
+
+async function runOfflineMaintenance() {
+  const config = readConfig();
+  if (!config.apiEndpoint || !config.apiKey) return;
+  try {
+    if (enterpriseQueue.getQueueLength() > 0) {
+      await flushOfflineQueue(config);
+    } else {
+      await bootstrapOfflineFiscal();
+    }
+  } catch (e) {
+    log.warn('[Offline] Maintenance skipped:', e.message);
+  }
+}
+
+function startOfflineMaintenance() {
+  if (offlineTimer) clearInterval(offlineTimer);
+  offlineTimer = setInterval(runOfflineMaintenance, 30000);
+  setTimeout(runOfflineMaintenance, 2000);
+}
+
 function registerIpcHandlers() {
   // Configuration management
   ipcMain.handle('get-config', () => {
@@ -202,7 +311,12 @@ function registerIpcHandlers() {
       }
 
       if (!response.ok) {
-        return { success: false, error: `HTTP ${response.status}` };
+        let message = `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          message = body?.Message || body?.message || body?.details || message;
+        } catch (e) { /* non-JSON error body */ }
+        return { success: false, error: message, status: response.status };
       }
 
       const data = await response.json();
@@ -424,6 +538,20 @@ function registerIpcHandlers() {
     }
   });
 
+  // Persist the fiscalised document (QR, logo and fiscal counters baked in) as
+  // a PDF next to the processed invoices. A4 documents paginate themselves;
+  // thermal slips are sized to their rendered content so there is no blank tail.
+  ipcMain.handle('write-fiscal-pdf', async (_event, html, targetDir, baseName, format) => {
+    try {
+      const finalPath = await writeFiscalPdf(html, targetDir, baseName, format);
+      log.info('[FiscalPdf] Saved:', finalPath);
+      return { success: true, path: finalPath };
+    } catch (e) {
+      log.error('[FiscalPdf] Failed:', e.message);
+      return { success: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('move-receipt-file', async (_event, sourcePath, targetPath) => {
     try {
       log.info('[FileMove] Moving file from:', sourcePath, 'to:', targetPath);
@@ -631,12 +759,34 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('get-queue-health', async () => {
-    try { return require('./enterpriseQueue').health(); } catch (e) { return { error: e.message }; }
+    try { return enterpriseQueue.health(); } catch (e) { return { error: e.message }; }
   });
 
-  ipcMain.handle('sync-offline-queue', async (_event, config) => {
-    try { return await require('./enterpriseQueue').syncQueue(config || {}); }
-    catch (e) { return { error: e.message }; }
+  ipcMain.handle('get-offline-fiscal-state', async () => {
+    try { return fiscalChain.getState(); }
+    catch (e) { return { ready: false, reason: e.message, pending: 0 }; }
+  });
+
+  ipcMain.handle('bootstrap-offline-fiscal', async () => {
+    try {
+      return { success: true, state: await bootstrapOfflineFiscal({ force: true }) };
+    } catch (e) {
+      return { success: false, error: e.message, state: fiscalChain.getState() };
+    }
+  });
+
+  ipcMain.handle('sign-offline-fiscal', async (_event, invoice, docId) => {
+    try {
+      return await fiscalChain.signAndQueue(invoice || {}, { docId });
+    } catch (e) {
+      log.warn('[Offline] Sign refused:', e.code || '', e.message);
+      return { success: false, code: e.code || 'OFFLINE_SIGN_FAILED', error: e.message };
+    }
+  });
+
+  ipcMain.handle('sync-offline-queue', async (_event, cfg) => {
+    try { return await flushOfflineQueue(cfg || readConfig()); }
+    catch (e) { return { error: e.message, results: [] }; }
   });
 
   ipcMain.handle('get-preferred-printer', async () => {
@@ -914,6 +1064,33 @@ function registerIpcHandlers() {
     autoUpdater.quitAndInstall();
     return { success: true };
   });
+  // Print/preview documents are loaded from data:/blob: URLs, which cannot
+  // reference local files; logos must arrive as a data URL. Accepts the web
+  // company logo URL too, so archived copies stay self-contained offline.
+  ipcMain.handle('read-image-data-url', async (_event, filePath) => {
+    try {
+      if (/^https?:\/\//i.test(filePath)) {
+        const res = await fetch(filePath, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+        const type = (res.headers.get('content-type') || '').split(';')[0];
+        if (!type.startsWith('image/')) return { success: false, error: 'Not an image' };
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 3 * 1024 * 1024) return { success: false, error: 'Image too large' };
+        return { success: true, dataUrl: `data:${type};base64,${buf.toString('base64')}` };
+      }
+      const mime = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml',
+      }[path.extname(filePath).toLowerCase()];
+      if (!mime) return { success: false, error: 'Unsupported image type' };
+      const buf = fs.readFileSync(filePath);
+      return { success: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}` };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // qr-data-url: render QR as PNG data URL (print windows have no QR library)
   ipcMain.handle('qr-data-url', async (_event, text, width) => {
     try {
@@ -1321,6 +1498,29 @@ function toggleWatchingFromTray() {
   }
 }
 
+// Gateways report FiscalDayOpened / FiscalDayClosed / FiscalDayCloseFailed;
+// a close-failed day is still open, so it only offers a retry close.
+function trayDayState(deviceInfo, cfg) {
+  const raw = String((deviceInfo && deviceInfo.fiscalDayStatus) || (cfg && cfg.fiscalDayStatus) || '')
+    .trim().toLowerCase();
+  if (['fiscaldayopened', 'fiscaldayopen', 'opened', 'open'].includes(raw)) return 'open';
+  if (['fiscaldayclosed', 'closed'].includes(raw)) return 'closed';
+  if (['fiscaldayclosefailed', 'closefailed', 'close failed'].includes(raw)) return 'failed';
+  return 'unknown';
+}
+
+function requestFiscalDayAction(kind) {
+  // Run the same flows as the Day Close page so the UI, audit log and state
+  // stay consistent; show the window first so confirmations are visible.
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  showWindow();
+  try {
+    mainWindow.webContents.send('tray-fiscal-day', kind);
+  } catch (e) {
+    log.warn('[Tray] Failed to send fiscal-day command:', e.message);
+  }
+}
+
 async function checkForUpdatesFromTray() {
   if (!autoUpdater || !app.isPackaged) return;
   try {
@@ -1385,6 +1585,19 @@ function buildTrayMenu() {
   });
   template.push({ label: 'Open log file', click: () => openLogFile() });
 
+  const dayState = trayDayState(device, cfg);
+  template.push({ type: 'separator' });
+  template.push({
+    label: dayState === 'failed' ? 'Retry close fiscal day' : 'Close fiscal day',
+    enabled: dayState === 'open' || dayState === 'failed',
+    click: () => requestFiscalDayAction('close')
+  });
+  template.push({
+    label: 'Open fiscal day',
+    enabled: dayState === 'closed',
+    click: () => requestFiscalDayAction('open')
+  });
+
   if (autoUpdater && app.isPackaged) {
     template.push({ type: 'separator' });
     template.push({ label: 'Check for updates', click: () => checkForUpdatesFromTray() });
@@ -1424,6 +1637,7 @@ function updateTrayPresentation() {
   const cfg = readConfig();
   const signature = JSON.stringify([
     s.status, s.queueCount, d.companyName, d.deviceId, d.fiscalDay,
+    trayDayState(d, cfg),
     activeWatchers.has('source'), cfg.sourceFolder, cfg.targetFolder, cfg.errorFolder,
     !!autoUpdater && app.isPackaged
   ]);
@@ -1479,7 +1693,10 @@ function hideWindow() {
 
 app.whenReady().then(() => {
   profileStore.init(app.getPath('userData'));
+  enterpriseQueue.setBaseDir(app.getPath('userData'));
+  fiscalChain.init(app.getPath('userData'));
   createWindow();
+  startOfflineMaintenance();
 });
 
 app.on('window-all-closed', () => {

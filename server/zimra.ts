@@ -422,6 +422,19 @@ export class ZimraDevice {
         return sign.sign(this.config.privateKey, 'base64');
     }
 
+    private verifySignature(data: string, signatureBase64: string): boolean {
+        try {
+            if (!this.config.privateKey) return false;
+            const publicKey = crypto.createPublicKey(this.config.privateKey);
+            const verify = crypto.createVerify('SHA256');
+            verify.update(data);
+            verify.end();
+            return verify.verify(publicKey, signatureBase64, 'base64');
+        } catch {
+            return false;
+        }
+    }
+
     private taxCalculator(saleAmount: number, taxRate: number, isInclusive: boolean = true): number {
         const rate = taxRate / 100;
         const sign = saleAmount < 0 ? -1 : 1;
@@ -668,10 +681,15 @@ export class ZimraDevice {
         const hash = this.getHash(stringToSign);
         let signature: string;
 
-        if (preComputedSignature) {
+        if (preComputedSignature && this.verifySignature(stringToSign, preComputedSignature)) {
+            // The till signed exactly the payload we are about to submit. Reuse
+            // it so the printed QR/verification code matches what ZIMRA records.
             signature = preComputedSignature;
-            console.log('Using pre-computed offline signature');
+            console.log('Using verified offline signature');
         } else {
+            if (preComputedSignature) {
+                console.warn('Discarding offline signature: prepared payload differs from the signed one');
+            }
             signature = this.signData(stringToSign);
         }
 

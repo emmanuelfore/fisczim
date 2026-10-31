@@ -938,7 +938,8 @@
             <div class="settings-section card" id="ssec-folders">
               <h3>Folders</h3>
               <div class="form-group"><label for="cfg-source">Source Folder</label><div class="input-with-btn"><input type="text" id="cfg-source"><button class="btn-secondary" id="cfg-browse-source">Browse</button></div></div>
-              <div class="form-group"><label for="cfg-target">Target Folder</label><div class="input-with-btn"><input type="text" id="cfg-target"><button class="btn-secondary" id="cfg-browse-target">Browse</button></div></div>
+              <div class="form-group"><label for="cfg-target">Target Folder (fiscalised copies)</label><div class="input-with-btn"><input type="text" id="cfg-target"><button class="btn-secondary" id="cfg-browse-target">Browse</button></div></div>
+              <div class="form-group"><label for="cfg-original">Original Backup Folder</label><div class="input-with-btn"><input type="text" id="cfg-original"><button class="btn-secondary" id="cfg-browse-original">Browse</button></div></div>
               <div class="form-group"><label for="cfg-error">Error Folder</label><div class="input-with-btn"><input type="text" id="cfg-error"><button class="btn-secondary" id="cfg-browse-error">Browse</button></div></div>
               <button class="btn-primary" id="cfg-save-folders">Save</button>
             </div>
@@ -1177,6 +1178,7 @@
   <div class="pdf-modal-footer">
     <span class="pdf-modal-meta" id="pdfModalMeta"></span>
     <div class="pdf-modal-actions">
+      <button class="btn-secondary" id="pdfModalSourceBtn" type="button" hidden>Original PDF</button>
       <button class="btn-secondary" id="pdfModalPrintBtn" type="button">Print</button>
       <button class="btn-secondary" id="pdfModalDownloadBtn" type="button">Download</button>
       <button class="btn-primary" id="closePdfModalFooterBtn" type="button">Close</button>

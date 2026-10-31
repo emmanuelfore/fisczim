@@ -184,6 +184,11 @@ function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   return loading && !timedOut;
 }
 
+// A cold company-list fetch after login pays a fresh DB connection plus its
+// share of the login burst. Locally measured p95 is ~17s, so anything shorter
+// than this turns a healthy load into a scary reconnect screen.
+const WORKSPACE_STALL_MS = 20_000;
+
 // Initial gate only — a quiet brand mark and a thin indeterminate line read as
 // "starting", not "stalled", and match the light app theme so there is no dark flash.
 function LoadingScreen({ message }: { message?: string }) {
@@ -208,6 +213,22 @@ function RouteFallback() {
       <div className="loading-bar-fill h-full w-1/3 rounded-r-full bg-primary" />
     </div>
   );
+}
+
+// Keeps the quiet boot screen while the first workspace request is merely slow,
+// and only escalates to the reconnect copy once it has actually failed or
+// stalled. Showing "Reconnecting" during a normal 6-second load reads as an
+// error even though nothing is wrong.
+function WorkspaceFallback({
+  isError,
+  onRetry,
+}: {
+  isError: boolean;
+  onRetry: () => unknown;
+}) {
+  const stillStarting = useBoundedLoading(!isError, WORKSPACE_STALL_MS);
+  if (stillStarting) return <LoadingScreen />;
+  return <WorkspaceReconnect onRetry={onRetry} />;
 }
 
 // A company-list failure is almost always a transient network/DB blip right
@@ -312,7 +333,7 @@ function ProtectedRoute({
   // retry backoff. Show one honest, self-healing state instead of a shell with
   // no company context (empty dashboards, dead navigation).
   if (!Array.isArray(companies)) {
-    return <WorkspaceReconnect onRetry={refetchCompanies} />;
+    return <WorkspaceFallback isError={isCompaniesError} onRetry={refetchCompanies} />;
   }
 
   // Redirect to onboarding if online and company list is definitively empty
@@ -363,7 +384,7 @@ function OnboardingRoute() {
   // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
   if (!isOnline || isError) {
     if (!Array.isArray(companies)) {
-      return <WorkspaceReconnect onRetry={refetchCompanies} />;
+      return <WorkspaceFallback isError={isError} onRetry={refetchCompanies} />;
     }
     const role = Array.isArray(companies)
       ? (companies[0] as any)?.role
@@ -376,7 +397,7 @@ function OnboardingRoute() {
     );
   }
   if (!Array.isArray(companies)) {
-    return <WorkspaceReconnect onRetry={refetchCompanies} />;
+    return <WorkspaceFallback isError={isError} onRetry={refetchCompanies} />;
   }
 
   // If we have companies, we shouldn't be here
@@ -404,12 +425,12 @@ function AuthRedirect() {
   if (!user) return <Redirect to="/auth" />;
   if (!isOnline || isError) {
     if (!Array.isArray(companies)) {
-      return <WorkspaceReconnect onRetry={refetchCompanies} />;
+      return <WorkspaceFallback isError={isError} onRetry={refetchCompanies} />;
     }
     return <Redirect to={getCompanyHomeRoute(companies, user)} />;
   }
   if (!Array.isArray(companies)) {
-    return <WorkspaceReconnect onRetry={refetchCompanies} />;
+    return <WorkspaceFallback isError={isError} onRetry={refetchCompanies} />;
   }
 
   return <Redirect to={getCompanyHomeRoute(companies, user)} />;

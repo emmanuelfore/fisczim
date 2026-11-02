@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
+import { formatCurrencyAmount } from "@shared/currency";
 import { format, isValid } from "date-fns";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 
@@ -169,6 +170,7 @@ export const SupplierStatementPDF = ({
 
   const formatDate = (d: any) => format(getSafeDate(d), "dd MMM yyyy");
   const num = (v: any) => Number(v || 0);
+  const money = (value: any) => formatCurrencyAmount(num(value), currency);
 
   const pageFont = pdfFontFamily("Helvetica");
 
@@ -222,25 +224,23 @@ export const SupplierStatementPDF = ({
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Opening Balance</Text>
               <Text style={s.summaryValue}>
-                {currency} {num(data.openingBalance).toFixed(2)}
+                {money(num(data.openingBalance))}
               </Text>
             </View>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Total Billed</Text>
               <Text style={s.summaryValue}>
-                {currency}{" "}
-                {data.transactions
-                  .reduce((acc, t) => acc + num(t.credit), 0)
-                  .toFixed(2)}
+                {money(
+                  data.transactions.reduce((acc, t) => acc + num(t.credit), 0),
+                )}
               </Text>
             </View>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Total Paid</Text>
               <Text style={s.summaryValue}>
-                {currency}{" "}
-                {data.transactions
-                  .reduce((acc, t) => acc + num(t.debit), 0)
-                  .toFixed(2)}
+                {money(
+                  data.transactions.reduce((acc, t) => acc + num(t.debit), 0),
+                )}
               </Text>
             </View>
             <View style={s.summaryItem}>
@@ -250,7 +250,7 @@ export const SupplierStatementPDF = ({
                 Amount Owed
               </Text>
               <Text style={[s.summaryValue, { color: "#dc2626" }]}>
-                {currency} {num(data.closingBalance).toFixed(2)}
+                {money(num(data.closingBalance))}
               </Text>
             </View>
           </View>

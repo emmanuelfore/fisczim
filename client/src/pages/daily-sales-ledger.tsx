@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
+import { currencySign } from "@shared/currency";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useQuery } from "@tanstack/react-query";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import { DailySalesTable } from "@/components/reports/daily-sales-table";
 import { User } from "@shared/schema";
 import { downloadExcel } from "@/lib/export-utils";
@@ -54,7 +55,7 @@ export default function DailySalesLedgerPage() {
     (c) => c.code === consolidatedCode,
   );
   const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
-  const consolidatedSymbol = consolidatedCurrency?.symbol || "$";
+  const consolidatedSymbol = consolidatedCurrency?.symbol || currencySign(consolidatedCode);
 
   // Queries
   const { data: companyUsers } = useQuery<User[]>({
@@ -238,7 +239,7 @@ export default function DailySalesLedgerPage() {
                 <SelectValue placeholder="USD" />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                {!isLesothoDomain() && (
+                {!isLesothoInstance() && (
                   <SelectItem value="USD" className="text-xs font-bold">
                     USD
                   </SelectItem>

@@ -1,6 +1,7 @@
 import { useConvertToSalesOrder } from "@/hooks/use-sales-orders";
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
+import { formatCurrencyAmount, currencyLabel } from "@shared/currency";
 import {
   useInvoices,
   useInvoice,
@@ -182,7 +183,7 @@ export function InvoicePreviewPanel({
   const handleShareWhatsapp = async () => {
     if (!invoice || !company) return;
     const phoneParam = (invoice.customer?.phone || "").replace(/\D/g, "");
-    const text = `Hello ${invoice.customer?.name || "Customer"},\n\nHere is your *Invoice ${invoice.invoiceNumber}* from *${company.tradingName || company.name}*.\n\nTotal: *${invoice.currency} ${Number(invoice.total).toFixed(2)}*`;
+    const text = `Hello ${invoice.customer?.name || "Customer"},\n\nHere is your *Invoice ${invoice.invoiceNumber}* from *${company.tradingName || company.name}*.\n\nTotal: *${currencyLabel(invoice.currency)} ${Number(invoice.total).toFixed(2)}*`;
     try {
       const blob = await pdf(
         <InvoicePDF
@@ -691,7 +692,7 @@ function formatMoney(
   currency: string,
   value: number | string | null | undefined,
 ) {
-  return `${currency || "USD"} ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrencyAmount(Number(value || 0), currency);
 }
 
 function paymentStatusLabel(status: "paid" | "partial" | "unpaid") {

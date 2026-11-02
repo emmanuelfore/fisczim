@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Badge } from "@/components/ui/badge";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -82,6 +83,8 @@ export default function FinancialPeriodsPage() {
   const [includeAdjustmentPeriod, setIncludeAdjustmentPeriod] = useState(false);
   const [yearChecks, setYearChecks] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
+  const { can } = usePermissions();
+  const canClosePeriods = can("accounting.periods");
   const queryClient = useQueryClient();
   const { activeCompanyId, isLoading: isCompanyLoading } = useActiveCompany();
 
@@ -292,6 +295,7 @@ export default function FinancialPeriodsPage() {
               <DialogTrigger asChild>
                 <Button
                   variant="outline"
+                  disabled={!canClosePeriods}
                   className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 font-bold gap-2"
                 >
                   <AlertTriangle className="h-4 w-4" />
@@ -653,7 +657,7 @@ export default function FinancialPeriodsPage() {
                                         apLocked: true, arLocked: true, inventoryLocked: true, glLocked: true
                                       })
                                     }
-                                    disabled={toggleMutation.isPending}
+                                    disabled={toggleMutation.isPending || !canClosePeriods}
                                   >
                                     Close Entire Period
                                   </Button>
@@ -668,7 +672,7 @@ export default function FinancialPeriodsPage() {
                                         apLocked: false, arLocked: false, inventoryLocked: false, glLocked: false
                                       })
                                     }
-                                    disabled={toggleMutation.isPending}
+                                    disabled={toggleMutation.isPending || !canClosePeriods}
                                   >
                                     Reopen Period
                                   </Button>

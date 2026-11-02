@@ -395,7 +395,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
     let invoice = await storage.getInvoice(invoiceId);
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.fiscalCode) {
-        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to ZIMRA again.`);
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
     }
 
     // Check permissions
@@ -470,7 +470,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         invoice = await storage.getInvoice(invoiceId);
         if (!invoice) throw new Error("Invoice not found");
         if (invoice.fiscalCode) {
-            throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to ZIMRA again.`);
+            throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
         }
 
         company = await storage.getCompany(companyId);
@@ -496,7 +496,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         refreshFiscalState();
 
         if (!fiscalConfig.zimraPrivateKey || !fiscalConfig.zimraCertificate || !fiscalConfig.fdmsDeviceId) {
-            throw new Error(activeBranch ? `Branch ${activeBranch.name} has not registered a ZIMRA device` : "Company has not registered a ZIMRA device");
+            throw new Error(activeBranch ? `Branch ${activeBranch.name} has no registered fiscal device` : "Company has no registered fiscal device");
         }
 
         // Initialize Device with Logger
@@ -1639,7 +1639,7 @@ export const processInvoiceFiscalizationLEKUKA = async (
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.fiscalCode) {
-        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to LEKUKA again.`);
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
     }
 
     if (userId) {

@@ -21,7 +21,7 @@ import {
   posHolds, type PosHold, type InsertPosHold,
   branches, branchUsers, branchStocks,
   type Branch, type InsertBranch, type BranchUser, type BranchStock,
-  costCenters, type CostCenter, type InsertCostCenter,
+  costCenters, accountingSegments, type CostCenter, type InsertCostCenter,
   productCategories, type ProductCategory, type InsertProductCategory,
   resetTokens, insertResetTokenSchema,
   suppliers, inventoryTransactions, expenses, purchaseOrders, purchaseOrderItems, goodsDeliveryNotes,
@@ -68,6 +68,7 @@ import {
   type PayrollCalculationAudit, type InsertPayrollCalculationAudit,
   jobLogs, type JobLog, type InsertJobLog
 } from "../shared/schema.js";
+import { baseCurrencyOf, defaultCurrencySeeds } from "../shared/currency.js";
 import { db } from "./db.js";
 import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
@@ -90,11 +91,23 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   generalExpenseAccountCode: "5100",
   fxGainAccountCode: "4100",
   fxLossAccountCode: "5300",
-  withholdingTaxPayableCode: "2200",
+  withholdingTaxPayableCode: "2012",
+  // Deliberately still Trade Payables: a GRV credits GRNI and the matching bill
+  // debits it, so repointing this mid-flight strands a residue in 2000 for every
+  // open return. Chart 2015 exists for tenants that close their GRVs first.
   grniAccountCode: "2000",
-  landedCostClearingAccountCode: "2000",
-  partnerPayableAccountCode: "2000",
+  landedCostClearingAccountCode: "2016",
+  partnerPayableAccountCode: "2017",
 } as const;
+
+// Codes the postings above resolve to that many live charts were seeded without.
+// Created on first use so a missing default cannot abort a posting.
+const SUPPLEMENTAL_SYSTEM_ACCOUNTS = [
+  { code: "1310", name: "Inventory In-Transit", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: true, isSystem: true },
+  { code: "2015", name: "Goods Received Not Invoiced", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "2016", name: "Landed Cost Clearing", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "2017", name: "Partner Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+] as const;
 
 
 type AccountingSystemAccountKey = keyof typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
@@ -107,6 +120,13 @@ function mergeAccountingSystemAccounts(settings: unknown): typeof DEFAULT_ACCOUN
       return [key, typeof value === "string" && value.trim() ? value.trim() : fallback];
     })
   ) as typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
+}
+
+export function throughEndOfDay(value: Date): Date {
+  const upper = new Date(value);
+  if (Number.isNaN(upper.getTime())) return value;
+  upper.setHours(23, 59, 59, 999);
+  return upper;
 }
 
 function getAccountCodeRange(type?: string, category?: string): { start: number; end: number } {
@@ -157,6 +177,11 @@ type LedgerPostLine = {
   credit?: string | number;
   branchId?: number;
   memo?: string;
+  costCenterId?: number | null;
+  segmentId?: number | null;
+  vatTypeId?: number | null;
+  vatAmount?: number | null;
+  withholdingTaxAmount?: number | null;
 };
 
 type LedgerPostData = {
@@ -168,6 +193,7 @@ type LedgerPostData = {
   reference?: string;
   createdBy?: string;
   branchId?: number; // Optional branch context for GL segregation
+  deduplicate?: boolean;
   lines: LedgerPostLine[];
 };
 
@@ -614,6 +640,12 @@ export class DatabaseStorage implements IStorage {
     type: "DEBIT" | "CREDIT";
     amount: number;
     memo?: string;
+    branchId?: number | null;
+    costCenterId?: number | null;
+    segmentId?: number | null;
+    vatTypeId?: number | null;
+    vatAmount?: number | null;
+    withholdingTaxAmount?: number | null;
   }>> {
     const normalized = [];
 
@@ -637,6 +669,22 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Account ${identifier} not found for company ${companyId}`);
       }
 
+      const costCenterId = line.costCenterId ? Number(line.costCenterId) : null;
+      if (costCenterId) {
+        const [cc] = await tx.select({ id: costCenters.id }).from(costCenters)
+          .where(and(eq(costCenters.id, costCenterId), eq(costCenters.companyId, companyId)))
+          .limit(1);
+        if (!cc) throw new Error(`Cost centre ${costCenterId} not found for company ${companyId}`);
+      }
+
+      const segmentId = line.segmentId ? Number(line.segmentId) : null;
+      if (segmentId) {
+        const [seg] = await tx.select({ id: accountingSegments.id }).from(accountingSegments)
+          .where(and(eq(accountingSegments.id, segmentId), eq(accountingSegments.companyId, companyId)))
+          .limit(1);
+        if (!seg) throw new Error(`Segment ${segmentId} not found for company ${companyId}`);
+      }
+
       normalized.push({
         accountId: account.id,
         accountCode: account.code,
@@ -644,6 +692,12 @@ export class DatabaseStorage implements IStorage {
         type,
         amount,
         memo: line.memo,
+        branchId: line.branchId ?? null,
+        costCenterId,
+        segmentId,
+        vatTypeId: line.vatTypeId ?? null,
+        vatAmount: line.vatAmount ?? null,
+        withholdingTaxAmount: line.withholdingTaxAmount ?? null,
       });
     }
 
@@ -763,27 +817,14 @@ export class DatabaseStorage implements IStorage {
       // Initialize default Chart of Accounts
       await this.initializeCompanyAccounts(newCompany.id, tx);
 
-      // Automatically create default currencies (USD and ZIG)
-      await tx.insert(currencies).values([
-        {
+      // Seed the currencies this tenant books in: USD/ZWG here, loti for Lesotho.
+      await tx.insert(currencies).values(
+        defaultCurrencySeeds(normalizedCompany).map((seed) => ({
           companyId: newCompany.id,
-          code: "USD",
-          name: "US Dollar",
-          symbol: "$",
-          exchangeRate: "1.000000",
-          isBase: true,
+          ...seed,
           isActive: true
-        },
-        {
-          companyId: newCompany.id,
-          code: "ZWG",
-          name: "Zimbabwe Gold",
-          symbol: "ZWG",
-          exchangeRate: "13.500000",
-          isBase: false,
-          isActive: true
-        }
-      ]);
+        }))
+      );
 
       return newCompany;
     });
@@ -897,18 +938,35 @@ export class DatabaseStorage implements IStorage {
       .select({ accountingSettings: companies.accountingSettings })
       .from(companies)
       .where(eq(companies.id, companyId));
-    return mergeAccountingSystemAccounts(company?.accountingSettings)[key];
+    const code = mergeAccountingSystemAccounts(company?.accountingSettings)[key];
+    await this.ensureSystemAccountCode(companyId, code, executor);
+    return code;
+  }
+
+  async ensureSystemAccountCode(companyId: number, code: string, tx?: any): Promise<void> {
+    const spec = SUPPLEMENTAL_SYSTEM_ACCOUNTS.find((account) => account.code === code);
+    if (!spec) return;
+    const executor = tx || db;
+    await executor.insert(accounts).values({
+      companyId,
+      ...spec,
+      isActive: true,
+    }).onConflictDoNothing({ target: [accounts.companyId, accounts.code] });
   }
 
   async ensureGenericCustomer(companyId: number): Promise<number> {
     const [c] = await db.select().from(customers).where(and(eq(customers.companyId, companyId), ilike(customers.name, 'General%')));
     if (c) return c.id;
+    const [company] = await db
+      .select({ currency: companies.currency, country: companies.country, fiscalProvider: companies.fiscalProvider })
+      .from(companies)
+      .where(eq(companies.id, companyId));
     const [nc] = await db.insert(customers).values({
       companyId,
       name: 'General Customer',
       customerType: 'individual',
       isActive: true,
-      currency: 'USD'
+      currency: baseCurrencyOf(company)
     }).returning();
     return nc.id;
   }
@@ -2506,36 +2564,23 @@ export class DatabaseStorage implements IStorage {
 
 
   async getCurrencies(companyId: number): Promise<Currency[]> {
-    const existing = await db.select().from(currencies).where(
+    const [company] = await db
+      .select({ currency: companies.currency, country: companies.country, fiscalProvider: companies.fiscalProvider })
+      .from(companies)
+      .where(eq(companies.id, companyId));
+
+    const selectOrdered = () => db.select().from(currencies).where(
       eq(currencies.companyId, companyId)
     ).orderBy(currencies.id);
 
+    const existing = await selectOrdered();
     if (existing.length > 0) return existing;
 
-    await db.insert(currencies).values([
-      {
-        companyId,
-        code: "USD",
-        name: "US Dollar",
-        symbol: "$",
-        exchangeRate: "1.000000",
-        isBase: true,
-        isActive: true
-      },
-      {
-        companyId,
-        code: "ZWG",
-        name: "Zimbabwe Gold",
-        symbol: "ZWG",
-        exchangeRate: "13.500000",
-        isBase: false,
-        isActive: true
-      }
-    ]);
+    await db.insert(currencies).values(
+      defaultCurrencySeeds(company).map((seed) => ({ companyId, ...seed, isActive: true }))
+    );
 
-    return await db.select().from(currencies).where(
-      eq(currencies.companyId, companyId)
-    ).orderBy(currencies.id);
+    return await selectOrdered();
   }
 
   async createCurrency(currency: InsertCurrency): Promise<Currency> {
@@ -3721,9 +3766,10 @@ export class DatabaseStorage implements IStorage {
       return docStatsByCurrency.get(currency);
     };
 
-    // Pre-seed default currencies so they always show on the X/Z Report PDF
-    getDocStat("USD");
-    getDocStat("ZWG");
+    // Every currency the tenant trades in shows on the X/Z Report PDF, even on a
+    // day with no documents in it — a Lesotho till reports loti, not USD/ZWG.
+    const activeCurrencies = (await this.getCurrencies(companyId)).filter((c) => c.isActive !== false);
+    activeCurrencies.forEach((c) => getDocStat(c.code));
 
     invoicesInDay.forEach(inv => {
       const currency = inv.currency || "USD";
@@ -4750,7 +4796,8 @@ export class DatabaseStorage implements IStorage {
   async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
     const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
     
-    let invConditions = [eq(invoices.companyId, companyId), ne(invoices.status, 'cancelled')];
+    // Statuses are stored lowercase; a draft or quote is not earned revenue.
+    let invConditions = [eq(invoices.companyId, companyId), sql`lower(${invoices.status}) not in ('cancelled', 'void', 'draft', 'quote')`];
     if (startDate) invConditions.push(gte(invoices.issueDate, startDate));
     if (endDate) invConditions.push(lte(invoices.issueDate, endDate));
     const allInvoices = await db.select().from(invoices).where(and(...invConditions));
@@ -5211,41 +5258,45 @@ export class DatabaseStorage implements IStorage {
       
       if (deprAmount <= 0.01) continue; // Too small to journal
 
+      // Journal, asset carrying value and the run log must land together —
+      // otherwise a failure leaves the ledger and the asset register disagreeing.
+      await db.transaction(async (tx) => {
+        // Post Journal Entry
+        const entry = await this.postToLedger(companyId, {
+          reference: `DEPR-${asset.id}-${asOfDate.getTime()}`,
+          date: asOfDate.toISOString(),
+          description: `Depreciation for ${asset.name}`,
+          lines: [
+            // Debit: Depreciation Expense
+            { accountId: asset.depreciationExpenseAccountId, debit: deprAmount, credit: 0 },
+            // Credit: Accumulated Depreciation (Contra-Asset)
+            { accountId: asset.accumulatedDepreciationAccountId, debit: 0, credit: deprAmount }
+          ],
+          createdBy: userId
+        }, tx);
+
+        // Update Asset Record
+        await tx.update(fixedAssets)
+          .set({
+            accumulatedDepreciation: String(Number(asset.accumulatedDepreciation) + deprAmount),
+            netBookValue: String(Number(asset.netBookValue) - deprAmount),
+            lastDepreciationDate: asOfDate
+          })
+          .where(eq(fixedAssets.id, asset.id));
+
+        // Log the run
+        await tx.insert(depreciationRuns).values({
+          companyId,
+          assetId: asset.id,
+          journalEntryId: entry.id,
+          date: asOfDate,
+          amount: String(deprAmount),
+          notes: `System generated depreciation for ${daysElapsed} days.`
+        });
+      });
+
       totalDepreciation += deprAmount;
       depreciatedCount++;
-
-      // Post Journal Entry
-      const entry = await this.postToLedger(companyId, {
-        reference: `DEPR-${asset.id}-${asOfDate.getTime()}`,
-        date: asOfDate.toISOString(),
-        description: `Depreciation for ${asset.name}`,
-        lines: [
-          // Debit: Depreciation Expense
-          { accountId: asset.depreciationExpenseAccountId, debit: deprAmount, credit: 0 },
-          // Credit: Accumulated Depreciation (Contra-Asset)
-          { accountId: asset.accumulatedDepreciationAccountId, debit: 0, credit: deprAmount }
-        ],
-        createdBy: userId
-      });
-
-      // Update Asset Record
-      await db.update(fixedAssets)
-        .set({
-          accumulatedDepreciation: String(Number(asset.accumulatedDepreciation) + deprAmount),
-          netBookValue: String(Number(asset.netBookValue) - deprAmount),
-          lastDepreciationDate: asOfDate
-        })
-        .where(eq(fixedAssets.id, asset.id));
-
-      // Log the run
-      await db.insert(depreciationRuns).values({
-        companyId,
-        assetId: asset.id,
-        journalEntryId: entry.id,
-        date: asOfDate,
-        amount: String(deprAmount),
-        notes: `System generated depreciation for ${daysElapsed} days.`
-      });
     }
 
     return {
@@ -8966,6 +9017,7 @@ export class DatabaseStorage implements IStorage {
   async initializeCompanyAccounts(companyId: number, tx?: any): Promise<void> {
     const executeInTx = async (t: any) => {
       const defaultAccounts = [
+        ...SUPPLEMENTAL_SYSTEM_ACCOUNTS,
         // --- ASSETS ---
         // Current Assets
         { code: "1000", name: "Cash & Cash Equivalents", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-7", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: true, isSystem: true },
@@ -9243,6 +9295,9 @@ export class DatabaseStorage implements IStorage {
           type: line.type,
           amount: line.amount.toFixed(2),
           memo: line.memo,
+          branchId: line.branchId ?? null,
+          costCenterId: line.costCenterId ?? null,
+          segmentId: line.segmentId ?? null,
         });
       }
 
@@ -9255,6 +9310,9 @@ export class DatabaseStorage implements IStorage {
           type: line.type,
           amount: line.amount.toFixed(2),
           memo: line.memo,
+          branchId: line.branchId ?? null,
+          costCenterId: line.costCenterId ?? null,
+          segmentId: line.segmentId ?? null,
         })),
       };
     });
@@ -9275,6 +9333,10 @@ export class DatabaseStorage implements IStorage {
         accountName: accounts.name,
         type: journalEntryDraftLines.type,
         amount: journalEntryDraftLines.amount,
+        memo: journalEntryDraftLines.memo,
+        branchId: journalEntryDraftLines.branchId,
+        costCenterId: journalEntryDraftLines.costCenterId,
+        segmentId: journalEntryDraftLines.segmentId,
       })
       .from(journalEntryDraftLines)
       .innerJoin(accounts, eq(journalEntryDraftLines.accountId, accounts.id))
@@ -9286,6 +9348,10 @@ export class DatabaseStorage implements IStorage {
         accountName: line.accountName,
         type: line.type as "DEBIT" | "CREDIT",
         amount: Number(line.amount),
+        memo: line.memo ?? undefined,
+        branchId: line.branchId ?? undefined,
+        costCenterId: line.costCenterId ?? undefined,
+        segmentId: line.segmentId ?? undefined,
       }));
       this.assertBalancedLedgerLines(normalizedLines);
 
@@ -9316,7 +9382,7 @@ export class DatabaseStorage implements IStorage {
     if (branchId) filters.push(eq(journalEntries.branchId, branchId));
     if (accountId) filters.push(eq(ledgerEntries.accountId, accountId));
     if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
-    if (dateTo) filters.push(lte(journalEntries.entryDate, dateTo));
+    if (dateTo) filters.push(lte(journalEntries.entryDate, throughEndOfDay(dateTo)));
 
     return await db.select({
       id: ledgerEntries.id,
@@ -9339,7 +9405,7 @@ export class DatabaseStorage implements IStorage {
     const filters: any[] = [eq(accounts.companyId, companyId)];
     const entriesFilters: any[] = [];
     if (branchId) entriesFilters.push(eq(journalEntries.branchId, branchId));
-    if (date) entriesFilters.push(lte(journalEntries.entryDate, date));
+    if (date) entriesFilters.push(lte(journalEntries.entryDate, throughEndOfDay(date)));
 
     const allAccounts = await db.select().from(accounts).where(and(...filters));
     const result = [];
@@ -9394,8 +9460,27 @@ export class DatabaseStorage implements IStorage {
         return postingDate >= pStart && postingDate <= pEnd;
       });
 
-      if (applicablePeriod && applicablePeriod.status === "CLOSED") {
-        throw new Error(`Cannot post journal entry: The financial period '${applicablePeriod.name}' is closed.`);
+      if (applicablePeriod && (applicablePeriod.status === "CLOSED" || applicablePeriod.status === "LOCKED")) {
+        throw new Error(`Cannot post journal entry: The financial period '${applicablePeriod.name}' is ${String(applicablePeriod.status).toLowerCase()}.`);
+      }
+
+      // IDEMPOTENCY GUARD (opt-in): a retried or double-submitted document would
+      // otherwise post a second, identical journal. Sources that legitimately post
+      // more than one journal per record — invoices post revenue plus COGS, stock
+      // and freight transfers post one journal per line — must not set this.
+      const dedupeKey = data.referenceId ?? data.reference;
+      if (data.deduplicate && data.referenceType && dedupeKey) {
+        const already = await t.select({ id: journalEntries.id })
+          .from(journalEntries)
+          .where(and(
+            eq(journalEntries.companyId, companyId),
+            eq(journalEntries.referenceType, data.referenceType),
+            eq(journalEntries.referenceId, dedupeKey),
+          ))
+          .limit(1);
+        if (already.length > 0) {
+          throw new Error(`Already posted: a journal entry (${already[0].id}) exists for ${data.referenceType} ${dedupeKey}.`);
+        }
       }
 
       // 1. Create Journal Entry
@@ -9418,9 +9503,15 @@ export class DatabaseStorage implements IStorage {
         await t.insert(ledgerEntries).values({
           journalEntryId: je.id,
           accountId: line.accountId,
-          branchId: data.branchId ?? null,
+          branchId: line.branchId ?? data.branchId ?? null,
           type: line.type,
           amount: line.amount.toFixed(2),
+          memo: line.memo ?? null,
+          costCenterId: line.costCenterId ?? null,
+          segmentId: line.segmentId ?? null,
+          vatTypeId: line.vatTypeId ?? null,
+          vatAmount: line.vatAmount != null ? Number(line.vatAmount).toFixed(2) : null,
+          withholdingTaxAmount: line.withholdingTaxAmount != null ? Number(line.withholdingTaxAmount).toFixed(2) : null,
         });
       }
 
@@ -9451,7 +9542,8 @@ export class DatabaseStorage implements IStorage {
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
-        ne(invoices.status, 'CANCELLED'),
+        // Statuses are stored lowercase; a draft or quote is not yet a taxable supply.
+        sql`lower(${invoices.status}) not in ('cancelled', 'void', 'draft', 'quote')`,
         eq(invoices.syncedWithFdms, true),
         or(
           isNull(invoices.validationStatus),
@@ -9477,7 +9569,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
       .where(and(
         eq(supplierInvoices.companyId, companyId),
-        ne(supplierInvoices.status, 'CANCELLED'),
+        sql`lower(${supplierInvoices.status}) not in ('cancelled', 'void', 'draft')`,
         ...(fromDate ? [gte(supplierInvoices.date, fromDate)] : []),
         ...(toDate ? [lte(supplierInvoices.date, toDate)] : [])
       ));

@@ -1,6 +1,6 @@
 # API Integration Guide
 
-Complete guide for integrating external systems with the ZIMRA Fiscalization SaaS API.
+Complete guide for integrating external systems with the FiscalStack Fiscalization SaaS API.
 
 ## Quick Start
 
@@ -18,6 +18,21 @@ sk_live_x9y8z7w6... # Production environment
 ```
 
 > ⚠️ **Important**: Store your API key securely. It won't be shown again after generation.
+
+## Recommended: Pass-Through Fiscalization (`POST /api/v1/fiscalize`)
+
+For new integrations, prefer the v1 pass-through endpoint over the `/api/zimra/*` routes below. One call takes a sale and returns the fiscal receipt; you never create customers, products or invoices first, and you never send totals — FiscalStack computes them and maps HS codes and tax IDs from your company profile. The payload is the same whichever fiscal provider your company is registered with; routing happens server-side.
+
+**Full instruction sheet**: [`docs/pass-through-fiscalize.md`](docs/pass-through-fiscalize.md) — prerequisites, complete payload reference, recipes (sale, VAT-inclusive, split tender, credit note), response shape, error codes, retry rules.
+
+```bash
+curl -X POST https://your-saas-domain.com/api/v1/fiscalize \
+  -H "X-API-Key: sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"name":"Widget","quantity":1,"unitPrice":100}]}'
+```
+
+Note the v1 routes authenticate with the **`X-API-Key` header**, not a Bearer token, and the key alone selects your company — do not send a company id. Interactive reference: `GET /api-docs` (tag **Pass-through**); OpenAPI JSON: `GET /api-docs/openapi.json`.
 
 ## Authentication
 
@@ -154,7 +169,7 @@ curl -X POST https://your-saas-domain.com/api/companies/1/zimra/transact \
   "FiscalDay": "61",
   "Data": {
     "receipt": {
-      /* Full ZIMRA receipt data */
+      /* Full receipt data as returned by the fiscal provider */
     }
   }
 }
@@ -306,7 +321,7 @@ try {
 ```typescript
 import axios from 'axios';
 
-const API_KEY = process.env.ZIMRA_API_KEY;
+const API_KEY = process.env.FISCALSTACK_API_KEY;
 const BASE_URL = 'https://your-saas-domain.com/api';
 
 async function fiscalizeInvoice(companyId: number, invoiceData: any) {
@@ -343,7 +358,7 @@ async function fiscalizeInvoice(companyId: number, invoiceData: any) {
 import requests
 import os
 
-API_KEY = os.getenv('ZIMRA_API_KEY')
+API_KEY = os.getenv('FISCALSTACK_API_KEY')
 BASE_URL = 'https://your-saas-domain.com/api'
 
 def fiscalize_invoice(company_id, invoice_data):
@@ -373,7 +388,7 @@ def fiscalize_invoice(company_id, invoice_data):
 ### PHP
 ```php
 <?php
-$apiKey = getenv('ZIMRA_API_KEY');
+$apiKey = getenv('FISCALSTACK_API_KEY');
 $baseUrl = 'https://your-saas-domain.com/api';
 
 function fiscalizeInvoice($companyId, $invoiceData) {

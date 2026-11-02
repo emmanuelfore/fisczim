@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import { apiRequest } from "@/lib/queryClient";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -48,6 +49,8 @@ export default function AccountingAuditTrailPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [pendingReverseId, setPendingReverseId] = useState<number | null>(null);
+  const { can } = usePermissions();
+  const canReverse = can("accounting.journal.reverse");
   const { data: entries = [], isLoading, isError, refetch } = useQuery<AuditEntry[]>({
     queryKey: ["/api/accounting/audit-trail"],
   });
@@ -193,6 +196,7 @@ export default function AccountingAuditTrailPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
+                        {canReverse && (
                         <AlertDialog
                           open={pendingReverseId === entry.id}
                           onOpenChange={(open) =>
@@ -235,6 +239,7 @@ export default function AccountingAuditTrailPage() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))

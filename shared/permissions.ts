@@ -90,6 +90,9 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "accounting.journal.post", label: "Post Journal Entries", description: "Post journal entries (may require approval)", group: "Finance" },
   { key: "accounting.journal.post.direct", label: "Post Journals Directly", description: "Post journals without approval", group: "Finance", allowsDirect: true },
   { key: "accounting.journal.approve", label: "Approve Journal Postings", description: "Approve pending journal postings", group: "Finance" },
+  { key: "accounting.journal.reverse", label: "Reverse Journal Entries", description: "Reverse posted journal entries", group: "Finance" },
+  { key: "accounting.coa.manage", label: "Manage Chart of Accounts", description: "Create and maintain general ledger accounts", group: "Finance" },
+  { key: "accounting.cashbook", label: "Cashbook & Transfers", description: "Post cashbook entries and inter-account transfers", group: "Finance" },
   { key: "accounting.receipts", label: "Customer Receipts", description: "Record customer receipts", group: "Finance" },
   { key: "accounting.payments", label: "Supplier Payments", description: "Record supplier payments", group: "Finance" },
   { key: "accounting.periods", label: "Financial Periods", description: "Open and close financial periods", group: "Finance" },
@@ -165,6 +168,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "grn.create", "grn.view", "grn.confirm",
     // Accounting
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
+    "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
     "accounting.receipts", "accounting.payments", "accounting.periods",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
@@ -242,6 +246,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "invoices.view", "invoices.create", "invoices.issue",
     // Accounting — can create drafts, approve postings, manage periods & receipts
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
+    "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
     "accounting.receipts", "accounting.payments", "accounting.periods",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",

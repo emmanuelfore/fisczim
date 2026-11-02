@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Printer, X, Loader2, Download } from "lucide-react";
 import { format } from "date-fns";
+import { formatCurrencyAmount } from "@shared/currency";
 import { useRef } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { PaymentReceiptPDF } from "./payment-receipt-pdf";
@@ -91,6 +92,7 @@ export function PaymentReceipt({
   };
 
   const currency = payment.currency || invoice?.currency || "USD";
+  const money = (value: any) => formatCurrencyAmount(Number(value || 0), currency);
   const date = payment.createdAt
     ? format(new Date(payment.createdAt), "dd MMM yyyy HH:mm")
     : format(new Date(), "dd MMM yyyy HH:mm");
@@ -210,7 +212,7 @@ export function PaymentReceipt({
           <div className="flex justify-between  font-black">
             <span>AMOUNT PAID:</span>
             <span>
-              {currency} {Number(payment.amount).toFixed(2)}
+              {money(payment.amount)}
             </span>
           </div>
           
@@ -218,7 +220,7 @@ export function PaymentReceipt({
             <div className="flex justify-between font-black mt-1">
               <span>BALANCE DUE:</span>
               <span>
-                {currency} {Number(payment.balanceDue).toFixed(2)}
+                {money(payment.balanceDue)}
               </span>
             </div>
           )}

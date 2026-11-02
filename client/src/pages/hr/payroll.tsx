@@ -61,11 +61,10 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
+import { formatMoney } from "@shared/currency";
 
-const money = (value: unknown, currency = "USD") =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
-    Number(value || 0),
-  );
+// Intl throws on codes it doesn't know (ZWG), so payslips format through the shared table.
+const money = (value: unknown, currency = "USD") => formatMoney(Number(value || 0), currency);
 
 export default function HRPayrollRuns() {
   const { user } = useAuth();

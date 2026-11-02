@@ -18,7 +18,8 @@ export function getDefaultCountry(): string {
   return isLesothoInstance() ? 'Lesotho' : 'Zimbabwe';
 }
 
-export function getDefaultCurrency(): string {
+/** Kept as a literal union so currency fields typed by zod accept it. */
+export function getDefaultCurrency(): "LSL" | "USD" {
   return isLesothoInstance() ? 'LSL' : 'USD';
 }
 

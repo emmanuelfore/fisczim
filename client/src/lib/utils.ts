@@ -1,16 +1,14 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { formatCurrencyAmount } from "@shared/currency"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Amount with its currency code, except in the loti, which is written "M1 234.56". */
 export function formatCurrency(amount: number, currencyCode: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currencyCode,
-    currencyDisplay: 'code'
-  }).format(amount);
+  return formatCurrencyAmount(amount, currencyCode)
 }
 
 export function isElectron(): boolean {

@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateBusRoute, useUpdateBusRoute } from "@/hooks/use-bus-ticketing";
+import { getDefaultCurrency } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -43,7 +44,7 @@ const routeFormSchema = z.object({
   destination: z.string().min(1, "Destination is required"),
   distanceKm: z.coerce.number().min(0).default(0),
   basePrice: z.coerce.number().min(0, "Base price cannot be negative"),
-  currency: z.enum(["USD", "ZWG"]).default("USD"),
+  currency: z.enum(["USD", "ZWG", "LSL"]).default("USD"),
   isActive: z.boolean().default(true),
   stops: z.array(z.string()).default([]),
   fares: z.record(z.coerce.number()).default({}),
@@ -65,7 +66,7 @@ export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: nu
       destination: "",
       distanceKm: 0,
       basePrice: 0,
-      currency: "USD",
+      currency: getDefaultCurrency(),
       companyId: companyId,
       isActive: true,
       stops: [],
@@ -468,7 +469,7 @@ export function EditRouteDialog({ companyId, route }: { companyId: number; route
       destination: route.destination || "",
       distanceKm: Number(route.distanceKm || 0),
       basePrice: Number(route.basePrice || 0),
-      currency: route.currency || "USD",
+      currency: route.currency || getDefaultCurrency(),
       isActive: route.isActive ?? true,
       stops: Array.isArray(route.stops) && route.stops.length >= 2
         ? route.stops

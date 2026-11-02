@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useQuery } from "@tanstack/react-query";
 import { type Account } from "@shared/schema";
 import {
@@ -115,6 +116,8 @@ export default function AccountingCOAPage() {
   });
 
   const { toast } = useToast();
+  const { can } = usePermissions();
+  const canManageCoa = can("accounting.coa.manage");
   const queryClient = useQueryClient();
   const { activeCompanyId: companyId, isLoading: isCompanyLoading } =
     useActiveCompany();
@@ -269,7 +272,7 @@ export default function AccountingCOAPage() {
             }}
           >
             <DialogTrigger asChild>
-              <Button className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+              <Button disabled={!canManageCoa} className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-4 w-4" />
                 <span>Create Account</span>
               </Button>

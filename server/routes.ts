@@ -8,7 +8,7 @@ import os from "os";
 import { createServer, type Server } from "http";
 // Path resolution helper
 const rootDir = process.cwd();
-import { storage } from "./storage.js";
+import { storage, throughEndOfDay } from "./storage.js";
 import { setupAuth } from "./auth.js";
 import authRouter from "./routes/auth.js";
 import { api } from "../shared/routes.js";
@@ -50,13 +50,23 @@ import { createPartnershipsRouter } from "./routes/partnerships.js";
 import { createCustomerFlowRouter } from "./routes/customer-flow.js";
 import { LekukaDevice, LekukaApiError, generateLekukaKeypair } from "./lekuka.js";
 import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../shared/lekuka.js";
+import {
+  certificateExpiry,
+  closeLekukaFiscalDay,
+  companyUsesLekuka,
+  confirmCompanyCertificate,
+  FiscalDayStateError,
+  issueCompanyCertificate,
+  lekukaDeviceFromCompany,
+  openLekukaFiscalDay,
+} from "./lib/fiscal-provider.js";
 import { createFreightRouter } from "./routes/freight.js";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { APPROVAL_TYPES, ALL_PERMISSION_KEYS } from "../shared/permissions.js";
 import { db, withDbRetry } from "./db";
-import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, isNotNull, inArray, like } from "drizzle-orm";
 import { format } from "date-fns";
 import {
   invoices,
@@ -159,6 +169,7 @@ import {
   recurringInvoices,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
+import { purchaseOrderGrossTotal, threeWayMatchStatus } from "./lib/three-way-match.js";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -4284,35 +4295,39 @@ export async function registerRoutes(
     }
   });
 
-  // Certificate Management
+  // Certificate renewal for the company's own fiscal provider.
   app.post("/api/companies/:id/zimra/issue-certificate", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-      const company = await storage.getCompany(companyId);
+      const company: any = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) return res.status(400).json({ message: "Not registered" });
 
-      const device = new ZimraDevice({
-        deviceId: company.fdmsDeviceId,
-        deviceSerialNo: "UNKNOWN",
-        activationKey: company.fdmsApiKey || "",
-        privateKey: company.zimraPrivateKey || "",
-        certificate: company.zimraCertificate || "",
-        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
-      }, getZimraLogger(companyId));
+      const issued = await issueCompanyCertificate(company);
 
-      const keys = await device.issueCertificate();
+      // The dashboard has no second step, and the server holds both halves of
+      // the pair — so a two-step gateway is confirmed here rather than left
+      // pending, which would block every receipt until someone confirms it.
+      let confirmed = false;
+      if (issued.confirmationRequired && issued.certificate) {
+        // Confirm the certificate just issued: `company` still holds the old
+        // one, and its thumbprint is what the gateway matches on.
+        await confirmCompanyCertificate({ ...company, zimraCertificate: issued.certificate });
+        confirmed = true;
+      }
 
-      // Update DB with new keys
-      await storage.updateCompany(companyId, {
-        zimraPrivateKey: keys.privateKey,
-        zimraCertificate: keys.certificate
+      res.json({
+        message: confirmed
+          ? "Certificate issued and confirmed successfully"
+          : "Certificate issued successfully",
+        certificate: issued.certificate,
       });
-
-      res.json({ message: "Certificate issued successfully", certificate: keys.certificate });
     } catch (err: any) {
       console.error("Issue Certificate Error:", err);
       if (err instanceof ZimraApiError) {
         return res.status(err.statusCode).json({ message: err.message, details: err.details });
+      }
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
       }
       res.status(500).json({ message: err.message || "Certificate issuance failed" });
     }
@@ -4791,7 +4806,7 @@ export async function registerRoutes(
         await storage.updateCompany(companyId, updateData);
       }
 
-      res.json(status);
+      res.json({ ...status, certificateValidTill: certificateExpiry(configSource.zimraCertificate) });
     } catch (err: any) {
       console.error("Zimra Status Error:", err);
       if (err instanceof ZimraApiError) {
@@ -5630,16 +5645,10 @@ export async function registerRoutes(
   // GET /api/companies/:id/zimra/offline-state
   app.get("/api/companies/:id/zimra/offline-state", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      let companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-
-      if (!companyId) {
-        const allCompanies = await db.select().from(companies)
-          .where(isNotNull(companies.fdmsDeviceId))
-          .limit(1);
-        if (allCompanies.length > 0) {
-          companyId = allCompanies[0].id;
-        }
-      }
+      // Tenant comes from the API key alone; a session user must name the
+      // company in the path. Falling back to "first company with a device"
+      // handed one tenant's device id and key material to another tenant.
+      const companyId = (req as any).apiKeyCompanyId || Number(req.params.id) || undefined;
 
       if (!companyId) {
         return res.status(404).json({ message: "Device not found" });
@@ -5744,17 +5753,9 @@ export async function registerRoutes(
   // 1. GET /api/companies/:id/zimra/device-details - GetDeviceStatus (RevMax format)
   app.get("/api/companies/:id/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      let companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-
-      // Last resort: find first company with a registered ZIMRA device
-      if (!companyId) {
-        const allCompanies = await db.select().from(companies)
-          .where(isNotNull(companies.fdmsDeviceId))
-          .limit(1);
-        if (allCompanies.length > 0) {
-          companyId = allCompanies[0].id;
-        }
-      }
+      // Same rule as the offline-state route: the key (or an explicitly
+      // membership-checked path id) is the only source of tenancy.
+      const companyId = (req as any).apiKeyCompanyId || Number(req.params.id) || undefined;
 
       if (!companyId) {
         return res.status(404).json(formatRevMaxResponse("0", "Device not found or not registered"));
@@ -7700,7 +7701,7 @@ export async function registerRoutes(
                 type: "ADJUSTMENT",
                 notes: `Purchase Return ${existing.returnNumber} shipping`,
                 userId: (req.user as any)?.id,
-              });
+              }, tx);
             }
           }
 
@@ -8011,11 +8012,22 @@ export async function registerRoutes(
         // Enforce Three-Way Matching Tolerances
         const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, input.purchaseOrderId));
         if (po) {
-           const poTotal = Number((po as any).totalAmount || 0);
+           // purchase_orders carries no total column — the authorised amount comes from its lines,
+           // compared gross against the bill's gross total.
+           const poLines = await db
+             .select({
+               quantity: purchaseOrderItems.quantity,
+               unitCost: purchaseOrderItems.unitCost,
+               taxAmount: purchaseOrderItems.taxAmount,
+             })
+             .from(purchaseOrderItems)
+             .where(eq(purchaseOrderItems.purchaseOrderId, po.id));
+
+           const poTotal = purchaseOrderGrossTotal(po, poLines);
            const invTotal = Number(input.totalAmount || 0);
            
            if (invTotal > poTotal * 1.05) {
-               return res.status(400).json({ message: `Three-Way Match Failed: Invoice total (${invTotal}) exceeds Purchase Order total (${poTotal}) by more than the 5% allowed tolerance.` });
+               return res.status(400).json({ message: `Three-Way Match Failed: Invoice total (${invTotal.toFixed(2)}) exceeds Purchase Order total (${poTotal.toFixed(2)}) by more than the 5% allowed tolerance.` });
            }
 
            const grvs = await db.select().from(goodsDeliveryNotes).where(and(eq(goodsDeliveryNotes.purchaseOrderId, po.id), eq(goodsDeliveryNotes.status, 'CONFIRMED')));
@@ -8321,7 +8333,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/receipts/customer", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { customerId, amount, currency = "USD", paymentDate, paymentMethod = "Bank", reference, notes, allocations = [] } = req.body;
       const receiptAmount = Number(amount || 0);
@@ -8392,7 +8404,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/payments/supplier", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { supplierId, amount, currency = "USD", paymentDate, method = "Bank", reference, notes, allocations = [] } = req.body;
       const paymentAmount = Number(amount || 0);
@@ -9589,6 +9601,7 @@ export async function registerRoutes(
         productId: supplierInvoiceItems.productId,
         quantity: supplierInvoiceItems.quantity,
         unitPrice: supplierInvoiceItems.unitPrice,
+        totalPrice: supplierInvoiceItems.totalPrice,
       })
       .from(supplierInvoiceItems)
       .innerJoin(supplierInvoices, eq(supplierInvoiceItems.supplierInvoiceId, supplierInvoices.id))
@@ -9609,34 +9622,10 @@ export async function registerRoutes(
       grvQty: number,
       grvCost: number
     ) {
-      if (!purchaseOrderId) {
-        if (!invoiceId) return "PENDING_INVOICE";
-        const invLines = invoiceItemsMap.get(invoiceId) || [];
-        const invQty = invLines.reduce((sum, item) => sum + Number(item.quantity), 0);
-        const invCost = invLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
-        if (Math.abs(grvQty - invQty) > 0.01) return "QTY_MISMATCH";
-        if (Math.abs(grvCost - invCost) > 0.01) return "PRICE_VARIANCE";
-        return "MATCHED";
-      }
-
-      if (!invoiceId) {
-        return "PENDING_INVOICE";
-      }
-
-      const poLines = poItemsMap.get(purchaseOrderId) || [];
+      if (!invoiceId) return "PENDING_INVOICE";
       const invLines = invoiceItemsMap.get(invoiceId) || [];
-
-      const poQty = poLines.reduce((sum, item) => sum + Number(item.quantity), 0);
-      const poCost = poLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitCost), 0);
-      const invQty = invLines.reduce((sum, item) => sum + Number(item.quantity), 0);
-      const invCost = invLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
-
-      const qtyMismatch = Math.abs(poQty - grvQty) > 0.01 || Math.abs(grvQty - invQty) > 0.01;
-      const priceMismatch = Math.abs(poCost - grvCost) > 0.01 || Math.abs(grvCost - invCost) > 0.01;
-
-      if (qtyMismatch) return "QTY_MISMATCH";
-      if (priceMismatch) return "PRICE_VARIANCE";
-      return "MATCHED";
+      if (!purchaseOrderId) return threeWayMatchStatus(null, grvQty, grvCost, invLines);
+      return threeWayMatchStatus(poItemsMap.get(purchaseOrderId) || [], grvQty, grvCost, invLines);
     }
 
     // 3. Landed Cost Components
@@ -9754,8 +9743,8 @@ export async function registerRoutes(
       const grvId = row.referenceId || fallbackId;
       const qty = Number(row.quantity || 0);
       const cost = Number(row.totalCost || (Number(row.unitCost || 0) * qty));
-      const matchedInvoice = invoiceByGrvRef.get(grvId);
       const gdnInfo = gdnByGrvNumber.get(grvId);
+      const matchedInvoice = invoiceByGrvRef.get(grvId) || (gdnInfo ? invoiceByGdnId.get(gdnInfo.id) : undefined);
       const purchaseOrderId = gdnInfo ? gdnInfo.purchaseOrderId : null;
 
       if (!grouped.has(grvId)) {
@@ -9916,6 +9905,8 @@ export async function registerRoutes(
           supplierId: goodsDeliveryNotes.supplierId,
           supplierName: suppliers.name,
           createdBy: users.username,
+          purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+          confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
         })
         .from(goodsDeliveryNotes)
         .leftJoin(suppliers, eq(suppliers.id, goodsDeliveryNotes.supplierId))
@@ -9978,9 +9969,34 @@ export async function registerRoutes(
             };
           });
 
+          const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+          const totalCost = lines.reduce((sum, line) => sum + line.totalCost, 0);
+
+          // A bill may reference this receiving document either by its GRV number or by the GDN id.
+          const billLinks: any[] = [eq(supplierInvoices.referenceGdnId, gdn.id)];
+          if (gdn.confirmedGrvNumber) billLinks.push(eq(supplierInvoices.grvReference, gdn.confirmedGrvNumber));
+          const [linkedBill] = await db
+            .select({
+              id: supplierInvoices.id,
+              invoiceNumber: supplierInvoices.invoiceNumber,
+            })
+            .from(supplierInvoices)
+            .where(and(
+              eq(supplierInvoices.companyId, companyId),
+              or(...billLinks)
+            ))
+            .limit(1);
+
+          const invLines = linkedBill
+            ? await db.select().from(supplierInvoiceItems).where(eq(supplierInvoiceItems.supplierInvoiceId, linkedBill.id))
+            : [];
+          const poLines = gdn.purchaseOrderId
+            ? await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, gdn.purchaseOrderId))
+            : null;
+
           return res.json({
             id: String(gdn.id),
-            grvNumber: gdn.gdnNumber,
+            grvNumber: gdn.confirmedGrvNumber || gdn.gdnNumber,
             createdAt: gdn.createdAt,
             createdBy: gdn.createdBy || "System",
             supplierId: gdn.supplierId,
@@ -9988,8 +10004,12 @@ export async function registerRoutes(
             notes: gdn.notes || "",
             status: gdn.status,
             taxInclusive: !!gdn.taxInclusive,
-            totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
-            totalCost: lines.reduce((sum, line) => sum + line.totalCost, 0),
+            invoiceId: linkedBill ? linkedBill.id : null,
+            invoiceNumber: linkedBill ? linkedBill.invoiceNumber : null,
+            purchaseOrderId: gdn.purchaseOrderId || null,
+            matchingStatus: threeWayMatchStatus(poLines, totalQuantity, totalCost, linkedBill ? invLines : null),
+            totalQuantity,
+            totalCost,
             lines,
           });
         }
@@ -10063,22 +10083,10 @@ export async function registerRoutes(
     const first = rows[0];
     const txIds = rows.map(r => r.id);
 
-    // Fetch invoices matching grvId
-    const [matchingInvoice] = await db
-      .select({
-        id: supplierInvoices.id,
-        invoiceNumber: supplierInvoices.invoiceNumber,
-      })
-      .from(supplierInvoices)
-      .where(and(
-        eq(supplierInvoices.companyId, companyId),
-        eq(supplierInvoices.grvReference, grvId)
-      ))
-      .limit(1);
-
     // Fetch PO ID from GDN
     const [linkedGdn] = await db
       .select({
+        id: goodsDeliveryNotes.id,
         purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
       })
       .from(goodsDeliveryNotes)
@@ -10087,31 +10095,30 @@ export async function registerRoutes(
         eq(goodsDeliveryNotes.confirmedGrvNumber, grvId)
       ))
       .limit(1);
-    
+
     const purchaseOrderId = linkedGdn ? linkedGdn.purchaseOrderId : null;
+
+    // A bill may point at this GRV by its number or by the receiving document id.
+    const billLinks: any[] = [eq(supplierInvoices.grvReference, grvId)];
+    if (linkedGdn) billLinks.push(eq(supplierInvoices.referenceGdnId, linkedGdn.id));
+    const [matchingInvoice] = await db
+      .select({
+        id: supplierInvoices.id,
+        invoiceNumber: supplierInvoices.invoiceNumber,
+      })
+      .from(supplierInvoices)
+      .where(and(
+        eq(supplierInvoices.companyId, companyId),
+        or(...billLinks)
+      ))
+      .limit(1);
+
     const invoiceId = matchingInvoice ? matchingInvoice.id : null;
 
     // Fetch PO items & Invoice items for match status
-    const poLines = purchaseOrderId ? await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId)) : [];
-    const invLines = invoiceId ? await db.select().from(supplierInvoiceItems).where(eq(supplierInvoiceItems.supplierInvoiceId, invoiceId)) : [];
-
-    const poQty = poLines.reduce((sum, item) => sum + Number(item.quantity), 0);
-    const poCost = poLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitCost), 0);
-    const invQty = invLines.reduce((sum, item) => sum + Number(item.quantity), 0);
-    const invCost = invLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
-
-    let matchingStatus = "PENDING_INVOICE";
-    if (invoiceId) {
-      if (purchaseOrderId) {
-        const qtyMismatch = Math.abs(poQty - totalQuantity) > 0.01 || Math.abs(totalQuantity - invQty) > 0.01;
-        const priceMismatch = Math.abs(poCost - totalCost) > 0.01 || Math.abs(totalCost - invCost) > 0.01;
-        matchingStatus = qtyMismatch ? "QTY_MISMATCH" : priceMismatch ? "PRICE_VARIANCE" : "MATCHED";
-      } else {
-        const qtyMismatch = Math.abs(totalQuantity - invQty) > 0.01;
-        const priceMismatch = Math.abs(totalCost - invCost) > 0.01;
-        matchingStatus = qtyMismatch ? "QTY_MISMATCH" : priceMismatch ? "PRICE_VARIANCE" : "MATCHED";
-      }
-    }
+    const poLines = purchaseOrderId ? await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId)) : null;
+    const invLines = invoiceId ? await db.select().from(supplierInvoiceItems).where(eq(supplierInvoiceItems.supplierInvoiceId, invoiceId)) : null;
+    const matchingStatus = threeWayMatchStatus(poLines, totalQuantity, totalCost, invLines);
 
     // Landed cost components
     const costComps = txIds.length > 0 ? await db
@@ -10785,6 +10792,7 @@ export async function registerRoutes(
       fiscalDayStatus: company.fiscalDayOpen ? "FiscalDayOpened" : "FiscalDayClosed",
       fiscalDayNumber: company.currentFiscalDayNo ?? null,
       lastSync: company.fiscalDayOpenedAt ?? null,
+      certificateValidTill: certificateExpiry(company.zimraCertificate),
       hasDeviceId: !!company.fdmsDeviceId,
       hasSerialNo: !!company.fdmsDeviceSerialNo,
       hasCertificate: !!company.zimraCertificate,
@@ -10941,52 +10949,16 @@ export async function registerRoutes(
   });
 
   // ─── LEKUKA: Missing spec endpoints ─────────────────────────────────────────
-  // Helper: build a LekukaDevice from a company record.
-  function lekukaDeviceFromCompany(company: any) {
-    return new LekukaDevice({
-      baseUrl: (company.lekukaGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim(),
-      deviceId: String(company.fdmsDeviceId).trim(),
-      privateKey: company.zimraPrivateKey || undefined,
-      certificate: company.zimraCertificate || undefined,
-      deviceModelName: company.fdmsDeviceModelName || "Server",
-      deviceModelVersion: company.fdmsDeviceModelVersion || "1.0",
-    });
-  }
-
   // The /api/zimra alias is provider-agnostic for API-key clients (desktop
-  // apps), so the shared day routes must use the RSL gateway for LEKUKA.
-  function companyUsesLekuka(company: any) {
-    return company?.fiscalProvider === "LEKUKA"
-      || String(company?.country || "").toLowerCase() === "lesotho"
-      || (process.env.COUNTRY_SCOPE || "").trim().toLowerCase() === "lesotho";
-  }
-
+  // apps), so the shared day routes use the RSL gateway for LEKUKA companies.
   async function openLekukaDay(company: any, res: any) {
-    const companyId = Number(company.id);
     try {
-      const device = lekukaDeviceFromCompany(company);
-      const current: any = await device.getStatus().catch(() => null);
-      if (current?.fiscalDayStatus === "FiscalDayOpened") {
-        await storage.updateCompany(companyId, {
-          currentFiscalDayNo: current.lastFiscalDayNo || company.currentFiscalDayNo,
-          fiscalDayOpen: true,
-          lastFiscalDayStatus: "FiscalDayOpened",
-        } as any);
-        return res.json({ message: "Fiscal day is already open", fiscalDayNo: current.lastFiscalDayNo });
-      }
-
-      const result: any = await device.openDay();
-      const fiscalDayNo = Number(
-        result?.fiscalDayNo ?? result?.FiscalDay ?? (company.currentFiscalDayNo || 0) + 1,
-      );
-      await storage.updateCompany(companyId, {
-        fiscalDayOpen: true,
-        fiscalDayOpenedAt: new Date(),
-        currentFiscalDayNo: fiscalDayNo,
-        dailyReceiptCount: 0,
-        lastFiscalDayStatus: "FiscalDayOpened",
-      } as any);
-      return res.json({ ...(result || {}), message: result?.message || "Fiscal day opened", fiscalDayNo });
+      const { fiscalDayNo, alreadyOpen, result } = await openLekukaFiscalDay(company);
+      return res.json({
+        ...(result || {}),
+        message: alreadyOpen ? "Fiscal day is already open" : (result?.message || "Fiscal day opened"),
+        fiscalDayNo,
+      });
     } catch (err: any) {
       console.error("LEKUKA day-open error:", err?.message || err);
       if (err instanceof LekukaApiError) {
@@ -10999,26 +10971,7 @@ export async function registerRoutes(
   async function closeLekukaDay(company: any, res: any, body: any = {}) {
     const companyId = Number(company.id);
     try {
-      const fiscalDayNo = body.fiscalDayNo ?? company.currentFiscalDayNo;
-      if (!fiscalDayNo) {
-        return res.status(400).json({ message: "No fiscal day has been opened yet" });
-      }
-
-      const counters = body.counters ?? await storage.calculateFiscalCounters(companyId, fiscalDayNo);
-      const result: any = await lekukaDeviceFromCompany(company).closeDay({
-        fiscalDayNo,
-        fiscalDayDate: company.fiscalDayOpenedAt
-          ? new Date(new Date(company.fiscalDayOpenedAt).getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10)
-          : undefined,
-        receiptCounter: body.receiptCounter ?? company.dailyReceiptCount ?? 0,
-        counters,
-      });
-      await storage.updateCompany(companyId, {
-        fiscalDayOpen: false,
-        fiscalDayClosedAt: new Date(),
-        lastFiscalDayStatus: "FiscalDayClosed",
-        dailyReceiptCount: 0,
-      } as any);
+      const { fiscalDayNo, result } = await closeLekukaFiscalDay(company, body);
       return res.json({
         success: true,
         message: `Fiscal day ${fiscalDayNo} closed successfully`,
@@ -11027,6 +10980,9 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       console.error("LEKUKA day-close error:", err?.message || err);
+      if (err instanceof FiscalDayStateError) {
+        return res.status(400).json({ message: err.message });
+      }
       if (err instanceof LekukaApiError) {
         // The day did not close: keep it open so the close can be retried.
         await storage.updateCompany(companyId, {
@@ -11100,30 +11056,10 @@ export async function registerRoutes(
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const { certificateRequest } = req.body || {};
-      if (!certificateRequest) {
-        // Auto-generate new keypair + CSR
-        const { privateKey, certificateRequest: csr } = generateLekukaKeypair(
-          company.fdmsDeviceId, company.fdmsDeviceSerialNo,
-        );
-        const device = lekukaDeviceFromCompany(company);
-        const result = await device.issueCertificate(csr);
-        const certificate = result?.certificate || result?.data?.certificate;
-        if (certificate) {
-          await storage.updateCompany(companyId, {
-            zimraPrivateKey: privateKey,
-            zimraCertificate: certificate,
-          } as any);
-        }
-        return res.json({ message: "Certificate issued", certificate, privateKey });
-      }
-      const device = lekukaDeviceFromCompany(company);
-      const result = await device.issueCertificate(certificateRequest);
-      const certificate = result?.certificate || result?.data?.certificate;
-      if (certificate) {
-        await storage.updateCompany(companyId, { zimraCertificate: certificate } as any);
-      }
-      res.json(result);
+      const { response, ...issued } = await issueCompanyCertificate(company, {
+        certificateRequest: req.body?.certificateRequest,
+      });
+      res.json({ message: "Certificate issued", ...issued, response });
     } catch (err: any) {
       console.error("LEKUKA certificate/issue error:", err?.message || err);
       if (err instanceof LekukaApiError) {
@@ -11140,18 +11076,8 @@ export async function registerRoutes(
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const device = lekukaDeviceFromCompany(company);
-      let thumbprint: string | undefined;
-      if (company.zimraCertificate) {
-        try {
-          const der = new crypto.X509Certificate(company.zimraCertificate).raw;
-          thumbprint = crypto.createHash("sha1").update(der).digest("hex").toUpperCase();
-        } catch {
-          // Leave undefined; the gateway confirms the pending certificate.
-        }
-      }
-      const result = await device.confirmCertificate(thumbprint);
-      res.json(result);
+      const { data } = await confirmCompanyCertificate(company);
+      res.json(data);
     } catch (err: any) {
       console.error("LEKUKA certificate/confirm error:", err?.message || err);
       if (err instanceof LekukaApiError) {
@@ -13209,7 +13135,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/statements/suppliers/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const supplierId = Number(req.params.id);
       const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
@@ -13298,7 +13224,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/allocations/customer/:customerId", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const customerId = Number(req.params.customerId);
       const [receiptTotals, allocationTotals] = await Promise.all([
@@ -15401,19 +15327,37 @@ export async function registerRoutes(
 
   // --- ACCOUNTING ROUTES ---
 
-  const resolveAccountingCompanyId = (req: any): number | null => {
-    // Prefer URL param (most reliable), then query, then user's session company
-    const rawCompanyId = req.params?.companyId ?? req.query?.companyId ?? req.user?.companyId;
-    const companyId = Number(rawCompanyId);
-    if (Number.isFinite(companyId) && companyId > 0) return companyId;
+  const resolveAccountingCompanyId = async (req: any): Promise<number | null> => {
+    const requested =
+      req.params?.companyId ?? req.query?.companyId ?? req.body?.companyId ?? req.headers?.["x-company-id"];
+    const companyId = Number(requested ?? req.user?.companyId);
+    if (!Number.isInteger(companyId) || companyId <= 0) return null;
 
-    // Fallback: validate body/header company ID against user's actual companies
-    const fallbackId = Number(req.body?.companyId ?? req.headers?.["x-company-id"]);
-    if (Number.isFinite(fallbackId) && fallbackId > 0 && req.user?.id) {
-      // Trust body only if user is a member of that company (checked synchronously where possible)
-      return fallbackId;
+    // requireAuthOrApiKey pins API-key traffic to the key's own company.
+    if (req.apiKeyCompanyId) {
+      return companyId === Number(req.apiKeyCompanyId) ? companyId : null;
     }
-    return null;
+
+    return (await checkCompanyAccess(storage, req.user, companyId)) ? companyId : null;
+  };
+
+  // API keys authenticate a whole tenant and carry no role, so only session users
+  // are matched against role permissions.
+  const accountingActionAllowed = async (req: any, companyId: number, permission: string) => {
+    if (req.apiKeyCompanyId) return true;
+    return userHasPermission(req.user?.id, companyId, permission, !!req.user?.isSuperAdmin);
+  };
+
+  const requireAccountingAction = async (
+    req: any,
+    res: any,
+    companyId: number,
+    permission: string,
+    label: string
+  ) => {
+    if (await accountingActionAllowed(req, companyId, permission)) return true;
+    res.status(403).json({ message: `You do not have permission to ${label}.` });
+    return false;
   };
 
   const normalBalance = (accountType: string) =>
@@ -15431,16 +15375,25 @@ export async function registerRoutes(
     return periods.find((period: any) => {
       const start = new Date(period.startDate);
       const end = new Date(period.endDate);
-      return postingDate >= start && postingDate <= end && period.status === "CLOSED";
+      return postingDate >= start && postingDate <= end
+        && (period.status === "CLOSED" || period.status === "LOCKED");
     });
   };
 
   const assertOpenAccountingPeriod = async (companyId: number, value: Date | string | null | undefined, action: string) => {
     const closedPeriod = await getClosedPeriodForDate(companyId, value);
     if (closedPeriod) {
-      throw new Error(`${action} is blocked because ${closedPeriod.name} is closed.`);
+      throw new Error(`${action} is blocked because ${closedPeriod.name} is ${String(closedPeriod.status).toLowerCase()}.`);
     }
   };
+
+  // Several accounting screens are wired to endpoints whose posting logic was never
+  // written. Report that instead of a success the ledger cannot back up.
+  const notImplemented = (res: any, feature: string) =>
+    res.status(501).json({
+      error: "NOT_IMPLEMENTED",
+      message: `${feature} is not implemented. Nothing was saved or posted.`,
+    });
 
   const accountingSettingsOf = (company: any) =>
     company?.accountingSettings && typeof company.accountingSettings === "object" ? company.accountingSettings : {};
@@ -15454,7 +15407,7 @@ export async function registerRoutes(
 
   const listAccountingAccounts = async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const accs = await storage.getAccounts(companyId);
       res.json(accs);
@@ -15465,8 +15418,9 @@ export async function registerRoutes(
 
   const createAccountingAccount = async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.coa.manage", "manage the chart of accounts"))) return;
       const account = await storage.createAccount({ ...req.body, companyId });
       res.json(account);
     } catch (err: any) {
@@ -15481,10 +15435,9 @@ export async function registerRoutes(
 
   app.get("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const budgets = await storage.getBudgets(companyId);
-      res.json(budgets);
+      notImplemented(res, "Budgets");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -15493,14 +15446,9 @@ export async function registerRoutes(
   app.post("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
     try {
       if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can create budgets" });
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const budget = await storage.createBudget({
-        ...req.body,
-        companyId,
-        createdBy: req.user?.id || 'system'
-      });
-      res.json(budget);
+      notImplemented(res, "Budgets");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -15508,10 +15456,9 @@ export async function registerRoutes(
 
   app.get("/api/accounting/allocations", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const rules = await storage.getCostAllocationRules(companyId);
-      res.json(rules);
+      notImplemented(res, "Cost allocation rules");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -15520,14 +15467,9 @@ export async function registerRoutes(
   app.post("/api/accounting/allocations", requireAuth, async (req: any, res: any) => {
     try {
       if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can create allocation rules" });
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const rule = await storage.createCostAllocationRule({
-        ...req.body,
-        companyId,
-        createdBy: req.user?.id || 'system'
-      });
-      res.json(rule);
+      notImplemented(res, "Cost allocation rules");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -15536,19 +15478,16 @@ export async function registerRoutes(
   app.post("/api/accounting/allocations/run", requireAuth, async (req: any, res: any) => {
     try {
       if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run allocations" });
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
-      const result = await storage.runCostAllocations(companyId, asOfDate, req.user?.id || 'system');
-      res.json(result);
+      notImplemented(res, "Cost allocation runs");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
   app.get("/api/accounting/cost-centers", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const rows = await db.select().from(costCenters).where(eq(costCenters.companyId, companyId)).orderBy(costCenters.code);
       res.json(rows);
@@ -15559,7 +15498,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/cost-centers", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const [row] = await db.insert(costCenters).values({
         companyId,
@@ -15577,7 +15516,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/segments", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const rows = await db.select().from(accountingSegments).where(eq(accountingSegments.companyId, companyId)).orderBy(accountingSegments.type, accountingSegments.code);
       res.json(rows);
@@ -15588,7 +15527,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/segments", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const [row] = await db.insert(accountingSegments).values({
         companyId,
@@ -15606,7 +15545,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { from, to } = req.query;
@@ -15623,7 +15562,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/journal-drafts", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const drafts = await storage.getJournalEntryDrafts(companyId);
@@ -15635,7 +15574,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/journal-drafts", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const draft = await storage.createJournalEntryDraft(companyId, {
@@ -15650,7 +15589,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/journal-drafts/:id/post", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const userId = req.user?.id;
@@ -15700,7 +15639,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const userId = req.user?.id;
@@ -15749,7 +15688,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/trial-balance", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { date } = req.query;
@@ -15771,16 +15710,8 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/accounting/consolidated-trial-balance", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const { date } = req.query;
-      const asOfDate = date ? new Date(date as string) : undefined;
-      
-      const lines = await storage.getConsolidatedTrialBalance(companyId, asOfDate || new Date());
-      res.json({
-        asOfDate: asOfDate || new Date(),
-        lines,
-        totalDebit: lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0),
-        totalCredit: lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0)
-      });
+      if (!Number.isInteger(companyId) || companyId <= 0) return res.status(400).json({ message: "Invalid company ID" });
+      notImplemented(res, "Consolidated group trial balance");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -15790,9 +15721,8 @@ export async function registerRoutes(
     try {
       if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run eliminations" });
       const companyId = parseInt(req.params.companyId);
-      const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
-      const result = await storage.runConsolidationEliminations(companyId, asOfDate, req.user?.id || 'system');
-      res.json(result);
+      if (!Number.isInteger(companyId) || companyId <= 0) return res.status(400).json({ message: "Invalid company ID" });
+      notImplemented(res, "Consolidation eliminations");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -15800,7 +15730,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/ledger", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { accountId, from, to } = req.query;
@@ -15818,9 +15748,10 @@ export async function registerRoutes(
 
   app.post("/api/accounting/transfer", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.cashbook", "post account transfers"))) return;
+
       const { fromAccountId, toAccountId, amount, reference, date, notes } = req.body;
       
       // We need to fetch account codes for the IDs provided
@@ -15848,7 +15779,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/cashbook", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const rows = await db
         .select({
@@ -15868,8 +15799,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/cashbook", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.cashbook", "post cashbook entries"))) return;
       const entry = await storage.createCashTransaction({
         companyId,
         type: req.body.type === "PAYMENT" ? "PAYMENT" : "RECEIPT",
@@ -15889,7 +15821,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/ar-aging", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const report = await storage.getARAgingReport(companyId, asOfDate);
@@ -15901,7 +15833,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/ap-aging", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const report = await storage.getAPAgingReport(companyId, asOfDate);
@@ -15913,10 +15845,10 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/cost-centers", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
-      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const endDate = req.query.to ? throughEndOfDay(new Date(req.query.to as string)) : undefined;
       const report = await storage.getCostCenterReport(companyId, startDate, endDate);
       res.json(report);
     } catch (err: any) {
@@ -15926,7 +15858,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/balance-sheet", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const branchId = getBranchId(req);
@@ -15951,7 +15883,7 @@ export async function registerRoutes(
           .where(and(
             eq(journalEntries.companyId, companyId),
             eq(ledgerEntries.branchId, branchId),
-            lte(journalEntries.entryDate, asOfDate)
+            lte(journalEntries.entryDate, throughEndOfDay(asOfDate))
           ))
           .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.category)
           .orderBy(accounts.code);
@@ -16022,7 +15954,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/dashboard-alerts", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const company = await storage.getCompany(companyId);
@@ -16071,7 +16003,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/dashboard", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const company = await storage.getCompany(companyId);
       const settings = accountingSettingsOf(company);
@@ -16148,7 +16080,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/opening-balances", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const company = await storage.getCompany(companyId);
       const openingBalances = accountingSettingsOf(company).openingBalances || null;
@@ -16160,7 +16092,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/opening-balances", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const company = await storage.getCompany(companyId);
@@ -16225,6 +16157,7 @@ export async function registerRoutes(
           referenceType: "OPENING_BALANCE",
           referenceId: `OB-${companyId}-${format(openingDate, "yyyyMMdd")}`,
           createdBy: req.user?.id,
+          deduplicate: true,
           lines,
         }, tx);
 
@@ -16349,7 +16282,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/audit-trail", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const branchId = getBranchId(req);
       const entries = await storage.getJournalEntries(companyId, undefined, undefined, branchId);
@@ -16368,8 +16301,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/journal/:id/reverse", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.journal.reverse", "reverse journal entries"))) return;
       const originalId = Number(req.params.id);
       const reversalDate = req.body.date ? new Date(req.body.date) : new Date();
       await assertOpenAccountingPeriod(companyId, reversalDate, "Journal reversal");
@@ -16378,29 +16312,48 @@ export async function registerRoutes(
       if (!original) return res.status(404).json({ message: "Journal entry not found" });
       if (original.referenceType === "REVERSAL") return res.status(400).json({ message: "Reversal journals cannot be reversed again." });
 
-      const existingReversal = await db.select().from(journalEntries).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.referenceType, "REVERSAL"), eq(journalEntries.referenceId, String(originalId))));
-      if (existingReversal.length) return res.status(409).json({ message: "This journal has already been reversed." });
+      // Lock the original journal while checking and posting, so two concurrent
+      // reversals of the same entry cannot both pass the already-reversed check.
+      const reversal = await db.transaction(async (tx) => {
+        await tx.select({ id: journalEntries.id })
+          .from(journalEntries)
+          .where(and(eq(journalEntries.id, originalId), eq(journalEntries.companyId, companyId)))
+          .for("update");
 
-      const originalLines = await db.select({
-        accountCode: accounts.code,
-        type: ledgerEntries.type,
-        amount: ledgerEntries.amount,
-      })
-        .from(ledgerEntries)
-        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
-        .where(eq(ledgerEntries.journalEntryId, originalId));
+        const alreadyReversed = await tx.select({ id: journalEntries.id })
+          .from(journalEntries)
+          .where(and(
+            eq(journalEntries.companyId, companyId),
+            eq(journalEntries.referenceType, "REVERSAL"),
+            eq(journalEntries.referenceId, String(originalId)),
+          ))
+          .limit(1);
+        if (alreadyReversed.length) {
+          throw Object.assign(new Error("This journal has already been reversed."), { statusCode: 409 });
+        }
 
-      const reversal = await storage.postToLedger(companyId, {
-        entryDate: reversalDate,
-        description: req.body.reason || `Reversal of journal ${originalId}: ${original.description}`,
-        referenceType: "REVERSAL",
-        referenceId: String(originalId),
-        createdBy: req.user?.id,
-        lines: originalLines.map((line: any) => ({
-          accountCode: line.accountCode,
-          type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
-          amount: Number(line.amount),
-        })),
+        const originalLines = await tx.select({
+          accountCode: accounts.code,
+          type: ledgerEntries.type,
+          amount: ledgerEntries.amount,
+        })
+          .from(ledgerEntries)
+          .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+          .where(eq(ledgerEntries.journalEntryId, originalId));
+
+        return storage.postToLedger(companyId, {
+          entryDate: reversalDate,
+          description: req.body.reason || `Reversal of journal ${originalId}: ${original.description}`,
+          referenceType: "REVERSAL",
+          referenceId: String(originalId),
+          createdBy: req.user?.id,
+          deduplicate: true,
+          lines: originalLines.map((line: any) => ({
+            accountCode: line.accountCode,
+            type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
+            amount: Number(line.amount),
+          })),
+        }, tx);
       });
 
       const company = await storage.getCompany(companyId);
@@ -16433,17 +16386,17 @@ export async function registerRoutes(
 
       res.json({ success: true, reversal });
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err?.statusCode ?? 400).json({ message: err.message });
     }
   });
 
   app.get("/api/accounting/reports/profit-and-loss", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
-      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const endDate = req.query.to ? throughEndOfDay(new Date(req.query.to as string)) : undefined;
       const branchId = getBranchId(req);
 
       const filters: any[] = [
@@ -16534,11 +16487,11 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/cash-flow", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
-      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const endDate = req.query.to ? throughEndOfDay(new Date(req.query.to as string)) : undefined;
       const branchId = getBranchId(req);
 
       // Build filters for journal entries in the period
@@ -16567,12 +16520,16 @@ export async function registerRoutes(
         .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
         .where(and(
           ...jeFilters,
-          // Only touch Cash & Bank accounts (ASSET accounts with code starting with 1)
+          // Cash movement only: the 10xx cash & bank series. Other ASSET accounts
+          // (AR 12xx, inventory 13xx) would report a credit sale as cash coming in.
           eq(accounts.type, 'ASSET'),
+          like(accounts.code, '10%'),
+          // Moving money between own bank accounts is not a cash flow.
+          or(isNull(journalEntries.referenceType), ne(journalEntries.referenceType, 'TRANSFER')),
         ))
         .orderBy(journalEntries.entryDate);
 
-      // Separate cash accounts from non-cash (the assumption: DEBIT = cash in, CREDIT = cash out)
+      // DEBIT on a cash account = cash in, CREDIT = cash out.
       // Map each entry to a category
       type CfLine = {
         date: Date;
@@ -16650,7 +16607,7 @@ export async function registerRoutes(
   // Payment GL audit trail lookup
   app.get("/api/accounting/payments/:paymentId/journal-entry", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const paymentId = Number(req.params.paymentId);
@@ -16709,7 +16666,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const assets = await storage.getFixedAssets(companyId);
       res.json(assets);
@@ -16720,7 +16677,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/fixed-assets/depreciation-runs", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const runs = await storage.getDepreciationRuns(companyId);
       res.json(runs);
@@ -16731,7 +16688,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/inventory/valuation-snapshots", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const rows = await db
         .select()
@@ -16746,7 +16703,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/inventory/valuation-snapshots", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const snapshot = await storage.createInventoryValuationSnapshot(
         companyId,
@@ -16762,7 +16719,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const payload = { ...req.body, companyId };
@@ -16775,7 +16732,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets/depreciate", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
@@ -16794,29 +16751,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only administrators can dispose of fixed assets" });
       }
 
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const assetId = parseInt(req.params.id);
       if (isNaN(assetId)) return res.status(400).json({ message: "Invalid asset ID" });
-
-      const disposalDate = req.body.disposalDate ? new Date(req.body.disposalDate) : new Date();
-      const disposalType = req.body.disposalType || 'SOLD';
-      const proceedsAmount = Number(req.body.proceedsAmount || 0);
-      const notes = req.body.notes || '';
-      const userId = req.user?.id || 'system';
-      
-      const result = await storage.disposeFixedAsset(
-        companyId, 
-        assetId, 
-        disposalDate, 
-        disposalType, 
-        String(proceedsAmount), 
-        notes, 
-        userId
-      );
-      
-      res.json(result);
+      notImplemented(res, "Fixed asset disposal");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -16825,7 +16765,7 @@ export async function registerRoutes(
   // Financial Periods
   app.get("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const periods = await storage.getFinancialPeriods(companyId);
       res.json(periods);
@@ -16836,7 +16776,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
       const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
@@ -16861,7 +16801,7 @@ export async function registerRoutes(
 
   app.patch("/api/accounting/periods/:id/toggle", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
       if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
@@ -16903,8 +16843,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/periods/year-end-close", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.periods", "run year-end close"))) return;
       await storage.runYearEndClose(companyId, new Date(req.body.asOfDate));
       res.json({ success: true, message: "Year-End closing sweep completed." });
     } catch (err: any) {
@@ -16914,18 +16855,13 @@ export async function registerRoutes(
 
   app.post("/api/accounting/revaluation", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
       
       const { cutOffDate } = req.body;
       if (!cutOffDate) return res.status(400).json({ message: "cutOffDate is required" });
 
-      const result = await storage.runForexRevaluation(companyId, new Date(cutOffDate), req.user.id);
-      res.json({ 
-        success: true, 
-        message: `Forex revaluation complete. ${result.entriesPosted} journal entries posted.`,
-        ...result 
-      });
+      notImplemented(res, "FX revaluation");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -16934,7 +16870,7 @@ export async function registerRoutes(
   // VAT Return
   app.get("/api/accounting/reports/vat-return", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { startDate, endDate } = req.query;
@@ -16951,7 +16887,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/vat-returns", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const company = await storage.getCompany(companyId);
       res.json(accountingSettingsOf(company).vatReturns || []);
@@ -16962,7 +16898,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/vat-returns/draft", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
       const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
@@ -16997,7 +16933,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/vat-returns/:id/review", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
@@ -17018,7 +16954,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/vat-returns/:id/submit", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
@@ -17046,7 +16982,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/wht/rates", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const rows = await db
         .select()
@@ -17061,7 +16997,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/wht/rates", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const [row] = await db.insert(withholdingTaxRates).values({
         companyId,
@@ -17081,7 +17017,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/wht/certificates", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const rows = await db
         .select({
@@ -17102,7 +17038,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/wht/certificates/:id/remit", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const [row] = await db
         .update(withholdingTaxCertificates)
@@ -17132,7 +17068,7 @@ export async function registerRoutes(
   for (const entityRoute of accountingEntityRoutes) {
     app.get(`/api/accounting/${entityRoute.path}`, requireAuth, async (req: any, res: any) => {
       try {
-        const companyId = resolveAccountingCompanyId(req);
+        const companyId = await resolveAccountingCompanyId(req);
         if (!companyId) return res.status(401).json({ message: "No company profile selected" });
         const rows = await db
           .select()
@@ -17147,7 +17083,7 @@ export async function registerRoutes(
 
     app.post(`/api/accounting/${entityRoute.path}`, requireAuth, async (req: any, res: any) => {
       try {
-        const companyId = resolveAccountingCompanyId(req);
+        const companyId = await resolveAccountingCompanyId(req);
         if (!companyId) return res.status(401).json({ message: "No company profile selected" });
         const inserted: any = await db
           .insert(entityRoute.table as any)
@@ -17164,7 +17100,7 @@ export async function registerRoutes(
   // Debtor/Creditor Analysis
   app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const analysis = await storage.getDebtorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
@@ -17175,7 +17111,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/creditors/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const analysis = await storage.getCreditorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
@@ -17187,7 +17123,7 @@ export async function registerRoutes(
   // Bank Reconciliation
   app.post("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { statementDate, closingBalance, accountId, lines } = req.body;
@@ -17207,7 +17143,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { accountId } = req.query;
       const stmts = await storage.getBankStatements(companyId, accountId ? Number(accountId) : undefined);
@@ -17228,7 +17164,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reconciliation/ledger", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { accountId } = req.query;
       const entries = await storage.getUnreconciledLedger(companyId, Number(accountId));
@@ -17240,7 +17176,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/reconciliation/match", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { lineId, ledgerEntryId } = req.body;
       const [line] = await db.select().from(bankStatementLines).where(eq(bankStatementLines.id, Number(lineId)));
@@ -17254,20 +17190,19 @@ export async function registerRoutes(
 
   app.post("/api/accounting/reconciliation/create-match", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const { statementLineId, targetAccountId, description } = req.body;
+      const { statementLineId } = req.body;
       const [line] = await db.select().from(bankStatementLines).where(eq(bankStatementLines.id, Number(statementLineId)));
       await assertOpenAccountingPeriod(companyId, line?.date || new Date(), "Bank reconciliation entry");
-      await storage.createAndReconcile(Number(statementLineId), Number(targetAccountId), description, req.user?.id || 'system');
-      res.json({ success: true });
+      notImplemented(res, "Manual bank reconciliation match");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
   app.post("/api/accounting/reconciliation/statements/:id/auto-match", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = resolveAccountingCompanyId(req);
+      const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const [statement] = await db.select().from(bankStatements).where(eq(bankStatements.id, Number(req.params.id)));
       await assertOpenAccountingPeriod(companyId, statement?.statementDate || new Date(), "Bank auto-reconciliation");

@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { currencyLabel } from "@shared/currency";
 import { Link } from "wouter";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useProducts } from "@/hooks/use-products";
@@ -402,7 +403,7 @@ export default function AutoSparesPage() {
                           <Badge variant="outline">{layby.status}</Badge>
                         </TableCell>
                         <TableCell>
-                          {layby.currency} {Number(layby.total || 0).toFixed(2)}
+                          {currencyLabel(layby.currency)} {Number(layby.total || 0).toFixed(2)}
                         </TableCell>
                         <TableCell>
                           {layby.currency}{" "}

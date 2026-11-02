@@ -47,6 +47,8 @@ function parsePosJob(content, config) {
     { keyword: "US$", name: "USD" },
     { keyword: "ZWG", name: "ZWG" },
     { keyword: "ZWL", name: "ZWG" },
+    { keyword: "LSL", name: "LSL" },
+    { keyword: "Maloti", name: "LSL" },
   ];
   const invoiceData = parser.parseReceipt(content, currencies);
   return posInvoiceToParsed(invoiceData);

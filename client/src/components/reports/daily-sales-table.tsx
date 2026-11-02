@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { format, parseISO } from "date-fns";
+import { currencySign } from "@shared/currency";
 import {
   Table,
   TableBody,
@@ -425,7 +426,7 @@ function InvoiceRow({
     (c: any) => c.code === (inv.currency || "USD"),
   );
   const symbol =
-    currency?.symbol || (inv.currency === "USD" ? "$" : inv.currency);
+    currency?.symbol || currencySign(inv.currency);
   const invoiceId = inv.invoiceId || inv.id;
 
   return (

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { formatMoney } from "@shared/currency";
 import { useAuth } from "@/hooks/use-auth";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { ManagerOverride } from "@/components/pos/manager-override";
@@ -986,10 +987,7 @@ export default function PosReportsPage() {
                                   variant="outline"
                                   className="border-slate-200"
                                 >
-                                  {cur}: $
-                                  {amt.toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                  })}
+                                  {cur}: {formatMoney(amt, cur)}
                                 </Badge>
                               ),
                             )}

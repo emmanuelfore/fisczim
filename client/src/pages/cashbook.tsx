@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { format } from "date-fns";
 import {
@@ -65,6 +66,7 @@ export default function CashbookPage() {
   });
 
   const { toast } = useToast();
+  const { can } = usePermissions();
   const queryClient = useQueryClient();
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId || 0;
@@ -183,7 +185,7 @@ export default function CashbookPage() {
 
             <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
               <DialogTrigger asChild>
-                <Button className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white flex items-center justify-center gap-2">
+                <Button disabled={!can("accounting.cashbook")} className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white flex items-center justify-center gap-2">
                   <ArrowRightLeft className="h-4 w-4" />
                   <span>Funds Transfer</span>
                 </Button>

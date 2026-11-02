@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { currencyLabel } from "@shared/currency";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,7 +24,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { apiRequest } from "@/lib/queryClient";
@@ -46,7 +47,7 @@ function formatCurrencyCode(amount: number, code = "USD") {
   try {
     return formatCurrency(Number(amount || 0), currencyCode);
   } catch {
-    return `${currencyCode} ${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `${currencyLabel(currencyCode)} ${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 }
 
@@ -100,8 +101,8 @@ export default function VatReturnPage() {
   const currentReturnId = `VAT-${localStorage.getItem("selectedCompanyId") || ""}-${dateRange.from.replace(/-/g, "")}-${dateRange.to.replace(/-/g, "")}`;
   const currentLifecycle = vatReturns.find((row) => row.id === currentReturnId);
   const visibleCurrencyCodes = Array.from(new Set([
-    isLesothoDomain() ? "LSL" : "USD",
-    isLesothoDomain() ? null : "ZWG",
+    isLesothoInstance() ? "LSL" : "USD",
+    isLesothoInstance() ? null : "ZWG",
     ...(report?.availableCurrencies || []),
     ...Object.keys(report?.outputVatByCurrency || {}),
     ...Object.keys(report?.inputVatByCurrency || {}),

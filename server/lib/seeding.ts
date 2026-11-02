@@ -1,6 +1,7 @@
 
 import { storage } from "../storage";
 import { type Product, taxTypes, products } from "../../shared/schema";
+import { baseCurrencyOf, defaultCurrencySeeds } from "../../shared/currency";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 
@@ -163,13 +164,14 @@ export async function seedCompanyDefaults(companyId: number) {
         }
         console.log(`[SEED] Tax Types seeded`);
 
-        // 2. Currencies (USD & ZWG)
+        // 2. Currencies (the tenant's base set: USD/ZWG, or loti in Lesotho)
         const currencies = await storage.getCurrencies(companyId);
-        let usdId = currencies.find(c => c.code === 'USD')?.id;
-        let zwgId = currencies.find(c => c.code === 'ZWG')?.id;
-
-        if (!usdId) console.warn("[SEED] USD not found after creation");
-        if (!zwgId) console.warn("[SEED] ZWG not found after creation");
+        const missing = defaultCurrencySeeds(company).filter(
+            (seed) => !currencies.some((row) => row.code === seed.code)
+        );
+        if (missing.length > 0) {
+            console.warn(`[SEED] Missing currencies after creation: ${missing.map((seed) => seed.code).join(", ")}`);
+        }
 
         console.log(`[SEED] Currencies verified`);
 
@@ -221,6 +223,8 @@ export async function seedCompanyDefaults(companyId: number) {
                 await storage.createCustomer({
                     ...cust,
                     companyId,
+                    // The test customer quotes in the tenant's own currency.
+                    currency: baseCurrencyOf(company),
                     isActive: true
                 });
             }

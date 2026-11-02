@@ -112,6 +112,10 @@ async function recoverStaleClaims(): Promise<void> {
  * fiscalized, not cancelled, and with no job row whatsoever. Recent sales are
  * queued automatically; older history is only reported so nobody silently
  * floods ZIMRA with months-old receipts.
+ *
+ * Sales rung with Fiscal OFF on the POS carry `is_fiscalized = false` and are
+ * left alone — the cashier deliberately declined a fiscal receipt, so
+ * recovering them here would sign a receipt nobody asked for.
  */
 async function sweepOrphanedInvoices(): Promise<void> {
   try {
@@ -122,6 +126,7 @@ async function sweepOrphanedInvoices(): Promise<void> {
          JOIN companies c ON c.id = i.company_id
         WHERE i.is_pos = true
           AND i.fiscal_code IS NULL
+          AND COALESCE(i.is_fiscalized, true) = true
           AND c.vat_registered = true
           AND COALESCE(i.status, '') <> 'cancelled'
           AND i.created_at >= NOW() - ($1 || ' days')::interval
@@ -143,6 +148,7 @@ async function sweepOrphanedInvoices(): Promise<void> {
            JOIN companies c ON c.id = i.company_id
           WHERE i.is_pos = true
             AND i.fiscal_code IS NULL
+            AND COALESCE(i.is_fiscalized, true) = true
             AND c.vat_registered = true
             AND COALESCE(i.status, '') <> 'cancelled'
             AND i.created_at < NOW() - ($1 || ' days')::interval
@@ -332,6 +338,7 @@ async function tick() {
         companyId: invoices.companyId,
         createdBy: invoices.createdBy,
         fiscalCode: invoices.fiscalCode,
+        isFiscalized: invoices.isFiscalized,
       })
       .from(invoices)
       .where(eq(invoices.id, job.invoiceId));
@@ -342,6 +349,13 @@ async function tick() {
     }
     if (invoice.fiscalCode) {
       await markJobCompleted(job.id);
+      continue;
+    }
+    if (invoice.isFiscalized === false) {
+      await markJobCompleted(
+        job.id,
+        "Skipped: fiscalization was disabled at checkout",
+      );
       continue;
     }
 

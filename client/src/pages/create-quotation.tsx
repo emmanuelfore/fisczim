@@ -1,4 +1,5 @@
 import { QuantityInput } from "@/components/ui/quantity-input";
+import { currencyLabel } from "@shared/currency";
 import { Layout } from "@/components/layout";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
@@ -11,7 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -490,7 +491,7 @@ export default function CreateQuotationPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {!isLesothoDomain() && <SelectItem value="USD">USD</SelectItem>}
+                    {!isLesothoInstance() && <SelectItem value="USD">USD</SelectItem>}
                     {currencies?.map((c) => (
                       <SelectItem key={c.id} value={c.code}>
                         {c.code}
@@ -693,7 +694,7 @@ export default function CreateQuotationPage() {
               <div className="flex justify-between ">
                 <span className="text-slate-500">Total (excl. tax)</span>
                 <span>
-                  {currencyCode} {subtotal.toFixed(2)}
+                  {currencyLabel(currencyCode)} {subtotal.toFixed(2)}
                 </span>
               </div>
               <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 my-4">
@@ -752,7 +753,7 @@ export default function CreateQuotationPage() {
               <div className="pt-4 border-t flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span className="text-primary">
-                  {currencyCode} {total.toFixed(2)}
+                  {currencyLabel(currencyCode)} {total.toFixed(2)}
                 </span>
               </div>
 

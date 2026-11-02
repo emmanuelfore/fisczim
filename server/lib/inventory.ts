@@ -429,14 +429,17 @@ export async function recordBatchStockIn(
                 lines.push({ accountCode: grniAccCode, type: "CREDIT", amount: Number((totalInventoryCost + totalRecoverableVat).toFixed(2)) });
             }
 
+            // Inside the caller's transaction — posting on a second connection
+            // would commit the journal even if the GRV itself rolls back.
             await storage.postToLedger(companyId, {
                 entryDate: new Date(),
                 description: `GRV ${grvReference}${gdnId ? ` (GDN #${gdnId})` : ""}`,
                 referenceType: "GRV",
                 referenceId: grvReference,
                 createdBy: createdBy,
+                deduplicate: true,
                 lines,
-            });
+            }, tx);
         }
     });
 
@@ -450,13 +453,14 @@ export async function recordBatchStockIn(
 
 export async function recordAdjustment(
     companyId: number,
-    data: { productId: number, variationId?: number, branchId?: number, quantity: number, type: string, notes?: string, userId: string }
+    data: { productId: number, variationId?: number, branchId?: number, quantity: number, type: string, notes?: string, userId: string },
+    tx?: any
 ) {
-    await db.transaction(async (tx) => {
+    const executeInTx = async (t: any) => {
         let qty = data.quantity;
         
         if (data.variationId) {
-            const [variation] = await tx.select().from(productVariations).where(eq(productVariations.id, data.variationId));
+            const [variation] = await t.select().from(productVariations).where(eq(productVariations.id, data.variationId));
             if (variation && variation.baseUnitMultiplier) {
                 qty = qty * parseFloat(variation.baseUnitMultiplier.toString());
             }
@@ -464,10 +468,10 @@ export async function recordAdjustment(
 
         const absQty = Math.abs(qty);
 
-        const location = await resolveReceivingLocation(tx, companyId, data.branchId);
+        const location = await resolveReceivingLocation(t, companyId, data.branchId);
 
         // 1. Record the transaction
-        await tx.insert(inventoryTransactions).values({
+        await t.insert(inventoryTransactions).values({
             companyId,
             branchId: data.branchId || null,
             locationId: location.id,
@@ -483,13 +487,21 @@ export async function recordAdjustment(
         });
 
         // 2. Update stock level
-        await adjustLocationStock(tx, data.productId, qty, location);
+        await adjustLocationStock(t, data.productId, qty, location);
 
         // 3. If negative adjustment, reduce from existing batches (FIFO/AVCO)
         if (qty < 0) {
-            await calculateCOGS(data.productId, absQty, companyId, data.branchId || null, tx);
+            await calculateCOGS(data.productId, absQty, companyId, data.branchId || null, t);
         }
-    });
+    };
+
+    // Inside the caller's transaction when given one — opening a second would
+    // commit the stock move even if the caller's rows roll back.
+    if (tx) {
+        await executeInTx(tx);
+    } else {
+        await db.transaction(executeInTx);
+    }
 }
 
 export async function processStockTake(stockTakeId: number, companyId: number, userId?: string) {

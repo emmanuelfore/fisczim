@@ -1,5 +1,6 @@
 import { EscPosEncoder, TextAlignment, TextSize } from "./esc-pos-encoder";
 import { format } from "date-fns";
+import { formatCurrencyAmount } from "@shared/currency";
 import { resolveMediaUrl } from "@/lib/media";
 
 export interface ReceiptData {
@@ -329,10 +330,10 @@ export class ReceiptTemplate {
 
     // 5. Totals
     encoder.bold(true);
-    encoder.tableRow(`GRAND TOTAL (Incl. VAT):`, `${invoice.currency || "USD"} ${Number(invoice.total || invoice.receiptTotal).toFixed(2)}`, width);
+    encoder.tableRow(`GRAND TOTAL (Incl. VAT):`, formatCurrencyAmount(Number(invoice.total || invoice.receiptTotal), invoice.currency), width);
     encoder.bold(false);
-    encoder.tableRow(`AMT TENDERED:`, `${invoice.currency || "USD"} ${Number(invoice.paymentAmount || invoice.total).toFixed(2)}`, width);
-    encoder.tableRow(`CHANGE:`, `${invoice.currency || "USD"} ${Number(invoice.change || 0).toFixed(2)}`, width);
+    encoder.tableRow(`AMT TENDERED:`, formatCurrencyAmount(Number(invoice.paymentAmount || invoice.total), invoice.currency), width);
+    encoder.tableRow(`CHANGE:`, formatCurrencyAmount(Number(invoice.change || 0), invoice.currency), width);
     encoder.separator(width);
     encoder.tableRow("NUMBER OF ITEMS:", totalQty.toFixed(3), width);
     encoder.separator(width);

@@ -42,7 +42,9 @@ const minimalItem = {
   unitPrice: 100,
 };
 
-// Handler validates vatNumber as exactly 9 digits and TIN as exactly 10 digits.
+// Handler accepts any tax-identifier shape the authorities issue (ZIMRA 10-digit
+// TIN / 9-digit VAT, RSL "200053040-8" / 8-digit VAT); the digit strings below
+// are only the ZIMRA-shaped samples used by the buyer-storage properties.
 const digitString9 = fc.stringMatching(/^\d{9}$/);
 const digitString10 = fc.stringMatching(/^\d{10}$/);
 
@@ -885,5 +887,211 @@ describe("Pass-Through Handler — Property 12: Fiscalization failure returns 42
       ),
       { numRuns: 100 }
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tax identifiers are shape-checked, never gated by ZIMRA digit rules
+// ---------------------------------------------------------------------------
+
+describe("Pass-Through Handler — buyer tax identifiers pass through unformatted", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("accepts a Lesotho-shaped TIN and 8-digit VAT number, stored verbatim", async () => {
+    const authCompanyId = 30;
+    setupDefaultMocks(authCompanyId);
+
+    const { createInvoiceArgs, statusCode } = await dispatchFiscalize(
+      { id: authCompanyId, name: "Lekuka Co", currency: "LSL", defaultTaxRate: 15 },
+      {
+        items: [minimalItem],
+        buyer: { registeredName: "Maseru Traders", tin: "200053040-8", vatNumber: "41234567" },
+      }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.buyerTin).toBe("200053040-8");
+    expect(createInvoiceArgs.buyerVat).toBe("41234567");
+  });
+
+  test("accepts a ZIMRA-shaped TIN and VAT number", async () => {
+    const authCompanyId = 31;
+    setupDefaultMocks(authCompanyId);
+
+    const { createInvoiceArgs, statusCode } = await dispatchFiscalize(
+      { id: authCompanyId, name: "Zim Co", currency: "USD", defaultTaxRate: 15.5 },
+      { items: [minimalItem], buyer: { name: "Acme", tin: "1234567890", vatNumber: "123456789" } }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.buyerTin).toBe("1234567890");
+    expect(createInvoiceArgs.buyerVat).toBe("123456789");
+  });
+
+  test("null buyer identifiers, contacts and address parts are accepted, not a 400", async () => {
+    const authCompanyId = 32;
+    setupDefaultMocks(authCompanyId);
+
+    const { statusCode, createInvoiceArgs } = await dispatchFiscalize(
+      { id: authCompanyId, name: "Cash Co", currency: "USD", defaultTaxRate: 15.5 },
+      {
+        items: [minimalItem],
+        buyer: {
+          name: "Walk-in Buyer",
+          tin: null,
+          vatNumber: null,
+          email: null,
+          phone: null,
+          street: null,
+          houseNo: null,
+          city: null,
+          province: null,
+        },
+      }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.customerName).toBe("Walk-in Buyer");
+  });
+
+  test("rejects a blank-looking identifier and a wrongly-shaped currency with 400", async () => {
+    const authCompanyId = 33;
+    setupDefaultMocks(authCompanyId);
+    const authCompany = { id: authCompanyId, name: "Co", currency: "USD", defaultTaxRate: 15.5 };
+
+    const shortTin = await dispatchFiscalize(authCompany, {
+      items: [minimalItem],
+      buyer: { name: "X", tin: "12" },
+    });
+    expect(shortTin.statusCode).toBe(400);
+    expect(shortTin.responseBody.error).toBe("VALIDATION_ERROR");
+
+    const badCurrency = await dispatchFiscalize(authCompany, {
+      items: [minimalItem],
+      currency: "US",
+    });
+    expect(badCurrency.statusCode).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Currency defaults to the company's own money, never hardcoded USD
+// ---------------------------------------------------------------------------
+
+describe("Pass-Through Handler — currency defaults to the company profile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("omitted currency uses the company currency on the invoice and the receipt", async () => {
+    const authCompanyId = 40;
+    setupDefaultMocks(authCompanyId);
+
+    const { createInvoiceArgs, responseBody, statusCode } = await dispatchFiscalize(
+      { id: authCompanyId, name: "ZWG Co", currency: "ZWG", defaultTaxRate: 15.5 },
+      { items: [minimalItem] }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.currency).toBe("ZWG");
+    expect(responseBody.receipt.receiptCurrency).toBe("ZWG");
+  });
+
+  test("explicit currency wins and is normalised to upper case", async () => {
+    const authCompanyId = 41;
+    setupDefaultMocks(authCompanyId);
+
+    const { createInvoiceArgs, statusCode } = await dispatchFiscalize(
+      { id: authCompanyId, name: "ZWG Co", currency: "ZWG", defaultTaxRate: 15.5 },
+      { items: [minimalItem], currency: "usd" }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.currency).toBe("USD");
+  });
+
+  test("company with no usable currency on file still fiscalizes (USD fallback)", async () => {
+    for (const companyCurrency of [null, undefined, "", "  "]) {
+      const authCompanyId = 42;
+      setupDefaultMocks(authCompanyId);
+
+      const { createInvoiceArgs, statusCode } = await dispatchFiscalize(
+        { id: authCompanyId, name: "No Currency Co", currency: companyCurrency, defaultTaxRate: 15.5 },
+        { items: [minimalItem] }
+      );
+
+      expect(statusCode).toBe(200);
+      expect(createInvoiceArgs.currency).toBe("USD");
+    }
+  });
+
+  test("a company currency with stray spaces or lower case is normalised", async () => {
+    const authCompanyId = 44;
+    setupDefaultMocks(authCompanyId);
+
+    const { createInvoiceArgs, responseBody, statusCode } = await dispatchFiscalize(
+      { id: authCompanyId, name: "Lesotho Co", currency: " lsl ", defaultTaxRate: 15 },
+      { items: [minimalItem] }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.currency).toBe("LSL");
+    expect(responseBody.receipt.receiptCurrency).toBe("LSL");
+  });
+
+  test("a Lesotho tenant still holding the schema's USD default is issued in loti", async () => {
+    const authCompanyId = 45;
+    setupDefaultMocks(authCompanyId);
+
+    const { createInvoiceArgs, responseBody, statusCode } = await dispatchFiscalize(
+      {
+        id: authCompanyId,
+        name: "RSL Co",
+        currency: "USD",
+        country: "Lesotho",
+        fiscalProvider: "LEKUKA",
+        defaultTaxRate: 15,
+      },
+      { items: [minimalItem] }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(createInvoiceArgs.currency).toBe("LSL");
+    expect(responseBody.receipt.receiptCurrency).toBe("LSL");
+  });
+
+  /**
+   * Regression: with the old hardcoded USD default, a ZWG company correcting a
+   * ZWG invoice while omitting `currency` was rejected as CURRENCY_MISMATCH.
+   */
+  test("credit note in the company currency needs no explicit currency field", async () => {
+    const authCompanyId = 43;
+    setupDefaultMocks(authCompanyId);
+    vi.mocked(storage.getInvoices).mockResolvedValue([
+      {
+        id: 500,
+        invoiceNumber: "INV-197",
+        fiscalCode: "HASH-197",
+        currency: "ZWG",
+        total: "462.00",
+        issueDate: new Date(),
+      },
+    ] as any);
+
+    const { statusCode, responseBody } = await dispatchFiscalize(
+      { id: authCompanyId, name: "ZWG Co", currency: "ZWG", defaultTaxRate: 15.5 },
+      {
+        items: [{ name: "Widget", quantity: 1, unitPrice: 100 }],
+        transactionType: "CreditNote",
+        relatedInvoiceNumber: "INV-197",
+        creditNoteReason: "Goods returned",
+      }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(responseBody.receipt.receiptCurrency).toBe("ZWG");
+    expect(responseBody.receipt.receiptType).toBe("CreditNote");
   });
 });

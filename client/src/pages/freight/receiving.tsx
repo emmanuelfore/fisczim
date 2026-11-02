@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { currencyLabel } from "@shared/currency";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
@@ -171,7 +172,7 @@ export default function FreightReceivingPage() {
                     return (
                       <div key={po.id} className="border rounded-md p-4">
                         <div className="font-bold text-lg mb-4 pb-2 border-b">
-                          PO #{po.orderNumber} - {po.currency} {po.totalAmount}
+                          PO #{po.orderNumber} - {currencyLabel(po.currency)} {po.totalAmount}
                         </div>
                         <div className="space-y-3">
                           {po.items?.map((item: any) => {

@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { currencyLabel } from "@shared/currency";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
@@ -234,7 +235,7 @@ export default function SupplierStatements() {
               <div key={box.label} className="px-6 py-5">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">{box.label}</p>
                 <p className={cn("text-xl font-bold", box.color)}>
-                  {currency} {fmt(box.value)}
+                  {currencyLabel(currency)} {fmt(box.value)}
                 </p>
               </div>
             ))}

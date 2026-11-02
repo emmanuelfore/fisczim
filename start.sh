@@ -12,7 +12,14 @@ fi
 
 # Restore PM2-injected env vars (PORT, COUNTRY_SCOPE, etc.)
 [ -n "$_SAVED_PORT" ] && export PORT="$_SAVED_PORT"
-[ -n "$_SAVED_COUNTRY_SCOPE" ] && export COUNTRY_SCOPE="$_SAVED_COUNTRY_SCOPE"
+if [ -n "$_SAVED_COUNTRY_SCOPE" ]; then
+  export COUNTRY_SCOPE="$_SAVED_COUNTRY_SCOPE"
+elif [ -n "$_SAVED_PORT" ]; then
+  # This checkout is the Zimbabwe deployment. .env is shared by every app run
+  # from here, so pin the scope instead of clearing it — clearing would let the
+  # Lesotho/LEKUKA clients show up in the main apps.
+  export COUNTRY_SCOPE="zimbabwe"
+fi
 unset _SAVED_PORT _SAVED_COUNTRY_SCOPE
 
 # Execute the compiled server

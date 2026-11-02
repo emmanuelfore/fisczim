@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../../storage.js";
 import { processInvoiceFiscalization, getCompanyZimraConfig } from "../../lib/fiscalization.js";
+import { baseCurrencyOf } from "../../../shared/currency.js";
 
 const router = Router();
 
@@ -17,13 +18,22 @@ const router = Router();
 //    6. RCPT022: Credit note item prices are auto-negated (ZIMRA requires this).
 //    7. Response mirrors the ZIMRA receipt structure for easy receipt rendering.
 //
-//  Validation rules from RevMax API v3.4.4:
-//    - buyer.tin        → exactly 10 digits
-//    - buyer.vatNumber  → exactly 9 digits
-//    - buyer.phone      → valid phone, max 20 chars
+//  Field limits from RevMax API v3.4.4:
+//    - buyer.phone      → max 20 chars
 //    - buyer.email      → valid email, max 100 chars
 //    - hsCode           → max 8 characters (ITEMCODE limit)
+//  Buyer TIN / VAT number are NOT format-validated here: ZIMRA and Lekuka/RSL
+//  use different identifier formats and the authority rejects bad ones itself.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Tax identifier shape: letters, digits and the separators real issuers use
+//    (RSL TINs look like "200053040-8"). Length bound protects the column only.
+const TAX_IDENTIFIER = z
+  .string()
+  .trim()
+  .regex(/^[0-9A-Za-z][0-9A-Za-z\s\-/.]*$/, "Tax identifier may only contain letters, digits and - / . separators")
+  .min(4, "Tax identifier looks too short — check for a truncated value")
+  .max(20, "Tax identifier max 20 characters");
 
 // ── Item-level tax type enum
 //    Maps to ZIMRA taxID automatically — client never needs to know tax IDs.
@@ -68,7 +78,10 @@ export const passThroughFiscalizeSchema = z.object({
   paymentMethod:   z.enum(["CASH", "CARD", "MOBILE", "TRANSFER", "BANK_TRANSFER", "ECOCASH", "ONE_MONEY", "EFT", "RTGS", "ZIPIT"]).default("CASH"),
   splitPayments:   z.array(z.object({ method: z.string(), amount: z.number() })).optional(),
   transactionType: z.enum(["FiscalInvoice", "CreditNote", "DebitNote"]).default("FiscalInvoice"),
-  currency:        z.enum(["USD", "ZWG"]).default("USD"),
+
+  // Any ISO-4217 code. Which codes a device actually accepts is the fiscal
+  // authority's call, not ours — an unknown code comes back as a readable 422.
+  currency: z.string().trim().regex(/^[A-Za-z]{3}$/, "currency must be a 3-letter ISO 4217 code, e.g. USD").optional(),
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  OPTIONAL — server computes or defaults from company profile
@@ -80,17 +93,19 @@ export const passThroughFiscalizeSchema = z.object({
     name:            z.string().nullable().optional(),
     registeredName:  z.string().nullable().optional(),
     tradeName:       z.string().nullable().optional(),
-    // Identifiers — validated per RevMax API rules
-    vatNumber: z.string().regex(/^\d{9}$/, "VAT number must be exactly 9 digits").optional(),
-    tin:       z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").optional(),
+    // Identifiers — shape only. ZIMRA issues 10-digit TINs and 9-digit VAT
+    // numbers; RSL issues e.g. "200053040-8" with 8-digit VAT, so digit-count
+    // rules here would reject valid foreign identifiers. The authority checks them.
+    tin:       TAX_IDENTIFIER.nullable().optional(),
+    vatNumber: TAX_IDENTIFIER.nullable().optional(),
     // Contact — max lengths per RevMax API
-    email:  z.string().email("Invalid email address").max(100, "Email max 100 characters").optional(),
-    phone:  z.string().max(20, "Phone number max 20 characters").optional(),
+    email:  z.string().trim().email("Invalid email address").max(100, "Email max 100 characters").nullable().optional(),
+    phone:  z.string().trim().max(20, "Phone number max 20 characters").nullable().optional(),
     // Address — granular fields (TransactMExt style)
-    province: z.string().optional(),
-    street:   z.string().optional(),
-    houseNo:  z.string().optional(),
-    city:     z.string().optional(),
+    province: z.string().nullable().optional(),
+    street:   z.string().nullable().optional(),
+    houseNo:  z.string().nullable().optional(),
+    city:     z.string().nullable().optional(),
   }).optional(),
 
   invoiceNumber:        z.string().optional(), // Auto-generated (INV-XXXX / CN-XXXX) if absent
@@ -159,7 +174,10 @@ router.post("/", async (req, res) => {
 
   // ── 3. Resolve company defaults and tax types ─────────────────────────────
   const companyTaxRate  = company.defaultTaxRate ?? 15.5;
-  const companyCurrency = body.currency; // enum with default "USD"
+  // An omitted currency is the company's own, not a hardcoded USD — otherwise a
+  // ZWG/LSL company silently gets receipts issued in the wrong money. baseCurrencyOf
+  // also catches a Lesotho tenant whose currency column is still the schema default.
+  const companyCurrency = body.currency?.trim().toUpperCase() || baseCurrencyOf(company);
 
   // Declared here: referenced by the branch-settings lookup below before the
   // related-invoice resolution in step 6 (TDZ fix).
@@ -618,7 +636,7 @@ router.post("/", async (req, res) => {
 
     const hint =
       err.message?.includes("device") || err.message?.includes("ZIMRA") || err.message?.includes("fiscal day")
-        ? "Ensure your ZIMRA device is registered and the fiscal day is open."
+        ? "Ensure your fiscal device is registered and a fiscal day is open."
         : "Check your item data and retry.";
 
     return res.status(422).json({

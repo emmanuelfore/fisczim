@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useCustomers, useUpdateCustomer, useCustomerStatement } from "@/hooks/use-customers";
 import { type Customer } from "@shared/schema";
+import { formatCurrencyAmount } from "@shared/currency";
+import { getDefaultCurrency, isLesothoInstance } from "@/lib/country-detect";
 import { useCompany } from "@/hooks/use-companies";
 import { useInvoices } from "@/hooks/use-invoices";
 import { Button } from "@/components/ui/button";
@@ -91,7 +93,7 @@ export default function CustomerDetailsPage() {
     from: startOfMonth(new Date()),
     to: endOfMonth(new Date()),
   });
-  const [selectedCurrency, setSelectedCurrency] = useState<string>("USD");
+  const [selectedCurrency, setSelectedCurrency] = useState<string>(getDefaultCurrency());
 
   const {
     data: statementData,
@@ -181,13 +183,13 @@ export default function CustomerDetailsPage() {
                     ${customer.city ? `<br/>${customer.city}` : ""}
                 </div>
                 <div class="balances">
-                    <span>Opening Balance: <strong>${selectedCurrency} ${Number(statementData.openingBalance).toFixed(2)}</strong></span>
+                    <span>Opening Balance: <strong>${formatCurrencyAmount(statementData.openingBalance, selectedCurrency)}</strong></span>
                 </div>
                 <table>
                     <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th style="text-align:right">Balance</th></tr></thead>
                     <tbody>${rows || '<tr><td colspan="6" style="text-align:center">No transactions</td></tr>'}</tbody>
                 </table>
-                <div class="closing">Closing Balance: ${selectedCurrency} ${Number(statementData.closingBalance).toFixed(2)}</div>
+                <div class="closing">Closing Balance: ${formatCurrencyAmount(statementData.closingBalance, selectedCurrency)}</div>
             </body></html>`);
     win.document.close();
     win.focus();
@@ -405,8 +407,9 @@ export default function CustomerDetailsPage() {
                       <SelectValue placeholder="Currency" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="ZWG">ZWG</SelectItem>
+                      {(isLesothoInstance() ? ["LSL", "USD"] : ["USD", "ZWG"]).map((code) => (
+                        <SelectItem key={code} value={code}>{code}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Popover>

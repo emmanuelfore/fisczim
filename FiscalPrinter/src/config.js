@@ -24,6 +24,8 @@ const defaults = {
     { keyword: "US$", name: "USD" },
     { keyword: "ZWG", name: "ZWG" },
     { keyword: "ZWL", name: "ZWG" },
+    { keyword: "LSL", name: "LSL" },
+    { keyword: "Maloti", name: "LSL" },
   ],
   /** Same markers as Interface App.config / FiscalBridge */
   parse: {

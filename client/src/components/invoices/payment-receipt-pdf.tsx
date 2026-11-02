@@ -8,6 +8,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { format, isValid } from "date-fns";
+import { formatCurrencyAmount } from "@shared/currency";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 import { getDefaultCity, getDefaultCountry } from "@/lib/country-detect";
 
@@ -251,6 +252,7 @@ export const PaymentReceiptPDF = ({
   taxTypes,
 }: PaymentReceiptPDFProps) => {
   const currency = payment.currency || invoice?.currency || "USD";
+  const money = (value: any) => formatCurrencyAmount(Number(value || 0), currency);
 
   const pageFont = pdfFontFamily("Helvetica");
 
@@ -425,7 +427,7 @@ export const PaymentReceiptPDF = ({
               </Text>
             </View>
             <Text style={s.amountHeroValue}>
-              {currency} {Number(payment.amount || 0).toFixed(2)}
+              {money(payment.amount)}
             </Text>
           </View>
 
@@ -506,7 +508,7 @@ export const PaymentReceiptPDF = ({
               <View style={s.grandTotal}>
                 <Text style={s.grandTotalLabel}>Balance Due:</Text>
                 <Text style={s.grandTotalValue}>
-                  {currency} {balanceDue.toFixed(2)}
+                  {money(balanceDue)}
                 </Text>
               </View>
 
@@ -536,7 +538,7 @@ export const PaymentReceiptPDF = ({
                         },
                       ]}
                     >
-                      {`${currency} ${Number(overallBalance).toFixed(2)}`}
+                      {money(overallBalance)}
                     </Text>
                   </View>
                 </View>

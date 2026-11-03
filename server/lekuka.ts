@@ -122,7 +122,7 @@ export interface LekukaReceipt {
 
 export class LekukaApiError extends Error {
   constructor(public statusCode: number, public endpoint: string, public details?: unknown) {
-    super(`LEKUKA request to ${endpoint} failed (${statusCode})`);
+    super(`Fiscal provider request to ${endpoint} failed (${statusCode})`);
     this.name = "LekukaApiError";
   }
 }

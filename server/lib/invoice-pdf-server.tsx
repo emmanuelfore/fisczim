@@ -1,6 +1,7 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet, Image, pdf } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { formatCurrencyAmount } from "@shared/currency";
 
 const styles = StyleSheet.create({
     page: {
@@ -397,15 +398,15 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                         <Text style={[styles.sectionTitle, { marginBottom: 6, color: accentColor }]}>Totals</Text>
                         <View style={styles.totalRow}>
                             <Text style={{ fontSize: 9, color: '#64748b' }}>Subtotal</Text>
-                            <Text style={{ fontSize: 9, fontWeight: 600 }}>{invoice.currency || "USD"} {Number(invoice.subtotal || 0).toFixed(2)}</Text>
+                            <Text style={{ fontSize: 9, fontWeight: 600 }}>{formatCurrencyAmount(Number(invoice.subtotal || 0), invoice.currency)}</Text>
                         </View>
                         <View style={styles.totalRow}>
                             <Text style={{ fontSize: 9, color: '#64748b' }}>VAT</Text>
-                            <Text style={{ fontSize: 9, fontWeight: 600 }}>{invoice.currency || "USD"} {Number(invoice.taxAmount || 0).toFixed(2)}</Text>
+                            <Text style={{ fontSize: 9, fontWeight: 600 }}>{formatCurrencyAmount(Number(invoice.taxAmount || 0), invoice.currency)}</Text>
                         </View>
                         <View style={styles.grandTotal}>
                             <Text style={{ fontSize: 10, color: '#64748b' }}>Grand Total</Text>
-                            <Text style={{ fontSize: 12 }}>{invoice.currency || "USD"} {Number(invoice.total || 0).toFixed(2)}</Text>
+                            <Text style={{ fontSize: 12 }}>{formatCurrencyAmount(Number(invoice.total || 0), invoice.currency)}</Text>
                         </View>
                     </View>
                 </View>

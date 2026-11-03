@@ -1,6 +1,7 @@
 
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { formatCurrencyAmount } from "@shared/currency";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
@@ -679,7 +680,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
 
                         <View style={[styles.grandTotal, { borderTopColor: accentColor }]}>
                             <Text>Total amount {company?.vatRegistered ? "(incl. tax)" : ""}</Text>
-                            <Text>{invoice.currency} {Number(invoice.total).toFixed(2)}</Text>
+                            <Text>{formatCurrencyAmount(Number(invoice.total), invoice.currency)}</Text>
                         </View>
                     </View>
                 </View>

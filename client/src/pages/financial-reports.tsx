@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
+import { currencySign } from "@shared/currency";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranches } from "@/hooks/use-branches";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import { ProfitAndLossView } from "@/components/reports/profit-and-loss-view";
 import { BalanceSheetView } from "@/components/reports/balance-sheet-view";
 import { CashFlowView } from "@/components/reports/cash-flow-view";
@@ -60,7 +61,7 @@ export default function FinancialReportsPage() {
     (c) => c.code === consolidatedCode,
   );
   const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
-  const consolidatedSymbol = consolidatedCurrency?.symbol || "$";
+  const consolidatedSymbol = consolidatedCurrency?.symbol || currencySign(consolidatedCode);
   const branchIdNum = selectedBranchId !== "all" ? Number(selectedBranchId) : undefined;
 
   const handleExportExcel = () => {
@@ -112,7 +113,7 @@ export default function FinancialReportsPage() {
                 <SelectValue placeholder="USD" />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                {!isLesothoDomain() && (
+                {!isLesothoInstance() && (
                   <SelectItem value="USD" className="text-xs font-bold">
                     USD
                   </SelectItem>

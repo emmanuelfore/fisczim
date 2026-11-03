@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { currencySign } from "@shared/currency";
 import { useQuery } from "@tanstack/react-query";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
@@ -348,7 +349,7 @@ export default function CreateInvoicePage() {
   };
 
   const currentSymbol =
-    currencies?.find((c) => c.code === currencyCode)?.symbol || "$";
+    currencies?.find((c) => c.code === currencyCode)?.symbol || currencySign(currencyCode);
 
   // New Customer Modal State
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);

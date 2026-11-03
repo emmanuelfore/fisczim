@@ -41,6 +41,9 @@ const SYSTEM_ADMIN_ONLY_COMPANIES = new Set([
 const API_KEY_PATH_ALLOWLIST = [
   /^\/api\/v1(?:\/|$)/,
   /^\/api\/zimra(?:\/|$)/,
+  // The /api/fiscal alias always rewrites to /api/companies/{key company}/zimra
+  // before dispatch, so the tenant cannot be influenced by the caller.
+  /^\/api\/fiscal(?:\/|$)/,
   /^\/api\/companies\/\d+\/zimra(?:\/|$)/,
 ];
 

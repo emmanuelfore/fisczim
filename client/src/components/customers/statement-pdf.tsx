@@ -8,6 +8,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { formatCurrencyAmount } from "@shared/currency";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 // Register fonts — use Google Fonts direct TTF (more reliable than CDN)
@@ -183,7 +184,7 @@ export const StatementPDF = ({
   if (!company) {
     return <Document><Page size="A4"><Text>Company information unavailable.</Text></Page></Document>;
   }
-  const cur = currency;
+  const money = (value: any) => formatCurrencyAmount(Number(value || 0), currency);
   const pageFont = pdfFontFamily("Roboto");
   return (
     <Document>
@@ -222,7 +223,7 @@ export const StatementPDF = ({
         <View style={styles.periodBlock}>
           <Text style={styles.periodLabel}>Opening Balance</Text>
           <Text style={styles.periodValue}>
-            {cur} {Number(data.openingBalance).toFixed(2)}
+            {money(data.openingBalance)}
           </Text>
         </View>
 
@@ -267,7 +268,7 @@ export const StatementPDF = ({
         <View style={styles.balanceRow}>
           <Text style={styles.totalLabel}>Closing Balance</Text>
           <Text style={styles.totalValue}>
-            {cur} {Number(data.closingBalance).toFixed(2)}
+            {money(data.closingBalance)}
           </Text>
         </View>
       </Page>

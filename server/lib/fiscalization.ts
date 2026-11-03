@@ -395,7 +395,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
     let invoice = await storage.getInvoice(invoiceId);
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.fiscalCode) {
-        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to ZIMRA again.`);
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
     }
 
     // Check permissions
@@ -470,7 +470,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         invoice = await storage.getInvoice(invoiceId);
         if (!invoice) throw new Error("Invoice not found");
         if (invoice.fiscalCode) {
-            throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to ZIMRA again.`);
+            throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
         }
 
         company = await storage.getCompany(companyId);
@@ -496,7 +496,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         refreshFiscalState();
 
         if (!fiscalConfig.zimraPrivateKey || !fiscalConfig.zimraCertificate || !fiscalConfig.fdmsDeviceId) {
-            throw new Error(activeBranch ? `Branch ${activeBranch.name} has not registered a ZIMRA device` : "Company has not registered a ZIMRA device");
+            throw new Error(activeBranch ? `Branch ${activeBranch.name} has no registered fiscal device` : "Company has no registered fiscal device");
         }
 
         // Initialize Device with Logger
@@ -1367,7 +1367,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             try {
                 await persistRetryAnchor();
                 vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
-                result = await device.submitReceipt(receiptData, prevHash, true);
+                // Forward the till's offline signature only when its counters
+                // were accepted as-is; submitReceipt verifies it against the
+                // exact prepared payload and re-signs on any mismatch.
+                const offlineSignatureToReuse = (!rebasedOfflineNumbers && invoice.fiscalSignature)
+                    ? invoice.fiscalSignature
+                    : undefined;
+                result = await device.submitReceipt(receiptData, prevHash, true, offlineSignatureToReuse);
                 vTimeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
             } catch (submitErr: any) {
                 // Auto-Open Retry Logic: Trigger on ZIMRA error code 310 or RCPT01 (FiscalDayClosed).
@@ -1633,7 +1639,7 @@ export const processInvoiceFiscalizationLEKUKA = async (
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.fiscalCode) {
-        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to LEKUKA again.`);
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
     }
 
     if (userId) {
@@ -1705,6 +1711,13 @@ export const processInvoiceFiscalizationLEKUKA = async (
         return d;
     };
     const effectiveReceiptDate = resolveReceiptDate();
+
+    // The gateway certifies loti documents only (LekukaReceipt.receiptCurrency is a
+    // literal "LSL"), so the payload stays in LSL and an invoice billed in anything
+    // else is logged instead of silently converted.
+    if (invoice.currency && invoice.currency.toUpperCase() !== "LSL") {
+        vLog(`[LEKUKA] Invoice ${invoice.invoiceNumber} is billed in ${invoice.currency}; the RSL receipt is issued in LSL.`);
+    }
 
     // Fail locally with readable errors — never at the gateway.
     let taxMapping = await buildTaxMapping();
@@ -1884,7 +1897,7 @@ export const processInvoiceFiscalizationLEKUKA = async (
                     fiscalDayOpenedAt: new Date(),
                     currentFiscalDayNo: newDayNo,
                     dailyReceiptCount: 0,
-                    lastFiscalDayStatus: "Opened",
+                    lastFiscalDayStatus: "FiscalDayOpened",
                 } as any);
                 // Reload company to pick up the new day number
                 company = await storage.getCompany(companyId);

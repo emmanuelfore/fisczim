@@ -24,7 +24,7 @@ import { logAction } from "./audit.js";
 import { startPosShift, endPosShift, addPosTransaction, getOpenShift, getShiftTransactions, getCompanyPosTransactions } from "./lib/pos.js";
 import { encryptField } from "./lib/vault.js";
 import { seedCompanyDefaults } from "./lib/seeding.js";
-import { processInvoiceFiscalization, getZimraLogger, FiscalDeviceBusyError } from "./lib/fiscalization.js";
+import { processInvoiceFiscalization, getCompanyZimraConfig, getZimraLogger, FiscalDeviceBusyError } from "./lib/fiscalization.js";
 import { classifyProduct } from "./utils/productClassifier.js";
 import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
@@ -50,6 +50,16 @@ import { createPartnershipsRouter } from "./routes/partnerships.js";
 import { createCustomerFlowRouter } from "./routes/customer-flow.js";
 import { LekukaDevice, LekukaApiError, generateLekukaKeypair } from "./lekuka.js";
 import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../shared/lekuka.js";
+import {
+  certificateExpiry,
+  closeLekukaFiscalDay,
+  companyUsesLekuka,
+  confirmCompanyCertificate,
+  FiscalDayStateError,
+  issueCompanyCertificate,
+  lekukaDeviceFromCompany,
+  openLekukaFiscalDay,
+} from "./lib/fiscal-provider.js";
 import { createFreightRouter } from "./routes/freight.js";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
@@ -159,6 +169,7 @@ import {
   recurringInvoices,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
+import { baseCurrencyOf } from "@shared/currency";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -4284,35 +4295,40 @@ export async function registerRoutes(
     }
   });
 
-  // Certificate Management
+  // Certificate renewal for the company's own fiscal provider.
   app.post("/api/companies/:id/zimra/issue-certificate", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-      const company = await storage.getCompany(companyId);
+      const company: any = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) return res.status(400).json({ message: "Not registered" });
 
-      const device = new ZimraDevice({
-        deviceId: company.fdmsDeviceId,
-        deviceSerialNo: "UNKNOWN",
-        activationKey: company.fdmsApiKey || "",
-        privateKey: company.zimraPrivateKey || "",
-        certificate: company.zimraCertificate || "",
-        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
-      }, getZimraLogger(companyId));
+      const issued = await issueCompanyCertificate(company);
 
-      const keys = await device.issueCertificate();
+      // The dashboard has no second step, and the server holds both halves of
+      // the pair — so a two-step gateway is confirmed here rather than left
+      // pending, which would block every receipt until someone confirms it.
+      let confirmed = false;
+      if (issued.confirmationRequired && issued.certificate) {
+        await confirmCompanyCertificate({
+          ...company,
+          zimraCertificate: issued.certificate,
+        });
+        confirmed = true;
+      }
 
-      // Update DB with new keys
-      await storage.updateCompany(companyId, {
-        zimraPrivateKey: keys.privateKey,
-        zimraCertificate: keys.certificate
+      res.json({
+        message: confirmed
+          ? "Certificate issued and confirmed successfully"
+          : "Certificate issued successfully",
+        certificate: issued.certificate,
       });
-
-      res.json({ message: "Certificate issued successfully", certificate: keys.certificate });
     } catch (err: any) {
       console.error("Issue Certificate Error:", err);
       if (err instanceof ZimraApiError) {
         return res.status(err.statusCode).json({ message: err.message, details: err.details });
+      }
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
       }
       res.status(500).json({ message: err.message || "Certificate issuance failed" });
     }
@@ -4791,7 +4807,7 @@ export async function registerRoutes(
         await storage.updateCompany(companyId, updateData);
       }
 
-      res.json(status);
+      res.json({ ...status, certificateValidTill: certificateExpiry(configSource.zimraCertificate) });
     } catch (err: any) {
       console.error("Zimra Status Error:", err);
       if (err instanceof ZimraApiError) {
@@ -5079,6 +5095,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
       }
 
+      if (companyUsesLekuka(company)) {
+        return openLekukaDay(company, res);
+      }
+
       const device = new ZimraDevice({
         deviceId: company.fdmsDeviceId,
         deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
@@ -5137,6 +5157,10 @@ export async function registerRoutes(
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
+      }
+
+      if (companyUsesLekuka(company)) {
+        return closeLekukaDay(company, res, req.body || {});
       }
 
       // Manual close is always allowed when a fiscal day exists; ZIMRA is the authority.
@@ -5457,7 +5481,7 @@ export async function registerRoutes(
       const grandTotals: Record<string, number> = {};
 
       for (const s of todaySales) {
-        const currency = s.currency || "USD";
+        const currency = s.currency || baseCurrencyOf(company);
         const method = s.paymentMethod || "CASH";
         const key = `${method}_${currency}`;
         
@@ -5622,16 +5646,10 @@ export async function registerRoutes(
   // GET /api/companies/:id/zimra/offline-state
   app.get("/api/companies/:id/zimra/offline-state", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      let companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-
-      if (!companyId) {
-        const allCompanies = await db.select().from(companies)
-          .where(isNotNull(companies.fdmsDeviceId))
-          .limit(1);
-        if (allCompanies.length > 0) {
-          companyId = allCompanies[0].id;
-        }
-      }
+      // Tenant comes from the API key alone; a session user must name the
+      // company in the path. Falling back to "first company with a device"
+      // handed one tenant's device id and key material to another tenant.
+      const companyId = (req as any).apiKeyCompanyId || Number(req.params.id) || undefined;
 
       if (!companyId) {
         return res.status(404).json({ message: "Device not found" });
@@ -5642,12 +5660,90 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Device not found or missing private key" });
       }
 
+      // Offline signing needs the same authorities the server uses when it
+      // builds the receipt: resolved tax buckets (IDs/codes/rates), not just
+      // counters. Live ZIMRA config is cached for an hour, so this is cheap.
+      const dbTaxTypes = await storage.getTaxTypes(companyId).catch(() => []);
+      let liveTaxes: any[] = [];
+      try {
+        const zimraConfig = await getCompanyZimraConfig(companyId, company);
+        liveTaxes = (zimraConfig?.applicableTaxes || zimraConfig?.taxLevels || []) as any[];
+      } catch {
+        liveTaxes = [];
+      }
+
+      const livePercent = (t: any) => Number(t?.taxPercent ?? 0);
+      const liveId = (t: any) => Number(t?.taxID ?? NaN);
+      const dbRate = (t: any) => Number(t?.rate ?? 0);
+      const dbId = (t: any) => {
+        const parsed = parseInt(String(t?.zimraTaxId ?? ""));
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+      };
+      const codeFromName = (tax: any, fallback: string) => {
+        const name = String(tax?.taxName || "").toLowerCase();
+        const percent = livePercent(tax);
+        if (name.includes("exempt")) return "C";
+        if (name.includes("zero")) return "B";
+        if (percent > 0 && !name.includes("non-vat") && !name.includes("withholding")) return "A";
+        if (percent > 0) return "D";
+        return fallback;
+      };
+
+      const liveStandard =
+        liveTaxes.find((t) => livePercent(t) > 0 && [3, 4, 515, 517].includes(liveId(t))) ||
+        liveTaxes.find((t) => livePercent(t) === 15.5) ||
+        liveTaxes.find((t) => livePercent(t) > 0);
+      const liveZero =
+        liveTaxes.find((t) => liveId(t) === 2) ||
+        liveTaxes.find((t) => livePercent(t) === 0 && /zero/i.test(String(t.taxName || ""))) ||
+        liveTaxes.find((t) => livePercent(t) === 0);
+      const liveExempt =
+        liveTaxes.find((t) => [1, 513].includes(liveId(t)) && livePercent(t) === 0) ||
+        liveTaxes.find((t) => livePercent(t) === 0 && /exempt/i.test(String(t.taxName || "")));
+
+      const dbStandard =
+        dbTaxTypes.find((t: any) => dbId(t) && [3, 4, 515, 517].includes(dbId(t)!) && dbRate(t) > 0) ||
+        dbTaxTypes.find((t: any) => dbRate(t) === 15.5) ||
+        dbTaxTypes.find((t: any) => dbRate(t) > 0);
+      const dbZero =
+        dbTaxTypes.find((t: any) => dbId(t) === 2) ||
+        dbTaxTypes.find((t: any) => dbRate(t) === 0 && /zero/i.test(String(t.name || ""))) ||
+        dbTaxTypes.find((t: any) => dbRate(t) === 0);
+      const dbExempt =
+        dbTaxTypes.find((t: any) => dbId(t) && [1, 513].includes(dbId(t)!) && dbRate(t) === 0) ||
+        dbTaxTypes.find((t: any) => dbRate(t) === 0 && /exempt/i.test(String(t.name || "")));
+
+      const bucket = (live: any, db: any, fallbackId: number, fallbackCode: string, fallbackRate: number) => ({
+        taxID: live ? liveId(live) : (db ? dbId(db) : fallbackId),
+        taxCode: live
+          ? codeFromName(live, fallbackCode)
+          : (String(db?.zimraCode || "").toUpperCase() || fallbackCode),
+        taxPercent: live ? livePercent(live) : (db ? dbRate(db) : fallbackRate),
+      });
+
+      const taxes = {
+        STANDARD: bucket(liveStandard, dbStandard, 3, "A", 15.5),
+        ZERO_RATED: bucket(liveZero, dbZero, 2, "B", 0),
+        EXEMPT: bucket(liveExempt, dbExempt, 1, "C", 0),
+      };
+
       res.json({
         deviceId: company.fdmsDeviceId,
+        deviceSerialNo: company.fdmsDeviceSerialNo || "",
+        zimraEnvironment: company.zimraEnvironment || "test",
+        qrUrl: company.qrUrl || "",
+        // Same material the web/mobile POS receives from fiscal-context so a
+        // till can sign and print a receipt with no network.
+        zimraPrivateKey: company.zimraPrivateKey,
+        zimraCertificate: company.zimraCertificate || "",
         lastFiscalHash: company.lastFiscalHash || "",
         currentFiscalDayNo: company.currentFiscalDayNo || 0,
+        fiscalDayOpen: !!company.fiscalDayOpen,
+        fiscalDayOpenedAt: company.fiscalDayOpenedAt || null,
         dailyReceiptCount: company.dailyReceiptCount || 0,
-        lastReceiptGlobalNo: company.lastReceiptGlobalNo || 0
+        lastReceiptGlobalNo: company.lastReceiptGlobalNo || 0,
+        lastReceiptAt: company.lastReceiptAt || null,
+        taxes,
       });
     } catch (err: any) {
       console.error("GetOfflineState Error:", err);
@@ -5658,17 +5754,9 @@ export async function registerRoutes(
   // 1. GET /api/companies/:id/zimra/device-details - GetDeviceStatus (RevMax format)
   app.get("/api/companies/:id/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      let companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-
-      // Last resort: find first company with a registered ZIMRA device
-      if (!companyId) {
-        const allCompanies = await db.select().from(companies)
-          .where(isNotNull(companies.fdmsDeviceId))
-          .limit(1);
-        if (allCompanies.length > 0) {
-          companyId = allCompanies[0].id;
-        }
-      }
+      // Same rule as the offline-state route: the key (or an explicitly
+      // membership-checked path id) is the only source of tenancy.
+      const companyId = (req as any).apiKeyCompanyId || Number(req.params.id) || undefined;
 
       if (!companyId) {
         return res.status(404).json(formatRevMaxResponse("0", "Device not found or not registered"));
@@ -5686,7 +5774,8 @@ export async function registerRoutes(
         COMPANYNAME: company.name || "",
         ADDRESS: company.address || "",
         REGISTRATIONNUMBER: company.fdmsDeviceId || "",
-        SERIALNUMBER: company.fdmsDeviceSerialNo || ""
+        SERIALNUMBER: company.fdmsDeviceSerialNo || "",
+        LOGOURL: company.logoUrl || ""
       }, company);
 
       res.json(response);
@@ -5702,61 +5791,83 @@ export async function registerRoutes(
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
-      if (!company || !company.fdmsDeviceId || !company.zimraPrivateKey) {
-        return res.status(400).json(formatRevMaxResponse("0", "Company not registered with ZIMRA"));
+      if (!company || !company.fdmsDeviceId) {
+        return res.status(400).json(formatRevMaxResponse("0", "Company not registered with a fiscal device"));
       }
 
-      const device = new ZimraDevice({
-        deviceId: company.fdmsDeviceId,
-        deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
-        activationKey: company.fdmsApiKey || "",
-        privateKey: company.zimraPrivateKey,
-        certificate: company.zimraCertificate || "",
-        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
-      }, getZimraLogger(companyId));
+      // The /zimra and /fiscal aliases are both served here, so resolve the
+      // provider first: a LEKUKA company has no ZIMRA private key and must not
+      // be reported as "not registered".
+      const isLekuka = company.fiscalProvider === "LEKUKA"
+        || String(company.country || "").toLowerCase() === "lesotho"
+        || (process.env.COUNTRY_SCOPE || "").trim().toLowerCase() === "lesotho";
 
-      const status = await device.getStatus();
-
-      let zimraDailyCount = status.lastReceiptCounter || 0;
-      if (zimraDailyCount === 0 && (status as any).fiscalDayDocumentQuantities) {
-          zimraDailyCount = (status as any).fiscalDayDocumentQuantities.reduce((sum: number, dq: any) => sum + (dq.receiptQuantity || 0), 0);
+      let status: any;
+      if (isLekuka) {
+        status = await lekukaDeviceFromCompany(company).getStatus();
+      } else {
+        if (!company.zimraPrivateKey) {
+          return res.status(400).json(formatRevMaxResponse("0", "Company not registered with ZIMRA", {}, company));
+        }
+        const device = new ZimraDevice({
+          deviceId: company.fdmsDeviceId,
+          deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
+          activationKey: company.fdmsApiKey || "",
+          privateKey: company.zimraPrivateKey,
+          certificate: company.zimraCertificate || "",
+          baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
+        }, getZimraLogger(companyId));
+        status = await device.getStatus();
       }
-      if (zimraDailyCount === 0 && status.lastFiscalDayNo && (status.fiscalDayStatus === 'FiscalDayOpened' || status.fiscalDayStatus === 'FiscalDayCloseFailed')) {
+
+      const fiscalDayStatus: string = status?.fiscalDayStatus || "";
+      // CloseFailed means the day did NOT close — it is still open on the gateway.
+      const dayIsOpen = fiscalDayStatus === 'FiscalDayOpened' || fiscalDayStatus === 'FiscalDayCloseFailed';
+
+      let dailyCount = Number(status?.lastReceiptCounter || 0);
+      if (dailyCount === 0 && status?.fiscalDayDocumentQuantities) {
+          dailyCount = status.fiscalDayDocumentQuantities.reduce((sum: number, dq: any) => sum + (dq.receiptQuantity || 0), 0);
+      }
+      if (dailyCount === 0 && status?.lastFiscalDayNo && dayIsOpen) {
           const localDayInvoices = await storage.getInvoicesByFiscalDay(companyId, status.lastFiscalDayNo);
           const localMaxReceiptCounter = localDayInvoices
               .filter((inv: any) => inv.syncedWithFdms)
               .reduce((max: number, inv: any) => Math.max(max, inv.receiptCounter || 0), 0);
-          if (localMaxReceiptCounter > 0) zimraDailyCount = localMaxReceiptCounter;
+          if (localMaxReceiptCounter > 0) dailyCount = localMaxReceiptCounter;
       }
 
-      const updateData: any = {
-        currentFiscalDayNo: status.lastFiscalDayNo,
-        lastFiscalDayStatus: status.fiscalDayStatus,
-        fiscalDayOpen: status.fiscalDayStatus === 'FiscalDayOpened'
-      };
-
-      if (status.lastReceiptGlobalNo !== undefined && status.lastReceiptGlobalNo > (company.lastReceiptGlobalNo || 0)) {
+      const updateData: any = {};
+      if (fiscalDayStatus) {
+        updateData.lastFiscalDayStatus = fiscalDayStatus;
+        updateData.fiscalDayOpen = dayIsOpen;
+      }
+      if (status?.lastFiscalDayNo !== undefined && status?.lastFiscalDayNo !== null) {
+        updateData.currentFiscalDayNo = status.lastFiscalDayNo;
+      }
+      if (status?.lastReceiptGlobalNo !== undefined && status.lastReceiptGlobalNo > (company.lastReceiptGlobalNo || 0)) {
           updateData.lastReceiptGlobalNo = status.lastReceiptGlobalNo;
       }
-
-      if (zimraDailyCount > (company.dailyReceiptCount || 0)) {
-          updateData.dailyReceiptCount = zimraDailyCount;
+      if (dailyCount > (company.dailyReceiptCount || 0)) {
+          updateData.dailyReceiptCount = dailyCount;
       }
 
-      // Update local state
-      await storage.updateCompany(companyId, updateData);
+      if (Object.keys(updateData).length > 0) {
+        await storage.updateCompany(companyId, updateData);
+      }
 
       const response = formatRevMaxResponse("1", "Success", {
-        fiscalDayStatus: status.fiscalDayStatus,
-        lastReceiptGlobalNo: status.lastReceiptGlobalNo,
-        lastFiscalDayNo: status.lastFiscalDayNo,
-        operationID: status.operationID || ""
-      }, company);
+        fiscalDayStatus: fiscalDayStatus || company.lastFiscalDayStatus || "",
+        lastReceiptGlobalNo: status?.lastReceiptGlobalNo,
+        lastFiscalDayNo: status?.lastFiscalDayNo,
+        operationID: status?.operationID || "",
+        fiscalDayClosingErrorCode: status?.fiscalDayClosingErrorCode || null,
+        fiscalDayOpenedAt: company.fiscalDayOpenedAt ? new Date(company.fiscalDayOpenedAt).toISOString() : null
+      }, { ...company, ...updateData });
 
       res.json(response);
     } catch (err: any) {
       console.error("GetDeviceStatus Error:", err);
-      if (err instanceof ZimraApiError) {
+      if (err instanceof ZimraApiError || err instanceof LekukaApiError) {
         return res.status(err.statusCode).json(formatRevMaxResponse("0", err.message));
       }
       res.status(500).json(formatRevMaxResponse("0", `Error: ${err.message}`));
@@ -10676,6 +10787,7 @@ export async function registerRoutes(
       fiscalDayStatus: company.fiscalDayOpen ? "FiscalDayOpened" : "FiscalDayClosed",
       fiscalDayNumber: company.currentFiscalDayNo ?? null,
       lastSync: company.fiscalDayOpenedAt ?? null,
+      certificateValidTill: certificateExpiry(company.zimraCertificate),
       hasDeviceId: !!company.fdmsDeviceId,
       hasSerialNo: !!company.fdmsDeviceSerialNo,
       hasCertificate: !!company.zimraCertificate,
@@ -10832,16 +10944,50 @@ export async function registerRoutes(
   });
 
   // ─── LEKUKA: Missing spec endpoints ─────────────────────────────────────────
-  // Helper: build a LekukaDevice from a company record.
-  function lekukaDeviceFromCompany(company: any) {
-    return new LekukaDevice({
-      baseUrl: (company.lekukaGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim(),
-      deviceId: String(company.fdmsDeviceId).trim(),
-      privateKey: company.zimraPrivateKey || undefined,
-      certificate: company.zimraCertificate || undefined,
-      deviceModelName: company.fdmsDeviceModelName || "Server",
-      deviceModelVersion: company.fdmsDeviceModelVersion || "1.0",
-    });
+  // The /api/zimra alias is provider-agnostic for API-key clients (desktop
+  // apps), so the shared day routes use the RSL gateway for LEKUKA companies.
+  async function openLekukaDay(company: any, res: any) {
+    try {
+      const { fiscalDayNo, alreadyOpen, result } = await openLekukaFiscalDay(company);
+      return res.json({
+        ...(result || {}),
+        message: alreadyOpen ? "Fiscal day is already open" : (result?.message || "Fiscal day opened"),
+        fiscalDayNo,
+      });
+    } catch (err: any) {
+      console.error("LEKUKA day-open error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      return res.status(500).json({ message: err.message || "Open day failed" });
+    }
+  }
+
+  async function closeLekukaDay(company: any, res: any, body: any = {}) {
+    const companyId = Number(company.id);
+    try {
+      const { fiscalDayNo, result } = await closeLekukaFiscalDay(company, body);
+      return res.json({
+        success: true,
+        message: `Fiscal day ${fiscalDayNo} closed successfully`,
+        fiscalDayNo,
+        result,
+      });
+    } catch (err: any) {
+      console.error("LEKUKA day-close error:", err?.message || err);
+      if (err instanceof FiscalDayStateError) {
+        return res.status(400).json({ message: err.message });
+      }
+      if (err instanceof LekukaApiError) {
+        // The day did not close: keep it open so the close can be retried.
+        await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
+          lastFiscalDayStatus: "FiscalDayCloseFailed",
+        } as any).catch(() => {});
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      return res.status(500).json({ message: err.message || "Close day failed" });
+    }
   }
 
   // GET /api/companies/:companyId/lekuka/live-status — calls RSL GetStatus
@@ -10884,60 +11030,18 @@ export async function registerRoutes(
 
   // POST /api/companies/:companyId/lekuka/day/close — close fiscal day
   app.post("/api/companies/:companyId/lekuka/day/close", requireAuth, async (req, res) => {
-    try {
-      const companyId = Number(req.params.companyId);
-      const company: any = await storage.getCompany(companyId);
-      if (!company) return res.status(404).json({ message: "Company not found" });
-      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const device = lekukaDeviceFromCompany(company);
-      const result = await device.closeDay({
-        fiscalDayNo: req.body.fiscalDayNo ?? company.currentFiscalDayNo,
-        fiscalDayDate: company.fiscalDayOpenedAt
-          ? new Date(new Date(company.fiscalDayOpenedAt).getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10)
-          : undefined,
-        receiptCounter: req.body.receiptCounter ?? company.dailyReceiptCount,
-        counters: req.body.counters,
-      });
-      await storage.updateCompany(companyId, {
-        fiscalDayOpen: false,
-        fiscalDayClosedAt: new Date(),
-        lastFiscalDayStatus: "Closed",
-        dailyReceiptCount: 0,
-      } as any);
-      res.json(result);
-    } catch (err: any) {
-      console.error("LEKUKA day-close error:", err?.message || err);
-      if (err instanceof LekukaApiError) {
-        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
-      }
-      res.status(500).json({ message: err.message || "Close day failed" });
-    }
+    const company: any = await storage.getCompany(Number(req.params.companyId));
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+    return closeLekukaDay(company, res, req.body || {});
   });
 
   // POST /api/companies/:companyId/lekuka/day/open — open fiscal day
   app.post("/api/companies/:companyId/lekuka/day/open", requireAuth, async (req, res) => {
-    try {
-      const companyId = Number(req.params.companyId);
-      const company: any = await storage.getCompany(companyId);
-      if (!company) return res.status(404).json({ message: "Company not found" });
-      if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const device = lekukaDeviceFromCompany(company);
-      const result = await device.openDay(req.body.fiscalDayOpened);
-      await storage.updateCompany(companyId, {
-        fiscalDayOpen: true,
-        fiscalDayOpenedAt: new Date(),
-        currentFiscalDayNo: (company.currentFiscalDayNo || 0) + 1,
-        dailyReceiptCount: 0,
-        lastFiscalDayStatus: "Opened",
-      } as any);
-      res.json(result);
-    } catch (err: any) {
-      console.error("LEKUKA day-open error:", err?.message || err);
-      if (err instanceof LekukaApiError) {
-        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
-      }
-      res.status(500).json({ message: err.message || "Open day failed" });
-    }
+    const company: any = await storage.getCompany(Number(req.params.companyId));
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
+    return openLekukaDay(company, res);
   });
 
   // POST /api/companies/:companyId/lekuka/certificate/issue — renew security certificate
@@ -10947,30 +11051,10 @@ export async function registerRoutes(
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const { certificateRequest } = req.body || {};
-      if (!certificateRequest) {
-        // Auto-generate new keypair + CSR
-        const { privateKey, certificateRequest: csr } = generateLekukaKeypair(
-          company.fdmsDeviceId, company.fdmsDeviceSerialNo,
-        );
-        const device = lekukaDeviceFromCompany(company);
-        const result = await device.issueCertificate(csr);
-        const certificate = result?.certificate || result?.data?.certificate;
-        if (certificate) {
-          await storage.updateCompany(companyId, {
-            zimraPrivateKey: privateKey,
-            zimraCertificate: certificate,
-          } as any);
-        }
-        return res.json({ message: "Certificate issued", certificate, privateKey });
-      }
-      const device = lekukaDeviceFromCompany(company);
-      const result = await device.issueCertificate(certificateRequest);
-      const certificate = result?.certificate || result?.data?.certificate;
-      if (certificate) {
-        await storage.updateCompany(companyId, { zimraCertificate: certificate } as any);
-      }
-      res.json(result);
+      const { response, ...issued } = await issueCompanyCertificate(company, {
+        certificateRequest: req.body?.certificateRequest,
+      });
+      res.json({ message: "Certificate issued", ...issued, response });
     } catch (err: any) {
       console.error("LEKUKA certificate/issue error:", err?.message || err);
       if (err instanceof LekukaApiError) {
@@ -10987,18 +11071,8 @@ export async function registerRoutes(
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const device = lekukaDeviceFromCompany(company);
-      let thumbprint: string | undefined;
-      if (company.zimraCertificate) {
-        try {
-          const der = new crypto.X509Certificate(company.zimraCertificate).raw;
-          thumbprint = crypto.createHash("sha1").update(der).digest("hex").toUpperCase();
-        } catch {
-          // Leave undefined; the gateway confirms the pending certificate.
-        }
-      }
-      const result = await device.confirmCertificate(thumbprint);
-      res.json(result);
+      const { data } = await confirmCompanyCertificate(company);
+      res.json(data);
     } catch (err: any) {
       console.error("LEKUKA certificate/confirm error:", err?.message || err);
       if (err instanceof LekukaApiError) {

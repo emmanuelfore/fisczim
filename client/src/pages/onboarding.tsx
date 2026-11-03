@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@shared/routes";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { isLesothoDomain, getDefaultCountry, getDefaultCurrency, getDefaultCity } from "@/lib/country-detect";
+import { isLesothoInstance, getDefaultCountry, getDefaultCurrency, getDefaultCity } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -78,20 +78,12 @@ const companySchema = insertCompanyBaseSchema
     city: z.string().min(1, "City is required"),
     phone: z.string().min(1, "Phone number is required"),
     email: z.string().email("Invalid email address"),
-    country: z.string().default(isLesothoDomain() ? "Lesotho" : "Zimbabwe"),
-    tin: z
-      .string()
-      .regex(/^\d{10}$/, "TIN must be exactly 10 digits")
-      .or(z.literal(""))
-      .optional(),
+    country: z.string().default(getDefaultCountry()),
+    tin: z.string().trim().optional(),
 
     // Optional or specialized fields
     bpNumber: z.string().optional(),
-    vatNumber: z
-      .string()
-      .regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits")
-      .or(z.literal(""))
-      .optional(),
+    vatNumber: z.string().trim().optional(),
     vatRegistered: z.boolean().default(false),
     logoUrl: z.string().optional(),
     tradingName: z.string().optional(),
@@ -100,18 +92,41 @@ const companySchema = insertCompanyBaseSchema
   })
   .superRefine((data, ctx) => {
     if (!data.vatRegistered) return;
-    if (!data.tin) {
+    const isLesotho = data.country === "Lesotho";
+    const tin = (data.tin || "").trim();
+    const vatNumber = (data.vatNumber || "").trim();
+
+    if (!tin) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["tin"],
         message: "TIN is required for VAT registered companies",
       });
+    } else if (isLesotho ? !/^\d{9}-\d$/.test(tin) : !/^\d{10}$/.test(tin)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tin"],
+        message: isLesotho
+          ? "Lesotho TIN must be 9 digits, a dash, then a check digit (e.g. 200053040-8)"
+          : "TIN must be exactly 10 digits",
+      });
     }
-    if (!data.vatNumber) {
+
+    if (!vatNumber) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["vatNumber"],
         message: "VAT number is required for VAT registered companies",
+      });
+    } else if (
+      isLesotho ? !/^\d{8}$/.test(vatNumber) : !/^\d{9,10}$/.test(vatNumber)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["vatNumber"],
+        message: isLesotho
+          ? "Lesotho VAT number must be exactly 8 digits"
+          : "VAT number must be 9 or 10 digits",
       });
     }
   });
@@ -557,9 +572,11 @@ export default function OnboardingPage() {
                         <FormControl>
                           <Input
                             placeholder={
-                              isVatRegistered
-                                ? "10XXXXXX"
-                                : "Not registered yet"
+                              companyForm.watch("country") === "Lesotho"
+                                ? "200053040-8"
+                                : isVatRegistered
+                                  ? "10XXXXXX"
+                                  : "Not registered yet"
                             }
                             {...field}
                             disabled={!isVatRegistered}
@@ -581,7 +598,11 @@ export default function OnboardingPage() {
                         <FormControl>
                           <Input
                             placeholder={
-                              isVatRegistered ? "9XXXXXX" : "Not registered yet"
+                              companyForm.watch("country") === "Lesotho"
+                                ? "50024074"
+                                : isVatRegistered
+                                  ? "9XXXXXX"
+                                  : "Not registered yet"
                             }
                             {...field}
                             disabled={!isVatRegistered}
@@ -635,7 +656,7 @@ export default function OnboardingPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {isLesothoDomain() ? (
+                              {isLesothoInstance() ? (
                                 <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
                               ) : (
                                 <>

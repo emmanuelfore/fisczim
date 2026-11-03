@@ -75,10 +75,18 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
   else if (isClosurePending) state = "pending";
   else if (!isDayOpen) state = "closed";
 
+  const expiryDate = status.certificateExpiry ? new Date(status.certificateExpiry) : null;
+  const daysToExpiry = expiryDate
+    ? Math.ceil((expiryDate.getTime() - Date.now()) / 86_400_000)
+    : null;
+  const certExpired = daysToExpiry !== null && daysToExpiry <= 0;
+  const certExpiringSoon = daysToExpiry !== null && daysToExpiry > 0 && daysToExpiry <= 30;
+
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
+    <div className="flex items-center gap-2">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
           <Link href={settingsRoute}>
             <div
               className={`
@@ -140,9 +148,36 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                 Last Open: {new Date(status.lastSync).toLocaleTimeString()}
               </p>
             )}
+            {expiryDate && (
+              <p className={certExpired || certExpiringSoon ? "text-amber-500" : "text-slate-400"}>
+                Certificate valid till {expiryDate.toLocaleDateString()}
+              </p>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>
-    </TooltipProvider>
+      </TooltipProvider>
+
+      {(certExpired || certExpiringSoon) && (
+        <Link href={settingsRoute}>
+          <div
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border cursor-pointer ${
+              certExpired
+                ? "bg-red-50 border-red-200 hover:bg-red-100"
+                : "bg-amber-50 border-amber-200 hover:bg-amber-100"
+            }`}
+          >
+            <AlertCircle className={`w-3.5 h-3.5 ${certExpired ? "text-red-500" : "text-amber-500"}`} />
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wide ${
+                certExpired ? "text-red-700" : "text-amber-700"
+              }`}
+            >
+              {certExpired ? "Certificate Expired" : `Cert expires in ${daysToExpiry}d`}
+            </span>
+          </div>
+        </Link>
+      )}
+    </div>
   );
 }

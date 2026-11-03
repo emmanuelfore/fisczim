@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { currencyLabel } from "@shared/currency";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +38,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 
 type DraftLine = {
   isFreetext?: boolean;
@@ -519,17 +520,17 @@ export default function PurchaseOrderFormPage({
                   <div className="text-right min-w-[250px]">
                     <div className="flex justify-between text-sm mb-2">
                       <span className="text-slate-500">Subtotal:</span>
-                      <span className="font-bold">{currencyCode} {subtotal.toFixed(2)}</span>
+                      <span className="font-bold">{currencyLabel(currencyCode)} {subtotal.toFixed(2)}</span>
                     </div>
                     {totalTax > 0 && (
                       <div className="flex justify-between text-sm mb-2">
                         <span className="text-slate-500">Total Tax:</span>
-                        <span className="font-bold">{currencyCode} {totalTax.toFixed(2)}</span>
+                        <span className="font-bold">{currencyLabel(currencyCode)} {totalTax.toFixed(2)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-2">
                       <p className="text-sm font-semibold text-slate-800">Total Amount</p>
-                      <p className="text-3xl font-black text-blue-600">{currencyCode} {total.toFixed(2)}</p>
+                      <p className="text-3xl font-black text-blue-600">{currencyLabel(currencyCode)} {total.toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
@@ -579,7 +580,7 @@ export default function PurchaseOrderFormPage({
                       (currencies as any[]).map((c) => (
                         <SelectItem key={c.id || c.code} value={c.code}>{c.code} - {c.name}</SelectItem>
                       ))
-                    ) : isLesothoDomain() ? (
+                    ) : isLesothoInstance() ? (
                       <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
                     ) : (
                       <>

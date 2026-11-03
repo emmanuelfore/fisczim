@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { formatCurrencyAmount, currencyLabel } from "@shared/currency";
 import { Link, useRoute, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { pdf, PDFDownloadLink } from "@react-pdf/renderer";
@@ -187,7 +188,7 @@ function PaymentDetailsDialog({ p, company }: { p: any; company: any }) {
               Amount Paid
             </p>
             <p className="text-2xl font-black text-slate-900 font-display">
-              <span className=" text-slate-400 mr-1">{p.currency}</span>
+              <span className=" text-slate-400 mr-1">{currencyLabel(p.currency)}</span>
               {Number(p.amount).toFixed(2)}
             </p>
           </div>
@@ -460,7 +461,7 @@ export default function PaymentsReceivedPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <PaymentStatCard
             label="Total Received"
-            value={`${currency} ${totalReceived.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            value={formatCurrencyAmount(totalReceived, currency)}
             detail={`${filtered.length} payment${filtered.length === 1 ? "" : "s"} in view`}
             tone="green"
           />
@@ -472,7 +473,7 @@ export default function PaymentsReceivedPage() {
           />
           <PaymentStatCard
             label="Average Payment"
-            value={`${currency} ${averagePayment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            value={formatCurrencyAmount(averagePayment, currency)}
             detail="Across current results"
             tone="amber"
           />
@@ -566,7 +567,7 @@ export default function PaymentsReceivedPage() {
                           <span className="text-xs text-slate-400 mt-0.5">{isValid(date) ? format(date, "dd MMM yy") : "-"}</span>
                         </div>
                         <div className="text-right flex flex-col items-end gap-1">
-                          <span className="font-bold text-slate-900 text-base">{payment.currency} {Number(payment.amount || 0).toFixed(2)}</span>
+                          <span className="font-bold text-slate-900 text-base">{currencyLabel(payment.currency)} {Number(payment.amount || 0).toFixed(2)}</span>
                           <PaymentMethodPill method={payment.paymentMethod} />
                         </div>
                       </div>
@@ -695,7 +696,7 @@ export default function PaymentsReceivedPage() {
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-right text-xs font-bold text-[#0F172A]">
-                          {payment.currency}{" "}
+                          {currencyLabel(payment.currency)}{" "}
                           {Number(payment.amount || 0).toFixed(2)}
                         </TableCell>
                         <TableCell className="py-2 pr-4 text-right">

@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { currencyLabel } from "@shared/currency";
 import { useState } from "react";
 import { useConsignments, useFreightForwarders } from "@/hooks/use-freight";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -179,7 +180,7 @@ export default function ConsignmentsPage() {
                         <div className="text-right">
                           <div className="text-sm text-slate-500 mb-1">Shipping Cost</div>
                           <div className="font-mono font-bold text-lg">
-                            {c.currency} {Number(c.shippingCost || 0).toFixed(2)}
+                            {currencyLabel(c.currency)} {Number(c.shippingCost || 0).toFixed(2)}
                           </div>
                         </div>
                       </div>

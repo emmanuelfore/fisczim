@@ -3,6 +3,7 @@ import {
   attachApiKeyContext,
   createRequireAuthOrApiKey,
   createRequireOwner,
+  resolveRequestedCompanyId,
   type CompanyAuthStorage,
 } from "../company-auth.js";
 
@@ -105,6 +106,41 @@ describe("company auth hardening", () => {
     expect(req.company).toEqual({ id: 7, name: "Tenant A" });
     expect(req.apiKeyCompanyId).toBe(7);
     expect(req.user).toMatchObject({ companyId: 7, isApiKey: true });
+  });
+
+  test("allows the /api/fiscal alias, which resolves the tenant from the key", async () => {
+    vi.mocked(storage.getCompanyByApiKey).mockResolvedValue({ id: 7, name: "Tenant A" });
+    const req = createReq({
+      headers: { "x-api-key": "valid-key" },
+      params: {},
+      originalUrl: "/api/fiscal/device-details",
+      path: "/api/fiscal/device-details",
+    });
+    const res = createRes();
+    const next = vi.fn();
+
+    await createRequireAuthOrApiKey(storage)(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.apiKeyCompanyId).toBe(7);
+  });
+
+  test("company id 0 in the path is not a tenant, so the key's company is used", async () => {
+    vi.mocked(storage.getCompanyByApiKey).mockResolvedValue({ id: 7, name: "Tenant A" });
+    const req = createReq({
+      headers: { "x-api-key": "valid-key" },
+      params: { id: "0" },
+      originalUrl: "/api/companies/0/zimra/offline-state",
+      path: "/api/companies/0/zimra/offline-state",
+    });
+    const res = createRes();
+    const next = vi.fn();
+
+    await createRequireAuthOrApiKey(storage)(req, res, next);
+
+    expect(resolveRequestedCompanyId(req)).toBeUndefined();
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.apiKeyCompanyId).toBe(7);
   });
 
   test("rejects authenticated users without company membership on company-scoped routes", async () => {

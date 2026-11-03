@@ -8,6 +8,7 @@ import { useCustomers } from "@/hooks/use-customers";
 import { useDeviceStatus } from "@/hooks/use-device-status";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { apiFetch } from "@/lib/api";
+import { formatCurrencyAmount } from "@shared/currency";
 import { useQuery } from "@tanstack/react-query";
 import { buildUrl, api } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
@@ -62,21 +63,7 @@ function BlanketStripe() {
 type CurrencyAmounts = Record<string, number>;
 
 function currency(v: number, code = "LSL") {
-  const currencyCode = String(code || "LSL").toUpperCase();
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currencyCode,
-      currencyDisplay: "code",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(v || 0);
-  } catch {
-    return `${currencyCode} ${Number(v || 0).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  }
+  return formatCurrencyAmount(Number(v || 0), String(code || "LSL"));
 }
 
 function formatStatus(invoice: any, useFiscalWorkflow = true): "FISCALIZED" | "PENDING" | "FAILED" | "ISSUED" | "DRAFT" {

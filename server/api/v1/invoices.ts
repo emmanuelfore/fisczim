@@ -3,6 +3,7 @@ import { z } from "zod";
 import { storage } from "../../storage.js";
 import { db } from "../../db.js";
 import { products } from "../../../shared/schema.js";
+import { baseCurrencyOf } from "../../../shared/currency.js";
 import { eq, and, ne, isNotNull } from "drizzle-orm";
 import { processInvoiceFiscalization } from "../../lib/fiscalization.js";
 
@@ -172,7 +173,7 @@ router.post("/", async (req, res) => {
       invoiceNumber,
       issueDate,
       dueDate: issueDate,
-      currency: company.currency ?? "USD",
+      currency: baseCurrencyOf(company),
       taxInclusive: company.taxInclusive ?? false,
       paymentMethod: body.paymentMethod ?? "CASH",
       splitPayments: body.splitPayments ?? null,

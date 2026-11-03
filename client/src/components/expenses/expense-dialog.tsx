@@ -8,7 +8,7 @@ import {
 import { EXPENSE_CATEGORIES } from "@shared/expense-categories";
 import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useSuppliers } from "@/hooks/use-suppliers";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -241,7 +241,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className="rounded-xl shadow-xl">
-                        {isLesothoDomain() ? (
+                        {isLesothoInstance() ? (
                           <SelectItem value="LSL">LSL</SelectItem>
                         ) : (
                           <>

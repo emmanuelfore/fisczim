@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import {
   MonitorCheck,
   Settings,
@@ -735,7 +735,7 @@ export function PosTerminalSettings({
                     Accepted Payment Methods
                   </Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-3 gap-2">
-                    {(isLesothoDomain() ? [
+                    {(isLesothoInstance() ? [
                       { id: "CASH", label: "LSL Cash" },
                       { id: "usd", label: "USD Cash" },
                     ] : [

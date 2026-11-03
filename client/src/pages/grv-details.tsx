@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { currencyLabel } from "@shared/currency";
 import { useRoute, useLocation, Link } from "wouter";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useGrv, useConfirmGdn } from "@/hooks/use-grvs";
@@ -462,13 +463,13 @@ export default function GrvDetailsPage() {
                           <td className="py-3 px-3 font-mono text-xs text-slate-500">{line.sku || "—"}</td>
                           <td className="py-3 px-3 font-medium text-slate-900">{line.productName}</td>
                           <td className="py-3 px-3 text-right text-slate-700">{Number(line.quantity).toFixed(2)}</td>
-                          <td className="py-3 px-3 text-right text-slate-700">{currency} {Number(line.unitCost).toFixed(2)}</td>
+                          <td className="py-3 px-3 text-right text-slate-700">{currencyLabel(currency)} {Number(line.unitCost).toFixed(2)}</td>
                           <td className="py-3 px-3 text-right text-slate-500 text-xs">
                             {line.taxTypeName || "—"}
-                            {Number(line.taxAmount) > 0 && <span className="block">{currency} {Number(line.taxAmount).toFixed(2)}</span>}
+                            {Number(line.taxAmount) > 0 && <span className="block">{currencyLabel(currency)} {Number(line.taxAmount).toFixed(2)}</span>}
                           </td>
                           <td className="py-3 px-3 text-right font-semibold text-slate-900">
-                            {currency} {(Number(line.unitCost) * Number(line.quantity) + Number(line.taxAmount || 0)).toFixed(2)}
+                            {currencyLabel(currency)} {(Number(line.unitCost) * Number(line.quantity) + Number(line.taxAmount || 0)).toFixed(2)}
                           </td>
                         </tr>
                       ))}
@@ -495,8 +496,8 @@ export default function GrvDetailsPage() {
                               <td className="py-2 px-3 text-slate-800">{line.productName || line.description || "—"}</td>
                               <td className="py-2 px-3 font-mono text-xs text-slate-500">{line.accountCode || "—"}</td>
                               <td className="py-2 px-3 text-right">{Number(line.quantity).toFixed(2)}</td>
-                              <td className="py-2 px-3 text-right">{currency} {Number(line.unitCost).toFixed(2)}</td>
-                              <td className="py-2 px-3 text-right font-semibold">{currency} {(Number(line.unitCost) * Number(line.quantity)).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-right">{currencyLabel(currency)} {Number(line.unitCost).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-right font-semibold">{currencyLabel(currency)} {(Number(line.unitCost) * Number(line.quantity)).toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -512,20 +513,20 @@ export default function GrvDetailsPage() {
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500 font-medium">Subtotal</span>
                         <span className="text-slate-900 font-semibold">
-                          {currency} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.quantity || 0) * Number(l.unitCost || 0), 0).toFixed(2)}
+                          {currencyLabel(currency)} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.quantity || 0) * Number(l.unitCost || 0), 0).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500 font-medium">Total Tax</span>
                         <span className="text-slate-900 font-semibold">
-                          {currency} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.taxAmount || 0), 0).toFixed(2)}
+                          {currencyLabel(currency)} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.taxAmount || 0), 0).toFixed(2)}
                         </span>
                       </div>
                     </div>
                     <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
                       <span className="font-semibold uppercase tracking-wider text-xs text-slate-300">Total Value</span>
                       <span className="text-xl font-bold">
-                        {currency} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.quantity || 0) * Number(l.unitCost || 0) + Number(l.taxAmount || 0), 0).toFixed(2)}
+                        {currencyLabel(currency)} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.quantity || 0) * Number(l.unitCost || 0) + Number(l.taxAmount || 0), 0).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -680,7 +681,7 @@ export default function GrvDetailsPage() {
                                 />
                               </div>
                             ) : (
-                              <>{currency} {line.unitCost.toFixed(2)}</>
+                              <>{currencyLabel(currency)} {line.unitCost.toFixed(2)}</>
                             )}
                           </td>
                           <td className="p-3 font-bold text-right">
@@ -753,12 +754,12 @@ export default function GrvDetailsPage() {
                             ) : (
                               <div className="text-right">
                                 <div>{line.taxTypeName || "No Tax"}</div>
-                                <div className="text-xs text-slate-500">{currency} {Number(line.taxAmount || 0).toFixed(2)}</div>
+                                <div className="text-xs text-slate-500">{currencyLabel(currency)} {Number(line.taxAmount || 0).toFixed(2)}</div>
                               </div>
                             )}
                           </td>
                           <td className="p-3 font-bold text-slate-900 text-right">
-                            {currency} {((line.unitCost || 0) * (line.quantity || 0) + (taxInclusive ? 0 : Number(line.taxAmount || 0))).toFixed(2)}
+                            {currencyLabel(currency)} {((line.unitCost || 0) * (line.quantity || 0) + (taxInclusive ? 0 : Number(line.taxAmount || 0))).toFixed(2)}
                           </td>
                         </tr>
                       )})}
@@ -833,7 +834,7 @@ export default function GrvDetailsPage() {
                                   />
                                 </div>
                               ) : (
-                                <>{currency} {line.unitCost.toFixed(2)}</>
+                                <>{currencyLabel(currency)} {line.unitCost.toFixed(2)}</>
                               )}
                             </td>
                             <td className="p-3 font-bold text-right">
@@ -863,7 +864,7 @@ export default function GrvDetailsPage() {
                               )}
                             </td>
                             <td className="p-3 font-bold text-slate-900 text-right">
-                              {currency} {((line.unitCost || 0) * (line.quantity || 0)).toFixed(2)}
+                              {currencyLabel(currency)} {((line.unitCost || 0) * (line.quantity || 0)).toFixed(2)}
                             </td>
                           </tr>
                         )})}
@@ -928,7 +929,7 @@ export default function GrvDetailsPage() {
               <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-500">Subtotal:</span>
                 <span className="font-semibold text-slate-800">
-                  {currency} {(() => {
+                  {currencyLabel(currency)} {(() => {
                     const lines = grv.status === "DRAFT" && editableLines.length > 0 ? editableLines : grv.lines;
                     return lines.reduce((sum: number, line: any) => sum + (Number(line.quantity || 0) * Number(line.unitCost || 0)), 0).toFixed(2);
                   })()}
@@ -937,7 +938,7 @@ export default function GrvDetailsPage() {
               <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-500">Total VAT / Tax:</span>
                 <span className="font-semibold text-slate-800">
-                  {currency} {(() => {
+                  {currencyLabel(currency)} {(() => {
                     const lines = grv.status === "DRAFT" && editableLines.length > 0 ? editableLines : grv.lines;
                     return lines.reduce((sum: number, line: any) => sum + Number(line.taxAmount || 0), 0).toFixed(2);
                   })()}
@@ -947,7 +948,7 @@ export default function GrvDetailsPage() {
               <div className="flex justify-between items-end">
                 <span className="text-base font-bold text-slate-800">Total Value:</span>
                 <span className="text-2xl font-black text-blue-600">
-                  {currency} {(() => {
+                  {currencyLabel(currency)} {(() => {
                     const lines = grv.status === "DRAFT" && editableLines.length > 0 ? editableLines : grv.lines;
                     const subtotal = lines.reduce((sum: number, line: any) => sum + (Number(line.quantity || 0) * Number(line.unitCost || 0)), 0);
                     const tax = lines.reduce((sum: number, line: any) => sum + Number(line.taxAmount || 0), 0);

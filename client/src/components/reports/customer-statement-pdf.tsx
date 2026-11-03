@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
+import { formatCurrencyAmount } from "@shared/currency";
 import { format, isValid } from "date-fns";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 
@@ -170,6 +171,8 @@ export const CustomerStatementPDF = ({
 
   const formatDate = (d: any) => format(getSafeDate(d), "dd MMM yyyy");
 
+  const money = (value: any) => formatCurrencyAmount(Number(value || 0), currency);
+
   const pageFont = pdfFontFamily("Helvetica");
 
   return (
@@ -222,25 +225,23 @@ export const CustomerStatementPDF = ({
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Opening Balance</Text>
               <Text style={s.summaryValue}>
-                {currency} {data.openingBalance.toFixed(2)}
+                {money(data.openingBalance)}
               </Text>
             </View>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Total Invoiced</Text>
               <Text style={s.summaryValue}>
-                {currency}{" "}
-                {data.transactions
-                  .reduce((acc, t) => acc + (t.debit || 0), 0)
-                  .toFixed(2)}
+                {money(
+                  data.transactions.reduce((acc, t) => acc + (t.debit || 0), 0),
+                )}
               </Text>
             </View>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Total Paid</Text>
               <Text style={s.summaryValue}>
-                {currency}{" "}
-                {data.transactions
-                  .reduce((acc, t) => acc + (t.credit || 0), 0)
-                  .toFixed(2)}
+                {money(
+                  data.transactions.reduce((acc, t) => acc + (t.credit || 0), 0),
+                )}
               </Text>
             </View>
             <View style={s.summaryItem}>
@@ -250,7 +251,7 @@ export const CustomerStatementPDF = ({
                 Balance Due
               </Text>
               <Text style={[s.summaryValue, { color: "#3b82f6" }]}>
-                {currency} {data.closingBalance.toFixed(2)}
+                {money(data.closingBalance)}
               </Text>
             </View>
           </View>

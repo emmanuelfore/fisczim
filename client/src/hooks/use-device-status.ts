@@ -53,7 +53,7 @@ export function useDeviceStatus(companyId: number, isLesotho = false) {
                         fiscalDayStatus: data.fiscalDayStatus || (data.isConfigured ? 'Configured' : 'NotConfigured'),
                         fiscalDayNumber: data.fiscalDayNumber ?? null,
                         lastSync: data.lastSync ?? null,
-                        certificateExpiry: null
+                        certificateExpiry: data.certificateValidTill ?? null
                     };
                 }
 
@@ -65,7 +65,7 @@ export function useDeviceStatus(companyId: number, isLesotho = false) {
                     fiscalDayStatus: data.fiscalDayStatus,
                     fiscalDayNumber: data.lastFiscalDayNo,
                     lastSync: data.lastFiscalDayNoAt || data.fiscalDayClosed || null,
-                    certificateExpiry: null
+                    certificateExpiry: data.certificateValidTill ?? null
                 };
             } catch (error: any) {
                 // Network-level failure (backend down / unreachable / aborted).

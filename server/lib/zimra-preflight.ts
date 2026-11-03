@@ -210,7 +210,7 @@ export async function assertReceiptPreflight(args: {
       }
     } else {
       if (!line.taxID || (liveTaxIds.size > 0 && !liveTaxIds.has(line.taxID))) {
-        addIssue(issues, "RCPT025", `Line ${lineNo} tax ID ${line.taxID || "missing"} is not valid for this ZIMRA device.`);
+        addIssue(issues, "RCPT025", `Line ${lineNo} tax ID ${line.taxID || "missing"} is not valid for this fiscal device.`);
       }
 
       if (line.taxID !== 1 && !Number.isFinite(taxPercent)) {
@@ -322,7 +322,7 @@ export async function assertReceiptPreflight(args: {
       .map((i) => `${i.code}: ${i.message}`)
       .join(" | ");
     const extra = issues.length > 3 ? ` (+${issues.length - 3} more)` : "";
-    throw new ZimraPreflightError(`ZIMRA preflight failed. Receipt was not submitted. ${summary}${extra}`, issues);
+    throw new ZimraPreflightError(`Fiscal preflight failed. Receipt was not submitted. ${summary}${extra}`, issues);
   }
 }
 

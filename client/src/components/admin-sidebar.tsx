@@ -187,7 +187,7 @@ export function AdminSidebar({
         <div className="h-[80px] flex items-center justify-center shrink-0 relative overflow-hidden" style={{ borderBottom: `1px solid rgba(255,255,255,0.12)`, background: "linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 100%)" }}>
           <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#1E3A8A" }} />
           <div className="w-10 h-10 rounded-[10px] bg-white flex items-center justify-center shadow-sm">
-            <img src={brand.logo} alt={brand.name} className="h-6 w-6 object-contain rounded" />
+            <img src={brand.logo} alt={brand.name} className="w-9 h-auto object-contain rounded" />
           </div>
           {onToggleCollapse && (
             <button onClick={onToggleCollapse} title="Expand menu" className="absolute bottom-1 right-1 w-5 h-5 rounded-md bg-white/20 hover:bg-white/30 flex items-center justify-center text-white">
@@ -239,7 +239,7 @@ export function AdminSidebar({
         <div aria-hidden className="absolute -right-10 -top-16 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, rgba(96,165,250,0.22) 0%, transparent 70%)" }} />
         <div aria-hidden className="absolute right-16 bottom-0 w-24 h-10 rounded-full" style={{ background: "rgba(255,255,255,0.06)", filter: "blur(12px)" }} />
         <div className="relative flex items-center w-full">
-          <img src={brand.logo} alt={brand.name} className="h-9 w-auto object-contain" style={{ filter: "brightness(0) invert(1)" }} />
+          <img src={brand.logo} alt={brand.name} className="h-16 w-auto max-w-[200px] object-contain" style={{ filter: "brightness(0) invert(1)" }} />
           {onToggleCollapse && !forceVisible && (
             <button onClick={onToggleCollapse} title="Collapse menu" className="ml-auto shrink-0 w-7 h-7 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center text-white">
               <PanelLeftClose className="w-4 h-4" />

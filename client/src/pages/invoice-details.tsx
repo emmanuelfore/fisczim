@@ -1,5 +1,6 @@
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
+import { currencyLabel } from "@shared/currency";
 import {
   useInvoices,
   useInvoice,
@@ -277,7 +278,7 @@ export default function InvoiceDetailsPage() {
   const handleShareWhatsapp = async () => {
     if (!invoice || !company) return;
     const phoneParam = (invoice.customer?.phone || "").replace(/\D/g, "");
-    const text = `Hello ${invoice.customer?.name || "Customer"},\n\nHere is your *Invoice ${invoice.invoiceNumber}* from *${company.tradingName || company.name}*.\n\nTotal: *${invoice.currency} ${Number(invoice.total).toFixed(2)}*`;
+    const text = `Hello ${invoice.customer?.name || "Customer"},\n\nHere is your *Invoice ${invoice.invoiceNumber}* from *${company.tradingName || company.name}*.\n\nTotal: *${currencyLabel(invoice.currency)} ${Number(invoice.total).toFixed(2)}*`;
     try {
       const blob = await pdf(
         <InvoicePDF
@@ -500,7 +501,7 @@ export default function InvoiceDetailsPage() {
                             )}
                           </div>
                           <span className="text-xs font-bold text-slate-800 shrink-0">
-                            {inv.currency} {Number(inv.total).toFixed(2)}
+                            {currencyLabel(inv.currency)} {Number(inv.total).toFixed(2)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-1">
@@ -989,7 +990,7 @@ export default function InvoiceDetailsPage() {
                               Invoice total
                             </p>
                             <p className="mt-1 truncate text-2xl font-black text-slate-950">
-                              {invoice.currency}{" "}
+                              {currencyLabel(invoice.currency)}{" "}
                               {Number(invoice.total || 0).toFixed(2)}
                             </p>
                           </div>
@@ -1008,7 +1009,7 @@ export default function InvoiceDetailsPage() {
                               Paid
                             </p>
                             <p className="mt-1 font-black text-emerald-700">
-                              {invoice.currency} {totalPaid.toFixed(2)}
+                              {currencyLabel(invoice.currency)} {totalPaid.toFixed(2)}
                             </p>
                           </div>
                           <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200">
@@ -1021,7 +1022,7 @@ export default function InvoiceDetailsPage() {
                                 isPaid ? "text-emerald-700" : "text-rose-700",
                               )}
                             >
-                              {invoice.currency} {balanceDue.toFixed(2)}
+                              {currencyLabel(invoice.currency)} {balanceDue.toFixed(2)}
                             </p>
                           </div>
                         </div>

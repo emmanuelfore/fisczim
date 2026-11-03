@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { currencyLabel } from "@shared/currency";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -203,7 +204,7 @@ export function CreateConsignmentDialog({
                       className="rounded border-slate-300"
                     />
                     <label htmlFor={`po-${po.id}`} className="text-sm cursor-pointer">
-                      <strong>{po.orderNumber}</strong> - {po.supplier?.name} - {po.currency} {po.totalAmount}
+                      <strong>{po.orderNumber}</strong> - {po.supplier?.name} - {currencyLabel(po.currency)} {po.totalAmount}
                     </label>
                   </div>
                 ))}

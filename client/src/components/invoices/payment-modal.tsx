@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
+import { formatCurrencyAmount, currencyLabel } from "@shared/currency";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -161,7 +162,7 @@ export function PaymentModal({
               : "Payment allocated",
           description:
             unallocatedAmount > 0
-              ? `${invoice.currency || "USD"} ${unallocatedAmount.toFixed(2)} remains unallocated on the customer account.`
+              ? `${formatCurrencyAmount(unallocatedAmount, invoice.currency)} remains unallocated on the customer account.`
               : "The receipt was allocated to this invoice.",
         });
         queryClient.invalidateQueries({
@@ -207,7 +208,7 @@ export function PaymentModal({
             <DialogDescription>
               Add a receipt for Invoice #{invoice.invoiceNumber}. Overpayments
               stay unallocated on the customer account. Remaining Balance:{" "}
-              {invoice.currency} {remainingBalance.toFixed(2)}
+              {currencyLabel(invoice.currency)} {remainingBalance.toFixed(2)}
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>

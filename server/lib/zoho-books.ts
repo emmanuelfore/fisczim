@@ -6,6 +6,7 @@ import {
   type ZohoConnection,
   type ZohoConnectionSettings,
 } from "../../shared/schema.js";
+import { baseCurrencyOf, canonicalCurrency, isSupportedCurrency } from "../../shared/currency.js";
 
 export type ZohoInvoice = any;
 export type ZohoContact = any;
@@ -426,10 +427,11 @@ function resolvePaymentMethod(
   return "CASH";
 }
 
-function resolveCurrency(invoice: ZohoInvoice, company: Company): "USD" | "ZWG" {
-  const code = String(invoice?.currency_code ?? invoice?.currency ?? "").toUpperCase();
-  if (code === "ZWG" || code === "USD") return code;
-  return String(company.currency ?? "").toUpperCase() === "ZWG" ? "ZWG" : "USD";
+function resolveCurrency(invoice: ZohoInvoice, company: Company): string {
+  const code = canonicalCurrency(invoice?.currency_code ?? invoice?.currency);
+  // Zoho's own code wins, so a loti book syncs as loti instead of the schema default.
+  // A code the app cannot price or print still falls back to the company's money.
+  return isSupportedCurrency(code) ? code : baseCurrencyOf(company);
 }
 
 /**

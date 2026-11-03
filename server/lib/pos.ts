@@ -1,5 +1,6 @@
 import { db } from "../db";
-import { posShifts, posShiftTransactions, users, expenses } from "@shared/schema";
+import { posShifts, posShiftTransactions, users, expenses, companies } from "@shared/schema";
+import { baseCurrencyOf } from "@shared/currency";
 import { eq, and, desc, gte, lte } from "drizzle-orm";
 
 export async function startPosShift(companyId: number, userId: string, openingBalance: number, notes?: string) {
@@ -75,12 +76,16 @@ export async function addPosTransaction(
 
         // If it's a payout, also record it as an expense
         if (type === 'PAYOUT') {
+            const [shiftCompany] = await tx
+                .select({ currency: companies.currency, country: companies.country, fiscalProvider: companies.fiscalProvider })
+                .from(companies)
+                .where(eq(companies.id, shift.companyId));
             await tx.insert(expenses).values({
                 companyId: shift.companyId,
                 category: "POS Payout",
                 description: reason || "POS Payout",
                 amount: amount.toString(),
-                currency: "USD", // Default to USD for now, or fetch from company/shift
+                currency: baseCurrencyOf(shiftCompany),
                 expenseDate: new Date(),
                 paymentMethod: "Cash",
                 reference: `POS-PAYOUT-${transaction.id}`,

@@ -97,6 +97,24 @@ describe("mapZohoInvoiceToFiscalizePayload", () => {
     expect(payload.items[0].taxType).toBe("EXEMPT");
   });
 
+  test("keeps the invoice's own currency, aliases ZiG and falls back on the company", () => {
+    const lineItem = { name: "Item", quantity: 1, rate: 10, tax_name: "Standard Rate", tax_percentage: 15 };
+    const payloadFor = (currency_code: string, own = company) =>
+      mapZohoInvoiceToFiscalizePayload(
+        { invoice_id: "z", invoice_number: "INV-Z", currency_code, line_items: [lineItem] },
+        null,
+        own
+      );
+
+    // A book billed in a currency the app knows is fiscalised in that currency, not USD.
+    expect(payloadFor("LSL").currency).toBe("LSL");
+    expect(payloadFor("ZWL").currency).toBe("ZWG");
+    expect(payloadFor("RTGS").currency).toBe("ZWG");
+    // An unknown code falls back to the money the company itself books in.
+    expect(payloadFor("EUR").currency).toBe("USD");
+    expect(payloadFor("", { id: 2, currency: "ZWG" } as any).currency).toBe("ZWG");
+  });
+
   test("backs tax out of tax-inclusive rates", () => {
     const invoice = {
       invoice_id: "zoho-3",

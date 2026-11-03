@@ -1,4 +1,5 @@
 import { QuantityInput } from "@/components/ui/quantity-input";
+import { currencyLabel } from "@shared/currency";
 import { Layout } from "@/components/layout";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
@@ -882,7 +883,7 @@ export default function CreateSalesOrderPage() {
               <div className="flex justify-between ">
                 <span className="text-slate-500">Total (excl. tax)</span>
                 <span>
-                  {currencyCode} {subtotal.toFixed(2)}
+                  {currencyLabel(currencyCode)} {subtotal.toFixed(2)}
                 </span>
               </div>
               <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 my-4">
@@ -941,7 +942,7 @@ export default function CreateSalesOrderPage() {
               <div className="pt-4 border-t flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span className="text-primary">
-                  {currencyCode} {total.toFixed(2)}
+                  {currencyLabel(currencyCode)} {total.toFixed(2)}
                 </span>
               </div>
 

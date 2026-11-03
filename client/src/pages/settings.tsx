@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
-import { getDefaultCountry, isLesothoDomain } from "@/lib/country-detect";
+import { getDefaultCountry, isLesothoInstance } from "@/lib/country-detect";
 import { useUpdateCompany } from "@/hooks/use-companies";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -95,7 +95,7 @@ export default function SettingsPage() {
         branchCode: activeCompany.branchCode || "",
         currency: activeCompany.currency || "USD",
         country: activeCompany.country || getDefaultCountry(),
-        fiscalProvider: (activeCompany as any).fiscalProvider || (isLesothoDomain() ? "LEKUKA" : "ZIMRA"),
+        fiscalProvider: (activeCompany as any).fiscalProvider || (isLesothoInstance() ? "LEKUKA" : "ZIMRA"),
         lekukaGatewayUrl: (activeCompany as any).lekukaGatewayUrl || "",
         fdmsDeviceId: activeCompany.fdmsDeviceId || "",
         zimraPrivateKey: activeCompany.zimraPrivateKey || "",

@@ -36,6 +36,8 @@ import * as z from "zod";
 import { Plus, DollarSign, Briefcase, Loader2, RefreshCw } from "lucide-react";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
+import { formatMoney } from "@shared/currency";
+import { getDefaultCurrency } from "@/lib/country-detect";
 // The shape of the data
 type PayGrade = {
   id: number;
@@ -96,12 +98,7 @@ export function PayGradesTab() {
     createMutation.mutate(values);
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
-  };
+  const formatCurrency = (value: number) => formatMoney(value, getDefaultCurrency());
 
   return (
     <div className="flex flex-col space-y-6">

@@ -3727,7 +3727,7 @@ export default function POSPage() {
                             }}
                             disabled={cartProduct?.serialTrackingEnabled}
                           >
-                            $
+                            {currencyInfo.symbol}
                             {(
                               item.price * item.quantity -
                               item.discountAmount
@@ -3748,7 +3748,8 @@ export default function POSPage() {
                               }
                             }}
                           >
-                            ${item.price.toFixed(2)}
+                            {currencyInfo.symbol}
+                            {item.price.toFixed(2)}
                           </button>
                           {item.discountAmount > 0 && (
                             <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1 rounded">
@@ -5448,7 +5449,7 @@ export default function POSPage() {
                     <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
                     <div className="relative">
                       <span className="absolute left-0 top-1/2 -translate-y-1/2 text-xl sm:text-2xl font-black text-slate-200 group-focus-within:text-primary transition-colors">
-                        {IS_LESOTHO_BRANCH ? currencyInfo.symbol : "$"}
+                        {currencyInfo.symbol}
                       </span>
                       <Input
                         id="checkout-paid-amount"
@@ -5827,7 +5828,7 @@ export default function POSPage() {
                     Amount
                   </label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300 text-lg">$</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300 text-lg">{currencyInfo.symbol}</span>
                     <Input
                       type="number"
                       value={cashDropAmount}
@@ -5916,7 +5917,7 @@ export default function POSPage() {
                   </label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300">
-                      $
+                      {currencyInfo.symbol}
                     </span>
                     <Input
                       type="number"
@@ -5985,7 +5986,7 @@ export default function POSPage() {
                 <div className="relative">
                   {qtyDialog?.mode === "total" && (
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">
-                      $
+                      {currencyInfo.symbol}
                     </span>
                   )}
                   <input
@@ -6012,7 +6013,7 @@ export default function POSPage() {
                         <p className=" font-bold text-slate-600">
                           Line Total ={" "}
                           <span className="text-slate-900 font-black">
-                            $
+                            {currencyInfo.symbol}
                             {(
                               parseFloat(qtyDialogInput) * qtyDialog.unitPrice -
                               qtyDialog.discountAmount
@@ -6946,7 +6947,8 @@ export default function POSPage() {
                               {sel.originalItem.description}
                             </p>
                             <p className="text-xs text-slate-400 font-bold">
-                              ${Number(sel.originalItem.unitPrice).toFixed(2)}{" "}
+                              {currencyInfo.symbol}
+                              {Number(sel.originalItem.unitPrice).toFixed(2)}{" "}
                               each (Max: {Number(sel.originalItem.quantity)})
                             </p>
                           </div>

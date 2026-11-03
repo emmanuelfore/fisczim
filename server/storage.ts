@@ -68,6 +68,7 @@ import {
   type PayrollCalculationAudit, type InsertPayrollCalculationAudit,
   jobLogs, type JobLog, type InsertJobLog
 } from "../shared/schema.js";
+import { baseCurrencyOf, defaultCurrencySeeds } from "../shared/currency.js";
 import { db } from "./db.js";
 import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
@@ -763,27 +764,14 @@ export class DatabaseStorage implements IStorage {
       // Initialize default Chart of Accounts
       await this.initializeCompanyAccounts(newCompany.id, tx);
 
-      // Automatically create default currencies (USD and ZIG)
-      await tx.insert(currencies).values([
-        {
+      // Seed the currencies this tenant books in: USD/ZWG here, loti for Lesotho.
+      await tx.insert(currencies).values(
+        defaultCurrencySeeds(normalizedCompany).map((seed) => ({
           companyId: newCompany.id,
-          code: "USD",
-          name: "US Dollar",
-          symbol: "$",
-          exchangeRate: "1.000000",
-          isBase: true,
+          ...seed,
           isActive: true
-        },
-        {
-          companyId: newCompany.id,
-          code: "ZWG",
-          name: "Zimbabwe Gold",
-          symbol: "ZWG",
-          exchangeRate: "13.500000",
-          isBase: false,
-          isActive: true
-        }
-      ]);
+        }))
+      );
 
       return newCompany;
     });
@@ -903,12 +891,16 @@ export class DatabaseStorage implements IStorage {
   async ensureGenericCustomer(companyId: number): Promise<number> {
     const [c] = await db.select().from(customers).where(and(eq(customers.companyId, companyId), ilike(customers.name, 'General%')));
     if (c) return c.id;
+    const [company] = await db
+      .select({ currency: companies.currency, country: companies.country, fiscalProvider: companies.fiscalProvider })
+      .from(companies)
+      .where(eq(companies.id, companyId));
     const [nc] = await db.insert(customers).values({
       companyId,
       name: 'General Customer',
       customerType: 'individual',
       isActive: true,
-      currency: 'USD'
+      currency: baseCurrencyOf(company)
     }).returning();
     return nc.id;
   }
@@ -2506,36 +2498,23 @@ export class DatabaseStorage implements IStorage {
 
 
   async getCurrencies(companyId: number): Promise<Currency[]> {
-    const existing = await db.select().from(currencies).where(
+    const [company] = await db
+      .select({ currency: companies.currency, country: companies.country, fiscalProvider: companies.fiscalProvider })
+      .from(companies)
+      .where(eq(companies.id, companyId));
+
+    const selectOrdered = () => db.select().from(currencies).where(
       eq(currencies.companyId, companyId)
     ).orderBy(currencies.id);
 
+    const existing = await selectOrdered();
     if (existing.length > 0) return existing;
 
-    await db.insert(currencies).values([
-      {
-        companyId,
-        code: "USD",
-        name: "US Dollar",
-        symbol: "$",
-        exchangeRate: "1.000000",
-        isBase: true,
-        isActive: true
-      },
-      {
-        companyId,
-        code: "ZWG",
-        name: "Zimbabwe Gold",
-        symbol: "ZWG",
-        exchangeRate: "13.500000",
-        isBase: false,
-        isActive: true
-      }
-    ]);
+    await db.insert(currencies).values(
+      defaultCurrencySeeds(company).map((seed) => ({ companyId, ...seed, isActive: true }))
+    );
 
-    return await db.select().from(currencies).where(
-      eq(currencies.companyId, companyId)
-    ).orderBy(currencies.id);
+    return await selectOrdered();
   }
 
   async createCurrency(currency: InsertCurrency): Promise<Currency> {
@@ -3721,9 +3700,10 @@ export class DatabaseStorage implements IStorage {
       return docStatsByCurrency.get(currency);
     };
 
-    // Pre-seed default currencies so they always show on the X/Z Report PDF
-    getDocStat("USD");
-    getDocStat("ZWG");
+    // Every currency the tenant trades in shows on the X/Z Report PDF, even on a
+    // day with no documents in it — a Lesotho till reports loti, not USD/ZWG.
+    const activeCurrencies = (await this.getCurrencies(companyId)).filter((c) => c.isActive !== false);
+    activeCurrencies.forEach((c) => getDocStat(c.code));
 
     invoicesInDay.forEach(inv => {
       const currency = inv.currency || "USD";

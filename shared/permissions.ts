@@ -450,7 +450,9 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
 
   // ─── Tax & Compliance ─────────────────────────────────────────────────────────
   "/zimra-logs": "nav.compliance",
+  "/lekuka-logs": "nav.compliance",
   "/fdms-test": "nav.compliance",
+  "/fiscal-test": "nav.compliance",
   "/jobs": "nav.compliance",
   "/api-logs": "nav.compliance",
 
@@ -458,6 +460,8 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/settings": "nav.settings",
   "/currencies": "nav.settings",
   "/zimra-settings": "nav.settings",
+  "/tax-settings": "nav.settings",
+  "/lekuka-settings": "nav.settings",
   "/tax-config": "nav.settings",
 
   // ─── Administration ───────────────────────────────────────────────────────────

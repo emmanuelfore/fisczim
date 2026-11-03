@@ -10,6 +10,7 @@ import { useDeviceStatus } from "@/hooks/use-device-status";
 import { apiFetch } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { buildUrl, api } from "@shared/routes";
+import { formatCurrencyAmount } from "@shared/currency";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { useI18n } from "@/lib/i18n";
-import { isLesothoDomain } from "@/lib/country-detect";
+import { isLesothoInstance } from "@/lib/country-detect";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -51,18 +52,7 @@ type CurrencyAmounts = Record<string, number>;
 const SERIES_COLORS = ["#2563EB", "#0EA5B7", "#F59E0B", "#84CC16", "#8B5CF6", "#EF4444"];
 
 function currency(v: number, code = "USD") {
-  const currencyCode = String(code || "USD").toUpperCase();
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currencyCode,
-      currencyDisplay: "code",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(v || 0);
-  } catch {
-    return `${currencyCode} ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
+  return formatCurrencyAmount(Number(v || 0), code);
 }
 
 function addCurrencyAmount(totals: CurrencyAmounts, code: unknown, amount: unknown) {
@@ -233,9 +223,9 @@ export default function MainDashboard() {
     .map((c: any) => String(c.code || "").toUpperCase())
     .filter(Boolean);
   const visibleCurrencyCodes = Array.from(new Set([
-    isLesothoDomain() ? "LSL" : "USD",
+    isLesothoInstance() ? "LSL" : "USD",
     ...configuredCurrencyCodes,
-    isLesothoDomain() ? null : (configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG")
+    isLesothoInstance() ? null : (configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG")
   ].filter((c): c is string => Boolean(c))));
 
   const totalSalesByCurrency = (operationalMetrics?.totalRevenueByCurrency || {}) as CurrencyAmounts;

@@ -170,6 +170,7 @@ import {
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 import { purchaseOrderGrossTotal, threeWayMatchStatus } from "./lib/three-way-match.js";
+import { baseCurrencyOf } from "@shared/currency";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -5480,7 +5481,7 @@ export async function registerRoutes(
       const grandTotals: Record<string, number> = {};
 
       for (const s of todaySales) {
-        const currency = s.currency || "USD";
+        const currency = s.currency || baseCurrencyOf(company);
         const method = s.paymentMethod || "CASH";
         const key = `${method}_${currency}`;
         
@@ -15445,9 +15446,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can create budgets" });
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "create budgets"))) return;
       notImplemented(res, "Budgets");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15466,9 +15467,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/allocations", requireAuth, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can create allocation rules" });
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "create allocation rules"))) return;
       notImplemented(res, "Cost allocation rules");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15477,9 +15478,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/allocations/run", requireAuth, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run allocations" });
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "run cost allocations"))) return;
       notImplemented(res, "Cost allocation runs");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15709,8 +15710,8 @@ export async function registerRoutes(
 
   app.get("/api/companies/:companyId/accounting/consolidated-trial-balance", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
-      const companyId = parseInt(req.params.companyId);
-      if (!Number.isInteger(companyId) || companyId <= 0) return res.status(400).json({ message: "Invalid company ID" });
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       notImplemented(res, "Consolidated group trial balance");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15719,9 +15720,9 @@ export async function registerRoutes(
 
   app.post("/api/companies/:companyId/accounting/run-eliminations", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run eliminations" });
-      const companyId = parseInt(req.params.companyId);
-      if (!Number.isInteger(companyId) || companyId <= 0) return res.status(400).json({ message: "Invalid company ID" });
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "run consolidation eliminations"))) return;
       notImplemented(res, "Consolidation eliminations");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -16721,6 +16722,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "add fixed assets"))) return;
       
       const payload = { ...req.body, companyId };
       const asset = await storage.createFixedAsset(payload);
@@ -16734,6 +16736,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "run depreciation"))) return;
       
       const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
       const userId = req.user?.id || 'system';
@@ -16747,12 +16750,9 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets/:id/dispose", requireAuth, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== "admin") {
-        return res.status(403).json({ message: "Only administrators can dispose of fixed assets" });
-      }
-
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "dispose of fixed assets"))) return;
       
       const assetId = parseInt(req.params.id);
       if (isNaN(assetId)) return res.status(400).json({ message: "Invalid asset ID" });
@@ -16857,6 +16857,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
+      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "run FX revaluation"))) return;
       
       const { cutOffDate } = req.body;
       if (!cutOffDate) return res.status(400).json({ message: "cutOffDate is required" });

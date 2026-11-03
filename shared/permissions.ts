@@ -93,6 +93,8 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "accounting.journal.reverse", label: "Reverse Journal Entries", description: "Reverse posted journal entries", group: "Finance" },
   { key: "accounting.coa.manage", label: "Manage Chart of Accounts", description: "Create and maintain general ledger accounts", group: "Finance" },
   { key: "accounting.cashbook", label: "Cashbook & Transfers", description: "Post cashbook entries and inter-account transfers", group: "Finance" },
+  { key: "accounting.budgets", label: "Budgets & Allocations", description: "Create budgets, cost allocation rules and consolidation eliminations", group: "Finance" },
+  { key: "accounting.fixedassets", label: "Fixed Asset Actions", description: "Dispose assets and run FX revaluation", group: "Finance" },
   { key: "accounting.receipts", label: "Customer Receipts", description: "Record customer receipts", group: "Finance" },
   { key: "accounting.payments", label: "Supplier Payments", description: "Record supplier payments", group: "Finance" },
   { key: "accounting.periods", label: "Financial Periods", description: "Open and close financial periods", group: "Finance" },
@@ -169,6 +171,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     // Accounting
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
     "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
+    "accounting.budgets", "accounting.fixedassets",
     "accounting.receipts", "accounting.payments", "accounting.periods",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",

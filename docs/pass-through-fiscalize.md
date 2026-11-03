@@ -75,8 +75,8 @@ curl -X POST "https://fiscalstack.com/api/v1/fiscalize" \
 | `transactionType` | enum | no | `FiscalInvoice` | `FiscalInvoice` \| `CreditNote` \| `DebitNote` |
 | `paymentMethod` | enum | no | `CASH` | `CASH`, `CARD`, `MOBILE`, `TRANSFER`, `BANK_TRANSFER`, `ECOCASH`, `ONE_MONEY`, `EFT`, `RTGS`, `ZIPIT` — mapped to your provider's money type for you |
 | `splitPayments` | `[{ method, amount }]` | no | — | split tenders; overrides `paymentMethod`. Amounts **must** sum to the gross total or preflight `RCPT039` rejects |
-| `currency` | ISO 4217 | no | **your company currency** | 3 letters, e.g. `USD`, `ZWG`, `LSL`. Omit it unless you bill in a second currency; a code the device does not accept comes back as a readable `422` |
-| `invoiceNumber` | string | no | auto `INV-xxxx` / `CN-xxxx` / `DN-xxxx` | must be unique per company → else `409 DUPLICATE_INVOICE` |
+| `currency` | ISO 4217 | no | **your company currency** | 3 letters, e.g. `USD`, `ZWG`, `LSL`. Omit it unless you bill in a second currency; a code your account does not trade in comes back as a readable `400` |
+| `invoiceNumber` | string | no | stored exactly as you send it; auto `INV-xxxx` / `CN-xxxx` / `DN-xxxx` when omitted | must be unique per company → else `409 DUPLICATE_INVOICE` |
 | `date` | `YYYY-MM-DD` | no | today | receipt/invoice date |
 | `buyer` | object | no | walk-in customer | see buyer table |
 | `relatedInvoiceNumber` | string | **when CreditNote/DebitNote** | — | original invoice number, e.g. `INV-197` |

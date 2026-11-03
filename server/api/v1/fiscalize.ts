@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../../storage.js";
 import { processInvoiceFiscalization, getCompanyZimraConfig } from "../../lib/fiscalization.js";
-import { baseCurrencyOf } from "../../../shared/currency.js";
+import { baseCurrencyOf, canonicalCurrency, isLotiFiscalAccount } from "../../../shared/currency.js";
 
 const router = Router();
 
@@ -135,6 +135,55 @@ export const passThroughFiscalizeSchema = z.object({
 //      "relatedInvoiceNumber": "INV-197", "creditNoteReason": "Goods returned" }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Lesotho lines quote the gateway's own tax table.
+//
+//  An RSL receipt names the taxID the device was registered against, and the
+//  engine reads it from the tax type behind the line's product — a rate on the
+//  line is not enough. ZIMRA takes the rate from the line instead, so none of
+//  this runs for a Zimbabwe document.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface GatewayTaxRow {
+  id: number;
+  name: string;
+  rate: string | number;
+  lekukaTaxId?: string | null;
+  lekukaTaxType?: string | null;
+  lekukaEnvironment?: string | null;
+}
+
+type GatewayTaxRoles = Partial<Record<"VAT" | "NonVAT" | "Exempt", GatewayTaxRow>>;
+
+const gatewayRate = (row: GatewayTaxRow) => Number(row.rate || 0);
+
+/** Tax types the tenant synced from its gateway in this environment. */
+function gatewayMappedRows(rows: GatewayTaxRow[], environment: string) {
+  return rows.filter(
+    (t) => t.lekukaTaxId && t.lekukaTaxType && (t.lekukaEnvironment || "test") === environment,
+  );
+}
+
+function pickGatewayTaxRoles(rows: GatewayTaxRow[], environment: string): GatewayTaxRoles {
+  const mapped = gatewayMappedRows(rows, environment);
+  // Several gateway taxes can share a classification; the general rate is the
+  // highest one, and for VAT that means goods rather than services.
+  const byClassification = (kind: "VAT" | "NonVAT" | "Exempt") =>
+    mapped
+      .filter((t) => t.lekukaTaxType === kind)
+      .sort((a, b) =>
+        gatewayRate(b) - gatewayRate(a) ||
+        Number(!/goods/i.test(a.name)) - Number(!/goods/i.test(b.name)) ||
+        Number(a.lekukaTaxId) - Number(b.lekukaTaxId))[0];
+  return { VAT: byClassification("VAT"), NonVAT: byClassification("NonVAT"), Exempt: byClassification("Exempt") };
+}
+
+const gatewayRoleFor = (taxType: "STANDARD" | "ZERO_RATED" | "EXEMPT"): "VAT" | "NonVAT" | "Exempt" =>
+  taxType === "STANDARD" ? "VAT" : taxType === "ZERO_RATED" ? "NonVAT" : "Exempt";
+
+const catalogueKey = (value?: string | null) =>
+  String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+
 router.post("/", async (req, res) => {
   // ── 1. Schema validation ─────────────────────────────────────────────────
   const parsed = passThroughFiscalizeSchema.safeParse(req.body);
@@ -177,7 +226,45 @@ router.post("/", async (req, res) => {
   // An omitted currency is the company's own, not a hardcoded USD — otherwise a
   // ZWG/LSL company silently gets receipts issued in the wrong money. baseCurrencyOf
   // also catches a Lesotho tenant whose currency column is still the schema default.
-  const companyCurrency = body.currency?.trim().toUpperCase() || baseCurrencyOf(company);
+  const companyCurrency = canonicalCurrency(body.currency) || canonicalCurrency(baseCurrencyOf(company));
+
+  // A till may bill in a money its tenant keeps books in — nothing else. This code is
+  // what the fiscal receipt carries, so an RSL device cannot be sent a currency the
+  // gateway does not certify and a ZIMRA device not one FDMS rejects. A currency the
+  // tenant switched off still counts: documents already issued in it must stay
+  // correctable.
+  const tenantCurrencies = await storage.getCurrencies(company.id);
+  const accepted = Array.from(new Set([
+    canonicalCurrency(baseCurrencyOf(company)),
+    ...tenantCurrencies.map((c) => canonicalCurrency(c.code)),
+  ])).filter(Boolean);
+
+  // Loti is RSL money. Only an account on the Lesotho gateway fiscalises in it, so a
+  // ZIMRA tenant cannot authorise loti by being handed a loti currency row.
+  if (companyCurrency === "LSL" && !isLotiFiscalAccount(company)) {
+    const local = accepted.filter((code) => code !== "LSL");
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: `'LSL' is fiscalised only on a Lesotho (RSL) account and this is not one.${local.length ? ` Send ${local.join(", ")} or omit currency.` : ""} Move the sale to the Lesotho tenant if it was billed in loti.`,
+      statusCode: 400,
+      details: [{
+        field:   "currency",
+        message: "LSL requires a Lesotho account, received 'LSL'",
+      }],
+    });
+  }
+
+  if (body.currency && !accepted.includes(companyCurrency)) {
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: `This account fiscalises in ${accepted.join(", ")}. Send one of those or omit currency; '${companyCurrency}' is not one of the tenant's currencies.`,
+      statusCode: 400,
+      details: [{
+        field:   "currency",
+        message: `Expected one of ${accepted.join(", ")}, received '${companyCurrency}'`,
+      }],
+    });
+  }
 
   // Declared here: referenced by the branch-settings lookup below before the
   // related-invoice resolution in step 6 (TDZ fix).
@@ -192,7 +279,7 @@ router.post("/", async (req, res) => {
   }
 
   // Fetch actual tax types from database for proper tax ID mapping
-  const dbTaxTypes = await storage.getTaxTypes(company.id);
+  let dbTaxTypes = await storage.getTaxTypes(company.id);
   
   // Also fetch live ZIMRA config to avoid DB sync issues overriding rates
   const zimraConfig = await getCompanyZimraConfig(company.id, company, branchSettings);
@@ -217,6 +304,56 @@ router.post("/", async (req, res) => {
     if (exe?.taxPercent !== undefined) exemptTaxRate = Number(exe.taxPercent);
   }
 
+  // ── 3b. Lesotho documents take their rates from the RSL tax table ─────────
+  //  The 15.5% default above is a Zimbabwe figure; an RSL receipt must carry the
+  //  gateway's own rate against the gateway's own taxID or RCPT025 rejects it.
+  let gatewayRoles: GatewayTaxRoles | null = null;
+  const tenantGatewayRows = new Map<number, GatewayTaxRow>();
+  if (isLotiFiscalAccount(company)) {
+    const environment = company.zimraEnvironment === "production" ? "production" : "test";
+    let roles = pickGatewayTaxRoles(dbTaxTypes, environment);
+
+    if (!roles.VAT && company.fdmsDeviceId && company.zimraPrivateKey && company.zimraCertificate) {
+      // Nothing on file names a taxID for this environment, so pull the gateway's
+      // own table once — the same call "Sync Tax Config" makes.
+      try {
+        const { LekukaDevice } = await import("../../lekuka.js");
+        const { getLekukaGatewayUrl } = await import("../../../shared/lekuka.js");
+        const device = new LekukaDevice({
+          baseUrl:     String(company.lekukaGatewayUrl || getLekukaGatewayUrl(environment as "test" | "production")).trim(),
+          deviceId:    String(company.fdmsDeviceId).trim(),
+          privateKey:  company.zimraPrivateKey,
+          certificate: company.zimraCertificate,
+        });
+        const gatewayTaxes = (await device.getConfig())?.applicableTaxes || [];
+        if (gatewayTaxes.length) {
+          await storage.syncLekukaTaxes(company.id, gatewayTaxes, environment as "test" | "production");
+          dbTaxTypes = await storage.getTaxTypes(company.id);
+          roles = pickGatewayTaxRoles(dbTaxTypes, environment);
+        }
+      } catch { /* the readable refusal below is the fallback */ }
+    }
+
+    // VAT is always required: it is the general rate the receipt is bucketed by,
+    // even on a document whose own lines are zero-rated or exempt.
+    const needed = Array.from(new Set(["VAT" as const, ...body.items.map((i) => gatewayRoleFor(i.taxType))]));
+    const missing = needed.filter((kind) => !roles[kind]);
+    if (missing.length) {
+      return res.status(422).json({
+        error: "FISCAL_CONFIG_MISSING",
+        message: `No ${missing.join(" / ")} tax from the ${environment} gateway is mapped for this account, so its lines cannot name a tax ID. Run "Sync Tax Config" for this environment (or re-register the device), then send the sale again.`,
+        statusCode: 422,
+        details: missing.map((kind) => ({ field: "items.taxType", message: `${kind} is not mapped to a gateway taxID` })),
+      });
+    }
+
+    gatewayRoles = roles;
+    for (const row of gatewayMappedRows(dbTaxTypes, environment)) tenantGatewayRows.set(row.id, row);
+    standardTaxRate = gatewayRate(roles.VAT!);
+    zeroRatedTaxRate = roles.NonVAT ? gatewayRate(roles.NonVAT) : 0;
+    exemptTaxRate = roles.Exempt ? gatewayRate(roles.Exempt) : 0;
+  }
+
   // taxType enum → numeric rate using database tax types
   const resolveTaxRate = (taxType: "STANDARD" | "ZERO_RATED" | "EXEMPT"): number => {
     if (taxType === "STANDARD") return standardTaxRate;
@@ -239,8 +376,53 @@ router.post("/", async (req, res) => {
   //  sign based on transactionType. The receiptLineType drives sign for ZIMRA.
   const priceSign = body.transactionType === "CreditNote" ? -1 : 1;
 
-  const processedItems = body.items.map((item) => {
-    const taxRate = resolveTaxRate(item.taxType);
+  // ── 3c. Fill in the catalogue an RSL document is issued against ───────────
+  //  The till sends names and prices only, so each line needs a product — and
+  //  that product's tax type has to be one of the gateway rows resolved above,
+  //  because the engine reads the receipt's taxID off the line's product.
+  const assignedTaxes: Array<{ productId: number; taxTypeId: number; taxRate: number }> = [];
+  if (gatewayRoles) {
+    const catalogue = new Map<string, any>();
+    for (const p of await storage.getProducts(company.id)) {
+      if (p.name) catalogue.set(catalogueKey(p.name), p);
+      if (p.sku)  catalogue.set(catalogueKey(p.sku), p);
+    }
+
+    for (const item of body.items) {
+      const declared = gatewayRoles[gatewayRoleFor(item.taxType)] as GatewayTaxRow;
+      const known: any = (item.sku ? catalogue.get(catalogueKey(item.sku)) : undefined)
+        || catalogue.get(catalogueKey(item.name));
+      // A product the tenant already synced keeps its own tax: the catalogue
+      // outranks the classification a foreign till guessed for it.
+      const row = (known && tenantGatewayRows.get(Number(known.taxTypeId))) || declared;
+
+      if (known) {
+        if (!tenantGatewayRows.get(Number(known.taxTypeId))) {
+          await storage.updateProduct(known.id, { taxTypeId: row.id, taxRate: gatewayRate(row).toFixed(2) });
+        }
+        assignedTaxes.push({ productId: known.id, taxTypeId: row.id, taxRate: gatewayRate(row) });
+        continue;
+      }
+
+      const created = await storage.createProduct({
+        companyId:   company.id,
+        name:        item.name,
+        sku:         item.sku ?? null,
+        price:       Math.abs(item.unitPrice).toFixed(2),
+        taxTypeId:   row.id,
+        taxRate:     gatewayRate(row).toFixed(2),
+        hsCode:      resolveHsCode(item.taxType, item.hsCode),
+        productType: "good",
+      } as any);
+      catalogue.set(catalogueKey(item.name), created);
+      if (item.sku) catalogue.set(catalogueKey(item.sku), created);
+      assignedTaxes.push({ productId: created.id, taxTypeId: row.id, taxRate: gatewayRate(row) });
+    }
+  }
+
+  const processedItems = body.items.map((item, index) => {
+    const assigned = assignedTaxes[index];
+    const taxRate = assigned ? assigned.taxRate : resolveTaxRate(item.taxType);
     const hsCode  = resolveHsCode(item.taxType, item.hsCode);
 
     let unitPriceExcl = Math.abs(item.unitPrice); // always work with positive internally
@@ -266,6 +448,8 @@ router.post("/", async (req, res) => {
       taxType:      item.taxType,
       hsCode,
       sku:          item.sku,
+      productId:    assigned?.productId,
+      taxTypeId:    assigned?.taxTypeId,
       lineTotal:    parseFloat(lineTotal.toFixed(2)),
       lineTax:      parseFloat(lineTax.toFixed(2)),
       displayPrice,
@@ -502,6 +686,9 @@ router.post("/", async (req, res) => {
         taxRate:     item.taxRate.toString(),
         lineTotal:   item.lineTotal.toFixed(2),
         hsCode:      item.hsCode,
+        // Only an RSL document carries a product and a gateway tax type; a
+        // Zimbabwe line is stored exactly as before, rate on the line.
+        ...(item.productId ? { productId: item.productId, taxTypeId: item.taxTypeId } : {}),
         modifiers:   item.additionalTaxes ? { additionalTaxes: item.additionalTaxes } : undefined,
       })),
     } as any);
@@ -511,6 +698,29 @@ router.post("/", async (req, res) => {
       message: "Failed to save invoice: " + err.message,
       statusCode: 500,
     });
+  }
+
+  // The number a till sends is the one already printed on its customer's receipt,
+  // and it is what a later correction will be filed under. Storage keeps its own
+  // sequence for every other caller, so the document takes the requested number
+  // before anything is signed or submitted.
+  if (body.invoiceNumber) {
+    if (invoice.invoiceNumber !== invoiceNumber) {
+      try {
+        invoice = await storage.updateInvoice(invoice.id, { invoiceNumber } as any);
+      } catch (err: any) {
+        try { await storage.deleteInvoice(invoice.id); } catch { /* already unreachable */ }
+        return res.status(500).json({
+          error: "INTERNAL_ERROR",
+          message: `Saved the document as '${invoice.invoiceNumber}' but could not rename it to '${invoiceNumber}': ${err.message}`,
+          statusCode: 500,
+        });
+      }
+    }
+  } else {
+    // Nothing was asked for, so the number storage drew from the company sequence
+    // is the document's — the receipt, the response and the ledger must agree.
+    invoiceNumber = invoice.invoiceNumber;
   }
 
   // ── 13. Fiscalize ────────────────────────────────────────────────────────

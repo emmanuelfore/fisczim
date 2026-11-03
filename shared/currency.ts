@@ -16,6 +16,20 @@ const CURRENCY_SIGNS: Record<string, string> = {
 // "M12.00", so amounts in these codes are formatted from the table instead.
 const SIGNED_CURRENCIES = new Set(["LSL"]);
 
+// Every code the app has a sign for, i.e. the currencies a document may be billed in.
+const KNOWN_CURRENCIES = new Set(Object.keys(CURRENCY_SIGNS));
+
+/** ZiG circulated as ZWL and RTGS too; all three are booked under one code. */
+export function canonicalCurrency(code?: string | null): string {
+  const key = normalise(code);
+  return CURRENCY_SIGNS[key] === "ZWG" ? "ZWG" : key;
+}
+
+/** Whether the app knows this code at all — an unknown one must not reach a gateway. */
+export function isSupportedCurrency(code?: string | null): boolean {
+  return KNOWN_CURRENCIES.has(normalise(code));
+}
+
 /** The columns this module reads off a company row. */
 export interface CurrencyOwningCompany {
   currency?: string | null;
@@ -40,6 +54,18 @@ export function isLotiCompany(company?: CurrencyOwningCompany | null): boolean {
   if (provider === "LEKUKA" || provider === "LEKAKU") return true;
   return String(company.country || "").trim().toLowerCase() === "lesotho"
     || normalise(company.currency) === "LSL";
+}
+
+/**
+ * Whether the account is fiscalised by the Lesotho gateway. Unlike isLotiCompany this
+ * ignores the currency column: loti is RSL money, so no tenant authorises it by holding
+ * a loti currency row — only its country or fiscal provider does.
+ */
+export function isLotiFiscalAccount(company?: CurrencyOwningCompany | null): boolean {
+  if (!company) return false;
+  const provider = normalise(company.fiscalProvider);
+  if (provider === "LEKUKA" || provider === "LEKAKU") return true;
+  return String(company.country || "").trim().toLowerCase() === "lesotho";
 }
 
 /** The currency a company books in. Defaults to USD for every existing tenant. */

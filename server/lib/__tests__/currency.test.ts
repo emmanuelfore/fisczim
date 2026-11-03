@@ -1,12 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
   baseCurrencyOf,
+  canonicalCurrency,
   currencyLabel,
   currencySign,
   defaultCurrencySeeds,
   formatCurrencyAmount,
   formatMoney,
   isLotiCompany,
+  isLotiFiscalAccount,
+  isSupportedCurrency,
 } from "../../../shared/currency";
 
 describe("isLotiCompany", () => {
@@ -23,6 +26,18 @@ describe("isLotiCompany", () => {
     expect(baseCurrencyOf({ country: "Lesotho", currency: "USD" })).toBe("LSL");
     expect(baseCurrencyOf({ currency: "ZWG" })).toBe("ZWG");
     expect(baseCurrencyOf({})).toBe("USD");
+  });
+});
+
+describe("isLotiFiscalAccount", () => {
+  test("the gateway identity decides loti, never the currency column", () => {
+    expect(isLotiFiscalAccount({ fiscalProvider: "LEKUKA" })).toBe(true);
+    expect(isLotiFiscalAccount({ fiscalProvider: "lekaku" })).toBe(true);
+    expect(isLotiFiscalAccount({ country: "Lesotho" })).toBe(true);
+    // A ZIMRA tenant holding loti in its currency column is still not an RSL account.
+    expect(isLotiFiscalAccount({ country: "Zimbabwe", fiscalProvider: "ZIMRA", currency: "LSL" })).toBe(false);
+    expect(isLotiFiscalAccount({ currency: "LSL" })).toBe(false);
+    expect(isLotiFiscalAccount()).toBe(false);
   });
 });
 
@@ -80,5 +95,23 @@ describe("defaultCurrencySeeds", () => {
     const seeds = defaultCurrencySeeds({ country: "Zimbabwe", currency: "USD" });
     expect(seeds.map((seed) => [seed.code, seed.isBase])).toEqual([["USD", true], ["ZWG", false]]);
     expect(seeds.find((seed) => seed.code === "ZWG")?.symbol).toBe("ZWG");
+  });
+});
+
+describe("canonicalCurrency and isSupportedCurrency", () => {
+  test("the ZiG aliases collapse onto the one code the app books", () => {
+    expect(canonicalCurrency("zwl")).toBe("ZWG");
+    expect(canonicalCurrency(" RTGS ")).toBe("ZWG");
+    expect(canonicalCurrency("LSL")).toBe("LSL");
+    expect(canonicalCurrency(null)).toBe("");
+  });
+
+  test("only codes the app can print are billable", () => {
+    expect(isSupportedCurrency("LSL")).toBe(true);
+    expect(isSupportedCurrency("usd")).toBe(true);
+    expect(isSupportedCurrency("EUR")).toBe(false);
+    expect(isSupportedCurrency("")).toBe(false);
+    // A code that collides with an Object member must not read as a currency.
+    expect(isSupportedCurrency("constructor")).toBe(false);
   });
 });

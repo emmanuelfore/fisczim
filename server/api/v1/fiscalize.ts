@@ -700,6 +700,29 @@ router.post("/", async (req, res) => {
     });
   }
 
+  // The number a till sends is the one already printed on its customer's receipt,
+  // and it is what a later correction will be filed under. Storage keeps its own
+  // sequence for every other caller, so the document takes the requested number
+  // before anything is signed or submitted.
+  if (body.invoiceNumber) {
+    if (invoice.invoiceNumber !== invoiceNumber) {
+      try {
+        invoice = await storage.updateInvoice(invoice.id, { invoiceNumber } as any);
+      } catch (err: any) {
+        try { await storage.deleteInvoice(invoice.id); } catch { /* already unreachable */ }
+        return res.status(500).json({
+          error: "INTERNAL_ERROR",
+          message: `Saved the document as '${invoice.invoiceNumber}' but could not rename it to '${invoiceNumber}': ${err.message}`,
+          statusCode: 500,
+        });
+      }
+    }
+  } else {
+    // Nothing was asked for, so the number storage drew from the company sequence
+    // is the document's — the receipt, the response and the ledger must agree.
+    invoiceNumber = invoice.invoiceNumber;
+  }
+
   // ── 13. Fiscalize ────────────────────────────────────────────────────────
   try {
     const fiscal = await processInvoiceFiscalization(invoice.id, company.id, undefined, false, undefined, false);

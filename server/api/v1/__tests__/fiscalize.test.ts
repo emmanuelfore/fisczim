@@ -22,6 +22,7 @@ vi.mock("../../../storage.js", () => ({
     deleteInvoice: vi.fn(),
     getProducts: vi.fn(),
     createProduct: vi.fn(),
+    updateInvoice: vi.fn(),
     updateProduct: vi.fn(),
     syncLekukaTaxes: vi.fn(),
   },
@@ -89,6 +90,15 @@ function setupDefaultMocks(
     companyId: authCompanyId,
     status: "pending",
   } as any);
+
+  // Storage always draws its own number from the company sequence; a rename is
+  // what has to line the document up with the number the till printed.
+  vi.mocked(storage.updateInvoice).mockImplementation(async (id: number, data: any) => ({
+    id,
+    companyId: authCompanyId,
+    status: "pending",
+    ...data,
+  } as any));
 
   vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
 
@@ -1396,5 +1406,87 @@ describe("Pass-Through Handler — Lesotho lines name a product and a gateway ta
     expect(createInvoiceArgs.items[0].taxTypeId).toBeUndefined();
     expect(vi.mocked(storage.getProducts)).not.toHaveBeenCalled();
     expect(vi.mocked(storage.createProduct)).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The number a caller sends is the number on its own receipt, so the document
+// cannot be quietly renamed to the company sequence behind their back.
+// ---------------------------------------------------------------------------
+
+describe("Pass-Through Handler — the caller's invoice number is the stored number", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const zimCompany = (id: number) => ({
+    id,
+    name: "Zim Co",
+    country: "Zimbabwe",
+    fiscalProvider: "ZIMRA",
+    currency: "USD",
+    defaultTaxRate: 15.5,
+  });
+
+  test("a sent invoice number renames the stored document before it is fiscalised", async () => {
+    const authCompanyId = 60;
+    setupDefaultMocks(authCompanyId);
+
+    const { responseBody, statusCode } = await dispatchFiscalize(
+      zimCompany(authCompanyId),
+      { items: [minimalItem], invoiceNumber: "INV0011686" }
+    );
+
+    expect(statusCode).toBe(200);
+    // Storage had drawn INV-001 from the sequence, so the rename is what lines
+    // the ledger up with the receipt the till already printed.
+    expect(vi.mocked(storage.updateInvoice).mock.calls[0]).toEqual([1, { invoiceNumber: "INV0011686" }]);
+    expect(responseBody.receipt.invoiceNo).toBe("INV0011686");
+  });
+
+  test("an omitted invoice number keeps the one storage issued", async () => {
+    const authCompanyId = 61;
+    setupDefaultMocks(authCompanyId);
+
+    const { responseBody, statusCode } = await dispatchFiscalize(
+      zimCompany(authCompanyId),
+      { items: [minimalItem] }
+    );
+
+    expect(statusCode).toBe(200);
+    expect(vi.mocked(storage.updateInvoice)).not.toHaveBeenCalled();
+    expect(responseBody.receipt.invoiceNo).toBe("INV-001");
+  });
+
+  test("a number already on file is refused before a document is written", async () => {
+    const authCompanyId = 62;
+    setupDefaultMocks(authCompanyId);
+    vi.mocked(storage.getInvoices).mockResolvedValue([{ id: 9, invoiceNumber: "INV0011686" }] as any);
+
+    const { statusCode, responseBody, createInvoiceArgs } = await dispatchFiscalize(
+      zimCompany(authCompanyId),
+      { items: [minimalItem], invoiceNumber: "INV0011686" }
+    );
+
+    expect(statusCode).toBe(409);
+    expect(responseBody.error).toBe("DUPLICATE_INVOICE");
+    expect(createInvoiceArgs).toBeNull();
+  });
+
+  test("a document that cannot be renamed is not left half-written", async () => {
+    const authCompanyId = 63;
+    setupDefaultMocks(authCompanyId);
+    vi.mocked(storage.updateInvoice).mockRejectedValue(new Error("sequence locked"));
+
+    const { statusCode, responseBody, createInvoiceArgs } = await dispatchFiscalize(
+      zimCompany(authCompanyId),
+      { items: [minimalItem], invoiceNumber: "INV0011686" }
+    );
+
+    expect(statusCode).toBe(500);
+    expect(responseBody.message).toContain("could not rename");
+    expect(createInvoiceArgs).not.toBeNull();
+    expect(vi.mocked(storage.deleteInvoice)).toHaveBeenCalledWith(1);
+    expect(vi.mocked(processInvoiceFiscalization)).not.toHaveBeenCalled();
   });
 });

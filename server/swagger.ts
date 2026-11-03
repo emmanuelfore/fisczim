@@ -100,7 +100,7 @@ const options: swaggerJsdoc.Options = {
                                 }
                             }
                         },
-                        invoiceNumber: { type: 'string', nullable: true, description: '(Optional) Auto-generated (INV-XXXX) if omitted. Must be unique per company — a retry of an already-saved number returns 409.' },
+                        invoiceNumber: { type: 'string', nullable: true, description: '(Optional) Stored exactly as you send it — the number on your printed receipt, and the one a later correction is filed under. Auto-generated (INV-XXXX) when omitted. Must be unique per company; a retry of an already-saved number returns 409.' },
                         date: { type: 'string', format: 'date', nullable: true, description: '(Optional) YYYY-MM-DD. Defaults to today. Supports ISO 8601 with or without timezone.' },
                         currency: { type: 'string', pattern: '^[A-Za-z]{3}$', example: 'USD', description: '(Optional) ISO 4217 code. Defaults to **your company currency** when omitted — omit it unless you are billing in a second currency. The fiscal authority rejects codes the device does not accept (readable 422).' },
                         paymentMethod: { type: 'string', enum: ['CASH', 'CARD', 'MOBILE', 'TRANSFER', 'BANK_TRANSFER', 'ECOCASH', 'ONE_MONEY', 'EFT', 'RTGS', 'ZIPIT'], default: 'CASH', description: '(Optional) Defaults to CASH' },

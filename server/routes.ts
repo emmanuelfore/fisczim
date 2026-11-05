@@ -11399,7 +11399,6 @@ export async function registerRoutes(
       const userId = (req.user as any)?.id;
       const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const requestBranchId = getBranchId(req);
-      const isOfflineSync = req.body?.isOfflineSync === true;
 
       if (input.isPos) {
         const canSell = isSuperAdmin || await userHasPermission(userId, companyId, "pos.sell", false);
@@ -11484,23 +11483,34 @@ export async function registerRoutes(
       ]);
       markPerf("prefetch_done");
 
+      const saleDate = input.issueDate instanceof Date
+        ? input.issueDate
+        : new Date(input.issueDate || Date.now());
+
       if (input.isPos && !activeShift && userId) {
         activeShift = await findOfflineSyncShift(
           companyId,
           userId,
-          input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || Date.now()),
+          saleDate,
           requestBranchId
         );
         if (activeShift) markPerf("offline_shift_recovered");
       }
 
-      if (input.isPos && !activeShift) {
-        return res.status(400).json({
-          message: isOfflineSync
-            ? "Offline sale could not be matched to a cashier shift. Please sync the shift first or reopen a shift for this cashier."
-            : "No active shift found. Please open a shift before processing POS sales.",
-          code: "NO_ACTIVE_SHIFT"
-        });
+      if (input.isPos && !activeShift && userId) {
+        // The receipt is often already printed and fiscalised by the time this
+        // request lands, so opening a shift beats rejecting a real transaction.
+        // Backdated to the sale so the shift window still contains it.
+        activeShift = await storage.createPosShift(insertPosShiftSchema.parse({
+          companyId,
+          userId,
+          branchId: requestBranchId || null,
+          startTime: saleDate,
+          openingBalance: "0",
+          status: "open",
+          notes: "Auto-opened on first POS sale",
+        }));
+        markPerf("shift_auto_opened");
       }
 
       // POS sales are paid upfront, so set status immediately.

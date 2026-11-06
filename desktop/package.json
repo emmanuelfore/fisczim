@@ -8,8 +8,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux"
+    "build:win": "node scripts/copy-renderer.mjs && electron-builder --win",
+    "build:linux": "node scripts/copy-renderer.mjs && electron-builder --linux"
   },
   "repository": {
     "type": "git",

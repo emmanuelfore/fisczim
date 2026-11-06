@@ -18,6 +18,7 @@ autoUpdater.autoDownload = true;
 log.info('[Main] App starting...');
 
 const { SerialPort } = require('serialport');
+const offlineShell = require('./offline-shell');
 
 const PROD_URL = 'https://fiscalstack.co.zw/pos-login';
 const DEV_URL = 'http://localhost:5001/pos-login';
@@ -700,6 +701,18 @@ function createWindow() {
 
   const posUrl = resolveStartUrl();
 
+  // The bundled client is intercepted under the server's own origin, so the offline
+  // credentials and cached books in IndexedDB stay reachable with no link at all.
+  let shellAvailable = false;
+  try {
+    shellAvailable = offlineShell.mount(path.join(__dirname, 'renderer'), new URL(posUrl).origin);
+  } catch (err) {
+    log.error(`[createWindow] Bundled client could not be mounted: ${err.message}`);
+  }
+  if (!shellAvailable) {
+    log.warn('[createWindow] No bundled client found; the POS cannot start offline');
+  }
+
   // The window is created hidden to avoid a flash of unstyled content, but
   // ready-to-show never fires when the page itself never arrives — so reveal on
   // a deadline regardless. A POS that is invisible looks identical to a POS that
@@ -738,12 +751,12 @@ function createWindow() {
     loadSettled = true;
   });
 
-  // A stalled link never emits did-fail-load; it just hangs. Without a deadline
-  // the cashier waits on a blank window while Chromium chews through its own
-  // multi-minute connect timeout.
+  // Last resort if the interception itself ever dies: never leave a blank window.
   const loadDeadline = setTimeout(() => showLoadFailure('no response within 20 seconds'), 20000);
   mainWindow.webContents.once('did-finish-load', () => clearTimeout(loadDeadline));
 
+  // A dead or stalled link is answered from disk by offline-shell.js, so Chromium's
+  // own multi-minute connect timeout is never what the cashier waits on.
   mainWindow.loadURL(posUrl).catch(err => showLoadFailure(err.message));
 
   // Requirement 3.4: intercept will-navigate and block external URLs (same-origin check).

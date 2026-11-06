@@ -18,6 +18,7 @@
   "build": {
     "appId": "com.fiscalstack.pos",
     "productName": "Fiscal Stack POS",
+    "npmRebuild": false,
     "directories": {
       "output": "dist"
     },
@@ -31,6 +32,10 @@
           ]
         }
       ],
+      "files": [
+        "**/*",
+        "!node_modules/@serialport/bindings-cpp/build/**"
+      ],
       "publish": [
         {
           "provider": "github",
@@ -39,6 +44,9 @@
         }
       ]
     },
+    "asarUnpack": [
+      "node_modules/@serialport/bindings-cpp/prebuilds/**"
+    ],
     "linux": {
       "target": "AppImage"
     }

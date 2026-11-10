@@ -12,6 +12,9 @@ import {
   quotations,
   quotationItems,
   users,
+  vehicles,
+  vehicleCosts,
+  invoices,
 } from "../../shared/schema.js";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -277,6 +280,56 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
     }
   });
 
+  /**
+   * Open leads whose free-text interest matches a stock item being added.
+   * Deliberately a broad OR: sales teams write "Hilux 2019" or "Toyota double
+   * cab", so matching either the make or the model finds more real leads than a
+   * strict AND would.
+   */
+  router.get("/companies/:companyId/crm/matching-enquiries", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const make = String(req.query.make ?? "").trim();
+      const model = String(req.query.model ?? "").trim();
+      const year = String(req.query.year ?? "").trim();
+      if (!make && !model) return res.json([]);
+
+      const terms = [make, model, year].filter(Boolean);
+      const conditions = [
+        eq(enquiries.companyId, companyId),
+        eq(enquiries.status, "open"),
+        or(...terms.map((term) => ilike(enquiries.interest, `%${term}%`)))!,
+      ];
+
+      const rows = await db
+        .select({
+          enquiry: enquiries,
+          stage: crmStages,
+          assignee: { id: users.id, name: users.name, email: users.email },
+          customer: { id: customers.id, name: customers.name },
+        })
+        .from(enquiries)
+        .leftJoin(crmStages, eq(enquiries.stageId, crmStages.id))
+        .leftJoin(users, eq(enquiries.assignedTo, users.id))
+        .leftJoin(customers, eq(enquiries.customerId, customers.id))
+        .where(and(...conditions))
+        .orderBy(desc(enquiries.lastActivityAt))
+        .limit(25);
+
+      res.json(
+        rows.map((r) => ({
+          ...r.enquiry,
+          stage: r.stage ?? null,
+          assignee: r.assignee?.id ? r.assignee : null,
+          customer: r.customer?.id ? r.customer : null,
+        })),
+      );
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to match enquiries" });
+    }
+  });
+
   router.get("/companies/:companyId/crm/enquiries/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
@@ -297,13 +350,30 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
 
       if (!row) return res.status(404).json({ error: "Enquiry not found" });
 
-      const [activities, followUps] = await Promise.all([
+      const [activities, followUps, linkedVehicles] = await Promise.all([
         db
           .select()
           .from(enquiryActivities)
           .where(eq(enquiryActivities.enquiryId, id))
           .orderBy(desc(enquiryActivities.createdAt)),
         db.select().from(enquiryFollowUps).where(eq(enquiryFollowUps.enquiryId, id)).orderBy(asc(enquiryFollowUps.dueAt)),
+        db
+          .select({
+            id: vehicles.id,
+            stockNumber: vehicles.stockNumber,
+            make: vehicles.make,
+            model: vehicles.model,
+            year: vehicles.year,
+            status: vehicles.status,
+            stage: vehicles.stage,
+            salePrice: vehicles.salePrice,
+            saleCurrency: vehicles.saleCurrency,
+            invoiceId: vehicles.invoiceId,
+            customerId: vehicles.customerId,
+          })
+          .from(vehicles)
+          .where(and(eq(vehicles.companyId, companyId), eq(vehicles.enquiryId, id)))
+          .orderBy(desc(vehicles.createdAt)),
       ]);
 
       res.json({
@@ -313,6 +383,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         customer: row.customer?.id ? row.customer : null,
         activities,
         followUps,
+        vehicles: linkedVehicles,
       });
     } catch (error) {
       console.error(error);
@@ -545,6 +616,19 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         { customerId },
         req.user?.id,
       );
+
+      // Vehicles already linked to this lead inherit the resolved customer and
+      // salesperson, so the CRM hand-off does not need a second data entry.
+      await db
+        .update(vehicles)
+        .set({ customerId, updatedAt: new Date() })
+        .where(and(eq(vehicles.companyId, companyId), eq(vehicles.enquiryId, id), isNull(vehicles.customerId)));
+      if (enquiry.assignedTo) {
+        await db
+          .update(vehicles)
+          .set({ salespersonId: enquiry.assignedTo, updatedAt: new Date() })
+          .where(and(eq(vehicles.companyId, companyId), eq(vehicles.enquiryId, id), isNull(vehicles.salespersonId)));
+      }
 
       res.json({ enquiry: updated, customerId });
     } catch (error) {
@@ -930,27 +1014,116 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       const lost = rows.filter((r) => r.status === "lost");
       const closed = won.length + lost.length;
 
+      // Vehicle deliveries give the pipeline a real outcome instead of only an
+      // expected value. Revenue is the invoice total when one exists, otherwise
+      // the agreed sale price converted to base. COGS prefers the posted amount
+      // and falls back to active landed costs for vehicles invoiced before the
+      // COGS posting was introduced.
+      const vehicleRows = await db
+        .select({
+          id: vehicles.id,
+          enquiryId: vehicles.enquiryId,
+          salespersonId: vehicles.salespersonId,
+          status: vehicles.status,
+          invoiceId: vehicles.invoiceId,
+          salePrice: vehicles.salePrice,
+          saleExchangeRate: vehicles.saleExchangeRate,
+          cogsAmount: vehicles.cogsAmount,
+          invoiceTotal: invoices.total,
+        })
+        .from(vehicles)
+        .leftJoin(invoices, eq(vehicles.invoiceId, invoices.id))
+        .where(eq(vehicles.companyId, companyId));
+
+      const costRows = await db
+        .select({
+          vehicleId: vehicleCosts.vehicleId,
+          total: sql<string>`coalesce(sum(${vehicleCosts.baseAmount}), 0)`,
+        })
+        .from(vehicleCosts)
+        .innerJoin(vehicles, eq(vehicleCosts.vehicleId, vehicles.id))
+        .where(and(eq(vehicles.companyId, companyId), sql`${vehicleCosts.status} <> 'cancelled'`))
+        .groupBy(vehicleCosts.vehicleId);
+
+      const enquiryById = new Map(rows.map((r) => [r.id, r]));
+      const costByVehicle = new Map(costRows.map((r) => [r.vehicleId, Number(r.total)]));
+      const isDelivered = (v: (typeof vehicleRows)[number]) =>
+        !!v.invoiceId || v.status === "sold" || v.status === "delivered";
+      const revenueOf = (v: (typeof vehicleRows)[number]) =>
+        value(v.invoiceTotal ?? value(v.salePrice) * value(v.saleExchangeRate ?? 1));
+      const cogsOf = (v: (typeof vehicleRows)[number]) =>
+        v.cogsAmount != null ? value(v.cogsAmount) : costByVehicle.get(v.id) ?? 0;
+
+      const linkedVehicles = vehicleRows.filter((v) => v.enquiryId);
+      const deliveredVehicles = vehicleRows.filter(isDelivered);
+      const linkedDeliveredVehicles = linkedVehicles.filter(isDelivered);
+      const vehicleRevenue = deliveredVehicles.reduce((sum, v) => sum + revenueOf(v), 0);
+      const vehicleCogs = deliveredVehicles.reduce((sum, v) => sum + cogsOf(v), 0);
+
       const bySource = [...new Set(rows.map((r) => r.source ?? "unknown"))].map((source) => {
         const items = rows.filter((r) => (r.source ?? "unknown") === source);
+        const units = linkedDeliveredVehicles.filter(
+          (v) => (enquiryById.get(v.enquiryId!)?.source ?? "unknown") === source,
+        );
+        const revenue = units.reduce((sum, v) => sum + revenueOf(v), 0);
+        const cogs = units.reduce((sum, v) => sum + cogsOf(v), 0);
         return {
           source,
           count: items.length,
           won: items.filter((r) => r.status === "won").length,
           value: items.reduce((sum, r) => sum + value(r.expectedRevenue), 0),
+          units: units.length,
+          vehicleRevenue: revenue,
+          vehicleGrossProfit: revenue - cogs,
         };
       });
 
-      const assigneeIds = [...new Set(rows.map((r) => r.assignedTo).filter(Boolean))] as string[];
+      const assigneeIds = [
+        ...new Set(
+          [
+            ...rows.map((r) => r.assignedTo),
+            ...deliveredVehicles.map(
+              (v) => enquiryById.get(v.enquiryId!)?.assignedTo ?? v.salespersonId,
+            ),
+          ].filter(Boolean),
+        ),
+      ] as string[];
       const byAssignee = assigneeIds.map((uid) => {
         const items = rows.filter((r) => r.assignedTo === uid);
+        const units = deliveredVehicles.filter(
+          (v) => (enquiryById.get(v.enquiryId!)?.assignedTo ?? v.salespersonId) === uid,
+        );
+        const revenue = units.reduce((sum, v) => sum + revenueOf(v), 0);
+        const cogs = units.reduce((sum, v) => sum + cogsOf(v), 0);
         return {
           userId: uid,
           name: assigneeName(uid),
           count: items.length,
           won: items.filter((r) => r.status === "won").length,
           value: items.reduce((sum, r) => sum + value(r.expectedRevenue), 0),
+          units: units.length,
+          vehicleRevenue: revenue,
+          vehicleGrossProfit: revenue - cogs,
         };
       });
+
+      const unassignedUnits = deliveredVehicles.filter(
+        (v) => !(enquiryById.get(v.enquiryId!)?.assignedTo ?? v.salespersonId),
+      );
+      if (unassignedUnits.length) {
+        const revenue = unassignedUnits.reduce((sum, v) => sum + revenueOf(v), 0);
+        const cogs = unassignedUnits.reduce((sum, v) => sum + cogsOf(v), 0);
+        byAssignee.push({
+          userId: "unassigned",
+          name: "Unassigned",
+          count: 0,
+          won: 0,
+          value: 0,
+          units: unassignedUnits.length,
+          vehicleRevenue: revenue,
+          vehicleGrossProfit: revenue - cogs,
+        });
+      }
 
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const [{ activityCount }] = await db
@@ -975,6 +1148,14 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           linkedCustomers: rows.filter((r) => r.customerId).length,
           quotations: rows.filter((r) => r.quotationId).length,
           activitiesLast30Days: activityCount ?? 0,
+          vehiclesLinked: linkedVehicles.length,
+          vehiclesSold: deliveredVehicles.length,
+          vehicleRevenue,
+          vehicleCogs,
+          vehicleGrossProfit: vehicleRevenue - vehicleCogs,
+          leadToDeliveryRate: linkedVehicles.length
+            ? (linkedDeliveredVehicles.length / linkedVehicles.length) * 100
+            : 0,
         },
         byStage,
         bySource,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { Layout } from "@/components/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export default function CrmEnquiriesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { can } = usePermissions();
+  const searchString = useSearch();
 
   const [tab, setTab] = useState("pipeline");
   const [search, setSearch] = useState("");
@@ -80,6 +82,16 @@ export default function CrmEnquiriesPage() {
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [overStageId, setOverStageId] = useState<number | null>(null);
   const [lostPrompt, setLostPrompt] = useState<{ enquiryId: number; stage: CrmStage } | null>(null);
+
+  // Deep links from the vehicle module: /crm?enquiryId=12 opens that lead,
+  // optionally selecting a tab first (e.g. tab=activities).
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const tabParam = params.get("tab");
+    if (tabParam) setTab(tabParam);
+    const enquiryParam = params.get("enquiryId");
+    if (enquiryParam && /^\d+$/.test(enquiryParam)) setSelectedId(Number(enquiryParam));
+  }, [searchString]);
 
   const editable = can("crm.pipeline.manage");
   const filters = {

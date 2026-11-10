@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useMatchingEnquiries } from "@/hooks/use-crm";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSuppliers } from "@/hooks/use-suppliers";
 import { useToast } from "@/hooks/use-toast";
@@ -272,6 +273,12 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
   const [form, setForm] = useState(empty);
   const [supplierId, setSupplierId] = useState("none");
   const [salespersonId, setSalespersonId] = useState("none");
+  const [enquiryId, setEnquiryId] = useState("none");
+  const { data: matches = [] } = useMatchingEnquiries(
+    companyId,
+    { make: form.make, model: form.model, year: form.year },
+    open,
+  );
   const set = (k: keyof typeof empty) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
   const pickSupplier = (id: string) => {
@@ -279,6 +286,14 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
     if (id !== "none") {
       const supplier = (suppliers as any[]).find((s) => Number(s.id) === Number(id));
       if (supplier?.name) setForm((current) => ({ ...current, supplierName: supplier.name }));
+    }
+  };
+
+  const pickEnquiry = (id: string) => {
+    setEnquiryId(id);
+    if (id !== "none") {
+      const match = matches.find((m) => String(m.id) === id);
+      if (match?.assignedTo) setSalespersonId(match.assignedTo);
     }
   };
 
@@ -297,6 +312,7 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
           supplierName: form.supplierName || null,
           supplierId: supplierId === "none" ? null : Number(supplierId),
           salespersonId: salespersonId === "none" ? null : salespersonId,
+          enquiryId: enquiryId === "none" ? null : Number(enquiryId),
           auctionRef: form.auctionRef || null,
           targetPrice: form.targetPrice || "0",
         },
@@ -304,6 +320,7 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
       setForm(empty);
       setSupplierId("none");
       setSalespersonId("none");
+      setEnquiryId("none");
       onOpenChange(false);
       onCreated(created.id);
     } catch (e: any) {
@@ -355,6 +372,29 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
           </div>
           {field("auctionRef", "Auction / lot ref")}
           {field("targetPrice", "Target retail price (USD)", { type: "number", step: "0.01" })}
+          <div className="col-span-2 space-y-1.5">
+            <Label>Matching lead (optional)</Label>
+            <Select value={enquiryId} onValueChange={pickEnquiry}>
+              <SelectTrigger id="nv-enquiry"><SelectValue placeholder="No linked lead" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No linked lead</SelectItem>
+                {matches.map((m) => (
+                  <SelectItem key={m.id} value={String(m.id)}>
+                    {m.name}
+                    {m.interest ? ` · ${m.interest}` : ""}
+                    {m.assignee?.name ? ` · ${m.assignee.name}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-slate-400">
+              {matches.length
+                ? `${matches.length} open lead${matches.length === 1 ? "" : "s"} match this make/model. Linking one logs the vehicle on the CRM timeline.`
+                : form.make || form.model
+                  ? "No open CRM leads match this make/model."
+                  : "Enter a make and model to find matching open leads."}
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

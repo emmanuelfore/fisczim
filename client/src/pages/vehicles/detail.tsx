@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useCustomers } from "@/hooks/use-customers";
+import { useMatchingEnquiries } from "@/hooks/use-crm";
 import { useConsignments } from "@/hooks/use-freight";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSuppliers } from "@/hooks/use-suppliers";
@@ -141,6 +142,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   const [consignmentId, setConsignmentId] = useState<string>(v.consignmentId ? String(v.consignmentId) : "none");
   const [supplierId, setSupplierId] = useState<string>(v.supplierId ? String(v.supplierId) : "none");
   const [salespersonId, setSalespersonId] = useState<string>(v.salespersonId ? String(v.salespersonId) : "none");
+  const [enquiryId, setEnquiryId] = useState<string>(v.enquiryId ? String(v.enquiryId) : "none");
   const [editing, setEditing] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceOpen, setInvoiceOpen] = useState(false);
@@ -155,6 +157,15 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   const lockCustomer = hasInvoice || hasPayments;
   const lockCommercial = hasInvoice;
   const consignment = (consignments as any[]).find((c) => Number(c.id) === Number(v.consignmentId));
+  const { data: matchingEnquiries = [] } = useMatchingEnquiries(
+    companyId,
+    { make: form.make, model: form.model, year: form.year },
+    editing,
+  );
+  const enquiryOptions: any[] = [...matchingEnquiries];
+  if (v.enquiry && !enquiryOptions.some((e) => e.id === v.enquiry.id)) {
+    enquiryOptions.unshift(v.enquiry);
+  }
 
   const reset = () => {
     setForm(init());
@@ -162,6 +173,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
     setConsignmentId(v.consignmentId ? String(v.consignmentId) : "none");
     setSupplierId(v.supplierId ? String(v.supplierId) : "none");
     setSalespersonId(v.salespersonId ? String(v.salespersonId) : "none");
+    setEnquiryId(v.enquiryId ? String(v.enquiryId) : "none");
   };
   useEffect(() => {
     reset();
@@ -232,6 +244,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
             consignmentId: consignmentId === "none" ? null : Number(consignmentId),
             supplierId: supplierId === "none" ? null : Number(supplierId),
             salespersonId: salespersonId === "none" ? null : salespersonId,
+            enquiryId: enquiryId === "none" ? null : Number(enquiryId),
             supplierName: supplierId === "none"
               ? str(form.supplierName)
               : (suppliers as any[]).find((s) => Number(s.id) === Number(supplierId))?.name ?? str(form.supplierName),
@@ -406,6 +419,27 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                       </p>
                     )}
                   </div>
+                  <div className="space-y-1.5">
+                    <Label>Linked CRM lead</Label>
+                    <Select
+                      disabled={!editing || lockCustomer}
+                      value={enquiryId}
+                      onValueChange={setEnquiryId}
+                    >
+                      <SelectTrigger id="vd-enquiry"><SelectValue placeholder="Not linked" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not linked</SelectItem>
+                        {enquiryOptions.map((e: any) => (
+                          <SelectItem key={e.id} value={String(e.id)}>
+                            {e.name}{e.interest ? ` · ${e.interest}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-slate-400">
+                      Matching open leads are listed from the CRM pipeline.
+                    </p>
+                  </div>
                   {f("targetPrice", "Target retail price (USD)", { type: "number", step: "0.01" })}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-2">{f("salePrice", "Agreed sale price", { type: "number", step: "0.01" }, lockCommercial)}</div>
@@ -451,6 +485,39 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                       </Link>
                     ) : (
                       <p className="mt-1 text-xs text-slate-400">Assign a customer to raise an invoice.</p>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-slate-100 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">CRM lead</p>
+                    {v.enquiry ? (
+                      <>
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <Link
+                            href={`/crm?enquiryId=${v.enquiry.id}`}
+                            className="truncate text-sm font-semibold text-blue-600 hover:underline"
+                          >
+                            {v.enquiry.name}
+                          </Link>
+                          <Badge variant="secondary" className="shrink-0 capitalize">
+                            {v.enquiry.status}
+                          </Badge>
+                        </div>
+                        <p className="truncate text-xs text-slate-500">
+                          {[v.enquiry.stageName, v.enquiry.interest, v.enquiry.assigneeName]
+                            .filter(Boolean)
+                            .join(" · ") || "Open in the CRM for the full lead trail"}
+                        </p>
+                        <Link
+                          href={`/crm?enquiryId=${v.enquiry.id}`}
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                        >
+                          <FileText className="h-3.5 w-3.5" /> View enquiry
+                        </Link>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Not linked to a CRM enquiry. Edit details to attach the lead that asked for this vehicle.
+                      </p>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-4">

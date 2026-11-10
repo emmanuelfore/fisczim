@@ -136,11 +136,11 @@ async function json<T>(res: Response): Promise<T> {
 const send = (url: string, method: string, body?: unknown) =>
   apiFetch(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 
-export function useVehicles(companyId: number, filters: { stage?: string; status?: string; search?: string } = {}) {
+export function useVehicles(companyId: number, filters: { stage?: string; status?: string; search?: string } = {}, enabled = true) {
   const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();
   return useQuery({
     queryKey: ["vehicles", companyId, qs],
-    enabled: !!companyId,
+    enabled: !!companyId && enabled,
     queryFn: async () => json<Vehicle[]>(await apiFetch(`/api/companies/${companyId}/vehicles${qs ? `?${qs}` : ""}`)),
   });
 }

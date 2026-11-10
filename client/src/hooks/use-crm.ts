@@ -60,6 +60,21 @@ export type EnquiryRecord = {
   followUps?: EnquiryFollowUp[];
   nextFollowUp?: EnquiryFollowUp | null;
   activities?: EnquiryActivity[];
+  vehicles?: EnquiryVehicle[];
+};
+
+export type EnquiryVehicle = {
+  id: number;
+  stockNumber: string;
+  make: string;
+  model: string;
+  year: number | null;
+  status: string;
+  stage: string;
+  salePrice: string | null;
+  saleCurrency: string | null;
+  invoiceId: number | null;
+  customerId: number | null;
 };
 
 export type EnquiryFollowUp = {
@@ -402,12 +417,76 @@ export function usePipelineReport(companyId: number) {
   });
 }
 
+/**
+ * Open leads whose free-text interest matches a stock item. Used when adding a
+ * vehicle so the salesperson can attach the lead that asked for it.
+ */
+export function useMatchingEnquiries(
+  companyId: number,
+  match: { make?: string | null; model?: string | null; year?: string | number | null },
+  enabled = true,
+) {
+  const make = String(match.make ?? "").trim();
+  const model = String(match.model ?? "").trim();
+  const year = String(match.year ?? "").trim();
+  const params = new URLSearchParams();
+  if (make) params.set("make", make);
+  if (model) params.set("model", model);
+  if (year) params.set("year", year);
+
+  return useQuery({
+    queryKey: key(companyId, "matching-enquiries", make, model, year),
+    enabled: !!companyId && enabled && (!!make || !!model),
+    queryFn: async () => {
+      const res = await apiFetch(`${crmBase(companyId)}/matching-enquiries?${params.toString()}`);
+      return readJson(res, "Failed to match enquiries") as Promise<EnquiryRecord[]>;
+    },
+  });
+}
+
+export type ReserveVehicleInput = {
+  vehicleId: number;
+  enquiryId?: number;
+  customerId?: number;
+  salePrice?: number;
+  saleCurrency?: string;
+  saleExchangeRate?: number;
+  salespersonId?: string | null;
+};
+
+/**
+ * Reserves an available vehicle for an enquiry. The server links the customer,
+ * assigns the salesperson and moves the vehicle to reserved; the enquiry stays
+ * open until the vehicle is invoiced.
+ */
+export function useReserveVehicle(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ vehicleId, ...data }: ReserveVehicleInput) => {
+      const res = await apiFetch(`/api/companies/${companyId}/vehicles/${vehicleId}/reserve`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to reserve vehicle");
+    },
+    onSuccess: (_result, { enquiryId }) => {
+      invalidatePipeline(queryClient, companyId);
+      if (enquiryId) {
+        queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries", String(enquiryId)) });
+      }
+      queryClient.invalidateQueries({ queryKey: ["vehicles", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle", companyId] });
+    },
+  });
+}
+
 function invalidatePipeline(queryClient: ReturnType<typeof useQueryClient>, companyId: number) {
   queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries") });
   queryClient.invalidateQueries({ queryKey: key(companyId, "follow-ups") });
   queryClient.invalidateQueries({ queryKey: key(companyId, "reports") });
   queryClient.invalidateQueries({ queryKey: key(companyId, "duplicates") });
   queryClient.invalidateQueries({ queryKey: key(companyId, "dormant") });
+  queryClient.invalidateQueries({ queryKey: key(companyId, "matching-enquiries") });
 }
 
 // ── social capture ───────────────────────────────────────────────────────────

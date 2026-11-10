@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,11 +30,13 @@ import {
   useEnquiryDetail,
   useLogActivity,
   useMoveEnquiryStage,
+  useReserveVehicle,
   useUpdateEnquiry,
   useUpdateFollowUp,
   useCreateFollowUp,
   type CrmStage,
 } from "@/hooks/use-crm";
+import { useVehicles } from "@/hooks/use-vehicles";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrencyAmount } from "@shared/currency";
@@ -35,6 +46,7 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   Check,
+  Car,
   FileText,
   MessageSquare,
   Phone,
@@ -83,9 +95,12 @@ export function EnquirySheet({
   const [form, setForm] = useState<Record<string, any>>({});
   const [lostReason, setLostReason] = useState("");
   const [quotationOpen, setQuotationOpen] = useState(false);
+  const [reserveOpen, setReserveOpen] = useState(false);
   const [lostPrompt, setLostPrompt] = useState<CrmStage | null>(null);
 
   const editable = can("crm.pipeline.manage");
+  const canReserve = can("vehicles.manage");
+  const linkedVehicles = enquiry?.vehicles || [];
 
   useEffect(() => {
     if (!enquiry) return;
@@ -328,7 +343,51 @@ export function EnquirySheet({
                   <FileText className="mr-1.5 h-3.5 w-3.5" />
                   New quotation
                 </Button>
+                {canReserve ? (
+                  <Button size="sm" variant="outline" onClick={() => setReserveOpen(true)}>
+                    <Car className="mr-1.5 h-3.5 w-3.5" />
+                    Reserve a vehicle
+                  </Button>
+                ) : null}
               </div>
+
+              {linkedVehicles.length ? (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Linked vehicles
+                    </h4>
+                    {linkedVehicles.map((vehicle) => (
+                      <Link
+                        key={vehicle.id}
+                        href={`/vehicles/${vehicle.id}`}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 transition-colors hover:border-blue-200 hover:bg-blue-50/40"
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                            <Car className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-slate-800">
+                              {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                              {vehicle.stockNumber}
+                              {vehicle.salePrice
+                                ? ` · ${formatCurrencyAmount(Number(vehicle.salePrice), vehicle.saleCurrency || currency)}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className="shrink-0 capitalize">
+                          {vehicle.status}
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              ) : null}
 
               <Separator />
 
@@ -354,6 +413,17 @@ export function EnquirySheet({
           open={quotationOpen}
           onOpenChange={setQuotationOpen}
         />
+
+        {canReserve ? (
+          <ReserveVehicleDialog
+            companyId={companyId}
+            enquiry={enquiry ?? null}
+            users={users}
+            currency={currency}
+            open={reserveOpen}
+            onOpenChange={setReserveOpen}
+          />
+        ) : null}
 
         <LostReasonDialog
           prompt={lostPrompt && enquiryId ? { enquiryId, stage: lostPrompt } : null}
@@ -609,6 +679,7 @@ const ACTIVITY_ICONS: Record<string, any> = {
   merge: AlertTriangle,
   customer: UserPlus,
   returned: ArrowRightLeft,
+  vehicle: Car,
 };
 
 function ActivityRow({ activity }: { activity: any }) {
@@ -624,5 +695,156 @@ function ActivityRow({ activity }: { activity: any }) {
         <p className="text-xs text-slate-400">{stamp}</p>
       </div>
     </div>
+  );
+}
+
+/**
+ * The won-lead hand-off: pick a vehicle from available stock, agree the price
+ * and link it to this enquiry. The server creates/links the customer and
+ * assigns the salesperson; the vehicle moves to reserved.
+ */
+function ReserveVehicleDialog({
+  companyId,
+  enquiry,
+  users,
+  currency,
+  open,
+  onOpenChange,
+}: {
+  companyId: number;
+  enquiry: any;
+  users: { id: string; name: string }[];
+  currency?: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const reserve = useReserveVehicle(companyId);
+  const { data: vehicles = [] } = useVehicles(companyId, { status: "available" }, open);
+  const [vehicleId, setVehicleId] = useState("");
+  const [price, setPrice] = useState("");
+  const [salespersonId, setSalespersonId] = useState("unassigned");
+
+  useEffect(() => {
+    if (!open) return;
+    setVehicleId("");
+    setPrice(enquiry?.expectedRevenue ? String(Number(enquiry.expectedRevenue)) : "");
+    setSalespersonId(enquiry?.assignedTo || "unassigned");
+  }, [open, enquiry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const chooseVehicle = (id: string) => {
+    setVehicleId(id);
+    const vehicle = vehicles.find((v) => String(v.id) === id);
+    if (!vehicle) return;
+    const agreed = vehicle.salePrice ?? vehicle.targetPrice;
+    if (agreed != null) setPrice(String(Number(agreed)));
+  };
+
+  const submit = () => {
+    if (!enquiry || !vehicleId) return;
+    reserve.mutate(
+      {
+        vehicleId: Number(vehicleId),
+        enquiryId: enquiry.id,
+        salePrice: price === "" ? undefined : Number(price),
+        salespersonId: salespersonId === "unassigned" ? null : salespersonId,
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Vehicle reserved", description: "The lead and vehicle are now linked." });
+          onOpenChange(false);
+        },
+        onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const selected = vehicles.find((v) => String(v.id) === vehicleId);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reserve a vehicle</DialogTitle>
+          <DialogDescription>
+            Pick available stock, agree the sale price and attach {enquiry?.name || "this lead"} to it.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid gap-1.5">
+            <Label>Available vehicle</Label>
+            <Select value={vehicleId} onValueChange={chooseVehicle}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a vehicle" />
+              </SelectTrigger>
+              <SelectContent>
+                {vehicles.map((vehicle) => (
+                  <SelectItem key={vehicle.id} value={String(vehicle.id)}>
+                    {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")} · {vehicle.stockNumber}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selected ? (
+              <p className="text-xs text-slate-500">
+                {selected.vin ? `VIN ${selected.vin} · ` : ""}
+                {selected.colour || "colour not set"}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">
+                {vehicles.length ? "Choose the stock this lead asked for." : "No available vehicles. Add stock first."}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Sale price</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Currency</Label>
+              <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">
+                {selected?.saleCurrency || currency || "USD"}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>Salesperson</Label>
+            <Select value={salespersonId} onValueChange={setSalespersonId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                {users.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={!vehicleId || reserve.isPending} onClick={submit}>
+            {reserve.isPending ? "Reserving..." : "Reserve vehicle"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

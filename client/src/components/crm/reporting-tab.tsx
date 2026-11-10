@@ -6,7 +6,7 @@ import { LoadingRows } from "@/components/ui/page-skeleton";
 import { usePipelineReport } from "@/hooks/use-crm";
 import { formatCurrencyAmount } from "@shared/currency";
 import { sourceLabel } from "@/lib/crm";
-import { CheckCircle2, Target, TrendingUp, Wallet } from "lucide-react";
+import { CheckCircle2, Car, CircleDollarSign, Target, TrendingUp, Wallet } from "lucide-react";
 
 /**
  * Odoo's "Reporting" menu. The server already buckets the pipeline by stage,
@@ -30,6 +30,27 @@ export function ReportingTab({ companyId, currency }: { companyId: number; curre
         <Kpi icon={Target} label="Weighted forecast" value={money(totals.weightedForecast)} hint="each stage's probability applied" />
         <Kpi icon={CheckCircle2} label="Win rate" value={`${Math.round(totals.winRate || 0)}%`} hint={`${totals.won} won of ${totals.won + totals.lost} closed`} />
         <Kpi icon={TrendingUp} label="Logged to revenue" value={`${totals.quotations} quotes`} hint={`${totals.activitiesLast30Days} activities in 30 days`} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Kpi
+          icon={Car}
+          label="Units delivered"
+          value={String(totals.vehiclesSold ?? 0)}
+          hint={`${totals.vehiclesLinked ?? 0} leads linked to stock`}
+        />
+        <Kpi
+          icon={CircleDollarSign}
+          label="Vehicle revenue"
+          value={money(totals.vehicleRevenue ?? 0)}
+          hint={`${Math.round(totals.leadToDeliveryRate || 0)}% of linked leads delivered`}
+        />
+        <Kpi
+          icon={TrendingUp}
+          label="Vehicle gross profit"
+          value={money(totals.vehicleGrossProfit ?? 0)}
+          hint={`${money(totals.vehicleCogs ?? 0)} cost of sales`}
+        />
       </div>
 
       <Card>
@@ -78,7 +99,9 @@ export function ReportingTab({ companyId, currency }: { companyId: number; curre
                   <TableHead className="pl-4">Source</TableHead>
                   <TableHead className="text-right">Captured</TableHead>
                   <TableHead className="text-right">Won</TableHead>
-                  <TableHead className="pr-4 text-right">Value</TableHead>
+                  <TableHead className="text-right">Units</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="pr-4 text-right">GP</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -89,7 +112,9 @@ export function ReportingTab({ companyId, currency }: { companyId: number; curre
                     <TableCell className="text-right tabular-nums">
                       {row.count ? `${Math.round((row.won / row.count) * 100)}%` : "-"}
                     </TableCell>
-                    <TableCell className="pr-4 text-right tabular-nums">{money(row.value)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.units ?? 0}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(row.vehicleRevenue ?? 0)}</TableCell>
+                    <TableCell className="pr-4 text-right tabular-nums">{money(row.vehicleGrossProfit ?? 0)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -108,7 +133,9 @@ export function ReportingTab({ companyId, currency }: { companyId: number; curre
                   <TableHead className="pl-4">Salesperson</TableHead>
                   <TableHead className="text-right">Carrying</TableHead>
                   <TableHead className="text-right">Won</TableHead>
-                  <TableHead className="pr-4 text-right">Value</TableHead>
+                  <TableHead className="text-right">Units</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="pr-4 text-right">GP</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -117,12 +144,14 @@ export function ReportingTab({ companyId, currency }: { companyId: number; curre
                     <TableCell className="pl-4">{row.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.count}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.won}</TableCell>
-                    <TableCell className="pr-4 text-right tabular-nums">{money(row.value)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.units ?? 0}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(row.vehicleRevenue ?? 0)}</TableCell>
+                    <TableCell className="pr-4 text-right tabular-nums">{money(row.vehicleGrossProfit ?? 0)}</TableCell>
                   </TableRow>
                 ))}
                 {!byAssignee.length ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-400">
+                    <TableCell colSpan={6} className="py-8 text-center text-sm text-slate-400">
                       Nothing assigned yet.
                     </TableCell>
                   </TableRow>

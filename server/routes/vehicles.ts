@@ -11,6 +11,7 @@ import {
   payments,
   paymentAllocations,
   journalEntries,
+  crmStages,
   customers,
   companies,
   suppliers,
@@ -26,6 +27,11 @@ import { z } from "zod";
 import { enquiries, invoices } from "../../shared/schema.js";
 import { userHasPermission } from "../lib/permissions.js";
 import { storage } from "../storage.js";
+import {
+  ensureEnquiryCustomer,
+  logEnquiryVehicleActivity,
+  markEnquiryWon,
+} from "../lib/crm-vehicles.js";
 
 /**
  * Vehicle imports: per-unit landed costing, profitability, import tracking
@@ -444,7 +450,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const companyId = parseInt(req.params.companyId);
       const v = await loadVehicle(companyId, parseInt(req.params.id));
       if (!v) return res.status(404).json({ error: "Vehicle not found" });
-      const [costs, stages, schedule, paymentRows, customer, invoice, reminders, supplier, salesperson] = await Promise.all([
+      const [costs, stages, schedule, paymentRows, customer, invoice, reminders, supplier, salesperson, enquiry] = await Promise.all([
         db.select().from(vehicleCosts).where(eq(vehicleCosts.vehicleId, v.id)).orderBy(asc(vehicleCosts.costDate), asc(vehicleCosts.id)),
         db.select().from(vehicleStageEvents).where(eq(vehicleStageEvents.vehicleId, v.id)).orderBy(asc(vehicleStageEvents.eventDate)),
         db.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, v.id)).orderBy(asc(vehiclePaymentSchedules.dueDate)),
@@ -454,6 +460,24 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         db.select().from(vehicleReminders).where(eq(vehicleReminders.vehicleId, v.id)).orderBy(desc(vehicleReminders.sentAt)).limit(25),
         v.supplierId ? db.select().from(suppliers).where(eq(suppliers.id, v.supplierId)).then((r) => r[0] ?? null) : Promise.resolve(null),
         v.salespersonId ? db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, v.salespersonId)).then((r) => r[0] ?? null) : Promise.resolve(null),
+        v.enquiryId
+          ? db
+              .select({
+                id: enquiries.id,
+                name: enquiries.name,
+                phone: enquiries.phone,
+                email: enquiries.email,
+                interest: enquiries.interest,
+                status: enquiries.status,
+                stageName: crmStages.name,
+                assigneeName: users.name,
+              })
+              .from(enquiries)
+              .leftJoin(crmStages, eq(enquiries.stageId, crmStages.id))
+              .leftJoin(users, eq(enquiries.assignedTo, users.id))
+              .where(and(eq(enquiries.id, v.enquiryId), eq(enquiries.companyId, companyId)))
+              .then((r) => r[0] ?? null)
+          : Promise.resolve(null),
       ]);
       const paid = paymentRows.reduce((s, p) => s + Number(p.amount) * Number(p.exchangeRate || 1), 0);
       res.json(redact({
@@ -461,6 +485,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         customer,
         supplier,
         salesperson,
+        enquiry,
         costs,
         stages,
         schedule,
@@ -489,6 +514,15 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (refError) return res.status(400).json({ error: refError });
       const [created] = await db.insert(vehicles).values(data).returning();
       await db.insert(vehicleStageEvents).values({ vehicleId: created.id, stage: created.stage, notes: "Vehicle recorded", createdBy: req.user?.id });
+      if (created.enquiryId) {
+        await logEnquiryVehicleActivity(
+          db,
+          created.enquiryId,
+          `Stock ${created.stockNumber} ${created.year ?? ""} ${created.make} ${created.model}`.replace(/\s+/g, " ").trim() + " added to the vehicle list.",
+          { vehicleId: created.id },
+          req.user?.id,
+        );
+      }
       res.status(201).json(created);
     } catch (error: any) {
       console.error(error);
@@ -531,7 +565,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       );
       const customerChanged =
         (updates as any).customerId !== undefined && (updates as any).customerId !== v.customerId;
-      if (invoiceLockHit || customerChanged) {
+      const enquiryChanged =
+        (updates as any).enquiryId !== undefined && (updates as any).enquiryId !== v.enquiryId;
+      if (invoiceLockHit || customerChanged || enquiryChanged) {
         const [anyPayment] = await db
           .select({ id: payments.id })
           .from(payments)
@@ -542,9 +578,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             error: "Sale price, currency and exchange rate cannot be changed after the invoice is created",
           });
         }
-        if ((v.invoiceId || anyPayment) && customerChanged) {
+        if ((v.invoiceId || anyPayment) && (customerChanged || enquiryChanged)) {
           return res.status(409).json({
-            error: "Customer cannot be changed after an invoice or payment exists",
+            error: "Customer and linked enquiry cannot be changed after an invoice or payment exists",
           });
         }
       }
@@ -552,11 +588,122 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const refError = await assertOwnedRefs(companyId, updates);
       if (refError) return res.status(400).json({ error: refError });
       const [updated] = await db.update(vehicles).set({ ...updates, updatedAt: new Date() }).where(eq(vehicles.id, v.id)).returning();
+      if (enquiryChanged && updated.enquiryId) {
+        const label = `${updated.year ?? ""} ${updated.make} ${updated.model}`.replace(/\s+/g, " ").trim();
+        await logEnquiryVehicleActivity(
+          db,
+          updated.enquiryId,
+          `Stock ${updated.stockNumber} ${label} linked to this lead.`,
+          { vehicleId: updated.id },
+          req.user?.id,
+        );
+      }
       res.json(updated);
     } catch (error) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to update vehicle" });
+    }
+  });
+
+  /**
+   * Reserves an available vehicle for a CRM enquiry. This is the "won lead →
+   * deal" hand-off: it links the customer (creating one from the captured
+   * contact details when needed), the enquiry and the salesperson, agrees the
+   * sale price and moves the vehicle to reserved. The enquiry stays open until
+   * the invoice is raised.
+   */
+  router.post("/companies/:companyId/vehicles/:id/reserve", ...need("vehicles.manage"), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const v = await loadVehicle(companyId, parseInt(req.params.id));
+      if (!v) return res.status(404).json({ error: "Vehicle not found" });
+      if (v.invoiceId || ["sold", "delivered", "cancelled"].includes(v.status)) {
+        return res.status(409).json({ error: "This vehicle is already sold, delivered or cancelled and cannot be reserved" });
+      }
+
+      const body = z
+        .object({
+          enquiryId: z.coerce.number().int().positive().optional(),
+          customerId: z.coerce.number().int().positive().optional(),
+          salePrice: z.coerce.number().nonnegative().optional(),
+          saleCurrency: z.string().min(1).max(8).optional(),
+          saleExchangeRate: z.coerce.number().positive().optional(),
+          salespersonId: z.string().uuid().nullable().optional(),
+        })
+        .parse(req.body ?? {});
+
+      const enquiry = body.enquiryId
+        ? await db
+            .select()
+            .from(enquiries)
+            .where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)))
+            .then((r) => r[0] ?? null)
+        : null;
+      if (body.enquiryId && !enquiry) return res.status(404).json({ error: "Enquiry not found" });
+      if (!enquiry && !body.customerId && !v.customerId) {
+        return res.status(400).json({ error: "Choose a customer or a CRM enquiry to reserve this vehicle" });
+      }
+
+      const result = await db.transaction(async (tx: any) => {
+        let customerId = body.customerId ?? v.customerId ?? enquiry?.customerId ?? null;
+        let customerCreated = false;
+        if (!customerId && enquiry) {
+          const ensured = await ensureEnquiryCustomer(tx, companyId, enquiry);
+          customerId = ensured.customerId;
+          customerCreated = ensured.created;
+        }
+        if (!customerId) throw new Error("A customer is required to reserve this vehicle");
+
+        const salespersonId = body.salespersonId !== undefined
+          ? body.salespersonId
+          : enquiry?.assignedTo ?? v.salespersonId ?? null;
+        const salePrice = body.salePrice ?? Number(v.salePrice ?? v.targetPrice ?? 0);
+        const saleCurrency = body.saleCurrency ?? v.saleCurrency ?? "USD";
+        const saleExchangeRate = body.saleExchangeRate ?? Number(v.saleExchangeRate ?? 1);
+
+        const [updated] = await tx
+          .update(vehicles)
+          .set({
+            status: v.status === "available" ? "reserved" : v.status,
+            customerId,
+            enquiryId: body.enquiryId ?? v.enquiryId,
+            salespersonId,
+            salePrice: salePrice.toFixed(2),
+            saleCurrency,
+            saleExchangeRate: saleExchangeRate.toFixed(6),
+            updatedAt: new Date(),
+          })
+          .where(eq(vehicles.id, v.id))
+          .returning();
+
+        if (enquiry) {
+          await tx
+            .update(enquiries)
+            .set({
+              customerId,
+              assignedTo: enquiry.assignedTo ?? salespersonId ?? null,
+              updatedAt: new Date(),
+            })
+            .where(eq(enquiries.id, enquiry.id));
+          const label = `${updated.year ?? ""} ${updated.make} ${updated.model}`.replace(/\s+/g, " ").trim();
+          await logEnquiryVehicleActivity(
+            tx,
+            enquiry.id,
+            `Reserved ${updated.stockNumber} ${label} at ${saleCurrency} ${salePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+            { vehicleId: updated.id, salePrice, saleCurrency, status: updated.status },
+            req.user?.id,
+          );
+        }
+
+        return { vehicle: updated, customerId, customerCreated, enquiry };
+      });
+
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(400).json({ error: error.message || "Failed to reserve vehicle" });
     }
   });
 
@@ -792,21 +939,34 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         })
         .parse(req.body);
       const notified = body.notifyCustomer && body.notifiedVia ? new Date() : null;
-      const [event] = await db
-        .insert(vehicleStageEvents)
-        .values({
-          vehicleId: v.id,
-          stage: body.stage,
-          notes: body.notes ?? null,
-          eventDate: body.eventDate ?? new Date(),
-          notifyCustomer: !!body.notifyCustomer,
-          notifiedAt: notified,
-          notifiedVia: notified ? body.notifiedVia : null,
-          createdBy: req.user?.id,
-        })
-        .returning();
-      const statusPatch = body.stage === "delivered" ? { status: "delivered" } : {};
-      await db.update(vehicles).set({ stage: body.stage, ...statusPatch, updatedAt: new Date() }).where(eq(vehicles.id, v.id));
+      const event = await db.transaction(async (tx: any) => {
+        const [saved] = await tx
+          .insert(vehicleStageEvents)
+          .values({
+            vehicleId: v.id,
+            stage: body.stage,
+            notes: body.notes ?? null,
+            eventDate: body.eventDate ?? new Date(),
+            notifyCustomer: !!body.notifyCustomer,
+            notifiedAt: notified,
+            notifiedVia: notified ? body.notifiedVia : null,
+            createdBy: req.user?.id,
+          })
+          .returning();
+        const statusPatch = body.stage === "delivered" ? { status: "delivered" } : {};
+        await tx.update(vehicles).set({ stage: body.stage, ...statusPatch, updatedAt: new Date() }).where(eq(vehicles.id, v.id));
+        if (body.stage === "delivered" && v.enquiryId) {
+          await markEnquiryWon(
+            tx,
+            companyId,
+            v.enquiryId,
+            `${v.stockNumber} delivered to the customer.`,
+            { vehicleId: v.id, stage: body.stage },
+            req.user?.id,
+          );
+        }
+        return saved;
+      });
       res.status(201).json(event);
     } catch (error) {
       console.error(error);
@@ -960,7 +1120,17 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
         const paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, created, req.user?.id);
         const cogs = await postVehicleCogs(tx, companyId, { ...v, invoiceId: created.id }, req.user?.id);
-        return { invoice: created, ...paymentResult, cogs };
+        const enquiry = v.enquiryId
+          ? await markEnquiryWon(
+              tx,
+              companyId,
+              v.enquiryId,
+              `Invoice ${created.invoiceNumber} raised for ${description}.`,
+              { vehicleId: v.id, invoiceId: created.id },
+              req.user?.id,
+            )
+          : null;
+        return { invoice: created, ...paymentResult, cogs, enquiry };
       });
 
       res.status(201).json(result);
@@ -1007,7 +1177,17 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         }).where(eq(vehicles.id, v.id));
         const paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, invoice, req.user?.id);
         const cogs = await postVehicleCogs(tx, companyId, { ...v, invoiceId: invoice.id }, req.user?.id);
-        return { invoice, ...paymentResult, cogs };
+        const enquiry = v.enquiryId
+          ? await markEnquiryWon(
+              tx,
+              companyId,
+              v.enquiryId,
+              `Invoice ${invoice.invoiceNumber} linked to ${v.stockNumber}.`,
+              { vehicleId: v.id, invoiceId: invoice.id },
+              req.user?.id,
+            )
+          : null;
+        return { invoice, ...paymentResult, cogs, enquiry };
       });
 
       res.json(result);
@@ -1032,8 +1212,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
       const result = await db.transaction(async (tx: any) => {
         const cogs = await postVehicleCogs(tx, companyId, v, req.user?.id);
+        const enquiry = v.enquiryId
+          ? await markEnquiryWon(
+              tx,
+              companyId,
+              v.enquiryId,
+              `${v.stockNumber} invoiced.`,
+              { vehicleId: v.id, invoiceId: v.invoiceId },
+              req.user?.id,
+            )
+          : null;
         const [updated] = await tx.select().from(vehicles).where(eq(vehicles.id, v.id));
-        return { cogs, vehicle: updated };
+        return { cogs, vehicle: updated, enquiry };
       });
 
       res.status(result.cogs.posted ? 201 : 200).json(result);

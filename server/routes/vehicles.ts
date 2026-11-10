@@ -6,6 +6,7 @@ import {
   vehicleStageEvents,
   vehiclePaymentSchedules,
   vehicleReminders,
+  vehicleStockCounters,
   insertVehicleSchema,
   insertVehicleCostSchema,
   payments,
@@ -188,9 +189,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   }
 
   /**
-   * Capitalises every active vehicle cost to inventory in transit (paid from
-   * cash/bank because imports are settled immediately) and posts the COGS
-   * entry when the vehicle is sold.
+   * Capitalises every active vehicle cost to inventory in transit based on
+   * settlement method (cash, bank transfer, or supplier bill/AP) and posts the
+   * COGS entry when the vehicle is sold.
+   *
+   * - cash/bank_transfer: Dr Inventory / Cr Cash/Bank
+   * - supplier_bill: Dr Inventory / Cr AP (with input VAT if present)
    *
    * Runs inside the invoice transaction, so the sale, the cost capitalisation
    * and COGS all commit together. Safe to re-run: costs that already carry a
@@ -215,6 +219,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
     const inventoryCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx);
     const cashCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+    const apCode = await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
+    const inputVatCode = await storage.getSystemAccountCode(companyId, "vatInputAccountCode", tx);
     const cogsCode = await storage.getSystemAccountCode(companyId, "cogsAccountCode", tx);
     const today = new Date().toISOString().slice(0, 10);
 
@@ -222,16 +228,32 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (cost.costJournalEntryId) continue;
       const amount = money(Number(cost.baseAmount));
       if (!(amount > 0)) continue;
+
+      const settlementMethod = cost.settlementMethod || "cash";
+      const lines: any[] = [{ accountCode: inventoryCode, type: "DEBIT", amount }];
+
+      if (settlementMethod === "supplier_bill" && cost.supplierInvoiceId) {
+        // AP posting with input VAT
+        lines.push({ accountCode: apCode, type: "CREDIT", amount });
+        const inputVatAmount = Number(cost.inputVatAmount || 0);
+        if (inputVatAmount > 0.004) {
+          lines.push({ accountCode: inputVatCode, type: "CREDIT", amount: inputVatAmount, vatTypeId: cost.inputVatTypeId });
+        }
+      } else {
+        // Cash or bank transfer
+        const creditAccount = settlementMethod === "bank_transfer" && cost.bankAccountId
+          ? cost.bankAccountId
+          : cashCode;
+        lines.push({ accountCode: creditAccount, type: "CREDIT", amount });
+      }
+
       const je = await storage.postToLedger(companyId, {
         entryDate: cost.costDate ? new Date(cost.costDate) : new Date(),
         description: `Vehicle cost capitalised: ${vehicle.stockNumber} ${cost.category}${cost.description ? ` — ${cost.description}` : ""}`,
         referenceType: "VEHICLE_COST",
         referenceId: String(cost.id),
         createdBy: userId,
-        lines: [
-          { accountCode: inventoryCode, type: "DEBIT", amount },
-          { accountCode: cashCode, type: "CREDIT", amount },
-        ],
+        lines,
       }, tx);
       await tx
         .update(vehicleCosts)
@@ -301,6 +323,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
    * Attach every vehicle payment to the invoice, update its paid balance and
    * post each receipt to the ledger exactly once. Payments are converted to
    * base USD (the invoice currency) using their captured exchange rate.
+   * Deposits posted to liability are cleared against AR at invoice time.
    */
   async function applyVehiclePaymentsToInvoice(
     tx: any,
@@ -322,6 +345,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     const invoiceRate = Number(invoice.exchangeRate || 1) || 1;
     let allocatedTotal = 0;
     let postedTotal = 0;
+    const depositsAccountCode = await storage.getSystemAccountCode(companyId, "customerDepositsAccountCode", tx) || "2010";
+    const arAccountCode = await storage.getSystemAccountCode(companyId, "accountsReceivableCode", tx);
 
     for (const p of rows) {
       const baseAmount = baseAmountOf(p);
@@ -349,6 +374,25 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         await tx.update(payments).set({ invoiceId: invoice.id }).where(eq(payments.id, p.id));
       }
 
+      // Clear deposit liability against AR at invoice time
+      if (p.isDeposit && !p.clearedAt && p.journalEntryId) {
+        const clearingJe = await storage.postToLedger(companyId, {
+          entryDate: invoice.issueDate || new Date(),
+          description: `Clear deposit ${p.reference || p.id} against invoice ${invoice.invoiceNumber}`,
+          referenceType: "DEPOSIT_CLEARING",
+          referenceId: String(p.id),
+          createdBy: userId,
+          lines: [
+            { accountCode: depositsAccountCode, type: "DEBIT", amount: baseAmount },
+            { accountCode: arAccountCode, type: "CREDIT", amount: baseAmount },
+          ],
+        }, tx);
+        await tx.update(payments).set({
+          clearingJournalEntryId: clearingJe.id,
+          clearedAt: new Date(),
+        }).where(eq(payments.id, p.id));
+      }
+
       let journalEntryId = p.journalEntryId;
       if (!journalEntryId) {
         // Backfill-safe: a receipt posted by another route may not have stamped
@@ -367,7 +411,6 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           journalEntryId = existingJe.id;
         } else if (baseAmount > 0) {
           const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
-          const arAccountCode = await storage.getSystemAccountCode(companyId, "accountsReceivableCode", tx);
           const je = await storage.postToLedger(companyId, {
             entryDate: p.paymentDate,
             description: `Vehicle receipt ${p.reference || p.id}`,
@@ -506,24 +549,42 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const companyId = parseInt(req.params.companyId);
       const body = { ...req.body };
       if (!body.stockNumber) {
-        const [{ n }] = await db.select({ n: sql<number>`COUNT(*)::int` }).from(vehicles).where(eq(vehicles.companyId, companyId));
-        body.stockNumber = `VH-${String(Number(n) + 1).padStart(4, "0")}`;
+        // Use stock counter table for race-condition-safe numbering
+        const [counter] = await db.select().from(vehicleStockCounters).where(eq(vehicleStockCounters.companyId, companyId));
+        const nextNumber = counter ? counter.nextNumber : 1;
+        body.stockNumber = `VH-${String(nextNumber).padStart(4, "0")}`;
       }
       const data = insertVehicleSchema.parse({ ...body, companyId, createdBy: req.user?.id });
       const refError = await assertOwnedRefs(companyId, data);
       if (refError) return res.status(400).json({ error: refError });
-      const [created] = await db.insert(vehicles).values(data).returning();
-      await db.insert(vehicleStageEvents).values({ vehicleId: created.id, stage: created.stage, notes: "Vehicle recorded", createdBy: req.user?.id });
-      if (created.enquiryId) {
+      const result = await db.transaction(async (tx: any) => {
+        const [created] = await tx.insert(vehicles).values(data).returning();
+        await tx.insert(vehicleStageEvents).values({ vehicleId: created.id, stage: created.stage, notes: "Vehicle recorded", createdBy: req.user?.id });
+        
+        // Increment stock counter if we auto-generated the number
+        if (!req.body.stockNumber) {
+          await tx
+            .insert(vehicleStockCounters)
+            .values({ companyId, nextNumber: 1, updatedAt: new Date() })
+            .onConflictDoUpdate({
+              target: vehicleStockCounters.companyId,
+              set: { nextNumber: sql`${vehicleStockCounters.nextNumber} + 1`, updatedAt: new Date() },
+            });
+        }
+        
+        return created;
+      });
+      
+      if (result.enquiryId) {
         await logEnquiryVehicleActivity(
           db,
-          created.enquiryId,
-          `Stock ${created.stockNumber} ${created.year ?? ""} ${created.make} ${created.model}`.replace(/\s+/g, " ").trim() + " added to the vehicle list.",
-          { vehicleId: created.id },
+          result.enquiryId,
+          `Stock ${result.stockNumber} ${result.year ?? ""} ${result.make} ${result.model}`.replace(/\s+/g, " ").trim() + " added to the vehicle list.",
+          { vehicleId: result.id },
           req.user?.id,
         );
       }
-      res.status(201).json(created);
+      res.status(201).json(result);
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
@@ -537,6 +598,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const companyId = parseInt(req.params.companyId);
       const v = await loadVehicle(companyId, parseInt(req.params.id));
       if (!v) return res.status(404).json({ error: "Vehicle not found" });
+      
+      // Block modifications if COGS has been posted
+      if (v.cogsJournalEntryId) {
+        return res.status(409).json({ error: "Vehicle has posted COGS; modifications are locked" });
+      }
+      
       const updates = insertVehicleSchema.partial().parse(req.body);
       delete (updates as any).companyId;
       delete (updates as any).stage; // stage changes go through /stage so they're logged
@@ -662,10 +729,11 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         const saleCurrency = body.saleCurrency ?? v.saleCurrency ?? "USD";
         const saleExchangeRate = body.saleExchangeRate ?? Number(v.saleExchangeRate ?? 1);
 
+        // Conditional UPDATE: only change status to reserved if currently available
         const [updated] = await tx
           .update(vehicles)
           .set({
-            status: v.status === "available" ? "reserved" : v.status,
+            status: "reserved",
             customerId,
             enquiryId: body.enquiryId ?? v.enquiryId,
             salespersonId,
@@ -674,8 +742,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             saleExchangeRate: saleExchangeRate.toFixed(6),
             updatedAt: new Date(),
           })
-          .where(eq(vehicles.id, v.id))
+          .where(and(eq(vehicles.id, v.id), eq(vehicles.status, "available")))
           .returning();
+
+        if (!updated) {
+          throw new Error("Vehicle is no longer available and cannot be reserved");
+        }
 
         if (enquiry) {
           await tx
@@ -712,6 +784,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const companyId = parseInt(req.params.companyId);
       const v = await loadVehicle(companyId, parseInt(req.params.id));
       if (!v) return res.status(404).json({ error: "Vehicle not found" });
+      
+      // Block deletion if COGS has been posted
+      if (v.cogsJournalEntryId) {
+        return res.status(409).json({ error: "Vehicle has posted COGS; cannot delete. Reverse the journal entry first." });
+      }
+      
       const [hasPayment] = await db.select({ id: payments.id }).from(payments).where(eq(payments.vehicleId, v.id)).limit(1);
       if (hasPayment || v.invoiceId) return res.status(409).json({ error: "Vehicle has payments or an invoice; cancel it instead" });
       await db.delete(vehicles).where(eq(vehicles.id, v.id));
@@ -938,6 +1016,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           notifiedVia: z.string().optional().nullable(),
         })
         .parse(req.body);
+      
+      // Require invoice before marking as delivered
+      if (body.stage === "delivered" && !v.invoiceId) {
+        return res.status(400).json({ error: "Create or attach an invoice before marking the vehicle as delivered" });
+      }
+      
       const notified = body.notifyCustomer && body.notifiedVia ? new Date() : null;
       const event = await db.transaction(async (tx: any) => {
         const [saved] = await tx
@@ -1013,6 +1097,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         })
         .parse(req.body);
       const result = await db.transaction(async (tx: any) => {
+        const isDeposit = !v.invoiceId;
         const [created] = await tx
           .insert(payments)
           .values({
@@ -1027,9 +1112,29 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             paymentMethod: body.paymentMethod,
             reference: body.reference ?? null,
             notes: body.notes ?? `Vehicle ${v.stockNumber} ${v.make} ${v.model}`,
+            isDeposit,
             createdBy: req.user?.id,
           })
           .returning();
+
+        // Immediate posting for deposits (before invoice exists)
+        if (isDeposit) {
+          const baseAmount = baseAmountOf(created);
+          const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+          const depositsAccountCode = await storage.getSystemAccountCode(companyId, "customerDepositsAccountCode", tx) || "2010";
+          const je = await storage.postToLedger(companyId, {
+            entryDate: created.paymentDate,
+            description: `Vehicle deposit ${created.reference || created.id} for ${v.stockNumber}`,
+            referenceType: "CUSTOMER_DEPOSIT",
+            referenceId: String(created.id),
+            createdBy: req.user?.id,
+            lines: [
+              { accountCode: cashAccountCode, type: "DEBIT", amount: baseAmount },
+              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount },
+            ],
+          }, tx);
+          await tx.update(payments).set({ journalEntryId: je.id }).where(eq(payments.id, created.id));
+        }
 
         let allocation = null;
         if (v.invoiceId) {
@@ -1443,13 +1548,15 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const lines = z
         .array(z.object({ type: z.enum(["deposit", "instalment", "balance"]), dueDate: z.string(), amount: z.coerce.number().positive() }))
         .parse(req.body?.lines ?? []);
-      await db.delete(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, v.id));
-      const rows = lines.length
-        ? await db
-            .insert(vehiclePaymentSchedules)
-            .values(lines.map((l) => ({ vehicleId: v.id, type: l.type, dueDate: l.dueDate, amount: l.amount.toFixed(2) })))
-            .returning()
-        : [];
+      const rows = await db.transaction(async (tx: any) => {
+        await tx.delete(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, v.id));
+        return lines.length
+          ? await tx
+              .insert(vehiclePaymentSchedules)
+              .values(lines.map((l) => ({ vehicleId: v.id, type: l.type, dueDate: l.dueDate, amount: l.amount.toFixed(2) })))
+              .returning()
+          : [];
+      });
       res.json(rows);
     } catch (error) {
       console.error(error);

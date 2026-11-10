@@ -512,6 +512,31 @@ export const enquiriesRelations = relations(enquiries, ({ one, many }) => ({
   activities: many(enquiryActivities),
 }));
 
+export const crmPublicLeadTokens = pgTable("crm_public_lead_tokens", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  isActive: boolean("is_active").default(true),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+}, (table) => ({
+  companyIdx: index("crm_public_lead_tokens_company_idx").on(table.companyId),
+  tokenUnique: unique("crm_public_lead_tokens_token_unique").on(table.token),
+  activeIdx: index("crm_public_lead_tokens_active_idx").on(table.isActive, table.expiresAt),
+}));
+
+export const crmPublicLeadRateLimits = pgTable("crm_public_lead_rate_limits", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  ipAddress: text("ip_address").notNull(),
+  submissionCount: integer("submission_count").notNull().default(1),
+  windowStart: timestamp("window_start").defaultNow(),
+  windowEnd: timestamp("window_end").notNull(),
+}, (table) => ({
+  lookupIdx: index("crm_public_lead_rate_limits_lookup_idx").on(table.companyId, table.ipAddress, table.windowEnd),
+}));
+
 export const enquiryFollowUps = pgTable("enquiry_follow_ups", {
   id: serial("id").primaryKey(),
   enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "cascade" }).notNull(),
@@ -800,12 +825,21 @@ export const vehicleCosts = pgTable("vehicle_costs", {
   // can be re-run idempotently without touching hand-entered cost lines.
   source: text("source").default("manual").notNull(),
   sourceId: integer("source_id"),
+  // Bank account and settlement method for cost payment
+  bankAccountId: integer("bank_account_id").references(() => accounts.id),
+  settlementMethod: text("settlement_method").default("cash"), // cash, bank_transfer, supplier_bill
+  paymentJournalEntryId: integer("payment_journal_entry_id").references(() => journalEntries.id),
+  supplierInvoiceId: integer("supplier_invoice_id").references(() => supplierInvoices.id),
+  // Input VAT for supplier bills
+  inputVatAmount: decimal("input_vat_amount", { precision: 10, scale: 2 }).default("0.00"),
+  inputVatTypeId: integer("input_vat_type_id").references(() => taxTypes.id),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   vehicleIdx: index("vehicle_costs_vehicle_idx").on(table.vehicleId),
   supplierIdx: index("vehicle_costs_supplier_idx").on(table.supplierId),
   autoSourceUnique: unique("vehicle_costs_auto_source_unique").on(table.vehicleId, table.source, table.sourceId, table.category),
+  settlementIdx: index("vehicle_costs_settlement_idx").on(table.vehicleId, table.settlementMethod, table.status),
 }));
 
 export const vehicleStageEvents = pgTable("vehicle_stage_events", {
@@ -834,6 +868,12 @@ export const vehiclePaymentSchedules = pgTable("vehicle_payment_schedules", {
 }, (table) => ({
   vehicleIdx: index("vehicle_payment_schedules_vehicle_idx").on(table.vehicleId),
 }));
+
+export const vehicleStockCounters = pgTable("vehicle_stock_counters", {
+  companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  nextNumber: integer("next_number").notNull().default(1),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertVehicleCostSchema = createInsertSchema(vehicleCosts).omit({ id: true, createdAt: true, baseAmount: true });
@@ -1472,11 +1512,17 @@ export const payments = pgTable("payments", {
   // GL audit trail: the journal entry created when this payment was posted
   journalEntryId: integer("journal_entry_id"),
 
+  // Deposit clearing: when a deposit is cleared against an invoice
+  isDeposit: boolean("is_deposit").default(false),
+  clearingJournalEntryId: integer("clearing_journal_entry_id").references(() => journalEntries.id),
+  clearedAt: timestamp("cleared_at"),
+
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   companyIdIdx: index("payments_company_id_idx").on(table.companyId),
   invoiceIdIdx: index("payments_invoice_id_idx").on(table.invoiceId),
+  depositClearingIdx: index("payments_deposit_clearing_idx").on(table.companyId, table.isDeposit, table.clearedAt),
 }));
 
 export const paymentsRelations = relations(payments, ({ one }) => ({

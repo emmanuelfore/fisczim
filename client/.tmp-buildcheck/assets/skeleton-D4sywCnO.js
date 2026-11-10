@@ -1,0 +1,1 @@
+import{j as s,$ as n}from"./index-BHSHyUa4.js";function o({className:e,...m}){return s.jsxDEV("div",{className:n("animate-pulse rounded-md bg-muted",e),...m},void 0,!1,{fileName:"/home/emmanuel/Documents/PROJECTS/fisczim/client/src/components/ui/skeleton.tsx",lineNumber:8,columnNumber:5},this)}export{o as S};

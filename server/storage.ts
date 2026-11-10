@@ -109,6 +109,8 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   statutoryContributionsPayableAccountCode: "2018",
   employeeDeductionsPayableAccountCode: "2019",
   staffLoansReceivableAccountCode: "1320",
+  // Vehicle module accounts
+  customerDepositsAccountCode: "2010",
 } as const;
 
 // Codes the postings above resolve to that many live charts were seeded without.

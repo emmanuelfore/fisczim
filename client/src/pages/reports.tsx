@@ -4,27 +4,28 @@ import { useAuth } from "@/hooks/use-auth";
 import { SalesReport, SalesByCustomerReport, SalesByItemReport } from "@/components/reports/sales-reports";
 import { InventoryHealthReport, StockOnHandReport, InventoryMovementsReport, PurchaseHistoryReport } from "@/components/reports/retail-reports";
 import { DailyOperationalReport, WeeklyOperationalReport, MonthlyOperationalReport, StockMovementReport, ProductProfitMarginsReport } from "@/components/reports/operational-reports";
-import { ArAgingSummaryReport, InvoiceDetailsReport, CustomerBalanceSummaryReport, ReceivableDetailsReport } from "@/components/reports/receivables-reports";
-import { CashCollectionReport, PaymentsReceivedReport } from "@/components/reports/payments-reports";
+import { ArAgingSummaryReport, InvoiceDetailsReport, CustomerBalanceSummaryReport, ReceivableDetailsReport, BadDebtsReport } from "@/components/reports/receivables-reports";
+import { PaymentsReceivedReport, TimeToGetPaidReport, WithholdingTaxReport } from "@/components/reports/payments-reports";
 import { ExpenseDetailsReport, ExpensesByCategoryReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useRoute, useLocation } from "wouter";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ChevronDown, BarChart3, FileText, CreditCard, ShoppingCart, ShoppingBag, Receipt, Search, Download, Loader2, RefreshCw, Calendar as CalendarIcon, Calculator, ShieldCheck, History, LayoutDashboard, TrendingUp, Sparkles, ArrowRight, CalendarDays, Package } from "lucide-react";
+import { ChevronDown, BarChart3, FileText, CreditCard, ShoppingCart, ShoppingBag, Receipt, Search, Download, Calendar as CalendarIcon, Calculator, ShieldCheck, LayoutDashboard, Sparkles, ArrowRight, CalendarDays, Package } from "lucide-react";
 import { startOfMonth, endOfMonth, subMonths, startOfQuarter, endOfQuarter, format, isValid } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type DateRange } from "react-day-picker";
-import { downloadCsv, generateCsv } from "@/lib/report-utils";
+import { downloadCsv, generateCsv, generateCsvFilename } from "@/lib/report-utils";
+import { ReportExportContext, type ReportExportDef } from "@/components/reports/report-export";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 // ── Report definitions ────────────────────────────────────────────────────────
@@ -61,9 +62,9 @@ function getReportCategories(fa: ReturnType<typeof useFiscalAuthority>): {
     label: "Financials & Accounting",
     icon: Calculator,
     reports: [
-      { key: "profit-loss", label: "Profit & Loss", category: "financials", description: "Analyze revenue, cost of sales, operating expenses, and net profitability.", externalHref: "/accounting/reports/financial?tab=pl" },
-      { key: "balance-sheet", label: "Balance Sheet", category: "financials", description: "Summarize company assets, liabilities, and equity at a specific point in time.", externalHref: "/accounting/reports/financial?tab=bs" },
-      { key: "cash-flow", label: "Cash Flow Statement", category: "financials", description: "Monitor the inflows and outflows of cash from operations, investments, and finance.", externalHref: "/accounting/reports/financial?tab=cf" },
+      { key: "profit-loss", label: "Profit & Loss", category: "financials", description: "Analyze revenue, cost of sales, operating expenses, and net profitability.", externalHref: "/accounting/reports/financial" },
+      { key: "balance-sheet", label: "Balance Sheet", category: "financials", description: "Summarize company assets, liabilities, and equity at a specific point in time.", externalHref: "/accounting/reports/balance-sheet" },
+      { key: "cash-flow", label: "Cash Flow Statement", category: "financials", description: "Monitor the inflows and outflows of cash from operations, investments, and finance.", externalHref: "/accounting/reports/cash-flow" },
       { key: "trial-balance", label: "Trial Balance", category: "financials", description: "Review closing balances for all accounts to verify double-entry bookkeeping accuracy.", externalHref: "/accounting/reports/trial-balance" },
       { key: "general-ledger", label: "General Ledger", category: "financials", description: "Extract detailed transaction listings for all accounts for deep dive audits.", externalHref: "/accounting/reports/ledger" },
       { key: "cost-centers", label: "Cost Centers", category: "financials", description: "Track performance, income, and expenses across specific branches or cost centers.", externalHref: "/accounting/reports/cost-centers" },
@@ -87,9 +88,11 @@ function getReportCategories(fa: ReturnType<typeof useFiscalAuthority>): {
     label: "Receivables & Payables",
     icon: FileText,
     reports: [
-      { key: "ar-aging-summary", label: "AR Aging Summary", category: "receivables", description: "Categorize unpaid customer invoices into aging buckets (30, 60, 90+ days).", endpoint: "ar-aging-summary" },
+      { key: "ar-aging-summary", label: "AR Aging Summary", category: "receivables", description: "Categorize unpaid customer invoices into aging buckets (current, 1-30, 31-60, 61-90, 90+ days).", endpoint: "ar-aging-summary" },
       { key: "customer-balance-summary", label: "Customer Balances", category: "receivables", description: "Summarize accounts receivable balances, credit, and limits for all clients.", endpoint: "customer-balance-summary" },
       { key: "receivable-details", label: "Receivable Details", category: "receivables", description: "Granular list of all unpaid invoices with due dates and customer contacts.", endpoint: "receivable-details" },
+      { key: "invoice-details", label: "Invoice Details", category: "receivables", description: "Every invoice in the period with issue date, due date, totals, and payment status.", endpoint: "invoice-details" },
+      { key: "bad-debts", label: "Bad Debts", category: "receivables", description: "Invoices still partly unpaid more than 90 days after their due date.", endpoint: "bad-debts" },
       { key: "ap-aging-summary", label: "AP Aging Summary", category: "receivables", description: "Track outstanding bills to vendors categorized by aging brackets.", externalHref: "/accounting/reports/aging?tab=ap" },
       { key: "customer-statements", label: "Customer Statements", category: "receivables", description: "Generate printable transaction statements for customers showing running balances.", externalHref: "/reports/customer-statements" },
       { key: "supplier-statements", label: "Supplier Statements", category: "receivables", description: "Generate printable AP statements per supplier with bills, debit/credit notes, payments and running balance.", externalHref: "/reports/supplier-statements" },
@@ -101,6 +104,8 @@ function getReportCategories(fa: ReturnType<typeof useFiscalAuthority>): {
     icon: CreditCard,
     reports: [
       { key: "payments-received", label: "Payments Received", category: "payments-received", description: "Detailed log of all customer payments received and invoice allocations.", endpoint: "payments-received" },
+      { key: "time-to-get-paid", label: "Time to Get Paid", category: "payments-received", description: "Days between each invoice being issued and the payment that settled it.", endpoint: "time-to-get-paid" },
+      { key: "withholding-tax", label: "Withholding Tax", category: "payments-received", description: "Invoices carrying withheld tax lines, with the amount withheld and the invoice total.", endpoint: "withholding-tax" },
       { key: "cash-collection", label: "Cash Collection Report", category: "payments-received", description: "Audit cash, card, bank, and mobile collections by cashier or currency.", externalHref: "/reports/cash-collection" },
     ],
   },
@@ -173,18 +178,8 @@ interface ReportContentProps {
   hideZeroActivity?: boolean;
   onHideZeroActivityChange: (hide: boolean) => void;
   children?: React.ReactNode;
-  // For StatBar
-  totalAmount?: number;
-  recordCount?: number;
-  totalLabel?: string;
-  // For CSV export
-  csvData?: any[];
-  csvColumns?: string[];
-  csvFilename?: string;
-  // Loading/error state
-  isLoading?: boolean;
-  error?: Error | null;
-  onRetry?: () => void;
+  // CSV export, driven by whichever report is mounted
+  onExport: () => void;
 }
 
 // ── ReportSidebar ─────────────────────────────────────────────────────────────
@@ -458,15 +453,7 @@ function ReportContent({
   hideZeroActivity,
   onHideZeroActivityChange,
   children,
-  totalAmount,
-  recordCount,
-  totalLabel = "Total",
-  csvData,
-  csvColumns,
-  csvFilename,
-  isLoading,
-  error,
-  onRetry,
+  onExport,
 }: ReportContentProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
@@ -488,12 +475,6 @@ function ReportContent({
         onDateRangeChange({ from: new Date("2000-01-01"), to: new Date("2099-12-31") });
         break;
     }
-  };
-
-  const handleExport = () => {
-    if (!csvData || !csvColumns || !csvFilename) return;
-    const csv = generateCsv(csvData, csvColumns);
-    downloadCsv(csvFilename, csv);
   };
 
   const calendarRange: DateRange = { from: dateRange.from, to: dateRange.to };
@@ -586,54 +567,15 @@ function ReportContent({
           variant="outline"
           size="sm"
           className="h-9 px-3 text-sm gap-1.5 border-slate-200 rounded-lg"
-          disabled={!csvData || csvData.length === 0}
-          onClick={handleExport}
+          onClick={onExport}
         >
           <Download className="w-3.5 h-3.5" />
           Export CSV
         </Button>
       </div>
 
-      {/* Stat bar */}
-      {(totalAmount !== undefined || recordCount !== undefined) && (
-        <div className="flex items-center gap-6 px-6 py-2.5 bg-slate-50 border-b border-slate-100 shrink-0">
-          {totalAmount !== undefined && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{totalLabel}</span>
-              <span className="text-base font-black text-slate-800">{totalAmount.toFixed(2)}</span>
-            </div>
-          )}
-          {recordCount !== undefined && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Records</span>
-              <span className="text-base font-black text-slate-800">{recordCount}</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Content area */}
-      <div className="flex-1 overflow-auto">
-        {isLoading ? (
-          <div className="space-y-2 p-2" aria-busy="true">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
-            ))}
-          </div>
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-400">
-            <p className="text-sm font-medium text-red-500">Failed to load report</p>
-            <p className="text-xs text-slate-400">{error.message}</p>
-            {onRetry && (
-              <Button variant="outline" size="sm" className="gap-1.5 mt-1" onClick={onRetry}>
-                <RefreshCw className="w-3.5 h-3.5" /> Retry
-              </Button>
-            )}
-          </div>
-        ) : (
-          children
-        )}
-      </div>
+      <div className="flex-1 overflow-auto">{children}</div>
     </div>
   );
 }
@@ -656,8 +598,10 @@ function ActiveReportComponent({ reportKey, companyId, dateRange, search, hideZe
     case "invoice-details": return <InvoiceDetailsReport {...props} />;
     case "customer-balance-summary": return <CustomerBalanceSummaryReport {...props} />;
     case "receivable-details": return <ReceivableDetailsReport {...props} />;
-    case "cash-collection": return <CashCollectionReport {...props} />;
+    case "bad-debts": return <BadDebtsReport {...props} />;
     case "payments-received": return <PaymentsReceivedReport {...props} />;
+    case "time-to-get-paid": return <TimeToGetPaidReport {...props} />;
+    case "withholding-tax": return <WithholdingTaxReport {...props} />;
     case "expense-details": return <ExpenseDetailsReport {...props} />;
     case "expenses-by-category": return <ExpensesByCategoryReport {...props} />;
     case "tax-summary": return <TaxSummaryReport {...props} />;
@@ -700,6 +644,26 @@ export default function ReportsPage() {
   });
   const [search, setSearch] = useState("");
   const [hideZeroActivity, setHideZeroActivity] = useState(true);
+
+  // The mounted report registers a builder for its visible rows; the header
+  // Export button calls it on click so the CSV always matches the screen.
+  const exportBuilder = useRef<{ reportKey: string; build: () => ReportExportDef } | null>(null);
+  const exportContext = useMemo(
+    () => ({
+      register: (build: () => ReportExportDef) => {
+        exportBuilder.current = { reportKey: activeReport, build };
+      },
+    }),
+    [activeReport],
+  );
+
+  const handleExport = () => {
+    const entry = exportBuilder.current;
+    if (!entry || entry.reportKey !== activeReport) return;
+    const { rows, columns, label } = entry.build();
+    if (rows.length === 0) return;
+    downloadCsv(generateCsvFilename(label, dateRange.from, dateRange.to), generateCsv(rows, columns));
+  };
 
   useEffect(() => {
     if (activeReport && activeReport !== "overview") {
@@ -822,24 +786,27 @@ export default function ReportsPage() {
               </div>
             </div>
           ) : (
-            <ReportContent
-              reportKey={activeReport}
-              companyId={activeCompanyId}
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              search={search}
-              onSearchChange={setSearch}
-              hideZeroActivity={hideZeroActivity}
-              onHideZeroActivityChange={setHideZeroActivity}
-            >
-              <ActiveReportComponent
+            <ReportExportContext.Provider value={exportContext}>
+              <ReportContent
                 reportKey={activeReport}
                 companyId={activeCompanyId}
                 dateRange={dateRange}
+                onDateRangeChange={setDateRange}
                 search={search}
+                onSearchChange={setSearch}
                 hideZeroActivity={hideZeroActivity}
-              />
-            </ReportContent>
+                onHideZeroActivityChange={setHideZeroActivity}
+                onExport={handleExport}
+              >
+                <ActiveReportComponent
+                  reportKey={activeReport}
+                  companyId={activeCompanyId}
+                  dateRange={dateRange}
+                  search={search}
+                  hideZeroActivity={hideZeroActivity}
+                />
+              </ReportContent>
+            </ReportExportContext.Provider>
           )}
         </div>
       </div>

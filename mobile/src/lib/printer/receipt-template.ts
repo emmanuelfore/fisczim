@@ -1,4 +1,5 @@
 import { MobileTaggedEncoder, TextAlignment } from "./esc-pos-encoder";
+import { resolveMediaUrl } from "../media";
 
 export interface ReceiptData {
   company: any;
@@ -111,8 +112,9 @@ export class ReceiptTemplate {
 
     // 1. Header
     encoder.align(TextAlignment.Center);
-    if (receiptShowLogo !== false && company.logoUrl) {
-      encoder.line(`<img>${company.logoUrl}</img>`);
+    const logoUrl = resolveMediaUrl(company.logoUrl);
+    if (receiptShowLogo !== false && logoUrl) {
+      encoder.line(`<img>${logoUrl}</img>`);
       encoder.feed(1);
     }
     // Removed bold to make company name smaller

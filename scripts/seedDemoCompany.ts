@@ -2,12 +2,13 @@ import 'dotenv/config';
 import { db } from '../server/db.js';
 import { 
   companies, employees, payrollRuns, payrollRunEmployees, 
-  payrollEarningTypes, payrollDeductionTypes, payrollPayGrades, taxTablesConfig, employeeContracts,
+  payrollEarningTypes, payrollDeductionTypes, payrollPayGrades, employeeContracts,
   branches, departments, positions, payrollStatutoryRules,
   employeeSalaryHistory, employeeEmploymentHistory, employeeIncomeHistory, employeeDeductionHistory,
   payrollRecurringItems
 } from '../shared/schema.js';
 import { reportService } from '../server/services/reportService.js';
+import { ZIMBABWE_STATUTORY_RULE_SEED } from '../shared/statutory/zimbabwe.js';
 import { eq } from 'drizzle-orm';
 import { addMonths, addDays, format, startOfMonth, subMonths } from 'date-fns';
 
@@ -27,56 +28,29 @@ async function seedDemoCompany() {
   }).returning();
   console.log(`Created Demo Company with ID: ${demoCompany.id}`);
 
-  // 2. Setup Tax Tables (ZIMRA 2026 approximation)
-  // Ensure we disable any existing active USD tax tables first
-  await db.update(taxTablesConfig)
-    .set({ isActive: false })
-    .where(eq(taxTablesConfig.currency, 'USD'));
+  // 2. Tax tables are global statutory reference data owned by
+  //    server/lib/payroll-seeding.ts. A demo seeder must never write them: this
+  //    one used to deactivate every USD table platform-wide and insert its own
+  //    approximation, which re-taxed every tenant's payroll.
 
-  const [taxTable] = await db.insert(taxTablesConfig).values({
-    currency: 'USD',
-    effectiveFrom: '2024-01-01',
-    brackets: [
-      { min: 0, max: 100, rate: 0, deduction: 0 },
-      { min: 101, max: 500, rate: 0.20, deduction: 20.20 },
-      { min: 501, max: 1000, rate: 0.25, deduction: 45.20 },
-      { min: 1001, max: 5000, rate: 0.30, deduction: 95.20 },
-      { min: 5001, max: null, rate: 0.40, deduction: 595.20 }
-    ],
-    isActive: true
-  }).returning();
-  console.log(`Created Tax Table ID: ${taxTable.id}`);
-
-  // 2.5 Setup Statutory Rules
-  await db.insert(payrollStatutoryRules).values([
-    {
+  // 2.5 Setup Statutory Rules (values come from the canonical statutory module)
+  await db.insert(payrollStatutoryRules).values(
+    [ZIMBABWE_STATUTORY_RULE_SEED.aidsLevy, ZIMBABWE_STATUTORY_RULE_SEED.nssaPobs].map((seed) => ({
       companyId: demoCompany.id,
-      ruleCode: 'AIDS_LEVY',
-      name: 'AIDS Levy',
+      countryCode: 'ZW',
+      ruleCode: seed.ruleCode,
+      name: seed.name,
       currency: 'USD',
       payFrequency: 'MONTHLY',
-      employeeRate: '0.0300',
-      employerRate: '0.0000',
-      calculationBasis: 'PAYE',
+      employeeRate: seed.employeeRate,
+      employerRate: seed.employerRate,
+      ceilingAmount: 'ceilingAmount' in seed ? seed.ceilingAmount : null,
+      calculationBasis: seed.calculationBasis,
       isActive: true,
       isSystemLocked: true,
-      effectiveFrom: '2023-01-01'
-    },
-    {
-      companyId: demoCompany.id,
-      ruleCode: 'NSSA_POBS',
-      name: 'NSSA POBS',
-      currency: 'USD',
-      payFrequency: 'MONTHLY',
-      employeeRate: '0.0450',
-      employerRate: '0.0450',
-      ceilingAmount: '700.00',
-      calculationBasis: 'TAXABLE_INCOME',
-      isActive: true,
-      isSystemLocked: true,
-      effectiveFrom: '2023-01-01'
-    }
-  ]);
+      effectiveFrom: seed.effectiveFrom,
+    }))
+  );
   console.log(`Created Statutory Rules`);
 
   // 3. Setup Pay Grades

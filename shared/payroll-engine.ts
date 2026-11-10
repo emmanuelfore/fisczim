@@ -17,12 +17,9 @@
  *  - Overtime: 1.5x standard, 2.0x Sunday / Public Holiday (Labour Act S.15)
  */
 
-export interface TaxBracket {
-  min: number;
-  max: number | null;
-  rate: number; // e.g., 0.20 for 20%
-  deduction: number; // offset constant
-}
+import { rateAsFraction, selectBracket, type TaxBracketRow } from "./statutory/brackets.js";
+
+export type TaxBracket = TaxBracketRow;
 
 export interface PayrollElementInput {
   type: "EARNING" | "DEDUCTION";
@@ -157,15 +154,6 @@ export interface CalculationResult {
   totalEmployerCost: number;
 }
 
-export const ZIMBABWE_DEFAULTS = {
-  aidsLevyRate: 0.03,
-  zimdefRate: 0.01,
-  standardsLevyRate: 0.005,
-  taxFreeBonusThreshold: 400.00,
-  nssaRateEmployee: 0.045,
-  nssaRateEmployer: 0.045,
-};
-
 export class ZimbabwePayrollEngine {
 
   private static round2(v: number): number {
@@ -173,8 +161,7 @@ export class ZimbabwePayrollEngine {
   }
 
   private static normalizeRate(rate: number): number {
-    const r = Number(rate || 0);
-    return r >= 1 ? r / 100 : r;
+    return rateAsFraction(rate);
   }
 
   // ZIMRA publishes monthly tax tables (min/max/rate/deduction constants).
@@ -189,21 +176,16 @@ export class ZimbabwePayrollEngine {
     }
   }
 
-  // Monthly PAYE: direct bracket walk against monthly constants.
-  // (The previous implementation annualized income ×12 but matched it against
-  // MONTHLY deduction constants, overtaxing every band — e.g. $3,000/mo became
-  // $1,163.75 instead of $865.00.)
+  // Monthly PAYE: income matches the first band whose upper bound reaches it,
+  // falling back to the top band. Never resolve to zero when no band covers the
+  // income — a gap between bands silently under-remitted PAYE before.
+  // Income is taxed against the MONTHLY table; it is not annualized first.
   private static computeMonthlyPAYE(monthlyIncome: number, brackets: TaxBracket[]): number {
     if (!brackets?.length || monthlyIncome <= 0) return 0;
     const income = Number(monthlyIncome);
-    for (const bracket of brackets) {
-      const min = Number(bracket.min);
-      const max = bracket.max === null ? Infinity : Number(bracket.max);
-      if (income >= min && income <= max) {
-        return Math.max(0, income * ZimbabwePayrollEngine.normalizeRate(Number(bracket.rate)) - Number(bracket.deduction));
-      }
-    }
-    return 0;
+    const bracket = selectBracket(income, brackets);
+    if (!bracket) return 0;
+    return Math.max(0, income * rateAsFraction(bracket.rate) - Number(bracket.deduction));
   }
 
   // Annual PAYE derived from the monthly table (ZIMRA annual = monthly constant ×12).

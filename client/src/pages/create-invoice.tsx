@@ -87,6 +87,7 @@ import {
 import { usePermissions } from "@/hooks/use-permissions";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { apiFetch } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/media";
 import { QuantityInput } from "@/components/ui/quantity-input";
 
 
@@ -1424,7 +1425,7 @@ export default function CreateInvoicePage() {
                         {company?.logoUrl && (
                           <div className="flex-shrink-0">
                             <img
-                              src={company.logoUrl}
+                              src={resolveMediaUrl(company.logoUrl)}
                               alt="Company Logo"
                               className="h-14 w-24 rounded-[10px] border border-slate-100 object-contain"
                               onError={(e) => {

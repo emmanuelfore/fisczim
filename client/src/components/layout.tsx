@@ -37,6 +37,7 @@ import {
   Bell,
   Search,
   Bus,
+  Car,
   MapPin,
   CalendarDays,
   Clock,
@@ -54,8 +55,6 @@ import {
   Construction,
   Wrench,
   Settings2,
-  ShoppingBag,
-  ShoppingCart,
   AlertTriangle,
   UserRound,
   CheckSquare,
@@ -79,6 +78,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { resolveMediaUrl } from "@/lib/media";
 import { useI18n } from "@/lib/i18n";
 import { BranchSwitcher } from "./branch-switcher";
 import { LanguageSwitcher } from "./language-switcher";
@@ -113,6 +113,7 @@ type NavItem = {
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { usePermissions, usePendingApprovalsCount } from "@/hooks/use-permissions";
+import { isHrOnly } from "@/lib/product-scope";
 
 function filterNavItems(items: NavItem[], canAccessPath: (href: string) => boolean): NavItem[] {
   return items
@@ -285,29 +286,8 @@ export function Layout({
           label: "Sales Reports",
           children: [
             { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
-            { icon: BarChart3, label: "Sales Summary", href: "/reports/sales" },
-            { icon: Users, label: "Sales by Customer", href: "/reports/sales-by-customer" },
-            { icon: Package, label: "Sales by Item", href: "/reports/sales-by-item" },
-            { icon: Receipt, label: "Daily Sales Ledger", href: "/reports/daily" },
             { icon: MonitorCheck, label: "POS Reports", href: "/reports/pos" },
-          ]
-        },
-        {
-          icon: FileText,
-          label: "Receivable Reports",
-          children: [
-            { icon: Clock, label: "AR Aging Summary", href: "/reports/ar-aging-summary" },
-            { icon: Users, label: "Customer Balances", href: "/reports/customer-balance-summary" },
-            { icon: FileText, label: "Receivable Details", href: "/reports/receivable-details" },
             { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
-          ]
-        },
-        {
-          icon: CreditCard,
-          label: "Payment Reports",
-          children: [
-            { icon: CreditCard, label: "Payments Received", href: "/reports/payments-received" },
-            { icon: Coins, label: "Cash Collection", href: "/reports/cash-collection" },
           ]
         },
       ],
@@ -333,12 +313,15 @@ export function Layout({
         },
         { icon: Truck, label: "Suppliers", href: "/suppliers" },
         {
-          icon: ShoppingCart,
-          label: "Procurement Reports",
+          icon: Receipt,
+          label: "Supplier Accounts",
           children: [
-            { icon: ShoppingCart, label: "Purchases Report", href: "/reports/purchase-report" },
-          ]
+            { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
+            { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
+            { icon: FileText, label: "Supplier Statements", href: "/reports/supplier-statements" },
+          ],
         },
+        { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
       ],
     }] : []),
     ...(featureSettings.freight !== false ? [{
@@ -350,6 +333,23 @@ export function Layout({
         { icon: Package, label: "Consignments", href: "/freight/consignments" },
         { icon: CheckSquare, label: "Receiving", href: "/freight/receiving" },
         { icon: BarChart3, label: "Reports", href: "/freight/reports" },
+      ],
+    }] : []),
+    ...(featureSettings.crm !== false ? [{
+      icon: UserRoundCheck,
+      label: "CRM",
+      children: [
+        { icon: CalendarClock, label: "Enquiries & Follow-ups", href: "/crm" },
+      ],
+    }] : []),
+    ...(featureSettings.vehicles !== false ? [{
+      icon: Car,
+      label: "Vehicle Imports",
+      children: [
+        { icon: Car, label: "Vehicles", href: "/vehicles" },
+        { icon: Calculator, label: "Costing", href: "/vehicles/costing" },
+        { icon: TrendingUp, label: "Profitability", href: "/vehicles/profitability" },
+        { icon: FileText, label: "Customer Statements", href: "/vehicles/statements" },
       ],
     }] : []),
     ...(featureSettings.inventory !== false ? [{
@@ -385,20 +385,20 @@ export function Layout({
           href: "/inventory/stock-counts",
         },
         {
+          icon: ClipboardCheck,
+          label: "Stock Take",
+          href: "/inventory/stock-take",
+        },
+        {
           icon: LineChart,
           label: "Inventory Reports",
           children: [
+            { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
             { icon: History, label: "Past Adjustments", href: "/inventory/adjustments/report" },
             { icon: Activity, label: "Transaction Ledger", href: "/inventory/reports/ledger" },
             { icon: Target, label: "Stock Overview", href: "/inventory/reports/overview" },
             { icon: History, label: "Historical Stock Balance", href: "/inventory/reports/historical" },
             { icon: AlertTriangle, label: "Dead Stock Report", href: "/inventory/reports/dead-stock" },
-
-            { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/stock-on-hand" },
-            { icon: Activity, label: "Low Stock Alerts", href: "/reports/stock-alerts" },
-            { icon: History, label: "Inventory Movements", href: "/reports/inventory-movements" },
-            { icon: TrendingUp, label: "Profit Margins", href: "/reports/profit-margins-product" },
-            { icon: Package, label: "Stock Movement", href: "/reports/stock-movement" },
           ]
         },
       ],
@@ -432,71 +432,65 @@ export function Layout({
           label: "Finance Dashboard",
           href: "/accounting/dashboard",
         },
-        { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
-        { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
-        { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
-        { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
-        { icon: Receipt, label: "Accounts Payable", href: "/accounting/accounts-payable" },
-        { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
-        { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
-        { icon: FileText, label: "Supplier Statements", href: "/reports/supplier-statements" },
-        { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
-        { icon: Calculator, label: "Expenses", href: "/expenses" },
+        {
+          icon: History,
+          label: "Daily",
+          children: [
+            { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
+            { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
+            { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
+          ],
+        },
+        {
+          icon: Receipt,
+          label: "Money In & Out",
+          children: [
+            { icon: Receipt, label: "Accounts Receivable", href: "/accounting/accounts-receivable" },
+            { icon: Receipt, label: "Accounts Payable", href: "/accounting/accounts-payable" },
+            { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
+            { icon: Calculator, label: "Expenses", href: "/expenses" },
+          ],
+        },
+        {
+          icon: TrendingUp,
+          label: "Reports",
+          children: [
+            { icon: TrendingUp, label: "Financial Statements", href: "/accounting/reports/financial" },
+            { icon: TrendingUp, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+            { icon: History, label: "General Ledger", href: "/accounting/reports/ledger" },
+          ],
+        },
         {
           icon: Settings,
-          label: "Configuration",
+          label: "Setup",
           children: [
+            { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
             { icon: BarChart3, label: "Accounting Segments", href: "/accounting/segments" },
             { icon: CalendarDays, label: "Financial Periods", href: "/accounting/periods" },
             { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
           ],
         },
-        {
-          icon: Calculator,
-          label: "Financial Reports",
+        ...(featureSettings.fixedAssets !== false ? [{
+          icon: Briefcase,
+          label: "Assets",
           children: [
-            { icon: TrendingUp, label: "Profit & Loss", href: "/accounting/reports/financial?tab=pl" },
-            { icon: TrendingUp, label: "Balance Sheet", href: "/accounting/reports/financial?tab=bs" },
-            { icon: TrendingUp, label: "Cash Flow", href: "/accounting/reports/financial?tab=cf" },
-            { icon: TrendingUp, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-            { icon: History, label: "General Ledger", href: "/accounting/reports/ledger" },
-          ]
-        },
-      ],
-    }] : []),
-    ...(featureSettings.fixedAssets !== false ? [{
-      icon: Briefcase,
-      label: "Fixed Assets",
-      children: [
-        { icon: ClipboardList, label: "Asset Registry", href: "/accounting/fixed-assets" },
-        { icon: History, label: "Depreciation Records", href: "/accounting/fixed-assets/depreciation" },
+            { icon: ClipboardList, label: "Asset Registry", href: "/accounting/fixed-assets" },
+            { icon: History, label: "Depreciation Records", href: "/accounting/fixed-assets/depreciation" },
+          ],
+        }] : []),
       ],
     }] : []),
     ...(featureSettings.hr !== false ? [{
       icon: Briefcase,
       label: "HR & Payroll",
-      children: [
-        { icon: LayoutDashboard, label: "HR Dashboard", href: "/hr" },
-        { icon: FileSpreadsheet, label: "Payroll Processing", href: "/hr/payroll" },
-        { icon: Users, label: "Employees", href: "/hr/employees" },
-        { icon: CalendarDays, label: "Leave", href: "/hr/leave" },
-        {
-          icon: CreditCard,
-          label: "Loans & Advances",
-          href: "/hr/loans",
-        },
-        {
-          icon: UserRound,
-          label: "Employee Self-Service",
-          href: "/hr/self-service",
-        },
-      ],
+      href: "/hr",
     }] : []),
     ...(featureSettings.tax !== false ? [{
       icon: ShieldCheck,
       label: "Tax & Compliance",
       children: [
         { icon: Server, label: `${fa.deviceLabel} Settings`, href: `/settings?tab=${fa.isLesotho ? "lekuka" : "zimra"}` },
+        { icon: ShieldCheck, label: "Tax Configuration", href: "/tax-config" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
         { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
         { icon: Activity, label: "API Logs", href: "/api-logs" },
@@ -507,7 +501,7 @@ export function Layout({
           icon: ShieldCheck,
           label: "Tax Reports",
           children: [
-            { icon: FileText, label: "Tax Summary", href: "/reports/tax-summary" },
+            { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
             { icon: History, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
           ]
         },
@@ -534,15 +528,7 @@ export function Layout({
       icon: Settings,
       label: "Administration",
       children: [
-        {
-          icon: CalendarDays,
-          label: "Operational Reports",
-          children: [
-            { icon: FileText, label: "Daily Report", href: "/reports/operational-daily" },
-            { icon: FileText, label: "Weekly Report", href: "/reports/operational-weekly" },
-            { icon: FileText, label: "Monthly Report", href: "/reports/operational-monthly" },
-          ]
-        },
+        { icon: CalendarDays, label: "Reports Hub", href: "/reports" },
         {
           icon: ClipboardCheck,
           label: "Approvals",
@@ -563,12 +549,17 @@ export function Layout({
           label: "General Settings",
           href: "/settings",
         },
+        {
+          icon: History,
+          label: "Audit Logs",
+          href: "/audit-logs",
+        },
         ...(isSystemAdmin
           ? [
               {
                 icon: Eye,
                 label: "Super Admin Visibility",
-                href: "/superadmin-visibility",
+                href: "/system/mx-3f7a",
               },
             ]
           : []),
@@ -645,11 +636,41 @@ export function Layout({
     { icon: Settings, label: "Bus Settings", children: busSettingsChildren },
   ];
 
-  const allNavItems: NavItem[] = isBusOnlyMode
-    ? busNavItems
-    : appMode === "restaurant"
-      ? restaurantNavItems
-      : posNavItems;
+  const hrOnlyNavItems: NavItem[] = [
+    { icon: Briefcase, label: "HR Dashboard", href: "/hr" },
+    {
+      icon: FileSpreadsheet,
+      label: "Payroll",
+      children: [
+        { icon: FileSpreadsheet, label: "Payroll Processing", href: "/hr/payroll" },
+        { icon: FileText, label: "Statutory Reports", href: "/hr/reports/zimra" },
+        { icon: Coins, label: "Statutory Remittances", href: "/hr/reports/remittances" },
+      ],
+    },
+    {
+      icon: Users,
+      label: "People",
+      children: [
+        { icon: Users, label: "Employees", href: "/hr/employees" },
+        { icon: Target, label: "Positions & Vacancies", href: "/hr/positions" },
+        { icon: CalendarDays, label: "Leave", href: "/hr/leave" },
+        { icon: CreditCard, label: "Loans & Advances", href: "/hr/loans" },
+        { icon: UserRound, label: "Employee Self-Service", href: "/hr/self-service" },
+        { icon: ClipboardCheck, label: "Procedures & Sign-offs", href: "/hr/sop" },
+      ],
+    },
+    { icon: Settings, label: "Payroll Setup", href: "/hr/setup" },
+    { icon: UserCog, label: "User Management", href: "/team-settings" },
+    { icon: Settings, label: "Settings", href: "/settings" },
+  ];
+
+  const allNavItems: NavItem[] = isHrOnly
+    ? hrOnlyNavItems
+    : isBusOnlyMode
+      ? busNavItems
+      : appMode === "restaurant"
+        ? restaurantNavItems
+        : posNavItems;
 
   const { canAccessPath } = usePermissions();
   const { data: pendingApprovalCount = 0 } = usePendingApprovalsCount();
@@ -882,6 +903,16 @@ export function Layout({
       return {
         title: "Employees",
         subtitle: "Manage staff directory and contracts.",
+      };
+    if (location.startsWith("/hr/positions"))
+      return {
+        title: "Positions & Vacancies",
+        subtitle: "Approved headcount, seats filled and the cost of what is still open.",
+      };
+    if (location.startsWith("/hr/sop"))
+      return {
+        title: "Procedures & Sign-offs",
+        subtitle: "Standard operating procedures and who has read and signed each version.",
       };
     if (location.startsWith("/hr/leave"))
       return {
@@ -1280,6 +1311,26 @@ export function Layout({
       return {
         title: "POS Terminal",
         subtitle: "Process sales, payments, and fiscal receipts.",
+      };
+    if (location.startsWith("/vehicles/costing"))
+      return {
+        title: "Vehicle Costing",
+        subtitle: "Full landed cost per vehicle with category totals.",
+      };
+    if (location.startsWith("/vehicles/profitability"))
+      return {
+        title: "Vehicle Profitability",
+        subtitle: "Compare purchase price, landed cost and selling price per vehicle.",
+      };
+    if (location.startsWith("/vehicles/statements"))
+      return {
+        title: "Customer Statements",
+        subtitle: "Download account statements for vehicle customers.",
+      };
+    if (location.startsWith("/vehicles"))
+      return {
+        title: "Vehicles",
+        subtitle: "Manage imported vehicles, sales, costs and customer balances.",
       };
     return {
       title: "Dashboard",
@@ -1951,7 +2002,7 @@ export function Layout({
                     >
                       {selectedCompany?.logoUrl ? (
                         <img
-                          src={selectedCompany.logoUrl}
+                          src={resolveMediaUrl(selectedCompany.logoUrl)}
                           alt="Logo"
                           className="w-full h-full object-contain"
                         />
@@ -2036,7 +2087,7 @@ export function Layout({
                       >
                         {company.logoUrl ? (
                           <img
-                            src={company.logoUrl}
+                            src={resolveMediaUrl(company.logoUrl)}
                             className="w-full h-full object-contain rounded"
                           />
                         ) : (

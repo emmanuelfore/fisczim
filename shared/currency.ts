@@ -8,6 +8,7 @@ const CURRENCY_SIGNS: Record<string, string> = {
   ZAR: "R",
   // ZiG has no sign of its own; the code is what circulates.
   ZWG: "ZWG",
+  ZIG: "ZWG",
   ZWL: "ZWG",
   RTGS: "ZWG",
 };
@@ -82,6 +83,16 @@ export function currencySign(code?: string | null): string {
 }
 
 /**
+ * The currency a payroll figure is printed in. A SPLIT run pays in USD and ZiG at
+ * once but keeps every column in its USD base, so its amounts are dollars; an
+ * unheaded run falls back to USD, the schema default.
+ */
+export function displayCurrency(code?: string | null): string {
+  const key = normalise(code);
+  return !key || key === "SPLIT" ? "USD" : key;
+}
+
+/**
  * Prefix for screens that print the ISO code beside the amount ("USD 12.00").
  * Loti is the exception — the market writes "M12.00" — so every other code, known
  * or not, keeps its letters. An empty code stays empty rather than inventing USD.
@@ -91,16 +102,30 @@ export function currencyLabel(code?: string | null): string {
   return SIGNED_CURRENCIES.has(key) ? currencySign(key) : key;
 }
 
+/**
+ * Add amounts in integer cents. Payslip screens total dozens of 2-decimal
+ * values and a float chain drifts by a cent the user reads as an error.
+ */
+export function sumMoney(values: Iterable<number | string | null | undefined>): number {
+  let cents = 0;
+  for (const value of values) {
+    const numeric = Number(value ?? 0);
+    if (Number.isFinite(numeric)) cents += Math.round(numeric * 100);
+  }
+  return cents / 100;
+}
+
 /** Amount as the app displays it: sign, then a grouped, 2-decimal number. */
-export function formatMoney(amount: number | string | null | undefined, code?: string | null): string {
+export function formatMoney(amount: unknown, code?: string | null): string {
   const value = Number(amount ?? 0);
   const grouped = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
-  const key = normalise(code);
-  const sign = currencySign(key);
   // "ZWG 12.00" reads better than "ZWG12.00"; a real sign ("M", "$") hugs the number.
+  // The code is canonicalised first so ZiG, ZWL and RTGS all print as "ZWG x".
+  const key = canonicalCurrency(code);
+  const sign = currencySign(key);
   return sign === key ? `${sign} ${grouped}` : `${sign}${grouped}`;
 }
 

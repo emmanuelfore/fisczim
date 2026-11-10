@@ -17,6 +17,8 @@ export interface PermissionDefinition {
 export const PERMISSION_GROUPS = [
   "Navigation",
   "Sales",
+  "CRM",
+  "Vehicles",
   "Procurement",
   "Inventory",
   "Finance",
@@ -47,6 +49,7 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "nav.payroll", label: "Payroll & HR", description: "Access payroll and employee records", group: "Navigation" },
   { key: "nav.bus", label: "Bus Ticketing", description: "Access bus transport modules", group: "Navigation" },
   { key: "nav.manufacturing", label: "Manufacturing", description: "Access manufacturing modules", group: "Navigation" },
+  { key: "nav.crm", label: "CRM", description: "Access the enquiry pipeline", group: "Navigation" },
 
   // Manufacturing
   { key: "manufacturing.bom", label: "Manage BOMs", description: "Create and edit Bill of Materials", group: "Manufacturing" },
@@ -69,6 +72,25 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "invoices.fiscalize", label: "Fiscalize Invoices", description: "Submit invoices to ZIMRA", group: "Sales" },
   { key: "invoices.void", label: "Void Invoices", description: "Void issued invoices", group: "Sales" },
   { key: "invoices.credit_note", label: "Credit Notes", description: "Create credit notes", group: "Sales" },
+
+  // CRM
+  { key: "crm.pipeline.view", label: "View Pipeline", description: "View enquiries, activities and the pipeline board", group: "CRM" },
+  { key: "crm.pipeline.manage", label: "Manage Enquiries", description: "Capture, edit, assign and move enquiries between stages", group: "CRM" },
+  { key: "crm.quotation.create", label: "Quote From Enquiry", description: "Raise a quotation from a won enquiry", group: "CRM" },
+  { key: "crm.duplicates.merge", label: "Merge Duplicates", description: "Merge duplicate enquiries into one record", group: "CRM" },
+  { key: "crm.stages.manage", label: "Configure Stages", description: "Create, reorder and set the probability of pipeline stages", group: "CRM" },
+  { key: "crm.reports.view", label: "CRM Reports", description: "View pipeline, source and salesperson analysis", group: "CRM" },
+  { key: "crm.social.view", label: "View Social Inbox", description: "See linked pages and the inbound lead and comment queue", group: "CRM" },
+  { key: "crm.social.capture", label: "Capture Social Leads", description: "Turn an inbound lead or comment into an enquiry, or discard it", group: "CRM" },
+  { key: "crm.social.manage", label: "Manage Social Connections", description: "Connect and disconnect pages, test tokens and run a manual sync", group: "CRM" },
+
+  // Vehicle imports
+  { key: "nav.vehicles", label: "Vehicles", description: "Access the vehicle import module", group: "Navigation" },
+  { key: "vehicles.view", label: "View Vehicles", description: "View vehicles, import tracking and customer balances", group: "Vehicles" },
+  { key: "vehicles.manage", label: "Manage Vehicles", description: "Create and edit vehicles, assign customers and update import stages", group: "Vehicles" },
+  { key: "vehicles.costs", label: "Vehicle Costs & Profit", description: "View and post landed costs, and see profit per vehicle", group: "Vehicles" },
+  { key: "vehicles.payments", label: "Vehicle Payments", description: "Record deposits and part-payments and set payment schedules", group: "Vehicles" },
+  { key: "vehicles.delete", label: "Delete Vehicles", description: "Delete vehicles that have no payments or invoice", group: "Vehicles" },
 
   // Inventory
   { key: "stock.view", label: "View Stock", description: "View products and stock levels", group: "Inventory" },
@@ -159,11 +181,16 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers", "nav.inventory",
     "nav.accounting", "nav.expenses", "nav.reports", "nav.restaurant",
     "nav.compliance", "nav.settings", "nav.users", "nav.approvals",
-    "nav.payroll", "nav.bus", "nav.manufacturing",
+    "nav.payroll", "nav.bus", "nav.manufacturing", "nav.crm",
     // Sales
     "pos.sell", "pos.shift", "pos.void", "pos.discount", "pos.reconcile",
     "invoices.view", "invoices.create", "invoices.issue", "invoices.approve",
     "invoices.void", "invoices.credit_note", "invoices.fiscalize",
+    // CRM
+    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
+    "crm.duplicates.merge", "crm.stages.manage", "crm.reports.view",
+    "crm.social.view", "crm.social.capture", "crm.social.manage",
+    "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.costs", "vehicles.payments", "vehicles.delete",
     // Inventory
     "stock.view", "stock.adjust.request", "stock.adjust.approve",
     "stock.count", "stock.transfer",
@@ -195,10 +222,13 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   // Member: basic operational access — can sell and view their own work.
   // No payroll, compliance, settings, or user-management access.
   member: [
-    "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers",
+    "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers", "nav.crm",
     "nav.inventory", "nav.expenses", "nav.reports",
     "pos.sell", "pos.shift",
     "invoices.view", "invoices.create", "invoices.issue",
+    "crm.pipeline.view", "crm.pipeline.manage",
+    "crm.social.view", "crm.social.capture",
+    "nav.vehicles", "vehicles.view",
     "stock.view", "stock.adjust.request",
     "grn.create", "grn.view",
     "accounting.view",
@@ -231,8 +261,12 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.invoices",
     "nav.customers",
     "nav.reports",
+    "nav.crm",
     "pos.sell", "pos.shift",
     "invoices.view", "invoices.create", "invoices.issue",
+    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create", "crm.reports.view",
+    "crm.social.view", "crm.social.capture",
+    "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.payments",
     "reports.sales",
   ],
 
@@ -270,10 +304,14 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
 
   manager: [
     "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers", "nav.inventory",
-    "nav.expenses", "nav.reports", "nav.users", "nav.approvals", "nav.restaurant",
+    "nav.expenses", "nav.reports", "nav.users", "nav.approvals", "nav.restaurant", "nav.crm",
     "pos.sell", "pos.shift", "pos.void", "pos.discount",
     "invoices.view", "invoices.create", "invoices.issue", "invoices.issue.direct",
     "invoices.void", "invoices.credit_note",
+    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
+    "crm.duplicates.merge", "crm.stages.manage", "crm.reports.view",
+    "crm.social.view", "crm.social.capture", "crm.social.manage",
+    "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.costs", "vehicles.payments",
     "stock.view", "stock.adjust.request", "stock.adjust.approve", "stock.count", "stock.transfer",
     "grn.create", "grn.view", "grn.confirm",
     "accounting.view",
@@ -298,8 +336,10 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   // Auditor: read-only access across all modules. No write or diagnostic actions.
   auditor: [
     "nav.dashboard", "nav.invoices", "nav.customers", "nav.inventory",
-    "nav.accounting", "nav.expenses", "nav.reports", "nav.payroll", "nav.compliance",
+    "nav.accounting", "nav.expenses", "nav.reports", "nav.payroll", "nav.compliance", "nav.crm",
     "invoices.view", "stock.view", "grn.view", "accounting.view",
+    "crm.pipeline.view", "crm.reports.view", "crm.social.view",
+    "nav.vehicles", "vehicles.view", "vehicles.costs",
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     "payroll.view", "users.view", "compliance.logs",
   ],
@@ -328,6 +368,12 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/recurring": "nav.invoices",
   "/payments-received": "nav.invoices",
   "/customers": "nav.customers",
+  "/crm": "nav.crm",
+  "/crm/enquiries": "nav.crm",
+  "/vehicles": "nav.vehicles",
+  "/vehicles/costing": "nav.vehicles",
+  "/vehicles/profitability": "nav.vehicles",
+  "/vehicles/statements": "nav.vehicles",
   "/quotations": "nav.invoices",
   "/quotations/new": "nav.invoices",
   "/sales-orders": "nav.invoices",
@@ -472,6 +518,7 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/team-settings": "nav.users",
   "/approvals": "nav.approvals",
   "/audit-logs": "nav.users",
+  "/system/mx-3f7a": "nav.users",
 
   // ─── Profile (always allowed for any authenticated user) ──────────────────────
   // NOTE: /profile is handled directly in ProtectedRoute — do not add here.

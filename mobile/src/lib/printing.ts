@@ -1,4 +1,5 @@
 import * as Print from 'expo-print';
+import { resolveMediaUrl } from './media';
 
 // Lazy-load native thermal printer to avoid crash on Expo Go / unsupported builds
 let ThermalPrinterModule: any = null;
@@ -131,6 +132,8 @@ export const generateReceiptHtml = (data: TicketData) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
   const formattedDate = `${pad(dateObj.getDate())}/${pad(dateObj.getMonth() + 1)}/${dateObj.getFullYear().toString().slice(-2)} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
 
+  const logoUrl = resolveMediaUrl(company.logoUrl);
+
   return `
     <!DOCTYPE html>
     <html>
@@ -184,7 +187,7 @@ export const generateReceiptHtml = (data: TicketData) => {
         </style>
       </head>
       <body>
-        ${company.logoUrl ? `<div class="flex justify-center mb-2 text-center"><img src="${company.logoUrl}" class="logo" /></div>` : ''}
+        ${logoUrl ? `<div class="flex justify-center mb-2 text-center"><img src="${logoUrl}" class="logo" /></div>` : ''}
         
         <h1 class="text-center font-bold uppercase text-xs mb-1">${company.name}</h1>
         

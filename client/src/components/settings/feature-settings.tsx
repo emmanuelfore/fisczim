@@ -10,7 +10,9 @@ import {
   Calculator, 
   Briefcase, 
   Users, 
-  ShieldCheck 
+  ShieldCheck,
+  UserRoundCheck,
+  Car
 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 
@@ -46,6 +48,18 @@ export function FeatureSettings({ formData, setFormData }: Props) {
       label: t("Freight & Logistics"),
       description: t("Consignments, freight forwarders, and receiving workflows."),
       icon: Truck
+    },
+    {
+      key: "crm",
+      label: t("CRM"),
+      description: t("Enquiry capture, follow-ups and customer assignment."),
+      icon: UserRoundCheck
+    },
+    {
+      key: "vehicles",
+      label: t("Vehicle Imports"),
+      description: t("Per-vehicle landed costing, profitability, import tracking and customer balances."),
+      icon: Car
     },
     {
       key: "inventory",

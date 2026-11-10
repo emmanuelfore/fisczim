@@ -7,7 +7,8 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Landmark } from "lucide-react";
+import { Landmark, ScrollText } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
 interface BankingSettingsProps {
   formData: any;
@@ -92,6 +93,27 @@ export function BankingSettings({
               />
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="card-depth border-none max-w-3xl">
+        <CardHeader>
+          <CardTitle className="flex items-center text-lg text-indigo-600">
+            <ScrollText className="w-5 h-5 mr-2" />
+            Invoice Terms &amp; Conditions
+          </CardTitle>
+          <CardDescription>
+            Printed at the bottom of every customer invoice and quotation
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <Textarea
+            id="invoice-terms"
+            value={formData.invoiceTerms || ""}
+            onChange={(e) => setFormData({ ...formData, invoiceTerms: e.target.value })}
+            placeholder={"1. Deposits are non-refundable once the vehicle has been purchased.\n2. Ownership passes on full payment.\n3. ..."}
+            className="min-h-[180px] text-sm"
+          />
         </CardContent>
       </Card>
     </div>

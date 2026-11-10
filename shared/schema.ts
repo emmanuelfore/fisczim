@@ -1,6 +1,6 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, numeric, jsonb, primaryKey, uuid, date, unique, index, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, numeric, jsonb, primaryKey, uuid, date, unique, index, uniqueIndex, check, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -82,6 +82,7 @@ export const companies = pgTable("companies", {
   nssaEmployerNumber: text("nssa_employer_number"),
   vatEnabled: boolean("vat_enabled").default(true),
   defaultPaymentTerms: text("default_payment_terms"),
+  invoiceTerms: text("invoice_terms"), // Terms & conditions printed on invoices/quotations
   correctionPeriodMonths: integer("correction_period_months").default(12), // Credit/debit note correction window
   fiscalDayStalenessHours: integer("fiscal_day_staleness_hours").default(24), // Hours before fiscal day considered stale
   bankDetails: text("bank_details"),
@@ -443,6 +444,423 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   company: one(companies, { fields: [customers.companyId], references: [companies.id] }),
   invoices: many(invoices),
 }));
+
+// ── CRM ─────────────────────────────────────────────────────────────────────
+// Lightweight enquiry pipeline. Deliberately reuses customers (linked by
+// phone/email), users (assignment) and quotations (the sale loop) instead of a
+// separate contact/sales model, so a prospect returning months later resolves
+// to their existing customer record and their quote history.
+export const crmStages = pgTable("crm_stages", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  sequence: integer("sequence").default(0).notNull(),
+  probability: integer("probability").default(0).notNull(), // 0-100, drives forecast
+  isWon: boolean("is_won").default(false).notNull(),
+  isLost: boolean("is_lost").default(false).notNull(),
+  color: text("color").default("slate"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdx: index("crm_stages_company_idx").on(table.companyId),
+  };
+});
+
+export const enquiries = pgTable("enquiries", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id),
+  stageId: integer("stage_id").references(() => crmStages.id),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  source: text("source").default("walk_in"), // walk_in, phone, web, social, referral
+  interest: text("interest"), // e.g. "Toyota Hilux 2019"
+  notes: text("notes"),
+  status: text("status").default("open").notNull(), // open, won, lost (derived from stage)
+  lostReason: text("lost_reason"),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  expectedRevenue: decimal("expected_revenue", { precision: 15, scale: 2 }).default("0.00"),
+  expectedCloseDate: date("expected_close_date"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  quotationId: integer("quotation_id").references(() => quotations.id),
+  assignedTo: uuid("assigned_to").references(() => users.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  lastActivityAt: timestamp("last_activity_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdx: index("enquiries_company_idx").on(table.companyId),
+    statusIdx: index("enquiries_status_idx").on(table.status),
+    stageIdx: index("enquiries_stage_idx").on(table.stageId),
+    assignedIdx: index("enquiries_assigned_to_idx").on(table.assignedTo),
+  };
+});
+
+export const enquiriesRelations = relations(enquiries, ({ one, many }) => ({
+  company: one(companies, { fields: [enquiries.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [enquiries.branchId], references: [branches.id] }),
+  customer: one(customers, { fields: [enquiries.customerId], references: [customers.id] }),
+  stage: one(crmStages, { fields: [enquiries.stageId], references: [crmStages.id] }),
+  assignedUser: one(users, { fields: [enquiries.assignedTo], references: [users.id], relationName: "enquiryAssignee" }),
+  followUps: many(enquiryFollowUps),
+  activities: many(enquiryActivities),
+}));
+
+export const enquiryFollowUps = pgTable("enquiry_follow_ups", {
+  id: serial("id").primaryKey(),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "cascade" }).notNull(),
+  dueAt: timestamp("due_at"),
+  channel: text("channel").default("call"), // call, whatsapp, email, visit
+  notes: text("notes"),
+  outcome: text("outcome"),
+  completedAt: timestamp("completed_at"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    enquiryIdx: index("enquiry_follow_ups_enquiry_idx").on(table.enquiryId),
+  };
+});
+
+export const enquiryFollowUpsRelations = relations(enquiryFollowUps, ({ one }) => ({
+  enquiry: one(enquiries, { fields: [enquiryFollowUps.enquiryId], references: [enquiries.id] }),
+  user: one(users, { fields: [enquiryFollowUps.createdBy], references: [users.id] }),
+}));
+
+// Chatter: one audit trail per enquiry (notes, calls, stage/assignment changes,
+// quotation creation, merges). Kept separate from follow_ups, which are tasks.
+export const enquiryActivities = pgTable("enquiry_activities", {
+  id: serial("id").primaryKey(),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(), // note, call, email, stage, assignment, created, quotation, merge, follow_up
+  body: text("body"),
+  metadata: jsonb("metadata"),
+  userId: uuid("user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    enquiryIdx: index("enquiry_activities_enquiry_idx").on(table.enquiryId),
+  };
+});
+
+export const enquiryActivitiesRelations = relations(enquiryActivities, ({ one }) => ({
+  enquiry: one(enquiries, { fields: [enquiryActivities.enquiryId], references: [enquiries.id] }),
+  user: one(users, { fields: [enquiryActivities.userId], references: [users.id] }),
+}));
+
+export const insertCrmStageSchema = createInsertSchema(crmStages).omit({ id: true, createdAt: true });
+export const insertEnquirySchema = createInsertSchema(enquiries).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertEnquiryFollowUpSchema = createInsertSchema(enquiryFollowUps).omit({ id: true, createdAt: true });
+export const insertEnquiryActivitySchema = createInsertSchema(enquiryActivities).omit({ id: true, createdAt: true });
+export type CrmStage = typeof crmStages.$inferSelect;
+export type InsertCrmStage = z.infer<typeof insertCrmStageSchema>;
+export type Enquiry = typeof enquiries.$inferSelect;
+export type InsertEnquiry = z.infer<typeof insertEnquirySchema>;
+export type EnquiryFollowUp = typeof enquiryFollowUps.$inferSelect;
+export type InsertEnquiryFollowUp = z.infer<typeof insertEnquiryFollowUpSchema>;
+export type EnquiryActivity = typeof enquiryActivities.$inferSelect;
+export type InsertEnquiryActivity = z.infer<typeof insertEnquiryActivitySchema>;
+
+// ── Social capture ──────────────────────────────────────────────────────────
+// Meta lead forms, page/Instagram comments and TikTok lead ads all arrive as
+// third-party rows, so they get their own tables and only become an `enquiries`
+// row when someone captures one. Keeping the raw submission means a duplicate,
+// a junk comment or a lead for a page owned by another tenant can be discarded
+// without touching the pipeline.
+//
+// Both queues are keyed per company, not per platform: when an agency and its
+// client both link the same page, each gets their own copy of the submission,
+// and a delivery is only ever routed to a tenant whose own app secret signed it.
+
+export const SOCIAL_PLATFORMS = ["facebook", "instagram", "tiktok"] as const;
+
+/**
+ * One row per page/account a company has linked. accessToken, appSecret and
+ * webhookToken are stored through lib/vault; all three are null for a record
+ * that exists only so an inbound webhook has something to route against.
+ * Without appSecret a delivery cannot be authenticated, so it is not ingested.
+ */
+export const socialConnections = pgTable("social_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  platform: text("platform").notNull(), // facebook | instagram | tiktok
+  externalAccountId: text("external_account_id").notNull(), // Page id, IG user id, advertiser id
+  accountName: text("account_name"),
+  accessToken: text("access_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  appId: text("app_id"),
+  appSecret: text("app_secret"),
+  webhookToken: text("webhook_token"),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastError: text("last_error"),
+  active: boolean("active").default(true).notNull(),
+  connectedBy: uuid("connected_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    accountUniq: unique("social_connections_company_platform_account_idx").on(
+      table.companyId,
+      table.platform,
+      table.externalAccountId,
+    ),
+    companyIdx: index("social_connections_company_idx").on(table.companyId),
+  };
+});
+
+/** A form submission pulled from a platform. Unique per company and platform id, so a replayed webhook cannot double-book. */
+export const socialLeads = pgTable("social_leads", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  platform: text("platform").notNull(),
+  externalLeadId: text("external_lead_id").notNull(),
+  externalAccountId: text("external_account_id"),
+  formId: text("form_id"),
+  formName: text("form_name"),
+  adId: text("ad_id"),
+  campaignName: text("campaign_name"),
+  fullName: text("full_name"),
+  phone: text("phone"),
+  email: text("email"),
+  answers: jsonb("answers").$type<Record<string, string>>(),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "set null" }),
+  ignoredAt: timestamp("ignored_at"),
+  createdOnPlatformAt: timestamp("created_on_platform_at"),
+  receivedAt: timestamp("received_at").defaultNow(),
+}, (table) => {
+  return {
+    leadUniq: unique("social_leads_company_lead_id_idx").on(
+      table.companyId,
+      table.platform,
+      table.externalLeadId,
+    ),
+    companyIdx: index("social_leads_company_idx").on(table.companyId),
+    uncapturedIdx: index("social_leads_enquiry_idx").on(table.enquiryId),
+  };
+});
+
+/** A comment on one of the linked accounts' posts - the "turn a comment into a lead" queue. */
+export const socialComments = pgTable("social_comments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  platform: text("platform").notNull(),
+  externalAccountId: text("external_account_id"),
+  postId: text("post_id").notNull(),
+  postPermalink: text("post_permalink"),
+  externalCommentId: text("external_comment_id").notNull(),
+  parentCommentId: text("parent_comment_id"),
+  fromName: text("from_name"),
+  fromExternalId: text("from_external_id"),
+  message: text("message"),
+  likes: integer("likes").default(0),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "set null" }),
+  ignoredAt: timestamp("ignored_at"),
+  createdOnPlatformAt: timestamp("created_on_platform_at"),
+  receivedAt: timestamp("received_at").defaultNow(),
+}, (table) => {
+  return {
+    commentUniq: unique("social_comments_company_comment_id_idx").on(
+      table.companyId,
+      table.platform,
+      table.externalCommentId,
+    ),
+    companyIdx: index("social_comments_company_idx").on(table.companyId),
+    uncapturedIdx: index("social_comments_enquiry_idx").on(table.enquiryId),
+  };
+});
+
+/**
+ * One row per (delivery, connection) pair that reached the webhook. Both platforms
+ * retry hard and a silent drop is the hardest thing to debug, so a tenant can read
+ * here what we actually received for their page and why nothing was stored.
+ * Rows exist only once a delivery is attributed to a company - a payload naming no
+ * linked account belongs to nobody and is not kept.
+ */
+export const socialWebhookEvents = pgTable("social_webhook_events", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  connectionId: integer("connection_id").references(() => socialConnections.id, { onDelete: "set null" }),
+  platform: text("platform").notNull(),
+  externalAccountId: text("external_account_id"),
+  signed: boolean("signed").notNull(),
+  leadsSeen: integer("leads_seen").default(0).notNull(),
+  commentsSeen: integer("comments_seen").default(0).notNull(),
+  leadsStored: integer("leads_stored").default(0).notNull(),
+  commentsStored: integer("comments_stored").default(0).notNull(),
+  reason: text("reason"),
+  receivedAt: timestamp("received_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdx: index("social_webhook_events_company_idx").on(table.companyId, table.receivedAt),
+    connectionIdx: index("social_webhook_events_connection_idx").on(table.connectionId),
+  };
+});
+
+export const insertSocialConnectionSchema = createInsertSchema(socialConnections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertSocialLeadSchema = createInsertSchema(socialLeads).omit({ id: true, receivedAt: true });
+export const insertSocialCommentSchema = createInsertSchema(socialComments).omit({ id: true, receivedAt: true });
+export const insertSocialWebhookEventSchema = createInsertSchema(socialWebhookEvents).omit({ id: true, receivedAt: true });
+export type SocialConnection = typeof socialConnections.$inferSelect;
+export type InsertSocialConnection = z.infer<typeof insertSocialConnectionSchema>;
+export type SocialLead = typeof socialLeads.$inferSelect;
+export type InsertSocialLead = z.infer<typeof insertSocialLeadSchema>;
+export type SocialComment = typeof socialComments.$inferSelect;
+export type InsertSocialComment = z.infer<typeof insertSocialCommentSchema>;
+export type SocialWebhookEvent = typeof socialWebhookEvents.$inferSelect;
+export type InsertSocialWebhookEvent = z.infer<typeof insertSocialWebhookEventSchema>;
+
+// ── Vehicle imports ─────────────────────────────────────────────────────────
+// One row per imported unit. Landed cost is the sum of vehicle_costs (base
+// currency); profit compares it with salePrice. Deposits/part-payments are
+// ordinary `payments` rows carrying vehicle_id, so statements and the GL keep
+// a single source of truth.
+export const VEHICLE_STAGES = [
+  "purchased", "in_transit", "container_loaded", "at_port", "clearing", "cleared", "in_delivery", "delivered",
+] as const;
+export const VEHICLE_COST_CATEGORIES = [
+  "purchase", "shipping", "logistics", "admin_fee", "bank_charges", "duty", "clearing", "delivery",
+  "insurance", "registration", "inspection", "commission", "other",
+] as const;
+export const VEHICLE_COST_STATUSES = ["pending", "paid", "disputed", "cancelled"] as const;
+
+export const vehicles = pgTable("vehicles", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  stockNumber: text("stock_number").notNull(),
+  vin: text("vin"),
+  make: text("make").notNull(),
+  model: text("model").notNull(),
+  year: integer("year"),
+  colour: text("colour"),
+  mileage: integer("mileage"),
+  engine: text("engine"),
+  transmission: text("transmission"),
+  supplierName: text("supplier_name"),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  salespersonId: uuid("salesperson_id").references(() => users.id),
+  auctionRef: text("auction_ref"),
+  containerNumber: text("container_number"),
+  vesselName: text("vessel_name"),
+  portOfDischarge: text("port_of_discharge"),
+  eta: date("eta"),
+  stage: text("stage").default("purchased").notNull(),
+  status: text("status").default("available").notNull(), // available, reserved, sold, delivered, cancelled
+  targetPrice: decimal("target_price", { precision: 15, scale: 2 }).default("0.00"),
+  salePrice: decimal("sale_price", { precision: 15, scale: 2 }),
+  saleCurrency: text("sale_currency").default("USD"),
+  saleExchangeRate: decimal("sale_exchange_rate", { precision: 14, scale: 6 }).default("1.000000"), // base per 1 saleCurrency
+  customerId: integer("customer_id").references(() => customers.id),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id),
+  consignmentId: integer("consignment_id"),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
+  // Posted when the vehicle is sold: Dr COGS / Cr Inventory in transit.
+  cogsJournalEntryId: integer("cogs_journal_entry_id").references(() => journalEntries.id),
+  cogsAmount: decimal("cogs_amount", { precision: 15, scale: 2 }),
+  cogsPostedAt: timestamp("cogs_posted_at"),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("vehicles_company_idx").on(table.companyId),
+  customerIdx: index("vehicles_customer_idx").on(table.customerId),
+  companyStockUnique: unique("vehicles_company_stock_unique").on(table.companyId, table.stockNumber),
+}));
+
+export const vehicleCosts = pgTable("vehicle_costs", {
+  id: serial("id").primaryKey(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull(),
+  category: text("category").notNull(),
+  description: text("description"),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 14, scale: 6 }).default("1.000000").notNull(), // units of base per 1 of currency
+  baseAmount: decimal("base_amount", { precision: 15, scale: 2 }).notNull(),
+  payee: text("payee"),
+  reference: text("reference"),
+  costDate: date("cost_date"),
+  // Cost lifecycle: pending (committed/accrued), paid, disputed, cancelled.
+  status: text("status").default("pending").notNull(),
+  dueDate: date("due_date"),
+  paidAt: date("paid_at"),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  // Set when the cost is capitalised to inventory and paid from cash/bank.
+  costJournalEntryId: integer("cost_journal_entry_id").references(() => journalEntries.id),
+  // manual | freight | consignment — auto rows carry source_id so allocation
+  // can be re-run idempotently without touching hand-entered cost lines.
+  source: text("source").default("manual").notNull(),
+  sourceId: integer("source_id"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  vehicleIdx: index("vehicle_costs_vehicle_idx").on(table.vehicleId),
+  supplierIdx: index("vehicle_costs_supplier_idx").on(table.supplierId),
+  autoSourceUnique: unique("vehicle_costs_auto_source_unique").on(table.vehicleId, table.source, table.sourceId, table.category),
+}));
+
+export const vehicleStageEvents = pgTable("vehicle_stage_events", {
+  id: serial("id").primaryKey(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull(),
+  stage: text("stage").notNull(),
+  eventDate: timestamp("event_date").defaultNow().notNull(),
+  notes: text("notes"),
+  notifyCustomer: boolean("notify_customer").default(false).notNull(),
+  notifiedAt: timestamp("notified_at"),
+  notifiedVia: text("notified_via"), // email, whatsapp, sms, manual
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  vehicleIdx: index("vehicle_stage_events_vehicle_idx").on(table.vehicleId),
+}));
+
+export const vehiclePaymentSchedules = pgTable("vehicle_payment_schedules", {
+  id: serial("id").primaryKey(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").default("instalment").notNull(), // deposit, instalment, balance
+  dueDate: date("due_date").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  lastReminderAt: timestamp("last_reminder_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  vehicleIdx: index("vehicle_payment_schedules_vehicle_idx").on(table.vehicleId),
+}));
+
+export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertVehicleCostSchema = createInsertSchema(vehicleCosts).omit({ id: true, createdAt: true, baseAmount: true });
+export type Vehicle = typeof vehicles.$inferSelect;
+export type VehicleCost = typeof vehicleCosts.$inferSelect;
+export type VehicleStageEvent = typeof vehicleStageEvents.$inferSelect;
+export type VehiclePaymentSchedule = typeof vehiclePaymentSchedules.$inferSelect;
+
+export const vehicleReminders = pgTable("vehicle_reminders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull(),
+  channel: text("channel").notNull(), // whatsapp, email, sms, manual
+  status: text("status").default("logged").notNull(), // sent, logged, failed
+  scheduleIds: jsonb("schedule_ids"), // schedule lines included in this reminder
+  amount: decimal("amount", { precision: 15, scale: 2 }),
+  message: text("message"),
+  error: text("error"),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  vehicleIdx: index("vehicle_reminders_vehicle_idx").on(table.vehicleId),
+  companyIdx: index("vehicle_reminders_company_idx").on(table.companyId),
+}));
+
+export type VehicleReminder = typeof vehicleReminders.$inferSelect;
 
 // Tax Types
 export const taxTypes = pgTable("tax_types", {
@@ -1039,6 +1457,7 @@ export const payments = pgTable("payments", {
   invoiceId: integer("invoice_id").references(() => invoices.id), // Nullable for direct/sales order deposit payments
   salesOrderId: integer("sales_order_id").references(() => salesOrders.id), // Soft/hard link for preorder/lay-by deposits
   customerId: integer("customer_id").references(() => customers.id), // Direct customer link for ledger/statements
+  vehicleId: integer("vehicle_id"), // Vehicle-import deal this deposit/part-payment belongs to
 
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").default("USD").notNull(),
@@ -2807,25 +3226,6 @@ export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
   statusIdx: index("mobile_money_company_status_idx").on(table.companyId, table.status),
 }));
 
-export const scheduledReports = pgTable("scheduled_reports", {
-  id: serial("id").primaryKey(),
-  companyId: integer("company_id").references(() => companies.id).notNull(),
-  name: text("name").notNull(),
-  reportKey: text("report_key").notNull(),
-  cadence: text("cadence").notNull(), // DAILY, WEEKLY, MONTHLY
-  recipients: jsonb("recipients").$type<string[]>().default([]),
-  filters: jsonb("filters").default({}),
-  format: text("format").default("PDF").notNull(),
-  isActive: boolean("is_active").default(true).notNull(),
-  lastRunAt: timestamp("last_run_at"),
-  nextRunAt: timestamp("next_run_at"),
-  createdBy: uuid("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  companyIdx: index("scheduled_reports_company_idx").on(table.companyId),
-  nextRunIdx: index("scheduled_reports_next_run_idx").on(table.nextRunAt),
-}));
-
 export const provisions = pgTable("provisions", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
@@ -3045,10 +3445,16 @@ export const positions = pgTable("positions", {
   title: text("title").notNull(),
   grade: text("grade"), // e.g. D1, C3 (used for Grade-based/NEC payslips)
   necCategory: text("nec_category"), // National Employment Council classification
+  // A position tied to a pay grade can be costed while it is vacant: the wage bill
+  // then shows what the unfilled posts would cost, instead of only what is being
+  // paid today. Vacancies never enter a payroll run because runs read employees.
+  payGradeId: integer("pay_grade_id").references(() => payrollPayGrades.id),
+  approvedHeadcount: integer("approved_headcount").default(1).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   companyPosIdx: index("positions_company_idx").on(table.companyId),
+  positionGradeIdx: index("positions_pay_grade_idx").on(table.payGradeId),
 }));
 
 // 3B. Pay Grades / NEC Bands
@@ -3246,6 +3652,15 @@ export const payrollEarningTypes = pgTable("payroll_earning_types", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   earningTypeCompanyCodeIdx: index("payroll_earning_types_company_code_idx").on(table.companyId, table.code),
+  // migrations/0072 backs the DUPLICATE_CODE refusal in the route. Cross-tenant
+  // collisions stay legal, so the database can only guarantee each half: a tenant
+  // never repeats its own code, and two shared templates never share one.
+  earningTypeTenantCodeUnique: uniqueIndex("payroll_earning_types_tenant_code_key")
+    .on(table.companyId, table.code)
+    .where(sql`${table.companyId} IS NOT NULL`),
+  earningTypeTemplateCodeUnique: uniqueIndex("payroll_earning_types_template_code_key")
+    .on(table.code)
+    .where(sql`${table.companyId} IS NULL`),
 }));
 
 export const payrollDeductionTypes = pgTable("payroll_deduction_types", {
@@ -3271,6 +3686,12 @@ export const payrollDeductionTypes = pgTable("payroll_deduction_types", {
 }, (table) => ({
   deductionTypeCompanyCodeIdx: index("payroll_deduction_types_company_code_idx").on(table.companyId, table.code),
   deductionTypePriorityIdx: index("payroll_deduction_types_priority_idx").on(table.priorityOrder),
+  deductionTypeTenantCodeUnique: uniqueIndex("payroll_deduction_types_tenant_code_key")
+    .on(table.companyId, table.code)
+    .where(sql`${table.companyId} IS NOT NULL`),
+  deductionTypeTemplateCodeUnique: uniqueIndex("payroll_deduction_types_template_code_key")
+    .on(table.code)
+    .where(sql`${table.companyId} IS NULL`),
 }));
 
 export const payrollSalaryStructures = pgTable("payroll_salary_structures", {
@@ -3350,7 +3771,7 @@ export const payrollRuns = pgTable("payroll_runs", {
   currency: text("currency").default("USD").notNull(),
   exchangeRate: decimal("exchange_rate", { precision: 15, scale: 6 }).default("1.000000").notNull(), // Target exchange rate USD->ZiG for this run
   
-  status: text("status").default("DRAFT").notNull(), // DRAFT, REVIEW, APPROVED, LOCKED, REVERSED
+  status: text("status").default("DRAFT").notNull(), // DRAFT, PENDING_APPROVAL, APPROVED, LOCKED, REVERSED
   version: integer("version").default(1).notNull(),
   reversalOfRunId: integer("reversal_of_run_id"), // Points to run being reversed
   runType: text("run_type").default("REGULAR").notNull(), // REGULAR, BONUS (13th cheque / annual bonus)
@@ -3373,6 +3794,18 @@ export const payrollRuns = pgTable("payroll_runs", {
 }, (table) => ({
   companyPeriodIdx: index("payroll_runs_company_period_idx").on(table.companyId, table.periodStart, table.periodEnd),
   statusIdx: index("payroll_runs_status_idx").on(table.status),
+  // Declared here as well as in migrations/0072 so a future schema sync does not drop
+  // the constraint the payroll routes now assume exists.
+  statusVocabulary: check(
+    "payroll_runs_status_check",
+    sql`${table.status} IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'LOCKED', 'REVERSED')`
+  ),
+  // migrations/0073. Two live runs may not pay the same staff for the same period in
+  // the same currency and run type; branch is folded so company-wide (NULL branch)
+  // runs still conflict with each other. Period *overlap* stays app-enforced.
+  livePeriodUnique: uniqueIndex("payroll_runs_live_period_key")
+    .on(table.companyId, sql`coalesce(${table.branchId}, 0)`, table.periodStart, table.periodEnd, table.currency, table.runType)
+    .where(sql`${table.status} <> 'REVERSED'`),
 }));
 
 // 9. Payroll Run Employee Lines (The calculated payslip data)
@@ -3422,6 +3855,9 @@ export const payrollRunEmployees = pgTable("payroll_run_employees", {
 }, (table) => ({
   runIdx: index("payroll_run_employees_run_idx").on(table.payrollRunId),
   employeeIdx: index("payroll_run_employees_employee_idx").on(table.employeeId),
+  // migrations/0073. A second line for the same employee in the same run would pay
+  // that person twice through the journal, the bank export and every return.
+  runEmployeeUnique: uniqueIndex("payroll_run_employees_run_employee_key").on(table.payrollRunId, table.employeeId),
 }));
 
 // 10. Payroll Allowances (Individual line details per payslip)
@@ -3613,6 +4049,26 @@ export const payrollAttendanceImports = pgTable("payroll_attendance_imports", {
 }));
 
 // 22. Employee Document Registry (storage-provider agnostic)
+// 22A. Per-company payroll settings. Staff numbering and the required-file list are
+// choices each employer makes for itself - a bakery numbers people BAK001, an auditor
+// uses 0001 - so they cannot be constants in the code that generates them.
+export const payrollCompanySettings = pgTable("payroll_company_settings", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  // employee_number = prefix + zero-padded counter, e.g. "FS" + 0007.
+  staffNumberPrefix: text("staff_number_prefix").default("").notNull(),
+  staffNumberDigits: integer("staff_number_digits").default(4).notNull(),
+  staffNumberNext: integer("staff_number_next").default(1).notNull(),
+  // Document types every active employee must have on file, e.g. ["CONTRACT","ID_COPY"].
+  requiredDocumentTypes: jsonb("required_document_types").$type<string[]>().default([]).notNull(),
+  // How far ahead of a document's expiry date the staff file starts warning.
+  expiryWarningDays: integer("expiry_warning_days").default(30).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companySettingsUnique: unique("payroll_company_settings_company_key").on(table.companyId),
+}));
+
 export const employeeDocuments = pgTable("employee_documents", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
@@ -3622,11 +4078,111 @@ export const employeeDocuments = pgTable("employee_documents", {
   fileUrl: text("file_url").notNull(),
   mimeType: text("mime_type"),
   fileHash: text("file_hash"),
+  // A payroll file is only useful if it says when the paper stops being valid: an
+  // expired contract or lapsed medical aid must not stay invisible while payroll
+  // keeps running the employee. Null means "this document does not expire".
+  expiryDate: date("expiry_date"),
+  // The scanned copy lives here; the signed original lives in a cabinet. Tracking
+  // which one is actually filed is how a small employer survives an inspection.
+  hardCopyOnFile: boolean("hard_copy_on_file").default(false).notNull(),
+  notes: text("notes"),
   uploadedBy: uuid("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   employeeDocumentIdx: index("employee_documents_employee_idx").on(table.employeeId),
   companyDocumentIdx: index("employee_documents_company_idx").on(table.companyId),
+  // The expiry radar scans by company and date, not by employee.
+  documentExpiryIdx: index("employee_documents_expiry_idx").on(table.companyId, table.expiryDate),
+}));
+
+// 22C. Standard operating procedures with versioned read-and-sign.
+//
+// An SOP that nobody signed is a document, not a control. The unit of proof is the
+// (version, person) pair: when a procedure is reissued, the old signatures stop
+// covering it and everyone targeted by the new version signs again. That is the whole
+// reason the version lives on the document rather than in its text.
+export const hrSopDocuments = pgTable("hr_sop_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  code: text("code").notNull(),                       // FIN-PAY-01
+  title: text("title").notNull(),
+  category: text("category").default("GENERAL").notNull(), // GENERAL, PAYROLL, HR, HEALTH_SAFETY, IT
+  version: integer("version").default(1).notNull(),
+  status: text("status").default("DRAFT").notNull(),  // DRAFT, PUBLISHED, SUPERSEDED, ARCHIVED
+  body: text("body").default("").notNull(),           // markdown
+  effectiveDate: date("effective_date"),
+  // Readers must confirm they understood it, not merely that they opened it.
+  requiresExam: boolean("requires_exam").default(false).notNull(),
+  // New hires and reissued versions are due within this many days.
+  acknowledgementDays: integer("acknowledgement_days").default(14).notNull(),
+  // Targeting: null department and null branch means the whole company.
+  departmentId: integer("department_id").references(() => departments.id),
+  branchId: integer("branch_id").references(() => branches.id),
+  authorNote: text("author_note"),
+  publishedBy: uuid("published_by").references(() => users.id),
+  publishedAt: timestamp("published_at"),
+  // The newer version that retired this one, so history stays readable in both
+  // directions and a superseded document is never mistaken for current.
+  supersededById: integer("superseded_by_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  sopCodeVersionUnique: unique("hr_sop_documents_company_code_version_key").on(table.companyId, table.code, table.version),
+  sopStatusCheck: check("hr_sop_documents_status_check",
+    sql`${table.status} IN ('DRAFT', 'PUBLISHED', 'SUPERSEDED', 'ARCHIVED')`),
+  companyStatusIdx: index("hr_sop_documents_company_status_idx").on(table.companyId, table.status),
+  categoryIdx: index("hr_sop_documents_category_idx").on(table.companyId, table.category),
+}));
+
+// The question bank behind an exam. Options are stored as a JSON array of strings and
+// `correctIndex` points into it, so an option list of any length works and a stored
+// answer is checked against the version of the question the reader was shown.
+export const hrSopQuestions = pgTable("hr_sop_questions", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  sopId: integer("sop_id").references(() => hrSopDocuments.id).notNull(),
+  question: text("question").notNull(),
+  options: jsonb("options").$type<string[]>().notNull(),
+  correctIndex: integer("correct_index").notNull(),
+  explanation: text("explanation"),
+  questionOrder: integer("question_order").default(1).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  questionSopIdx: index("hr_sop_questions_sop_idx").on(table.sopId, table.questionOrder),
+}));
+
+// Who a version applies to, chosen when it is published. Accounts are not linked to
+// staff records in this product yet, so a department cannot be resolved to a list of
+// people automatically; the publisher names the readers instead. That keeps "outstanding
+// signatures" honest - it is always a real, answerable list of people.
+export const hrSopReaders = pgTable("hr_sop_readers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  sopId: integer("sop_id").references(() => hrSopDocuments.id).notNull(),
+  userId: uuid("user_id").references(() => users.id).notNull(),
+  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+}, (table) => ({
+  readerSopUserUnique: unique("hr_sop_readers_sop_user_key").on(table.sopId, table.userId),
+  readerSopIdx: index("hr_sop_readers_sop_idx").on(table.sopId),
+}));
+
+export const hrSopAcknowledgements = pgTable("hr_sop_acknowledgements", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  sopId: integer("sop_id").references(() => hrSopDocuments.id).notNull(),
+  userId: uuid("user_id").references(() => users.id).notNull(),
+  // Typed full name is the signature. A tick box proves nothing to an auditor.
+  signatureName: text("signature_name").notNull(),
+  examScore: numeric("exam_score", { precision: 5, scale: 2 }),
+  examPassed: boolean("exam_passed"),
+  acknowledgedAt: timestamp("acknowledged_at").defaultNow().notNull(),
+}, (table) => ({
+  // One signature per person per version - re-signing an SOP they already signed
+  // would overwrite the first date, and the date is the evidence.
+  ackSopUserUnique: unique("hr_sop_acknowledgements_sop_user_key").on(table.sopId, table.userId),
+  ackScoreCheck: check("hr_sop_acknowledgements_score_check",
+    sql`${table.examScore} IS NULL OR (${table.examScore} >= 0 AND ${table.examScore} <= 100)`),
+  ackCompanyIdx: index("hr_sop_acknowledgements_company_idx").on(table.companyId, table.userId),
 }));
 
 // 23. Generated Payslip Artifacts (PDF/email/WhatsApp delivery readiness)

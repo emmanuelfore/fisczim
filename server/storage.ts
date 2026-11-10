@@ -69,6 +69,8 @@ import {
   jobLogs, type JobLog, type InsertJobLog
 } from "../shared/schema.js";
 import { baseCurrencyOf, defaultCurrencySeeds } from "../shared/currency.js";
+import { addToBucket, daysOverdue, emptyAgingAmounts, legacyAgingFields, resolveDueDate, type AgingAmounts } from "../shared/aging.js";
+import { throughEndOfDay } from "../shared/report-dates.js";
 import { db } from "./db.js";
 import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
@@ -98,6 +100,15 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   grniAccountCode: "2000",
   landedCostClearingAccountCode: "2016",
   partnerPayableAccountCode: "2017",
+  // Payroll postings resolve these through getSystemAccountCode, so a tenant can
+  // point them at their own chart without the ledger guessing at codes.
+  payrollExpenseAccountCode: "5004",
+  wagesPayableAccountCode: "2004",
+  payrollTaxPayableAccountCode: "2013",
+  employerPayrollLevyAccountCode: "5020",
+  statutoryContributionsPayableAccountCode: "2018",
+  employeeDeductionsPayableAccountCode: "2019",
+  staffLoansReceivableAccountCode: "1320",
 } as const;
 
 // Codes the postings above resolve to that many live charts were seeded without.
@@ -107,6 +118,15 @@ const SUPPLEMENTAL_SYSTEM_ACCOUNTS = [
   { code: "2015", name: "Goods Received Not Invoiced", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2016", name: "Landed Cost Clearing", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2017", name: "Partner Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "1320", name: "Staff Loans Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-19", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: false, isSystem: true },
+  { code: "2018", name: "Statutory Contributions Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+  { code: "2019", name: "Employee Deductions Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+  { code: "5020", name: "Employer Payroll Levies", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-19", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+  // The payroll trio is part of the standard chart, but a hand-built one can be
+  // missing it; a lock should create the gap rather than fail on it.
+  { code: "5004", name: "Payroll Expenses", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-19", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+  { code: "2004", name: "Wages Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "2013", name: "Payroll Tax Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: true, isSystem: true },
 ] as const;
 
 
@@ -120,13 +140,6 @@ function mergeAccountingSystemAccounts(settings: unknown): typeof DEFAULT_ACCOUN
       return [key, typeof value === "string" && value.trim() ? value.trim() : fallback];
     })
   ) as typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
-}
-
-export function throughEndOfDay(value: Date): Date {
-  const upper = new Date(value);
-  if (Number.isNaN(upper.getTime())) return value;
-  upper.setHours(23, 59, 59, 999);
-  return upper;
 }
 
 function getAccountCodeRange(type?: string, category?: string): { start: number; end: number } {
@@ -313,14 +326,6 @@ export interface IStorage {
   // Analytics
   getCompanyStats(companyId: number): Promise<{ totalRevenue: number; pendingAmount: number; invoicesCount: number; customersCount: number }>;
   getRevenueOverTime(companyId: number, days?: number): Promise<{ date: string; amount: number }[]>;
-  getReceivablesAging(companyId: number): Promise<{
-    total: number;
-    current: number;
-    days1_15: number;
-    days16_30: number;
-    days31_45: number;
-    above45: number;
-  }>;
   getFiscalYearStats(companyId: number): Promise<{
     totalSales: number;
     totalReceipts: number;
@@ -474,43 +479,24 @@ export interface IStorage {
   getReportSalesSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ date: string; invoiceCount: number; subtotal: string; taxAmount: string; total: string }[]>;
   getReportSalesByCustomer(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; invoiceCount: number; total: string }[]>;
   getReportSalesByItem(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ productId: number | null; description: string; quantitySold: string; revenue: string }[]>;
-  getReportSalesBySalesperson(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ userId: string; userName: string; invoiceCount: number; total: string }[]>;
-  getReportArAgingSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; current: string; days31_60: string; days61_90: string; days90plus: string; total: string }[]>;
-  getReportArAgingDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; dueDate: string; daysOverdue: number; balanceDue: string; bucket: "current" | "31-60" | "61-90" | "90+" }[]>;
+  getReportArAgingSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; current: string; days1_30: string; days31_60: string; days61_90: string; days90plus: string; total: string }[]>;
   getReportInvoiceDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; dueDate: string; status: string; total: string; paidAmount: string; balanceDue: string }[]>;
-  getReportQuoteDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ quotationId: number; quotationNumber: string; customerName: string; issueDate: string; expiryDate: string | null; status: string; total: string }[]>;
   getReportCustomerBalanceSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; totalInvoiced: string; totalPaid: string; balance: string }[]>;
-  getReportReceivableSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ totalInvoiced: string; totalCollected: string; totalOutstanding: string }>;
   getReportReceivableDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; total: string; paidAmount: string; balanceDue: string; status: string }[]>;
   getReportBadDebts(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; dueDate: string; daysOverdue: number; balanceDue: string }[]>;
-  getReportBankCharges(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ paymentId: number; invoiceNumber: string; customerName: string; paymentDate: string; reference: string; amount: string }[]>;
   getReportTimeToGetPaid(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; paymentDate: string; daysToPayment: number; amount: string }[]>;
-  getReportRefundHistory(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; amount: string; relatedInvoiceNumber: string | null }[]>;
   getReportWithholdingTax(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; withheldAmount: string; total: string }[]>;
   getReportExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; supplierName: string | null; paymentMethod: string | null; reference: string | null; amount: string; currency: string }[]>;
   getReportExpensesByCategory(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ category: string; total: string; percentage: string; count: number }[]>;
-  getReportExpensesByCustomer(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ supplierId: number | null; supplierName: string; total: string; count: number }[]>;
-  getReportExpensesByProject(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ project: string; total: string; count: number }[]>;
-  getReportBillableExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; amount: string; status: string }[]>;
   getReportTaxSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ taxCode: string; taxName: string; taxRate: string; taxableAmount: string; outputTax: string; inputTax: string; netVat: string }[]>;
-  getHourlySalesDistribution(companyId: number, startDate: Date, endDate: Date): Promise<{ hour: number; count: number; total: number }[]>;
   getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency?: Record<string, number> }>;
   getLowStockItems(companyId: number): Promise<(Product & { categoryName?: string })[]>;
   getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]>;
   getReportInventoryMovements(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]>;
   getReportStockAdjustments(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; sku: string | null; type: string; quantity: string; unitCost: string | null; totalCost: string | null; referenceType: string | null; reference: string | null; notes: string | null; userName: string | null }[]>;
   getReportPurchaseHistory(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]>;
-  getReportAutoSparesDailySales(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportTopSellingParts(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
   getReportDeadStock(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
   getReportProfitMargins(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportSupplierPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportCustomerCredit(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportSalespersonPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportReturnWarranty(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportReorderSuggestions(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
-  getReportPriceChanges(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
   getOperationalDailyReport(companyId: number, start: Date, end: Date): Promise<any>;
   getOperationalWeeklyReport(companyId: number, start: Date, end: Date): Promise<any>;
   getOperationalMonthlyReport(companyId: number, start: Date, end: Date): Promise<any>;
@@ -575,7 +561,7 @@ export interface IStorage {
 
   // Accounting
   getAccounts(companyId: number): Promise<Account[]>;
-  getAccountById(id: number): Promise<Account | undefined>;
+  getAccountById(companyId: number, id: number): Promise<Account | undefined>;
   getAccountByCode(companyId: number, code: string): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   initializeCompanyAccounts(companyId: number): Promise<void>;
@@ -591,10 +577,10 @@ export interface IStorage {
   // Bank Reconciliation
   uploadBankStatement(data: InsertBankStatement, lines: InsertBankStatementLine[]): Promise<BankStatement>;
   getBankStatements(companyId: number, accountId?: number): Promise<BankStatement[]>;
-  getBankStatementLines(statementId: number): Promise<BankStatementLine[]>;
+  getBankStatementLines(companyId: number, statementId: number): Promise<BankStatementLine[]>;
   getUnreconciledLedger(companyId: number, accountId: number): Promise<any[]>;
-  reconcileBankLine(lineId: number, ledgerEntryId: number): Promise<void>;
-  autoReconcile(statementId: number): Promise<number>;
+  reconcileBankLine(companyId: number, lineId: number, ledgerEntryId: number): Promise<void>;
+  autoReconcile(companyId: number, statementId: number): Promise<number>;
   createCashTransaction(data: { companyId: number, type: 'RECEIPT' | 'PAYMENT', bankAccountId: number, counterpartyAccountId: number, amount: number, date: Date, description: string, reference?: string, createdBy?: string }): Promise<JournalEntry>;
 
   // Recovered Methods
@@ -3959,68 +3945,6 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(payments).where(eq(payments.invoiceId, invoiceId)).orderBy(desc(payments.paymentDate));
   }
 
-  async getReceivablesAging(companyId: number, currency: string = 'USD'): Promise<{
-    total: number;
-    current: number;
-    days1_15: number;
-    days16_30: number;
-    days31_45: number;
-    above45: number;
-  }> {
-    const allInvoices = await db.select()
-      .from(invoices)
-      .where(and(
-        eq(invoices.companyId, companyId),
-        eq(invoices.currency, currency),
-        ne(invoices.status, "draft"),
-        ne(invoices.status, "cancelled")
-      ));
-
-    const now = new Date();
-    const result = {
-      total: 0,
-      current: 0,
-      days1_15: 0,
-      days16_30: 0,
-      days31_45: 0,
-      above45: 0,
-    };
-
-    for (const inv of allInvoices) {
-      const total = Number(inv.total);
-
-      // Calculate paid amount from payments for this invoice
-      const invoicePayments = await db.select({ amount: payments.amount })
-        .from(payments)
-        .where(eq(payments.invoiceId, inv.id));
-      const paid = invoicePayments.reduce((sum, p) => sum + Number(p.amount), 0);
-
-      const balance = total - paid;
-
-      if (balance <= 0) continue;
-
-      result.total += balance;
-
-      const dueDate = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.issueDate || now);
-      const diffTime = now.getTime() - dueDate.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-      if (diffDays <= 0) {
-        result.current += balance;
-      } else if (diffDays <= 15) {
-        result.days1_15 += balance;
-      } else if (diffDays <= 30) {
-        result.days16_30 += balance;
-      } else if (diffDays <= 45) {
-        result.days31_45 += balance;
-      } else {
-        result.above45 += balance;
-      }
-    }
-
-    return result;
-  }
-
   async getFiscalYearStats(companyId: number, currency: string = 'USD'): Promise<{
     totalSales: number;
     totalReceipts: number;
@@ -4704,42 +4628,30 @@ export class DatabaseStorage implements IStorage {
         inArray(invoices.transactionType, ['FiscalInvoice', 'OpeningBalance'])
       ));
     
-    const byCustomer = new Map<number, any>();
-    
+    const byCustomer = new Map<number, { customerName: string; amounts: AgingAmounts; total: number }>();
+
     rows.forEach(r => {
       const custId = r.customer?.id || 0;
-      if (!byCustomer.has(custId)) {
-        byCustomer.set(custId, {
-          customerId: custId,
-          customerName: r.customer?.name || "No Customer",
-          current: 0,
-          days30: 0,
-          days60: 0,
-          days90: 0,
-          over90: 0,
-          total: 0
-        });
-      }
-      
-      const cust = byCustomer.get(custId);
-      const dueDate = new Date(r.invoice.dueDate || r.invoice.issueDate || new Date());
-      
-      // Calculate days overdue (difference from due date, not issuance)
-      const diffTime = asOfDate.getTime() - dueDate.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      
+      const existing = byCustomer.get(custId) ?? {
+        customerName: r.customer?.name || "No Customer",
+        amounts: emptyAgingAmounts(),
+        total: 0,
+      };
+
+      const dueDate = resolveDueDate(r.invoice.dueDate, r.invoice.issueDate, asOfDate);
       const balance = Number(r.invoice.total) - Number(r.invoice.paidAmount);
-      
-      if (diffDays <= 0) cust.current += balance;
-      else if (diffDays <= 30) cust.days30 += balance;
-      else if (diffDays <= 60) cust.days60 += balance;
-      else if (diffDays <= 90) cust.days90 += balance;
-      else cust.over90 += balance;
-      
-      cust.total += balance;
+
+      addToBucket(existing.amounts, daysOverdue(dueDate, asOfDate), balance);
+      existing.total += balance;
+      byCustomer.set(custId, existing);
     });
-    
-    return Array.from(byCustomer.values());
+
+    return Array.from(byCustomer.entries()).map(([customerId, v]) => ({
+      customerId,
+      customerName: v.customerName,
+      ...legacyAgingFields(v.amounts),
+      total: v.total,
+    }));
   }
 
   async getDebtorAnalysis(companyId: number, customerId: number): Promise<any> {
@@ -4849,40 +4761,30 @@ export class DatabaseStorage implements IStorage {
         ne(supplierInvoices.status, 'cancelled')
       ));
       
-    const bySupplier = new Map<number, any>();
-    
+    const bySupplier = new Map<number, { supplierName: string; amounts: AgingAmounts; total: number }>();
+
     rows.forEach(r => {
       const suppId = r.supplier?.id || 0;
-      if (!bySupplier.has(suppId)) {
-        bySupplier.set(suppId, {
-          supplierId: suppId,
-          supplierName: r.supplier?.name || "Unknown Supplier",
-          current: 0,
-          days30: 0,
-          days60: 0,
-          days90: 0,
-          over90: 0,
-          total: 0
-        });
-      }
-      
-      const supp = bySupplier.get(suppId);
-      const dueDate = new Date(r.invoice.dueDate || r.invoice.date || new Date());
-      const diffTime = asOfDate.getTime() - dueDate.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      
+      const existing = bySupplier.get(suppId) ?? {
+        supplierName: r.supplier?.name || "Unknown Supplier",
+        amounts: emptyAgingAmounts(),
+        total: 0,
+      };
+
+      const dueDate = resolveDueDate(r.invoice.dueDate, r.invoice.date, asOfDate);
       const balance = Number(r.invoice.totalAmount) - Number(r.invoice.paidAmount);
-      
-      if (diffDays <= 0) supp.current += balance;
-      else if (diffDays <= 30) supp.days30 += balance;
-      else if (diffDays <= 60) supp.days60 += balance;
-      else if (diffDays <= 90) supp.days90 += balance;
-      else supp.over90 += balance;
-      
-      supp.total += balance;
+      addToBucket(existing.amounts, daysOverdue(dueDate, asOfDate), balance);
+      existing.total += balance;
+
+      bySupplier.set(suppId, existing);
     });
-    
-    return Array.from(bySupplier.values());
+
+    return Array.from(bySupplier.entries()).map(([supplierId, v]) => ({
+      supplierId,
+      supplierName: v.supplierName,
+      ...legacyAgingFields(v.amounts),
+      total: v.total,
+    }));
   }
 
   async getCreditorAnalysis(companyId: number, supplierId: number): Promise<any> {
@@ -5087,7 +4989,13 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(bankStatements).where(and(...filters)).orderBy(desc(bankStatements.statementDate));
   }
 
-  async getBankStatementLines(statementId: number): Promise<BankStatementLine[]> {
+  async getBankStatementLines(companyId: number, statementId: number): Promise<BankStatementLine[]> {
+    // A statement line has no company column of its own — it belongs to the
+    // company that owns the statement. Reading lines by statementId alone hands
+    // one tenant another tenant's bank traffic.
+    const [statement] = await db.select({ id: bankStatements.id }).from(bankStatements)
+      .where(and(eq(bankStatements.id, statementId), eq(bankStatements.companyId, companyId)));
+    if (!statement) return [];
     return db.select().from(bankStatementLines).where(eq(bankStatementLines.statementId, statementId)).orderBy(bankStatementLines.date);
   }
 
@@ -5110,27 +5018,65 @@ export class DatabaseStorage implements IStorage {
     .orderBy(journalEntries.entryDate);
   }
 
-  async reconcileBankLine(lineId: number, ledgerEntryId: number): Promise<void> {
+  async reconcileBankLine(companyId: number, lineId: number, ledgerEntryId: number): Promise<void> {
     await db.transaction(async (tx) => {
+      const lines = await tx
+        .select({ accountId: bankStatements.accountId })
+        .from(bankStatementLines)
+        .innerJoin(bankStatements, eq(bankStatementLines.statementId, bankStatements.id))
+        .where(and(eq(bankStatementLines.id, lineId), eq(bankStatements.companyId, companyId)))
+        .limit(1);
+      const line = lines[0];
+      if (!line) throw new Error("Bank statement line not found for this company");
+
+      const entries = await tx
+        .select({ accountId: ledgerEntries.accountId })
+        .from(ledgerEntries)
+        .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+        .where(and(eq(ledgerEntries.id, ledgerEntryId), eq(journalEntries.companyId, companyId)))
+        .limit(1);
+      const ledgerEntry = entries[0];
+      if (!ledgerEntry) throw new Error("Ledger entry not found for this company");
+
+      // Matching into a ledger line held by a different bank account would mark
+      // money as cleared that never passed through the account being reconciled.
+      if (Number(line.accountId) !== Number(ledgerEntry.accountId)) {
+        throw new Error("That ledger entry belongs to a different bank account than this statement.");
+      }
+
       // 1. Mark line as reconciled
       await tx.update(bankStatementLines)
         .set({ isReconciled: true, matchedLedgerEntryId: ledgerEntryId })
         .where(eq(bankStatementLines.id, lineId));
-      // 2. Mark ledger entry as reconciled
+      // 2. Mark ledger entry as reconciled. ledger_entries has no primary key in the live
+      //    database and 692 id values are shared by two rows, so the entry is addressed
+      //    through the journal entry that says which company owns it — a bare `WHERE id`
+      //    would clear an unrelated tenant's line as reconciled too.
       await tx.update(ledgerEntries)
         .set({ isReconciled: true })
-        .where(eq(ledgerEntries.id, ledgerEntryId));
+        .from(journalEntries)
+        .where(and(
+          eq(ledgerEntries.journalEntryId, journalEntries.id),
+          eq(ledgerEntries.id, ledgerEntryId),
+          eq(journalEntries.companyId, companyId)
+        ));
     });
   }
 
-  async autoReconcile(statementId: number): Promise<number> {
+  async autoReconcile(companyId: number, statementId: number): Promise<number> {
     // Basic Auto-matcher: Matches exact amount within +/- 2 days
-    const lines = await this.getBankStatementLines(statementId);
+    const statement = await db.select().from(bankStatements)
+      .where(and(eq(bankStatements.id, statementId), eq(bankStatements.companyId, companyId)))
+      .then(r => r[0]);
+    if (!statement) throw new Error("Bank statement not found for this company");
+
+    const lines = await db.select().from(bankStatementLines)
+      .where(eq(bankStatementLines.statementId, statementId))
+      .orderBy(bankStatementLines.date);
     if (!lines.length) return 0;
-    
-    const statement = await db.select().from(bankStatements).where(eq(bankStatements.id, statementId)).then(r => r[0]);
+
     const unreconciledLedger = await this.getUnreconciledLedger(statement.companyId, statement.accountId);
-    
+
     let matchedCount = 0;
     
     // Sort ledger items to optimize matching slightly, or we can just iterate.
@@ -5160,7 +5106,7 @@ export class DatabaseStorage implements IStorage {
       });
       
       if (match) {
-        await this.reconcileBankLine(line.id, match.id);
+        await this.reconcileBankLine(companyId, line.id, match.id);
         availableLedger.delete(match.id);
         matchedCount++;
       }
@@ -6961,35 +6907,6 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportSalesBySalesperson(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(invoices)
-      .leftJoin(users, eq(invoices.createdBy, users.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, 'CreditNote')
-      ));
-
-    const byUser = new Map<string, { userName: string; invoiceCount: number; total: number }>();
-    for (const { invoices: inv, users: u } of rows) {
-      const userId = inv.createdBy ?? 'unknown';
-      const existing = byUser.get(userId) ?? { userName: u?.name ?? u?.email ?? userId, invoiceCount: 0, total: 0 };
-      existing.invoiceCount += 1;
-      existing.total += Number(inv.total);
-      byUser.set(userId, existing);
-    }
-
-    return Array.from(byUser.entries()).map(([userId, v]) => ({
-      userId,
-      userName: v.userName,
-      invoiceCount: v.invoiceCount,
-      total: v.total.toFixed(2),
-    }));
-  }
 
   async getReportArAgingSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
@@ -7006,7 +6923,7 @@ export class DatabaseStorage implements IStorage {
       ));
 
     const today = new Date();
-    const byCustomer = new Map<number, { customerName: string; current: number; days31_60: number; days61_90: number; days90plus: number }>();
+    const byCustomer = new Map<number, { customerName: string; amounts: AgingAmounts }>();
     const paidByInvoice = new Map<number, number>();
 
     for (const { invoices: inv, payments: pmt } of rows) {
@@ -7024,15 +6941,10 @@ export class DatabaseStorage implements IStorage {
       const balance = Number(inv.total) - paid;
       if (balance <= 0) continue;
 
-      const dueDate = inv.dueDate ? new Date(inv.dueDate) : new Date();
-      const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / 86400000);
+      const dueDate = resolveDueDate(inv.dueDate, inv.issueDate, today);
       const custId = inv.customerId;
-      const existing = byCustomer.get(custId) ?? { customerName: cust?.name ?? 'Unknown', current: 0, days31_60: 0, days61_90: 0, days90plus: 0 };
-
-      if (daysOverdue <= 30) existing.current += balance;
-      else if (daysOverdue <= 60) existing.days31_60 += balance;
-      else if (daysOverdue <= 90) existing.days61_90 += balance;
-      else existing.days90plus += balance;
+      const existing = byCustomer.get(custId) ?? { customerName: cust?.name ?? 'Unknown', amounts: emptyAgingAmounts() };
+      addToBucket(existing.amounts, daysOverdue(dueDate, today), balance);
 
       byCustomer.set(custId, existing);
     }
@@ -7040,64 +6952,15 @@ export class DatabaseStorage implements IStorage {
     return Array.from(byCustomer.entries()).map(([customerId, v]) => ({
       customerId,
       customerName: v.customerName,
-      current: v.current.toFixed(2),
-      days31_60: v.days31_60.toFixed(2),
-      days61_90: v.days61_90.toFixed(2),
-      days90plus: v.days90plus.toFixed(2),
-      total: (v.current + v.days31_60 + v.days61_90 + v.days90plus).toFixed(2),
+      current: v.amounts.current.toFixed(2),
+      days1_30: v.amounts.days1_30.toFixed(2),
+      days31_60: v.amounts.days31_60.toFixed(2),
+      days61_90: v.amounts.days61_90.toFixed(2),
+      days90plus: v.amounts.days90plus.toFixed(2),
+      total: Object.values(v.amounts).reduce((sum, n) => sum + n, 0).toFixed(2),
     }));
   }
 
-  async getReportArAgingDetails(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(invoices)
-      .leftJoin(customers, eq(invoices.customerId, customers.id))
-      .leftJoin(payments, eq(payments.invoiceId, invoices.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, 'CreditNote')
-      ));
-
-    const today = new Date();
-    const paidByInvoice = new Map<number, number>();
-    for (const { payments: pmt, invoices: inv } of rows) {
-      if (pmt) paidByInvoice.set(inv.id, (paidByInvoice.get(inv.id) ?? 0) + Number(pmt.amount));
-    }
-
-    const seen = new Set<number>();
-    const result: any[] = [];
-    for (const { invoices: inv, customers: cust } of rows) {
-      if (seen.has(inv.id)) continue;
-      seen.add(inv.id);
-
-      const paid = paidByInvoice.get(inv.id) ?? 0;
-      const balance = Number(inv.total) - paid;
-      if (balance <= 0) continue;
-
-      const dueDate = inv.dueDate ? new Date(inv.dueDate) : new Date();
-      const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / 86400000);
-      let bucket: "current" | "31-60" | "61-90" | "90+";
-      if (daysOverdue <= 30) bucket = "current";
-      else if (daysOverdue <= 60) bucket = "31-60";
-      else if (daysOverdue <= 90) bucket = "61-90";
-      else bucket = "90+";
-
-      result.push({
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        customerName: cust?.name ?? 'Unknown',
-        dueDate: dueDate.toISOString().slice(0, 10),
-        daysOverdue,
-        balanceDue: balance.toFixed(2),
-        bucket,
-      });
-    }
-    return result;
-  }
 
   async getReportInvoiceDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
@@ -7139,27 +7002,6 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getReportQuoteDetails(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(quotations)
-      .leftJoin(customers, eq(quotations.customerId, customers.id))
-      .where(and(
-        eq(quotations.companyId, companyId),
-        gte(quotations.issueDate, start),
-        lte(quotations.issueDate, end)
-      ));
-
-    return rows.map(({ quotations: q, customers: cust }) => ({
-      quotationId: q.id,
-      quotationNumber: q.quotationNumber,
-      customerName: cust?.name ?? 'Unknown',
-      issueDate: q.issueDate ? q.issueDate.toISOString().slice(0, 10) : '',
-      expiryDate: q.expiryDate ? q.expiryDate.toISOString().slice(0, 10) : null,
-      status: q.status ?? 'draft',
-      total: Number(q.total).toFixed(2),
-    }));
-  }
 
   async getReportCustomerBalanceSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
@@ -7202,40 +7044,6 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportReceivableSummary(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(invoices)
-      .leftJoin(payments, eq(payments.invoiceId, invoices.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, 'CreditNote')
-      ));
-
-    const paidByInvoice = new Map<number, number>();
-    for (const { payments: pmt, invoices: inv } of rows) {
-      if (pmt) paidByInvoice.set(inv.id, (paidByInvoice.get(inv.id) ?? 0) + Number(pmt.amount));
-    }
-
-    let totalInvoiced = 0;
-    let totalCollected = 0;
-    const seen = new Set<number>();
-    for (const { invoices: inv } of rows) {
-      if (seen.has(inv.id)) continue;
-      seen.add(inv.id);
-      totalInvoiced += Number(inv.total);
-      totalCollected += paidByInvoice.get(inv.id) ?? 0;
-    }
-
-    return {
-      totalInvoiced: totalInvoiced.toFixed(2),
-      totalCollected: totalCollected.toFixed(2),
-      totalOutstanding: Math.max(0, totalInvoiced - totalCollected).toFixed(2),
-    };
-  }
 
   async getReportReceivableDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
@@ -7320,29 +7128,6 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getReportBankCharges(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(payments)
-      .leftJoin(invoices, eq(payments.invoiceId, invoices.id))
-      .leftJoin(customers, eq(invoices.customerId, customers.id))
-      .where(and(
-        eq(payments.companyId, companyId),
-        ...(branchId ? [eq(payments.branchId, branchId)] : []),
-        gte(payments.paymentDate, start),
-        lte(payments.paymentDate, end),
-        eq(payments.paymentMethod, 'BANK_TRANSFER')
-      ));
-
-    return rows.map(({ payments: pmt, invoices: inv, customers: cust }) => ({
-      paymentId: pmt.id,
-      invoiceNumber: inv?.invoiceNumber ?? '',
-      customerName: cust?.name ?? 'Unknown',
-      paymentDate: pmt.paymentDate.toISOString().slice(0, 10),
-      reference: pmt.reference ?? '',
-      amount: Number(pmt.amount).toFixed(2),
-    }));
-  }
 
   async getReportTimeToGetPaid(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
@@ -7373,38 +7158,6 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getReportRefundHistory(companyId: number, start: Date, end: Date, branchId?: number) {
-    const creditNotes = await db
-      .select()
-      .from(invoices)
-      .leftJoin(customers, eq(invoices.customerId, customers.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        eq(invoices.transactionType, 'CreditNote')
-      ));
-
-    const relatedIds = creditNotes
-      .map(r => r.invoices.relatedInvoiceId)
-      .filter((id): id is number => id != null);
-
-    const relatedInvoices = relatedIds.length > 0
-      ? await db.select().from(invoices).where(inArray(invoices.id, relatedIds))
-      : [];
-
-    const relatedMap = new Map(relatedInvoices.map(inv => [inv.id, inv.invoiceNumber]));
-
-    return creditNotes.map(({ invoices: inv, customers: cust }) => ({
-      invoiceId: inv.id,
-      invoiceNumber: inv.invoiceNumber,
-      customerName: cust?.name ?? 'Unknown',
-      issueDate: inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : '',
-      amount: Number(inv.total).toFixed(2),
-      relatedInvoiceNumber: inv.relatedInvoiceId ? (relatedMap.get(inv.relatedInvoiceId) ?? null) : null,
-    }));
-  }
 
   async getReportWithholdingTax(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
@@ -7502,83 +7255,8 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportExpensesByCustomer(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(expenses)
-      .leftJoin(suppliers, eq(expenses.supplierId, suppliers.id))
-      .where(and(
-        eq(expenses.companyId, companyId),
-        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
-        gte(expenses.expenseDate, start),
-        lte(expenses.expenseDate, end)
-      ));
 
-    const bySupplier = new Map<string, { supplierId: number | null; supplierName: string; total: number; count: number }>();
-    for (const { expenses: exp, suppliers: sup } of rows) {
-      const key = sup ? String(sup.id) : 'no-supplier';
-      const existing = bySupplier.get(key) ?? { supplierId: sup?.id ?? null, supplierName: sup?.name ?? 'No Supplier', total: 0, count: 0 };
-      existing.total += Number(exp.amount);
-      existing.count += 1;
-      bySupplier.set(key, existing);
-    }
 
-    return Array.from(bySupplier.values()).map(v => ({
-      supplierId: v.supplierId,
-      supplierName: v.supplierName,
-      total: v.total.toFixed(2),
-      count: v.count,
-    }));
-  }
-
-  async getReportExpensesByProject(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(expenses)
-      .where(and(
-        eq(expenses.companyId, companyId),
-        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
-        gte(expenses.expenseDate, start),
-        lte(expenses.expenseDate, end)
-      ));
-
-    const byProject = new Map<string, { total: number; count: number }>();
-    for (const exp of rows) {
-      const project = exp.notes ?? 'Unassigned';
-      const existing = byProject.get(project) ?? { total: 0, count: 0 };
-      existing.total += Number(exp.amount);
-      existing.count += 1;
-      byProject.set(project, existing);
-    }
-
-    return Array.from(byProject.entries()).map(([project, v]) => ({
-      project,
-      total: v.total.toFixed(2),
-      count: v.count,
-    }));
-  }
-
-  async getReportBillableExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number) {
-    const rows = await db
-      .select()
-      .from(expenses)
-      .where(and(
-        eq(expenses.companyId, companyId),
-        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
-        gte(expenses.expenseDate, start),
-        lte(expenses.expenseDate, end),
-        eq(expenses.status, 'pending')
-      ));
-
-    return rows.map(exp => ({
-      expenseId: exp.id,
-      expenseDate: exp.expenseDate.toISOString().slice(0, 10),
-      category: exp.category,
-      description: exp.description,
-      amount: Number(exp.amount).toFixed(2),
-      status: exp.status ?? 'pending',
-    }));
-  }
 
   async getReportTaxSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     // Output tax from invoices grouped by tax type
@@ -7656,37 +7334,6 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getHourlySalesDistribution(companyId: number, startDate: Date, endDate: Date): Promise<{ hour: number; count: number; total: number }[]> {
-    const periodInvoices = await db.select()
-      .from(invoices)
-      .where(and(
-        eq(invoices.companyId, companyId),
-        gte(invoices.issueDate, startDate),
-        lte(invoices.issueDate, endDate),
-        ne(invoices.status, "draft"),
-        ne(invoices.status, "cancelled")
-      ));
-
-    const distribution: Record<number, { count: number; total: number }> = {};
-    for (let i = 0; i < 24; i++) {
-      distribution[i] = { count: 0, total: 0 };
-    }
-
-    periodInvoices.forEach(inv => {
-      const date = inv.issueDate ? new Date(inv.issueDate) : new Date();
-      const hour = date.getHours();
-      const amount = Number(inv.total);
-
-      distribution[hour].count++;
-      distribution[hour].total += amount;
-    });
-
-    return Object.entries(distribution).map(([hour, data]) => ({
-      hour: parseInt(hour),
-      count: data.count,
-      total: data.total
-    }));
-  }
 
   async getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency: Record<string, number> }> {
     const periodInvoices = await db.select()
@@ -7971,138 +7618,6 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportAutoSparesDailySales(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const saleRows = await db.select()
-      .from(invoices)
-      .where(and(
-        eq(invoices.companyId, companyId),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.status, "draft"),
-        ne(invoices.status, "quote")
-      ));
-
-    const invoiceIds = saleRows.map(inv => inv.id);
-    const paymentRows = invoiceIds.length
-      ? await db.select().from(payments).where(inArray(payments.invoiceId, invoiceIds))
-      : [];
-
-    const paymentsByInvoice = new Map<number, typeof paymentRows>();
-    for (const pmt of paymentRows) {
-      if (pmt.invoiceId) {
-        const list = paymentsByInvoice.get(pmt.invoiceId) || [];
-        list.push(pmt);
-        paymentsByInvoice.set(pmt.invoiceId, list);
-      }
-    }
-
-    const byDate = new Map<string, any>();
-    const classifyPayment = (method?: string | null) => {
-      const value = (method || "CASH").toLowerCase();
-      if (value.includes("card") || value.includes("visa") || value.includes("master")) return "card";
-      if (value.includes("mobile") || value.includes("eco") || value.includes("innbucks") || value.includes("wallet")) return "mobileMoney";
-      if (value.includes("cash")) return "cash";
-      return "other";
-    };
-
-    for (const inv of saleRows) {
-      const date = inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : "unknown";
-      const existing = byDate.get(date) || {
-        date,
-        invoiceCount: 0,
-        returnCount: 0,
-        totalSales: 0,
-        returns: 0,
-        cash: 0,
-        card: 0,
-        mobileMoney: 0,
-        other: 0,
-        netSales: 0,
-      };
-
-      const total = Number(inv.total || 0);
-      const isReturn = inv.transactionType === "CreditNote" || inv.status === "cancelled";
-      if (isReturn) {
-        existing.returnCount += 1;
-        existing.returns += Math.abs(total);
-      } else {
-        existing.invoiceCount += 1;
-        existing.totalSales += total;
-      }
-
-      const invoicePayments = paymentsByInvoice.get(inv.id) || [];
-      if (invoicePayments.length > 0) {
-        for (const pmt of invoicePayments) {
-          const bucket = classifyPayment(pmt.paymentMethod);
-          existing[bucket] += Number(pmt.amount || 0);
-        }
-      } else if (!isReturn) {
-        const bucket = classifyPayment(inv.paymentMethod);
-        existing[bucket] += total;
-      }
-
-      existing.netSales = existing.totalSales - existing.returns;
-      byDate.set(date, existing);
-    }
-
-    return Array.from(byDate.values())
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(row => ({
-        ...row,
-        totalSales: row.totalSales.toFixed(2),
-        returns: row.returns.toFixed(2),
-        cash: row.cash.toFixed(2),
-        card: row.card.toFixed(2),
-        mobileMoney: row.mobileMoney.toFixed(2),
-        other: row.other.toFixed(2),
-        netSales: row.netSales.toFixed(2),
-      }));
-  }
-
-  async getReportTopSellingParts(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const rows = await db.select({
-      item: invoiceItems,
-      invoice: invoices,
-      product: products,
-    })
-      .from(invoiceItems)
-      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
-      .leftJoin(products, eq(invoiceItems.productId, products.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, "CreditNote"),
-        ne(invoices.status, "cancelled"),
-        ne(invoices.status, "draft")
-      ));
-
-    const byPart = new Map<string, any>();
-    for (const row of rows) {
-      const key = row.item.productId ? `product:${row.item.productId}` : `desc:${row.item.description}`;
-      const existing = byPart.get(key) || {
-        productId: row.item.productId,
-        part: row.product?.name || row.item.description,
-        sku: row.product?.sku || null,
-        category: row.product?.category || "Uncategorized",
-        brand: row.product?.brandName || null,
-        quantitySold: 0,
-        revenue: 0,
-      };
-      existing.quantitySold += Number(row.item.quantity || 0);
-      existing.revenue += Number(row.item.lineTotal || 0);
-      byPart.set(key, existing);
-    }
-
-    return Array.from(byPart.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .map(row => ({
-        ...row,
-        quantitySold: row.quantitySold.toFixed(2),
-        revenue: row.revenue.toFixed(2),
-      }));
-  }
-
   async getReportDeadStock(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const productRows = await db.select().from(products).where(eq(products.companyId, companyId));
     const salesRows = await db.select({
@@ -8235,384 +7750,6 @@ export class DatabaseStorage implements IStorage {
         grossProfit: row.grossProfit.toFixed(2),
         marginPercent: row.marginPercent.toFixed(2),
       }));
-  }
-
-  async getReportSupplierPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const poRows = await db.select({
-      po: purchaseOrders,
-      supplier: suppliers,
-    })
-      .from(purchaseOrders)
-      .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
-      .where(and(eq(purchaseOrders.companyId, companyId), gte(purchaseOrders.createdAt, start), lte(purchaseOrders.createdAt, end)));
-
-    const stockRows = await db.select({
-      supplierId: inventoryTransactions.supplierId,
-      supplierName: suppliers.name,
-      quantity: inventoryTransactions.quantity,
-      totalCost: inventoryTransactions.totalCost,
-      unitCost: inventoryTransactions.unitCost,
-    })
-      .from(inventoryTransactions)
-      .leftJoin(suppliers, eq(inventoryTransactions.supplierId, suppliers.id))
-      .where(and(
-        eq(inventoryTransactions.companyId, companyId),
-        eq(inventoryTransactions.type, "STOCK_IN"),
-        gte(inventoryTransactions.createdAt, start),
-        lte(inventoryTransactions.createdAt, end)
-      ));
-
-    const claimRows = await db.select({
-      supplierId: productSerialNumbers.supplierId,
-      supplierName: suppliers.name,
-      claimId: warrantyClaims.id,
-    })
-      .from(warrantyClaims)
-      .leftJoin(productSerialNumbers, eq(warrantyClaims.serialNumberId, productSerialNumbers.id))
-      .leftJoin(suppliers, eq(productSerialNumbers.supplierId, suppliers.id))
-      .where(and(eq(warrantyClaims.companyId, companyId), gte(warrantyClaims.receivedAt, start), lte(warrantyClaims.receivedAt, end)));
-
-    const bySupplier = new Map<string, any>();
-    const ensure = (supplierId: number | null | undefined, supplierName: string | null | undefined) => {
-      const key = supplierId ? String(supplierId) : supplierName || "No Supplier";
-      const existing = bySupplier.get(key) || {
-        supplierId: supplierId || null,
-        supplierName: supplierName || "No Supplier",
-        purchaseOrders: 0,
-        receivedOrders: 0,
-        lateOrders: 0,
-        quantityReceived: 0,
-        purchaseValue: 0,
-        minUnitCost: null as number | null,
-        maxUnitCost: null as number | null,
-        warrantyReturns: 0,
-      };
-      bySupplier.set(key, existing);
-      return existing;
-    };
-
-    for (const row of poRows) {
-      const supplier = ensure(row.po.supplierId, row.supplier?.name);
-      supplier.purchaseOrders += 1;
-      if (row.po.status === "RECEIVED") supplier.receivedOrders += 1;
-      if (row.po.status === "RECEIVED" && row.po.expectedDate && row.po.updatedAt && new Date(row.po.updatedAt) > new Date(row.po.expectedDate)) {
-        supplier.lateOrders += 1;
-      }
-    }
-
-    for (const row of stockRows) {
-      const supplier = ensure(row.supplierId, row.supplierName);
-      const unitCost = Number(row.unitCost || 0);
-      supplier.quantityReceived += Number(row.quantity || 0);
-      supplier.purchaseValue += Number(row.totalCost || 0);
-      supplier.minUnitCost = supplier.minUnitCost === null ? unitCost : Math.min(supplier.minUnitCost, unitCost);
-      supplier.maxUnitCost = supplier.maxUnitCost === null ? unitCost : Math.max(supplier.maxUnitCost, unitCost);
-    }
-
-    for (const row of claimRows) {
-      ensure(row.supplierId, row.supplierName).warrantyReturns += 1;
-    }
-
-    return Array.from(bySupplier.values()).map(row => ({
-      ...row,
-      onTimeRate: row.receivedOrders > 0 ? (((row.receivedOrders - row.lateOrders) / row.receivedOrders) * 100).toFixed(2) : "0.00",
-      quantityReceived: row.quantityReceived.toFixed(2),
-      purchaseValue: row.purchaseValue.toFixed(2),
-      priceRange: row.minUnitCost === null ? "N/A" : `${row.minUnitCost.toFixed(2)} - ${row.maxUnitCost.toFixed(2)}`,
-    })).sort((a, b) => Number(b.purchaseValue) - Number(a.purchaseValue));
-  }
-
-  async getReportCustomerCredit(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const rows = await db.select({
-      invoice: invoices,
-      customer: customers,
-      payment: payments,
-    })
-      .from(invoices)
-      .leftJoin(customers, eq(invoices.customerId, customers.id))
-      .leftJoin(payments, eq(payments.invoiceId, invoices.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, "CreditNote"),
-        ne(invoices.status, "cancelled"),
-        ne(invoices.status, "draft")
-      ));
-
-    const paidByInvoice = new Map<number, number>();
-    for (const row of rows) {
-      if (row.payment) paidByInvoice.set(row.invoice.id, (paidByInvoice.get(row.invoice.id) || 0) + Number(row.payment.amount || 0));
-    }
-
-    const byCustomer = new Map<number, any>();
-    const seenInvoices = new Set<number>();
-    for (const row of rows) {
-      if (seenInvoices.has(row.invoice.id)) continue;
-      seenInvoices.add(row.invoice.id);
-      const paid = paidByInvoice.get(row.invoice.id) || 0;
-      const total = Number(row.invoice.total || 0);
-      const balance = Math.max(0, total - paid);
-      const daysOverdue = row.invoice.dueDate ? Math.max(0, Math.floor((end.getTime() - new Date(row.invoice.dueDate).getTime()) / 86400000)) : 0;
-      const existing = byCustomer.get(row.invoice.customerId) || {
-        customerId: row.invoice.customerId,
-        customerName: row.customer?.name || row.invoice.customerName || "Walk-in Customer",
-        invoices: 0,
-        totalInvoiced: 0,
-        totalPaid: 0,
-        balance: 0,
-        overdueInvoices: 0,
-        overdueBalance: 0,
-        lastPaymentAt: null as string | null,
-      };
-      existing.invoices += 1;
-      existing.totalInvoiced += total;
-      existing.totalPaid += paid;
-      existing.balance += balance;
-      if (balance > 0 && daysOverdue > 0) {
-        existing.overdueInvoices += 1;
-        existing.overdueBalance += balance;
-      }
-      byCustomer.set(row.invoice.customerId, existing);
-    }
-
-    for (const row of rows) {
-      if (!row.payment) continue;
-      const existing = byCustomer.get(row.invoice.customerId);
-      const paidAt = row.payment.paymentDate?.toISOString().slice(0, 10) || null;
-      if (existing && paidAt && (!existing.lastPaymentAt || paidAt > existing.lastPaymentAt)) {
-        existing.lastPaymentAt = paidAt;
-      }
-    }
-
-    return Array.from(byCustomer.values()).map(row => ({
-      ...row,
-      totalInvoiced: row.totalInvoiced.toFixed(2),
-      totalPaid: row.totalPaid.toFixed(2),
-      balance: row.balance.toFixed(2),
-      overdueBalance: row.overdueBalance.toFixed(2),
-      lastPaymentAt: row.lastPaymentAt || "No payments",
-    })).sort((a, b) => Number(b.balance) - Number(a.balance));
-  }
-
-  async getReportSalespersonPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const rows = await db.select({
-      invoice: invoices,
-      item: invoiceItems,
-      userName: users.name,
-      username: users.username,
-      userEmail: users.email,
-    })
-      .from(invoices)
-      .leftJoin(invoiceItems, eq(invoiceItems.invoiceId, invoices.id))
-      .leftJoin(users, eq(invoices.createdBy, users.id))
-      .where(and(eq(invoices.companyId, companyId), gte(invoices.issueDate, start), lte(invoices.issueDate, end), ne(invoices.status, "draft")));
-
-    const byUser = new Map<string, any>();
-    const seenInvoicesByUser = new Set<string>();
-    for (const row of rows) {
-      const userId = row.invoice.createdBy || "system";
-      const existing = byUser.get(userId) || {
-        userId,
-        userName: row.userName || row.username || row.userEmail || "System",
-        invoices: 0,
-        returns: 0,
-        revenue: 0,
-        discounts: 0,
-        cogs: 0,
-        profit: 0,
-      };
-
-      const invoiceKey = `${userId}:${row.invoice.id}`;
-      if (!seenInvoicesByUser.has(invoiceKey)) {
-        seenInvoicesByUser.add(invoiceKey);
-        if (row.invoice.transactionType === "CreditNote" || row.invoice.status === "cancelled") {
-          existing.returns += Math.abs(Number(row.invoice.total || 0));
-        } else {
-          existing.invoices += 1;
-          existing.revenue += Number(row.invoice.total || 0);
-          existing.discounts += Number(row.invoice.discountAmount || 0);
-        }
-      }
-      if (row.item && row.invoice.transactionType !== "CreditNote" && row.invoice.status !== "cancelled") {
-        existing.cogs += Number(row.item.cogsAmount || 0);
-      }
-      existing.profit = existing.revenue - existing.cogs;
-      byUser.set(userId, existing);
-    }
-
-    return Array.from(byUser.values()).map(row => ({
-      ...row,
-      revenue: row.revenue.toFixed(2),
-      profit: row.profit.toFixed(2),
-      discounts: row.discounts.toFixed(2),
-      returns: row.returns.toFixed(2),
-      marginPercent: row.revenue > 0 ? ((row.profit / row.revenue) * 100).toFixed(2) : "0.00",
-    })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
-  }
-
-  async getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const rows = await db.select({
-      item: invoiceItems,
-      invoice: invoices,
-      product: products,
-    })
-      .from(invoiceItems)
-      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
-      .leftJoin(products, eq(invoiceItems.productId, products.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, "CreditNote"),
-        ne(invoices.status, "cancelled"),
-        ne(invoices.status, "draft")
-      ));
-
-    const buckets = new Map<string, any>();
-    const add = (type: string, name: string, qty: number, revenue: number) => {
-      const key = `${type}:${name}`;
-      const existing = buckets.get(key) || { type, name, quantitySold: 0, revenue: 0, lineCount: 0 };
-      existing.quantitySold += qty;
-      existing.revenue += revenue;
-      existing.lineCount += 1;
-      buckets.set(key, existing);
-    };
-
-    for (const row of rows) {
-      add("Category", row.product?.category || "Uncategorized", Number(row.item.quantity || 0), Number(row.item.lineTotal || 0));
-      add("Brand", row.product?.brandName || "No Brand", Number(row.item.quantity || 0), Number(row.item.lineTotal || 0));
-    }
-
-    return Array.from(buckets.values()).map(row => ({
-      ...row,
-      quantitySold: row.quantitySold.toFixed(2),
-      revenue: row.revenue.toFixed(2),
-    })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
-  }
-
-  async getReportReturnWarranty(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const creditNotes = await db.select({
-      invoice: invoices,
-      customer: customers,
-    })
-      .from(invoices)
-      .leftJoin(customers, eq(invoices.customerId, customers.id))
-      .where(and(eq(invoices.companyId, companyId), gte(invoices.issueDate, start), lte(invoices.issueDate, end), eq(invoices.transactionType, "CreditNote")));
-
-    const claims = await db.select({
-      claim: warrantyClaims,
-      product: products,
-      customer: customers,
-    })
-      .from(warrantyClaims)
-      .leftJoin(products, eq(warrantyClaims.productId, products.id))
-      .leftJoin(customers, eq(warrantyClaims.customerId, customers.id))
-      .where(and(eq(warrantyClaims.companyId, companyId), gte(warrantyClaims.receivedAt, start), lte(warrantyClaims.receivedAt, end)));
-
-    const rows = [
-      ...creditNotes.map(row => ({
-        type: "Return",
-        reference: row.invoice.invoiceNumber,
-        date: row.invoice.issueDate?.toISOString().slice(0, 10) || "",
-        customerName: row.customer?.name || row.invoice.customerName || "Walk-in Customer",
-        part: "Credit note",
-        reason: row.invoice.notes || "Returned sale",
-        status: row.invoice.status || "issued",
-        amount: Number(row.invoice.total || 0).toFixed(2),
-      })),
-      ...claims.map(row => ({
-        type: "Warranty",
-        reference: row.claim.claimNumber,
-        date: row.claim.receivedAt?.toISOString().slice(0, 10) || "",
-        customerName: row.customer?.name || "Unknown",
-        part: row.product?.name || `Product #${row.claim.productId}`,
-        reason: row.claim.reason,
-        status: row.claim.status,
-        amount: "0.00",
-      })),
-    ];
-
-    return rows.sort((a, b) => b.date.localeCompare(a.date));
-  }
-
-  async getReportReorderSuggestions(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const productRows = await db.select().from(products).where(and(eq(products.companyId, companyId), eq(products.isTracked, true)));
-    const salesRows = await db.select({
-      productId: invoiceItems.productId,
-      quantity: invoiceItems.quantity,
-    })
-      .from(invoiceItems)
-      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        gte(invoices.issueDate, start),
-        lte(invoices.issueDate, end),
-        ne(invoices.transactionType, "CreditNote"),
-        ne(invoices.status, "cancelled"),
-        ne(invoices.status, "draft")
-      ));
-
-    const soldByProduct = new Map<number, number>();
-    for (const row of salesRows) {
-      if (!row.productId) continue;
-      soldByProduct.set(row.productId, (soldByProduct.get(row.productId) || 0) + Number(row.quantity || 0));
-    }
-
-    const periodDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-    const coverDays = 30;
-    return productRows.map(product => {
-      const sold = soldByProduct.get(product.id) || 0;
-      const dailyVelocity = sold / periodDays;
-      const stockLevel = Number(product.stockLevel || 0);
-      const lowStockThreshold = Number(product.lowStockThreshold || 0);
-      const suggestedQty = Math.max(0, Math.ceil((dailyVelocity * coverDays + lowStockThreshold) - stockLevel));
-      return {
-        productId: product.id,
-        part: product.name,
-        sku: product.sku,
-        category: product.category || "Uncategorized",
-        stockLevel: stockLevel.toFixed(2),
-        lowStockThreshold: lowStockThreshold.toFixed(2),
-        soldInPeriod: sold.toFixed(2),
-        dailyVelocity: dailyVelocity.toFixed(2),
-        suggestedQty,
-        estimatedCost: (suggestedQty * Number(product.costPrice || 0)).toFixed(2),
-      };
-    }).filter(row => row.suggestedQty > 0).sort((a, b) => b.suggestedQty - a.suggestedQty);
-  }
-
-  async getReportPriceChanges(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
-    const rows = await db.select({
-      adjustment: priceAdjustments,
-      product: products,
-      userName: users.name,
-      username: users.username,
-      userEmail: users.email,
-    })
-      .from(priceAdjustments)
-      .innerJoin(products, eq(priceAdjustments.productId, products.id))
-      .leftJoin(users, eq(priceAdjustments.createdBy, users.id))
-      .where(and(eq(priceAdjustments.companyId, companyId), gte(priceAdjustments.createdAt, start), lte(priceAdjustments.createdAt, end)))
-      .orderBy(desc(priceAdjustments.createdAt));
-
-    return rows.map(row => {
-      const oldPrice = Number(row.adjustment.oldPrice || 0);
-      const newPrice = Number(row.adjustment.newPrice || 0);
-      const change = newPrice - oldPrice;
-      return {
-        adjustmentId: row.adjustment.id,
-        date: row.adjustment.createdAt?.toISOString().slice(0, 10) || "",
-        part: row.product.name,
-        sku: row.product.sku,
-        category: row.product.category || "Uncategorized",
-        oldPrice: oldPrice.toFixed(2),
-        newPrice: newPrice.toFixed(2),
-        change: change.toFixed(2),
-        changePercent: oldPrice > 0 ? ((change / oldPrice) * 100).toFixed(2) : "0.00",
-        reason: row.adjustment.reason || "",
-        changedBy: row.userName || row.username || row.userEmail || "System",
-      };
-    });
   }
 
   // Stock Takes Implementation
@@ -8978,8 +8115,9 @@ export class DatabaseStorage implements IStorage {
     return account;
   }
 
-  async getAccountById(id: number): Promise<Account | undefined> {
-    const [account] = await db.select().from(accounts).where(eq(accounts.id, id));
+  async getAccountById(companyId: number, id: number): Promise<Account | undefined> {
+    const [account] = await db.select().from(accounts)
+      .where(and(eq(accounts.id, id), eq(accounts.companyId, companyId)));
     return account;
   }
 
@@ -9271,8 +8409,14 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async createJournalEntryDraft(companyId: number, data: InsertJournalEntryDraft & { lines: LedgerPostLine[] }): Promise<any> {
-    return await db.transaction(async (tx) => {
+  async createJournalEntryDraft(
+    companyId: number,
+    data: InsertJournalEntryDraft & { lines: LedgerPostLine[] },
+    externalTx?: any
+  ): Promise<any> {
+    // Callers that are already inside a transaction (payroll lock, POS posting)
+    // pass their tx so the draft and their own writes commit or roll back as one.
+    const run = async (tx: any) => {
       const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, tx);
       this.assertBalancedLedgerLines(normalizedLines);
       await this.checkControlAccounts(companyId, normalizedLines, data.referenceType || "JOURNAL", tx);
@@ -9315,7 +8459,10 @@ export class DatabaseStorage implements IStorage {
           segmentId: line.segmentId ?? null,
         })),
       };
-    });
+    };
+
+    if (externalTx) return run(externalTx);
+    return db.transaction(run);
   }
 
   async postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry> {

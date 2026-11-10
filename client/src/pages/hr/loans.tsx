@@ -15,20 +15,31 @@ import { Plus, Banknote, Landmark, Loader2 } from "lucide-react";
 import { HRLayout } from "./layout";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
+import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
+import { currencySign, formatMoney } from "@shared/currency";
 
 export default function LoansAdvances() {
-  const { activeCompanyId: companyId } = useActiveCompany();
+  const { user } = useAuth();
+  const { activeCompanyId: companyId, activeCompany } = useActiveCompany(!!user, user?.id ?? null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { can } = usePermissions();
+  const canIssue = can("payroll.write");
+  const canApprove = can("payroll.approve");
+  // Loans are repaid through the payslip, so they are held in the currency the
+  // company books in - not a dollar assumed by this page.
+  const currency = String(activeCompany?.currency || "USD");
+  const sign = currencySign(currency);
+  const money = (value: unknown) => formatMoney(value, currency);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     employeeId: "",
     type: "LOAN",
     principalAmount: "",
     monthlyRepaymentAmount: "",
     issueDate: new Date().toISOString().slice(0, 10),
-    notes: ""
   });
 
   const { data: loans = [], isLoading } = useQuery<any[]>({
@@ -41,19 +52,28 @@ export default function LoansAdvances() {
     enabled: !!companyId,
   });
 
+  // Balances arrive as decimal strings, so the book is totalled in cents.
+  const totalOutstanding = loans
+    .filter((l: any) => l.status === "ACTIVE")
+    .reduce((cents: number, l: any) => cents + Math.round(Number(l.remainingBalance || 0) * 100), 0) / 100;
+
   const createLoanMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      // Calculate repayment term dynamically
-      const principal = parseFloat(data.principalAmount);
-      const monthly = parseFloat(data.monthlyRepaymentAmount);
-      const months = Math.ceil(principal / monthly);
-      
+      // Repayments dock whole amounts per payslip, so the term is principal over
+      // the monthly figure - and an empty or zero deduction would divide by
+      // nothing and post Infinity into an integer column.
+      const principal = Number(data.principalAmount) || 0;
+      const monthly = Number(data.monthlyRepaymentAmount) || 0;
+      if (!(principal > 0)) throw new Error("Enter an amount greater than zero.");
+      if (monthly > principal) throw new Error("The monthly deduction cannot exceed the amount being issued.");
+      const months = monthly > 0 ? Math.max(1, Math.ceil(principal / monthly)) : 1;
+
       const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/loans`, {
         employeeId: Number(data.employeeId),
         loanType: data.type,
         principalAmount: data.principalAmount,
         monthlyRepaymentAmount: data.monthlyRepaymentAmount,
-        repaymentTermMonths: months || 1,
+        repaymentTermMonths: months,
       });
       return res.json();
     },
@@ -66,7 +86,6 @@ export default function LoansAdvances() {
         principalAmount: "",
         monthlyRepaymentAmount: "",
         issueDate: new Date().toISOString().slice(0, 10),
-        notes: ""
       });
       toast({ title: "Loan/Advance created successfully" });
     },
@@ -104,9 +123,11 @@ export default function LoansAdvances() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Loans & Advances</h1>
           <p className="text-sm text-slate-500">Manage employee loans and salary advances</p>
         </div>
-        <Button onClick={() => setIsModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
-          <Plus className="mr-2 h-4 w-4" /> Issue Loan / Advance
-        </Button>
+        {canIssue && (
+          <Button onClick={() => setIsModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Plus className="mr-2 h-4 w-4" /> Issue Loan / Advance
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -144,7 +165,7 @@ export default function LoansAdvances() {
             <div>
               <p className="text-sm font-medium text-slate-500">Total Outstanding</p>
               <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                $ {loans.filter((l: any) => l.status === "ACTIVE").reduce((sum: number, l: any) => sum + Number(l.remainingBalance), 0).toFixed(2)}
+                {money(totalOutstanding)}
               </h3>
             </div>
           </CardContent>
@@ -196,10 +217,10 @@ export default function LoansAdvances() {
                             {loan.loanType}
                           </Badge>
                         </TableCell>
-                        <TableCell>$ {Number(loan.principalAmount).toFixed(2)}</TableCell>
-                        <TableCell>$ {Number(loan.monthlyRepaymentAmount).toFixed(2)}</TableCell>
+                        <TableCell>{money(loan.principalAmount)}</TableCell>
+                        <TableCell>{money(loan.monthlyRepaymentAmount)}</TableCell>
                         <TableCell className="font-semibold">
-                          $ {Number(loan.remainingBalance).toFixed(2)}
+                          {money(loan.remainingBalance)}
                         </TableCell>
                         <TableCell>
                           <Badge className={loan.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-700"}>
@@ -207,7 +228,7 @@ export default function LoansAdvances() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {loan.status === "PENDING" && (
+                          {loan.status === "PENDING" && canApprove && (
                             <Button 
                               size="sm" 
                               variant="outline" 
@@ -273,18 +294,14 @@ export default function LoansAdvances() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Principal Amount ($)</Label>
-                <Input type="number" step="0.01" required value={formData.principalAmount} onChange={(e) => setFormData({...formData, principalAmount: e.target.value})} />
+                <Label>Principal Amount ({sign})</Label>
+                <Input type="number" step="0.01" min="0.01" required value={formData.principalAmount} onChange={(e) => setFormData({...formData, principalAmount: e.target.value})} />
               </div>
               <div className="space-y-2">
-                <Label>Monthly Deduction ($)</Label>
-                <Input type="number" step="0.01" required value={formData.monthlyRepaymentAmount} onChange={(e) => setFormData({...formData, monthlyRepaymentAmount: e.target.value})} />
+                <Label>Monthly Deduction ({sign})</Label>
+                <Input type="number" step="0.01" min="0" required value={formData.monthlyRepaymentAmount} onChange={(e) => setFormData({...formData, monthlyRepaymentAmount: e.target.value})} />
                 <p className="text-xs text-slate-500">Amount docked per payslip</p>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Input placeholder="Reason or reference..." value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} />
             </div>
             <div className="flex justify-end gap-2 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/media";
 import { useToast } from "@/hooks/use-toast";
 import { usePartners, usePartnershipSettings, useSavePartnershipSettings } from "@/hooks/use-partners";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,7 +137,7 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
                 <div key={partner.id} className="flex items-center justify-between rounded-[12px] border border-slate-200 p-4">
                   <div className="flex items-center gap-3">
                     {partner.logoUrl ? (
-                      <img src={partner.logoUrl} alt={partner.name} className="h-10 w-20 object-contain" />
+                      <img src={resolveMediaUrl(partner.logoUrl)} alt={partner.name} className="h-10 w-20 object-contain" />
                     ) : (
                       <div className="flex h-10 w-20 items-center justify-center rounded bg-slate-100 text-xs text-slate-500">No logo</div>
                     )}
@@ -231,7 +232,7 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
               <Label>Logo</Label>
               <div className="flex items-center gap-3">
                 {form.logoUrl && (
-                  <img src={form.logoUrl} alt="Logo" className="h-10 w-20 object-contain rounded border border-slate-200" />
+                  <img src={resolveMediaUrl(form.logoUrl)} alt="Logo" className="h-10 w-20 object-contain rounded border border-slate-200" />
                 )}
                 <Input
                   type="file"

@@ -4,27 +4,51 @@ import { parse } from "csv-parse/sync";
 import { db } from "../../db.js";
 import { 
   branches, employees, employeeContracts, departments, positions, 
-  necSectorsConfig, taxTablesConfig, payrollRuns, payrollRunEmployees,
+  necSectorsConfig, payrollTaxTables, payrollTaxBrackets, payrollRuns, payrollRunEmployees,
   payrollAllowances, payrollDeductions, payrollRecurringItems, leaveRequests, leaveBalances,
   employeeLoans, loanInstallments, tenantIntegrationCredentials,
-  accounts, journalEntryDrafts,
-  journalEntryDraftLines, companyUsers, auditLogs, payrollAttendanceImports,
+  accounts, companyUsers, auditLogs, payrollAttendanceImports,
   employeeDocuments, payslipDocuments, payrollPayGrades,
   payrollEarningTypes, payrollDeductionTypes, payrollStatutoryRules,
   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies,
   employeeSalaryChanges, payrollRemittances,
+  users,
   employeeSalaryHistory, employeeEmploymentHistory,
-  employeeIncomeHistory, employeeDeductionHistory
+  employeeIncomeHistory, employeeDeductionHistory, payrollCompanySettings
 } from "../../../shared/schema.js";
-import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull } from "drizzle-orm";
+import { taxYearTotalsByEmployee, taxTableLabels, labelForSnapshot } from "../../lib/payslip-evidence.js";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
+import { validateBrackets, canonicalizeBrackets } from "../../../shared/statutory/brackets.js";
+import { ZIMBABWE_STATUTORY_DEFAULTS, isTaxTableStale } from "../../../shared/statutory/zimbabwe.js";
+import { jurisdictionForCountry, jurisdictionLevies, missingRequiredRules, supportsCurrency, STATUTORY_RULE_CODES, type PayrollJurisdiction } from "../../../shared/statutory/jurisdictions.js";
+import {
+  EMPLOYEE_DOCUMENT_TYPES,
+  isKnownDocumentType,
+  documentExpiryState,
+  staffFileStatus,
+  EXPIRY_TRACKED_TYPES,
+  nextStaffNumber,
+} from "../../../shared/staff-file.js";
+import { displayCurrency } from "../../../shared/currency.js";
 import { computeProration, blendSalary, prorateAmount } from "../../../shared/proration.js";
 import { reportService } from "../../services/reportService.js";
+import { storage } from "../../storage.js";
+import {
+  buildPayrollJournal,
+  reversePayrollJournal,
+  PAYROLL_JOURNAL_ACCOUNT_KEYS,
+  type PayrollJournalAccountKey,
+} from "../../lib/payroll-journal.js";
 import { logAction } from "../../audit.js";
 import { sendPayslipEmail } from "../../email.js";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
 import { userHasPermission } from "../../lib/permissions.js";
+import sopRouter from "./payroll-sop.js";
 
 const router = Router({ mergeParams: true });
 
@@ -50,17 +74,17 @@ function encrypt(text: string): string {
 }
 
 // Helper to resolve company context from session/API headers
-function getTargetCompanyId(req: any): number {
+export function getTargetCompanyId(req: any): number {
   if (req.company?.id) return req.company.id;
   if (req.params.companyId) return parseInt(req.params.companyId, 10);
   throw new Error("Missing company context");
 }
 
-const PAYROLL_READ_ROLES = new Set(["owner", "admin", "finance_director", "hr_manager", "payroll_clerk"]);
-const PAYROLL_WRITE_ROLES = new Set(["owner", "admin", "finance_director", "hr_manager", "payroll_clerk"]);
-const PAYROLL_APPROVAL_ROLES = new Set(["owner", "admin", "finance_director"]);
+export const PAYROLL_READ_ROLES = new Set(["owner", "admin", "finance_director", "hr_manager", "payroll_clerk"]);
+export const PAYROLL_WRITE_ROLES = new Set(["owner", "admin", "finance_director", "hr_manager", "payroll_clerk"]);
+export const PAYROLL_APPROVAL_ROLES = new Set(["owner", "admin", "finance_director"]);
 
-async function resolvePayrollRole(req: any, companyId: number): Promise<string | null> {
+export async function resolvePayrollRole(req: any, companyId: number): Promise<string | null> {
   if (req.user?.isSuperAdmin) return "owner";
   const userId = req.user?.id;
   if (!userId) return null;
@@ -125,7 +149,7 @@ router.get("/self-service", async (req, res) => {
         })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -138,7 +162,7 @@ router.post("/self-service/leave", async (req, res) => {
     reason: z.string().min(1),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -197,7 +221,7 @@ router.post("/self-service/leave", async (req, res) => {
     });
     res.status(201).json(request);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -230,7 +254,7 @@ router.delete("/self-service/leave/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -243,7 +267,7 @@ router.put("/self-service/profile", async (req, res) => {
     emergencyContactPhone: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -269,7 +293,7 @@ router.put("/self-service/profile", async (req, res) => {
     });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -301,14 +325,23 @@ router.get("/self-service/payslip/:runId", async (req, res) => {
       .limit(1);
     if (!line) return res.status(404).json({ error: "NOT_FOUND", message: "No payslip for this employee in that run" });
 
-    const pdfData = await reportService.generatePayslip(emp.id, run.periodStart.slice(0, 7), runId);
+    const pdfData = await reportService.generatePayslip(companyId, emp.id, run.periodStart.slice(0, 7), runId);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="payslip_${run.periodStart.slice(0, 7)}.pdf"`);
     res.send(Buffer.from(pdfData));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
+
+// --- PROCEDURES (registered BEFORE the payroll.view gate) ---
+//
+// A read-and-sign procedure is aimed at the whole staff, not at the people who can see
+// payroll figures. Behind the gate below, an employee without payroll.view could never
+// list their own outstanding sign-offs or sign one, so the control would only ever work
+// for managers. The router carries its own guards: membership of the company for the
+// reader paths, payroll.view/write/approve for everything else.
+router.use("/sop", sopRouter);
 
 router.use(async (req: any, res, next) => {
   try {
@@ -327,11 +360,11 @@ router.use(async (req: any, res, next) => {
     req.payrollRole = role;
     next();
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
-async function requirePayrollWrite(req: any, res: any, next: any) {
+export async function requirePayrollWrite(req: any, res: any, next: any) {
   try {
     const companyId = getTargetCompanyId(req);
     const userId = req.user?.id;
@@ -343,11 +376,11 @@ async function requirePayrollWrite(req: any, res: any, next: any) {
     }
     next();
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 }
 
-async function requirePayrollApproval(req: any, res: any, next: any) {
+export async function requirePayrollApproval(req: any, res: any, next: any) {
   try {
     const companyId = getTargetCompanyId(req);
     const userId = req.user?.id;
@@ -359,11 +392,11 @@ async function requirePayrollApproval(req: any, res: any, next: any) {
     }
     next();
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 }
 
-async function auditPayroll(req: any, action: string, entityType: string, entityId?: string | number, details?: Record<string, unknown>) {
+export async function auditPayroll(req: any, action: string, entityType: string, entityId?: string | number, details?: Record<string, unknown>) {
   await logAction(
     getTargetCompanyId(req),
     req.user?.id || "system",
@@ -385,13 +418,150 @@ function hashPayload(payload: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function toMoney(value: unknown): number {
+/** pg returns decimal columns as strings; NaN would silently poison a filing. */
+export function toNumber(value: unknown): number {
   const numeric = Number(value || 0);
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function toMoney(value: unknown): number {
+  return toNumber(value);
+}
+
 function moneyString(value: unknown): string {
   return toMoney(value).toFixed(2);
+}
+
+/** A failure this router can describe to the client. Anything else is a 500. */
+class PayrollHttpError extends Error {
+  constructor(public status: number, message: string, public code: string = "PAYROLL_REQUEST_FAILED") {
+    super(message);
+  }
+}
+
+/**
+ * Payslip lines the calculator owns. They are derived from gross pay, so a
+ * clerk cannot key them and an edit to the payslip has to recompute them.
+ */
+const ENGINE_DEDUCTION_TYPES = new Set(["PAYE", "AIDS_LEVY", "NSSA", "NEC", "PENSION"]);
+
+/**
+ * A rejected form has to say which field and why. The raw zod issue list is
+ * still sent for a client that wants to mark the inputs, but the message is what
+ * a clerk reads in a toast.
+ */
+export function respondValidationErrors(res: any, issues: any[]): void {
+  const describe = (issue: any) => `${(issue?.path || []).join(".") || "value"}: ${issue?.message}`;
+  const named = (issues || []).slice(0, 3).map(describe).join("; ");
+  const more = (issues || []).length > 3 ? ` (+${issues.length - 3} more)` : "";
+  res.status(400).json({
+    error: "VALIDATION_ERROR",
+    message: `Check the form - ${named}${more}`,
+    details: issues,
+  });
+}
+
+/**
+ * Failures with a name are the tenant's to fix; the ledger refusing a posting,
+ * a duplicate key or a missing parent row is not a server crash, and a client
+ * cannot branch on a 500 that carries a SQL message.
+ */
+export function respondPayrollError(res: any, err: any): void {
+  if (err instanceof PayrollHttpError) {
+    res.status(err.status).json({ error: err.code, message: err.message });
+    return;
+  }
+  const message = String(err?.message || "Unexpected error");
+  if (/not found for company|out of balance|at least two lines/i.test(message)) {
+    res.status(422).json({ error: "PAYROLL_JOURNAL_REJECTED", message });
+    return;
+  }
+  switch (err?.code) {
+    case "23505": // unique_violation - e.g. two live rules for one period
+      res.status(409).json({ error: "DUPLICATE_RECORD", message: "That record already exists for this period. Adjust the existing one or choose different dates." });
+      return;
+    case "23503": // foreign_key_violation - e.g. an employee id from another tenant
+      res.status(422).json({ error: "RELATED_RECORD_MISSING", message: "The record references something that is not in this company. Reload the list and try again." });
+      return;
+    case "23502": // not_null_violation
+      res.status(400).json({ error: "VALIDATION_ERROR", message: `A required field is missing${err?.column ? `: ${err.column}` : ""}.` });
+      return;
+    default:
+      res.status(500).json({ error: "INTERNAL_ERROR", message });
+  }
+}
+
+/**
+ * snapshotData is jsonb, but rows written before the column was normalised can
+ * arrive as a JSON string. Anything that will not parse reads as empty, so the
+ * caller sees a missing statutory amount instead of a crash.
+ */
+function runSnapshot(value: unknown): Record<string, any> {
+  if (value && typeof value === "object") return value as Record<string, any>;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * Which country's payroll rules a tenant's configuration belongs to. Read from
+ * the company row rather than the deployment, because one instance can host
+ * tenants from both markets.
+ */
+async function payrollJurisdiction(companyId: number): Promise<PayrollJurisdiction> {
+  const [company] = await db.select({ country: companies.country }).from(companies).where(eq(companies.id, companyId));
+  return jurisdictionForCountry(company?.country);
+}
+
+/**
+ * A filing return is only valid where the levy behind it exists. Serving a
+ * Zimbabwe-format return to a tenant whose payroll never charged the levy would
+ * hand it a document to submit with figures no authority is owed, so the request
+ * is refused by name instead.
+ */
+function respondsLevyNotCharged(
+  res: any,
+  jurisdiction: PayrollJurisdiction,
+  label: string,
+  ruleCodes: string[],
+): boolean {
+  if (ruleCodes.some((code) => jurisdictionLevies(jurisdiction, code))) return false;
+  res.status(422).json({
+    error: "REPORT_NOT_APPLICABLE",
+    message: `${label} is not a ${jurisdiction.name} return - ${jurisdiction.name} payroll does not charge ${ruleCodes.join(" or ")}.`,
+  });
+  return true;
+}
+
+/** One rounding rule for money: to the cent, from a float sum. */
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Stored amounts are decimal(15,2), so adding them in cents is exact. Chaining
+ * parseFloat over thousands of payslip lines drifts by rounding, and those sums
+ * end up on ZIMRA returns and on the locked run's totals.
+ */
+function sumMoney(values: Iterable<unknown>): number {
+  let cents = 0;
+  for (const value of values) cents += Math.round(toMoney(value) * 100);
+  return cents / 100;
+}
+
+/** The cents half of sumMoney, for per-employee accumulators that can't be a flat map. */
+function centsOf(value: unknown): number {
+  return Math.round(toMoney(value) * 100);
+}
+
+function centsToMoney(cents: number): number {
+  return cents / 100;
 }
 
 function monthStartIso(date = new Date()): string {
@@ -402,8 +572,35 @@ function monthEndIso(date = new Date()): string {
   return new Date(Date.UTC(date.getFullYear(), date.getMonth() + 1, 0)).toISOString().slice(0, 10);
 }
 
-function todayLocalIso(date = new Date()): string {
+/**
+ * Real calendar bounds for a "yyyy-MM" selector. `${month}-31` is not a date in
+ * February or in the 30-day months, so binding it makes the query fail outright.
+ */
+function monthBoundsIso(month: string): { start: string; end: string } {
+  const start = `${month}-01`;
+  const end = monthEndIso(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1));
+  return { start, end };
+}
+
+function requestedMonth(value: unknown): string | null {
+  if (value == null || value === "") return new Date().toISOString().slice(0, 7);
+  return typeof value === "string" && /^\d{4}-\d{2}$/.test(value) ? value : null;
+}
+
+export function todayLocalIso(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Calendar-safe "today plus n", still in the company's own timezone. */
+export function addDaysIso(fromIso: string, days: number): string {
+  const date = new Date(`${fromIso}T00:00:00`);
+  date.setDate(date.getDate() + (Number.isFinite(days) ? days : 0));
+  return todayLocalIso(date);
+}
+
+/** What the dashboard shows first: a blocker, then a warning, then a cleared check. */
+function severityRank(severity: string): number {
+  return severity === "BLOCK" ? 0 : severity === "WARN" ? 1 : 2;
 }
 
 const IMPORT_TEMPLATES: Record<string, string[]> = {
@@ -547,7 +744,7 @@ function buildReportAuditManifest(reportType: string, runs: any[], lines: any[],
 }
 
 function compareTotals(name: string, left: number, right: number, tolerance = 0.02) {
-  const variance = Number((left - right).toFixed(2));
+  const variance = centsToMoney(centsOf(left) - centsOf(right));
   return {
     name,
     left: Number(left.toFixed(2)),
@@ -592,7 +789,7 @@ async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart
   // the item for the days they were actually employed.
   if (!options?.prorate) return rows;
   return rows.map((item: any) => {
-    const fullAmount = parseFloat(item.amount);
+    const fullAmount = toMoney(item.amount);
     const prorated = prorateAmount(fullAmount, item.startDate, item.endDate, periodStart, periodEnd, {
       basis: options.basis,
     }, { joinDate: options.joinDate, terminationDate: options.terminationDate });
@@ -600,23 +797,54 @@ async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart
   });
 }
 
+// payroll_tax_tables + payroll_tax_brackets are the single source of tax truth.
+// The legacy JSONB table (tax_tables_config) is no longer read by any code path.
+async function loadTaxBrackets(tx: any, taxTableId: number): Promise<TaxBracket[]> {
+  const rows = await tx.select()
+    .from(payrollTaxBrackets)
+    .where(eq(payrollTaxBrackets.taxTableId, taxTableId))
+    .orderBy(asc(payrollTaxBrackets.bracketOrder));
+
+  return rows.map((row: any) => ({
+    min: Number(row.minIncome),
+    max: row.maxIncome === null || row.maxIncome === undefined ? null : Number(row.maxIncome),
+    rate: Number(row.rate),
+    deduction: Number(row.deduction),
+  }));
+}
+
 async function loadEffectiveTaxConfig(tx: any, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
-  const [config] = await tx.select()
-    .from(taxTablesConfig)
+  const [table] = await tx.select()
+    .from(payrollTaxTables)
     .where(and(
-      eq(taxTablesConfig.currency, currency),
-      eq(taxTablesConfig.isActive, true),
-      sql`${taxTablesConfig.effectiveFrom} <= ${periodEnd}`,
-      sql`(${taxTablesConfig.effectiveTo} IS NULL OR ${taxTablesConfig.effectiveTo} >= ${periodStart})`
+      eq(payrollTaxTables.currency, currency),
+      eq(payrollTaxTables.isActive, true),
+      sql`${payrollTaxTables.effectiveFrom} <= ${periodEnd}`,
+      sql`(${payrollTaxTables.effectiveTo} IS NULL OR ${payrollTaxTables.effectiveTo} >= ${periodStart})`
     ))
-    .orderBy(desc(taxTablesConfig.effectiveFrom))
+    .orderBy(desc(payrollTaxTables.effectiveFrom), desc(payrollTaxTables.version))
     .limit(1);
 
-  if (!config) return null;
+  if (!table) return null;
+
+  const brackets = await loadTaxBrackets(tx, table.id);
+  if (!brackets.length) {
+    throw new Error(`Tax table ${table.id} for ${currency} has no bands. Refusing to run payroll on an empty tax table.`);
+  }
+
   return {
-    ...config,
+    id: table.id,
+    currency: table.currency,
+    countryCode: table.countryCode,
+    taxYear: table.taxYear,
+    sourceReference: table.sourceReference,
+    effectiveFrom: table.effectiveFrom,
+    effectiveTo: table.effectiveTo,
+    isActive: table.isActive,
     payFrequency,
-    effectivePeriod: { from: config.effectiveFrom, to: config.effectiveTo },
+    effectivePeriod: { from: table.effectiveFrom, to: table.effectiveTo },
+    stale: isTaxTableStale(Number(table.taxYear)),
+    brackets,
   };
 }
 
@@ -676,15 +904,17 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// For a tax type/jurisdiction/currency there can only be one applicable table
+// For a jurisdiction/currency/frequency there can only be one applicable table
 // per period. Returns an error string when the new period overlaps an existing
 // record (excluding excludeId).
-async function assertTaxConfigNoOverlap(tx: any, currency: string, effectiveFrom: string, effectiveTo: string | null | undefined, excludeId?: number): Promise<string | null> {
-  const existing = await tx.select({ id: taxTablesConfig.id, effectiveFrom: taxTablesConfig.effectiveFrom, effectiveTo: taxTablesConfig.effectiveTo })
-    .from(taxTablesConfig)
+async function assertTaxConfigNoOverlap(tx: any, currency: string, countryCode: string, payFrequency: string, effectiveFrom: string, effectiveTo: string | null | undefined, excludeId?: number): Promise<string | null> {
+  const existing = await tx.select({ id: payrollTaxTables.id, effectiveFrom: payrollTaxTables.effectiveFrom, effectiveTo: payrollTaxTables.effectiveTo })
+    .from(payrollTaxTables)
     .where(and(
-      eq(taxTablesConfig.currency, currency),
-      excludeId ? ne(taxTablesConfig.id, excludeId) : undefined
+      eq(payrollTaxTables.currency, currency),
+      eq(payrollTaxTables.countryCode, countryCode),
+      eq(payrollTaxTables.payFrequency, payFrequency),
+      excludeId ? ne(payrollTaxTables.id, excludeId) : undefined
     ));
 
   const newFrom = new Date(`${effectiveFrom}T00:00:00`).getTime();
@@ -698,21 +928,23 @@ async function assertTaxConfigNoOverlap(tx: any, currency: string, effectiveFrom
     if (overlaps) {
       const newLabel = `${effectiveFrom}${effectiveTo ? ` → ${effectiveTo}` : " → open"}`;
       const oldLabel = `${row.effectiveFrom}${row.effectiveTo ? ` → ${row.effectiveTo}` : " → open"}`;
-      return `Overlapping tax configuration: the period ${newLabel} overlaps an existing ${currency} configuration (${oldLabel}). Close the previous period or adjust the dates.`;
+      return `Overlapping tax configuration: the period ${newLabel} overlaps an existing ${currency} ${countryCode} configuration (${oldLabel}). Close the previous period or adjust the dates.`;
     }
   }
   return null;
 }
 
 // When a new table starts on a later date, close the current open-ended table
-// for the same currency so at most one table is applicable at any time.
-async function closeOpenTaxConfig(tx: any, currency: string, effectiveFrom: string) {
-  await tx.update(taxTablesConfig)
+// for the same scope so at most one table is applicable at any time.
+async function closeOpenTaxConfig(tx: any, currency: string, countryCode: string, payFrequency: string, effectiveFrom: string) {
+  await tx.update(payrollTaxTables)
     .set({ effectiveTo: addDays(effectiveFrom, -1), isActive: false })
     .where(and(
-      eq(taxTablesConfig.currency, currency),
-      sql`${taxTablesConfig.effectiveTo} IS NULL`,
-      sql`${taxTablesConfig.effectiveFrom} < ${effectiveFrom}`
+      eq(payrollTaxTables.currency, currency),
+      eq(payrollTaxTables.countryCode, countryCode),
+      eq(payrollTaxTables.payFrequency, payFrequency),
+      sql`${payrollTaxTables.effectiveTo} IS NULL`,
+      sql`${payrollTaxTables.effectiveFrom} < ${effectiveFrom}`
     ));
 }
 
@@ -757,7 +989,7 @@ async function loadEffectiveSalarySlices(tx: any, employeeId: number, periodStar
   if (rows.length === 0) {
     return [{
       id: null,
-      amount: parseFloat(fallback?.baseSalary ?? "0"),
+      amount: toMoney(fallback?.baseSalary),
       salaryAmount: fallback?.baseSalary ?? "0",
       currency: fallback?.currency ?? "USD",
       payFrequency: fallback?.payFrequency ?? "MONTHLY",
@@ -770,7 +1002,7 @@ async function loadEffectiveSalarySlices(tx: any, employeeId: number, periodStar
   }
   return rows.map((r: any) => ({
     id: r.id,
-    amount: parseFloat(r.salaryAmount),
+    amount: toMoney(r.salaryAmount),
     salaryAmount: r.salaryAmount,
     currency: r.currency,
     payFrequency: r.payFrequency,
@@ -851,6 +1083,75 @@ function summarizeValidation(issues: any[]) {
   };
 }
 
+/**
+ * Everything a ZIMRA return is built from: locked runs only, plus the checks
+ * that decide whether the figures are fit to file. An unfinalised or
+ * incomplete return cannot be unsent, so callers must act on `blocked`.
+ */
+async function loadFinalizedReport(companyId: number, periodStart: string, periodEnd: string, reportType: string, currency?: string, onlyEmployeeId?: number | null) {
+  const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+  let { runs, lines } = await loadReportRuns(companyId, periodStart, periodEnd, currency);
+  if (onlyEmployeeId) {
+    lines = lines.filter(({ line }: any) => line.employeeId === onlyEmployeeId);
+    const represented = new Set(lines.map(({ run }: any) => run.id));
+    runs = runs.filter((run: any) => represented.has(run.id));
+  }
+  const issues = await validateStatutoryReport(company, reportType, runs, lines);
+  const summary = summarizeValidation(issues);
+  return {
+    company,
+    runs,
+    lines,
+    issues,
+    summary,
+    blocked: summary.exportBlocked,
+    blockingIssues: issues.filter((issue: any) => issue.severity === "ERROR"),
+  };
+}
+
+/** Reply with the filing errors when a return is not fit to file; true means handled. */
+function respondReportBlocked(res: any, report: { summary: any; blockingIssues: any[] }): boolean {
+  if (!report.summary.exportBlocked) return false;
+  res.status(422).json({
+    error: "STATUTORY_REPORT_NOT_FIT_TO_FILE",
+    message: `${report.summary.errors} blocking issue(s) must be fixed before this return can be exported.`,
+    validation: report.summary,
+    issues: report.blockingIssues,
+  });
+  return true;
+}
+
+/**
+ * One return cannot mix currencies - a ZiG PAYE figure and a USD one added
+ * together file as a number no authority can match to a bank deposit. Runs paid
+ * in both currencies at once ("SPLIT") stay their own bucket for the same reason.
+ */
+function respondMixedReportCurrency(res: any, runs: any[], currency?: string): boolean {
+  if (currency) return false;
+  const currencies = Array.from(new Set(runs.map((run: any) => run.currency)));
+  if (currencies.length <= 1) return false;
+  res.status(422).json({
+    error: "MIXED_CURRENCY_PAYROLL",
+    message: `This period has locked runs in ${currencies.join(" and ")}. Request one currency at a time.`,
+    currencies,
+  });
+  return true;
+}
+
+/**
+ * The ?currency= filter on a report route. Codes reach payroll_runs.currency
+ * verbatim, so "ZiG" stays mixed-case and an empty param means "do not filter".
+ */
+function reportCurrencyParam(value: unknown): string | undefined {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || undefined;
+}
+
+/** A return is filed per currency, so the file a tenant downloads says which one it holds. */
+function reportCurrencySuffix(currency?: string): string {
+  return currency ? `_${currency}` : "";
+}
+
 async function validateStatutoryReport(company: any, reportType: string, runs: any[], lineRows: any[]) {
   const issues: any[] = [];
   const addIssue = (severity: "ERROR" | "WARNING", code: string, message: string, entityType?: string, entityId?: string | number, details: Record<string, unknown> = {}) => {
@@ -878,10 +1179,20 @@ async function validateStatutoryReport(company: any, reportType: string, runs: a
       addIssue("WARNING", "MISSING_NSSA_NUMBER", "Employee NSSA number is missing", "employees", employee?.id);
     }
     if (!employee?.joiningDate) addIssue("ERROR", "MISSING_START_DATE", "Employee start date is missing", "employees", employee?.id);
-    const snapshot = (line.snapshotData as any) || {};
+    const snapshot = runSnapshot(line.snapshotData);
     if (toMoney(snapshot.taxableIncome) < 0) addIssue("ERROR", "NEGATIVE_TAXABLE_INCOME", "Taxable income cannot be negative", "payroll_run_employees", line.id);
-    if (snapshot.payeRaw != null && Math.abs(toMoney(snapshot.payeRaw) - toMoney(line.paye)) > 0.02) {
-      addIssue("ERROR", "PAYE_MISMATCH", "PAYE line amount does not match immutable payroll snapshot", "payroll_run_employees", line.id);
+    // PAYE owed is the credit-relieved figure - the employee is deducted that,
+    // so remitting the pre-credit amount would overpay ZIMRA. Rows written
+    // before the credit was stored still file; they warn instead of blocking.
+    const payeDue = snapshot.payeAfterCredit != null
+      ? toMoney(snapshot.payeAfterCredit)
+      : (snapshot.payeRaw != null ? toMoney(snapshot.payeRaw) : null);
+    if (payeDue != null && Math.abs(payeDue - toMoney(line.paye)) > 0.02) {
+      if (snapshot.payeAfterCredit != null && Math.abs(toMoney(snapshot.payeRaw) - toMoney(line.paye)) <= 0.02) {
+        addIssue("WARNING", "PAYE_CREDIT_NOT_REMITTED", "PAYE line holds the pre-credit amount, so this payslip's tax credit was not remitted", "payroll_run_employees", line.id);
+      } else {
+        addIssue("ERROR", "PAYE_MISMATCH", "PAYE line amount does not match the PAYE due in the immutable payroll snapshot", "payroll_run_employees", line.id);
+      }
     }
     if (snapshot.aidsLevy != null && Math.abs(toMoney(snapshot.aidsLevy) - toMoney(line.aidsLevy)) > 0.02) {
       addIssue("ERROR", "AIDS_LEVY_MISMATCH", "AIDS levy line amount does not match immutable payroll snapshot", "payroll_run_employees", line.id);
@@ -898,10 +1209,12 @@ function buildStatutoryReportData(reportType: string, company: any, runs: any[],
     const employee = line.employee;
     const allowances = line.allowances || [];
     const deductions = line.deductions || [];
-    const snapshot = (line.snapshotData as any) || {};
-    const taxableAllowances = allowances.filter((item: any) => item.isTaxable).reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
-    const nonTaxableAllowances = allowances.filter((item: any) => !item.isTaxable).reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
-    const pensionDeductions = deductions.filter((item: any) => item.deductionType === "PENSION").reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+    const snapshot = runSnapshot(line.snapshotData);
+    const sumBy = (items: any[], predicate: (item: any) => boolean) =>
+      sumMoney(items.filter(predicate).map((item: any) => item.amount));
+    const taxableAllowances = sumBy(allowances, (item) => item.isTaxable);
+    const nonTaxableAllowances = sumBy(allowances, (item) => !item.isTaxable);
+    const pensionDeductions = sumBy(deductions, (item) => item.deductionType === "PENSION");
     return {
       payrollRunId: run.id,
       periodStart: run.periodStart,
@@ -930,34 +1243,24 @@ function buildStatutoryReportData(reportType: string, company: any, runs: any[],
     };
   });
 
-  const totals = employeeRows.reduce((acc: any, row) => {
-    acc.grossRemuneration += row.grossRemuneration;
-    acc.taxableRemuneration += row.taxableRemuneration;
-    acc.taxableBenefits += row.taxableBenefits;
-    acc.pensionDeductions += row.pensionDeductions;
-    acc.payeDeducted += row.payeDeducted;
-    acc.aidsLevy += row.aidsLevy;
-    acc.totalPayePayable += row.payeDeducted + row.aidsLevy;
-    acc.nssaEmployee += row.nssaEmployee;
-    acc.nssaEmployer += row.nssaEmployer;
-    acc.nssaPayable += row.nssaEmployee + row.nssaEmployer;
-    acc.necPayable += row.necEmployee + row.necEmployer;
-    acc.netPay += row.netPay;
-    return acc;
-  }, {
-    grossRemuneration: 0,
-    taxableRemuneration: 0,
-    taxableBenefits: 0,
-    pensionDeductions: 0,
-    payeDeducted: 0,
-    aidsLevy: 0,
-    totalPayePayable: 0,
-    nssaEmployee: 0,
-    nssaEmployer: 0,
-    nssaPayable: 0,
-    necPayable: 0,
-    netPay: 0,
-  });
+  // Summed in cents: these totals are what the report validation compares
+  // against the locked runs, and a drifted cent reads as a filing mismatch.
+  const sumField = (field: keyof (typeof employeeRows)[number]) =>
+    sumMoney(employeeRows.map((row: any) => row[field]));
+  const totals = {
+    grossRemuneration: sumField("grossRemuneration"),
+    taxableRemuneration: sumField("taxableRemuneration"),
+    taxableBenefits: sumField("taxableBenefits"),
+    pensionDeductions: sumField("pensionDeductions"),
+    payeDeducted: sumField("payeDeducted"),
+    aidsLevy: sumField("aidsLevy"),
+    totalPayePayable: sumMoney(employeeRows.map((row: any) => centsOf(row.payeDeducted) + centsOf(row.aidsLevy))),
+    nssaEmployee: sumField("nssaEmployee"),
+    nssaEmployer: sumField("nssaEmployer"),
+    nssaPayable: sumMoney(employeeRows.map((row: any) => centsOf(row.nssaEmployee) + centsOf(row.nssaEmployer))),
+    necPayable: sumMoney(employeeRows.map((row: any) => centsOf(row.necEmployee) + centsOf(row.necEmployer))),
+    netPay: sumField("netPay"),
+  };
 
   const roundedTotals = Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number((value as number).toFixed(2))]));
   const common = {
@@ -1030,7 +1333,7 @@ router.get("/credentials/:type", async (req, res) => {
     }
     res.json({ isConfigured: true, isActive: credential.isActive });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1040,7 +1343,7 @@ router.post("/credentials", requirePayrollApproval, async (req, res) => {
     credentialData: z.record(z.any()), // JSON configurations
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -1064,7 +1367,7 @@ router.post("/credentials", requirePayrollApproval, async (req, res) => {
     });
     res.json({ success: true, isConfigured: true });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1078,7 +1381,7 @@ router.get("/nec-sectors", async (req, res) => {
       .orderBy(asc(necSectorsConfig.name));
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1091,7 +1394,7 @@ router.post("/nec-sectors", requirePayrollApproval, async (req, res) => {
     fixedAmount: z.coerce.string().default("0.00"),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -1101,7 +1404,7 @@ router.post("/nec-sectors", requirePayrollApproval, async (req, res) => {
     await auditPayroll(req, "PAYROLL_NEC_SECTOR_CREATED", "nec_sectors_config", result.id, { code: result.code });
     res.status(201).json(result);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1117,7 +1420,7 @@ router.put("/nec-sectors/:id", requirePayrollApproval, async (req, res) => {
     await auditPayroll(req, "PAYROLL_NEC_SECTOR_UPDATED", "nec_sectors_config", result.id, { code: result.code });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1128,7 +1431,7 @@ router.get("/departments", async (req, res) => {
     const results = await db.select().from(departments).where(eq(departments.companyId, companyId));
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1139,28 +1442,146 @@ router.post("/departments", requirePayrollWrite, async (req, res) => {
     await auditPayroll(req, "PAYROLL_DEPARTMENT_CREATED", "departments", dept.id, { name: dept.name });
     res.status(201).json(dept);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 router.get("/positions", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
-    const results = await db.select().from(positions).where(eq(positions.companyId, companyId));
-    res.json(results);
+    const [rows, filled] = await Promise.all([
+      db.select({
+        id: positions.id,
+        title: positions.title,
+        grade: positions.grade,
+        necCategory: positions.necCategory,
+        payGradeId: positions.payGradeId,
+        approvedHeadcount: positions.approvedHeadcount,
+        isActive: positions.isActive,
+        gradeCode: payrollPayGrades.code,
+        gradeName: payrollPayGrades.name,
+        gradeCurrency: payrollPayGrades.currency,
+        gradeMinSalary: payrollPayGrades.minSalary,
+        gradeMidpointSalary: payrollPayGrades.midpointSalary,
+      }).from(positions)
+        .leftJoin(payrollPayGrades, eq(positions.payGradeId, payrollPayGrades.id))
+        .where(eq(positions.companyId, companyId))
+        .orderBy(asc(positions.title)),
+      db.select({
+        positionId: employees.positionId,
+        headcount: sql<number>`count(*)::int`,
+      }).from(employees)
+        .where(and(eq(employees.companyId, companyId), sql`${employees.status} <> 'TERMINATED'`))
+        .groupBy(employees.positionId),
+    ]);
+
+    const filledByPosition = new Map(filled.map((f) => [f.positionId, Number(f.headcount)]));
+    res.json(rows.map((row) => {
+      const occupied = filledByPosition.get(row.id) ?? 0;
+      const approved = Number(row.approvedHeadcount ?? 1);
+      return {
+        ...row,
+        occupied,
+        // A post is a budgeted vacancy when it is approved for more people than it
+        // has. Runs read employees, so these never reach a payslip or a return.
+        vacancies: Math.max(approved - occupied, 0),
+        vacancyCost: row.gradeMidpointSalary
+          ? centsToMoney(centsOf(row.gradeMidpointSalary) * Math.max(approved - occupied, 0))
+          : null,
+      };
+    }));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
+/**
+ * `z.coerce.boolean()` is JavaScript's `Boolean()` wearing a costume: the string
+ * "false" coerces to true, and a checkbox or a form field arrives as text. Say what
+ * the words mean instead of what the type cast does.
+ */
+export function boolFromText(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const text = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(text)) return true;
+  if (["false", "0", "no", "off", ""].includes(text)) return false;
+  return value;
+}
+const boolField = (fallback: boolean) => z.preprocess(boolFromText, z.boolean().default(fallback));
+const optionalBoolField = () => z.preprocess(boolFromText, z.boolean().optional());
+
+const positionSchema = z.object({
+  title: z.string().trim().min(1, "title is required"),
+  grade: z.string().trim().max(40).optional().nullable(),
+  necCategory: z.string().trim().max(80).optional().nullable(),
+  payGradeId: z.coerce.number().int().optional().nullable(),
+  approvedHeadcount: z.coerce.number().int().min(1).max(9999).default(1),
+  isActive: boolField(true),
+});
+
 router.post("/positions", requirePayrollWrite, async (req, res) => {
+  const parsed = positionSchema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
   try {
     const companyId = getTargetCompanyId(req);
-    const [pos] = await db.insert(positions).values({ ...req.body, companyId }).returning();
+    if (parsed.data.payGradeId) {
+      const [grade] = await db.select({ id: payrollPayGrades.id }).from(payrollPayGrades)
+        .where(and(eq(payrollPayGrades.id, parsed.data.payGradeId), eq(payrollPayGrades.companyId, companyId)))
+        .limit(1);
+      if (!grade) {
+        return res.status(400).json({ error: "VALIDATION_ERROR", message: "Selected pay grade does not belong to this company." });
+      }
+    }
+    // No spread of req.body: an insert here used to accept any column the client
+    // sent, including companyId for another tenant.
+    const [pos] = await db.insert(positions)
+      .values({ ...parsed.data, companyId })
+      .returning();
     await auditPayroll(req, "PAYROLL_POSITION_CREATED", "positions", pos.id, { title: pos.title });
     res.status(201).json(pos);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
+  }
+});
+
+router.put("/positions/:id", requirePayrollWrite, async (req, res) => {
+  const positionId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(positionId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid position ID" });
+
+  const parsed = positionSchema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [existing] = await db.select({ id: positions.id }).from(positions)
+      .where(and(eq(positions.id, positionId), eq(positions.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Position not found for this company" });
+
+    // Same occupancy rule the list uses: a post cannot be approved below the people
+    // already sitting in it, or the vacancy maths turns negative and the budget lies.
+    const [occupancy] = await db.select({ headcount: sql<number>`count(*)::int` }).from(employees)
+      .where(and(
+        eq(employees.companyId, companyId),
+        eq(employees.positionId, positionId),
+        sql`${employees.status} <> 'TERMINATED'`
+      ));
+    const occupied = Number(occupancy?.headcount ?? 0);
+    if (parsed.data.approvedHeadcount < occupied) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: `${occupied} ${occupied === 1 ? "person still holds" : "people still hold"} this post, so approved headcount cannot go below ${occupied}. Move them to another position first.`,
+      });
+    }
+
+    const [pos] = await db.update(positions).set({ ...parsed.data })
+      .where(and(eq(positions.id, positionId), eq(positions.companyId, companyId)))
+      .returning();
+    await auditPayroll(req, "PAYROLL_POSITION_UPDATED", "positions", pos.id, { title: pos.title });
+    res.json(pos);
+  } catch (err: any) {
+    respondPayrollError(res, err);
   }
 });
 
@@ -1173,7 +1594,7 @@ router.get("/pay-grades", async (req, res) => {
       .orderBy(asc(payrollPayGrades.code));
     res.json(grades);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1191,7 +1612,7 @@ router.post("/pay-grades", requirePayrollWrite, async (req, res) => {
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -1213,7 +1634,7 @@ router.post("/pay-grades", requirePayrollWrite, async (req, res) => {
     });
     res.status(201).json(grade);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1234,7 +1655,7 @@ router.get("/employees", async (req, res) => {
     });
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1274,7 +1695,10 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
   };
 
   const schema = z.object({
-    employeeNumber: z.string().trim().min(1, "Employee number is required"),
+    employeeNumber: z.preprocess(
+      blankToNull,
+      z.string().trim().min(1).nullable().optional()
+    ),
     title: optText,
     firstName: z.string().trim().min(1, "First name is required"),
     lastName: z.string().trim().min(1, "Last name is required"),
@@ -1407,7 +1831,22 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
     }
 
     const result = await db.transaction(async (tx) => {
-      // 1. Create employee
+      // 1. Create employee. A blank staff number means "give me the next one in our
+      //    own scheme" - employers hand these out verbally, so they must be readable
+      //      and predictable, not UUID-ish. Supplied numbers are always respected.
+      if (!empData.employeeNumber) {
+        const settings = await loadPayrollSettings(companyId);
+        const allocated = await allocateStaffNumber(tx, companyId, {
+          staffNumberPrefix: settings.staffNumberPrefix,
+          staffNumberDigits: settings.staffNumberDigits,
+          staffNumberNext: Number(settings.staffNumberNext) || 1,
+        });
+        empData.employeeNumber = allocated.number;
+        await tx.update(payrollCompanySettings)
+          .set({ staffNumberNext: allocated.next, updatedAt: new Date() })
+          .where(eq(payrollCompanySettings.companyId, companyId));
+      }
+
       const [emp] = await tx.insert(employees)
         .values({ ...empData, joiningDate: empData.joiningDate || new Date().toISOString().slice(0, 10), companyId } as any)
         .returning();
@@ -1486,7 +1925,7 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
     if (err?.code === "23503") {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Referenced record (branch/department/position/pay grade) is invalid for this company." });
     }
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1543,7 +1982,7 @@ router.get("/employees/export", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename=employees_export_${new Date().getTime()}.csv`);
     res.send(csvStr);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1564,10 +2003,16 @@ router.post("/employees/import", requirePayrollWrite, async (req, res) => {
   }
 
   try {
-    // Lookup maps for codes/titles referenced by the CSV columns
-    const branchList = await db.select({ id: branches.id, code: branches.code }).from(branches);
-    const deptList = await db.select({ id: departments.id, code: departments.code }).from(departments);
-    const posList = await db.select({ id: positions.id, title: positions.title }).from(positions);
+    // Lookup maps for codes/titles referenced by the CSV columns. These must be built
+    // from this company's own rows: a CSV that names "Accountant" has to resolve to
+    // this company's Accountant position, never to another tenant's row that happens
+    // to share the title.
+    const branchList = await db.select({ id: branches.id, code: branches.code }).from(branches)
+      .where(eq(branches.companyId, companyId));
+    const deptList = await db.select({ id: departments.id, code: departments.code }).from(departments)
+      .where(eq(departments.companyId, companyId));
+    const posList = await db.select({ id: positions.id, title: positions.title }).from(positions)
+      .where(eq(positions.companyId, companyId));
     const branchByCode = new Map(branchList.map((b) => [String(b.code).toLowerCase(), b.id]));
     const deptByCode = new Map(deptList.map((d) => [String(d.code).toLowerCase(), d.id]));
     const posByTitle = new Map(posList.map((p) => [String(p.title).toLowerCase(), p.id]));
@@ -1726,7 +2171,7 @@ router.post("/employees/import", requirePayrollWrite, async (req, res) => {
       message: `Imported ${importedCount}, updated ${updatedCount}${errorRows.length ? `, ${errorRows.length} rows failed validation` : ""}.`,
     });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1741,7 +2186,7 @@ router.get("/employees/import/batches", async (req, res) => {
       .limit(20);
     res.json(batches);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1762,7 +2207,7 @@ router.get("/employees/:id", async (req, res) => {
     if (!emp) return res.status(404).json({ message: "Employee not found" });
     res.json(emp);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1920,7 +2365,7 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
     if (err?.code === "23505") {
       return res.status(409).json({ error: "CONFLICT", message: "A record with the same value already exists" });
     }
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1937,7 +2382,7 @@ router.post("/employees/:id/salary-change", requirePayrollWrite, async (req, res
     effectiveDate: z.string(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -1972,7 +2417,7 @@ router.post("/employees/:id/salary-change", requirePayrollWrite, async (req, res
     });
     res.status(201).json(change);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -1986,7 +2431,7 @@ router.get("/employees/:id/salary-changes", async (req, res) => {
       .orderBy(desc(employeeSalaryChanges.createdAt));
     res.json(changes);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2106,7 +2551,7 @@ router.get("/employees/:id/timeline", async (req, res) => {
 
     res.json({ employee: emp, events });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2121,7 +2566,7 @@ router.get("/salary-changes/pending", async (req, res) => {
     });
     res.json(changes);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2174,7 +2619,7 @@ router.post("/salary-changes/:id/approve", requirePayrollApproval, async (req, r
     });
     res.json(approved);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2183,7 +2628,7 @@ router.post("/salary-changes/:id/reject", requirePayrollApproval, async (req, re
   const id = parseInt(req.params.id, 10);
   const schema = z.object({ rejectionReason: z.string().optional().nullable() });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -2204,7 +2649,7 @@ router.post("/salary-changes/:id/reject", requirePayrollApproval, async (req, re
     });
     res.json(rejected);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2304,7 +2749,7 @@ router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => 
     });
     res.status(201).json(contract);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2325,7 +2770,7 @@ router.get("/employees/:id/recurring-items", async (req, res) => {
       .orderBy(desc(payrollRecurringItems.isActive), asc(payrollRecurringItems.name));
     res.json(items);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2342,7 +2787,7 @@ router.post("/employees/:id/recurring-items", requirePayrollWrite, async (req, r
     endDate: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const [emp] = await db.select({ id: employees.id })
@@ -2393,7 +2838,7 @@ router.post("/employees/:id/recurring-items", requirePayrollWrite, async (req, r
     });
     res.status(201).json(item);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2410,7 +2855,7 @@ router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
     isActive: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const [existing] = await db.select({
@@ -2494,7 +2939,7 @@ router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
     });
     res.json(item);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2509,7 +2954,7 @@ router.get("/leave/requests", async (req, res) => {
     });
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2524,7 +2969,7 @@ router.post("/leave/requests", requirePayrollWrite, async (req, res) => {
     encashmentDays: z.coerce.number().int().default(0),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   // Labour Act: Paternity leave is 3 working days
   if (parsed.data.leaveType === "PATERNITY" && parsed.data.totalDays > 3) {
@@ -2558,7 +3003,7 @@ router.post("/leave/requests", requirePayrollWrite, async (req, res) => {
     });
     res.status(201).json(request);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2570,7 +3015,7 @@ router.post("/leave/requests/:id/approve", requirePayrollApproval, async (req, r
     approve: z.boolean(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const [request] = await db.select().from(leaveRequests).where(and(eq(leaveRequests.id, id), eq(leaveRequests.companyId, companyId))).limit(1);
@@ -2618,7 +3063,7 @@ router.post("/leave/requests/:id/approve", requirePayrollApproval, async (req, r
     });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2633,7 +3078,7 @@ router.get("/loans", async (req, res) => {
     });
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2643,20 +3088,33 @@ router.post("/loans", requirePayrollWrite, async (req, res) => {
     loanType: z.enum(["LOAN", "ADVANCE"]).default("LOAN"),
     principalAmount: z.coerce.string(),
     interestRate: z.coerce.string().default("0.00"),
-    repaymentTermMonths: z.coerce.number().int(),
+    // A term that arrives as 0, Infinity or NaN would divide the repayment by
+    // nothing or fail the integer column, so both are derived and bounded here.
+    repaymentTermMonths: z.coerce.number().int().min(1).max(600).optional().nullable(),
     monthlyRepaymentAmount: z.coerce.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
-    const monthlyRepaymentAmount = parsed.data.monthlyRepaymentAmount
-      ? parsed.data.monthlyRepaymentAmount
-      : (parseFloat(parsed.data.principalAmount) / Math.max(1, parsed.data.repaymentTermMonths)).toFixed(2);
+    const principal = toMoney(parsed.data.principalAmount);
+    if (!(principal > 0)) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "A loan or advance must be for more than zero." });
+    }
+    const monthly = toNumber(parsed.data.monthlyRepaymentAmount);
+    if (monthly < 0) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "The monthly deduction cannot be negative." });
+    }
+    const termMonths = parsed.data.repaymentTermMonths
+      ?? Math.max(1, Math.ceil(principal / (monthly > 0 ? monthly : principal)));
+    const monthlyRepaymentAmount = monthly > 0
+      ? parsed.data.monthlyRepaymentAmount as string
+      : roundMoney(principal / termMonths).toFixed(2);
     const [loan] = await db.insert(employeeLoans)
       .values({
         ...parsed.data,
+        repaymentTermMonths: termMonths,
         monthlyRepaymentAmount,
         companyId,
         remainingBalance: parsed.data.principalAmount,
@@ -2669,7 +3127,7 @@ router.post("/loans", requirePayrollWrite, async (req, res) => {
     });
     res.status(201).json(loan);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2696,58 +3154,110 @@ router.post("/loans/:id/approve", requirePayrollApproval, async (req, res) => {
     });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // --- 7. STATUTORY CONFIGURATION ENDPOINTS ---
+// These routes are the only write path for tax tables, and they write
+// payroll_tax_tables + payroll_tax_brackets. Responses keep the historical
+// `brackets` array shape so the HR tax tab contract is unchanged.
+async function taxConfigView(tx: any, table: any) {
+  const brackets = await loadTaxBrackets(tx, table.id);
+  return { ...table, brackets, stale: isTaxTableStale(Number(table.taxYear)) };
+}
+
+const taxConfigInputSchema = z.object({
+  currency: z.string().default("USD"),
+  // Omitted means "the tenant's own country" - a default of "ZW" stamped a
+  // Lesotho admin's bands under Zimbabwe.
+  countryCode: z.string().trim().optional(),
+  payFrequency: z.enum(["MONTHLY", "WEEKLY", "FORTNIGHTLY", "DAILY"]).default("MONTHLY"),
+  taxYear: z.coerce.number().int().positive().optional(),
+  sourceReference: z.string().trim().min(3, "Name the gazette or table you sourced this from").optional(),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().optional().nullable(),
+  brackets: z.array(z.object({
+    min: z.number(),
+    max: z.number().nullable(),
+    rate: z.number(),
+    deduction: z.number(),
+  })),
+});
+
+async function insertTaxBands(tx: any, taxTableId: number, brackets: TaxBracket[]) {
+  if (!brackets.length) return;
+  await tx.insert(payrollTaxBrackets).values(brackets.map((band, index) => ({
+    taxTableId,
+    bracketOrder: index + 1,
+    minIncome: band.min.toFixed(2),
+    maxIncome: band.max === null ? null : band.max.toFixed(2),
+    rate: band.rate.toFixed(6),
+    deduction: band.deduction.toFixed(2),
+  })));
+}
+
 router.get("/tax-config", async (req, res) => {
   try {
-    const results = await db.select()
-      .from(taxTablesConfig)
-      .orderBy(desc(taxTablesConfig.effectiveFrom));
+    const tables = await db.select()
+      .from(payrollTaxTables)
+      .orderBy(desc(payrollTaxTables.effectiveFrom), desc(payrollTaxTables.version));
+    const results: any[] = [];
+    for (const table of tables) results.push(await taxConfigView(db, table));
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 router.post("/tax-config", requirePayrollApproval, async (req, res) => {
-  const schema = z.object({
-    currency: z.string().default("USD"),
-    effectiveFrom: z.string(),
-    effectiveTo: z.string().optional().nullable(),
-    brackets: z.array(z.object({
-      min: z.number(),
-      max: z.number().nullable(),
-      rate: z.number(),
-      deduction: z.number(),
-    })),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  const parsed = taxConfigInputSchema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
   if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
 
+  const bracketErrors = validateBrackets(parsed.data.brackets);
+  if (bracketErrors.length) return res.status(400).json({ error: "INVALID_BRACKETS", details: bracketErrors });
+
+  const bands = canonicalizeBrackets(parsed.data.brackets);
+  const taxYear = parsed.data.taxYear ?? new Date(`${parsed.data.effectiveFrom}T00:00:00`).getFullYear();
+
   try {
-    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, parsed.data.effectiveFrom, parsed.data.effectiveTo);
+    const countryCode = parsed.data.countryCode || (await payrollJurisdiction(getTargetCompanyId(req))).countryCode;
+    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom, parsed.data.effectiveTo);
     if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
-    // Close the currently open-ended table for this currency (if any) so only
-    // one table is applicable at any point in time.
-    await closeOpenTaxConfig(db, parsed.data.currency, parsed.data.effectiveFrom);
+    const table = await db.transaction(async (tx) => {
+      // Close the currently open-ended table for this scope so only one table
+      // is applicable at any point in time.
+      await closeOpenTaxConfig(tx, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom);
 
-    const [config] = await db.insert(taxTablesConfig)
-      .values({ ...parsed.data, isActive: true })
-      .returning();
-    await auditPayroll(req, "PAYROLL_TAX_CONFIG_CREATED", "tax_tables_config", config.id, {
-      currency: config.currency,
-      effectiveFrom: config.effectiveFrom,
+      const [created] = await tx.insert(payrollTaxTables).values({
+        companyId: null,
+        countryCode,
+        currency: parsed.data.currency,
+        taxYear,
+        payFrequency: parsed.data.payFrequency,
+        effectiveFrom: parsed.data.effectiveFrom,
+        effectiveTo: parsed.data.effectiveTo ?? null,
+        sourceReference: parsed.data.sourceReference ?? null,
+        isActive: true,
+      }).returning();
+
+      await insertTaxBands(tx, created.id, bands);
+      return created;
     });
-    res.status(201).json(config);
+
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_CREATED", "payroll_tax_tables", table.id, {
+      currency: table.currency,
+      taxYear: table.taxYear,
+      effectiveFrom: table.effectiveFrom,
+      bandCount: bands.length,
+    });
+    res.status(201).json(await taxConfigView(db, table));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2760,7 +3270,7 @@ router.get("/statutory-rules", async (req, res) => {
       .orderBy(asc(payrollStatutoryRules.ruleCode), desc(payrollStatutoryRules.effectiveFrom));
     res.json(rules);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2784,10 +3294,13 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
+    // The rule belongs to the tenant's country. It used to be stamped "ZW" for
+    // everyone, which filed a Lesotho tenant's pension rule under Zimbabwe.
+    const jurisdiction = await payrollJurisdiction(companyId);
     const rate = parsed.data.rate ?? parsed.data.employeeRate ?? "0.000000";
     const ruleData = {
       ruleCode: parsed.data.ruleCode,
@@ -2805,7 +3318,7 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
       effectiveTo: parsed.data.effectiveTo,
     };
     const [rule] = await db.insert(payrollStatutoryRules)
-      .values({ ...ruleData, companyId, countryCode: "ZW", isActive: true })
+      .values({ ...ruleData, companyId, countryCode: jurisdiction.countryCode, isActive: true })
       .returning();
     await auditPayroll(req, "PAYROLL_STATUTORY_RULE_CREATED", "payroll_statutory_rules", rule.id, {
       ruleCode: rule.ruleCode,
@@ -2813,7 +3326,7 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
     });
     res.status(201).json(rule);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2854,7 +3367,7 @@ router.patch("/statutory-rules/:id", requirePayrollApproval, async (req, res) =>
     await auditPayroll(req, "PAYROLL_STATUTORY_RULE_UPDATED", "payroll_statutory_rules", id, { updatedFields: Object.keys(req.body) });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2881,34 +3394,28 @@ router.delete("/statutory-rules/:id", requirePayrollApproval, async (req, res) =
     await auditPayroll(req, "PAYROLL_STATUTORY_RULE_DELETED", "payroll_statutory_rules", id, { ruleCode: existing.ruleCode });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
-// Edit an existing tax table configuration (isActive is not touched here)
+// Edit an existing tax table (isActive is not touched here)
 router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid id" });
 
-  const schema = z.object({
-    currency: z.string().default("USD"),
-    effectiveFrom: z.string(),
-    effectiveTo: z.string().optional().nullable(),
-    brackets: z.array(z.object({
-      min: z.number(),
-      max: z.number().nullable(),
-      rate: z.number(),
-      deduction: z.number(),
-    })),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  const parsed = taxConfigInputSchema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
   if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
 
+  const bracketErrors = validateBrackets(parsed.data.brackets);
+  if (bracketErrors.length) return res.status(400).json({ error: "INVALID_BRACKETS", details: bracketErrors });
+
+  const bands = canonicalizeBrackets(parsed.data.brackets);
+
   try {
-    const [existing] = await db.select().from(taxTablesConfig).where(eq(taxTablesConfig.id, id)).limit(1);
+    const [existing] = await db.select().from(payrollTaxTables).where(eq(payrollTaxTables.id, id)).limit(1);
     if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
     // Immutability: once a table has been used to process payroll, it cannot be
@@ -2920,48 +3427,77 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
       });
     }
 
-    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, parsed.data.effectiveFrom, parsed.data.effectiveTo, id);
+    // An edit that does not name a country keeps the table where it is.
+    const countryCode = parsed.data.countryCode || existing.countryCode;
+    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom, parsed.data.effectiveTo, id);
     if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
-    const [updated] = await db.update(taxTablesConfig)
-      .set(parsed.data)
-      .where(eq(taxTablesConfig.id, id))
-      .returning();
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.update(payrollTaxTables)
+        .set({
+          countryCode,
+          currency: parsed.data.currency,
+          payFrequency: parsed.data.payFrequency,
+          taxYear: parsed.data.taxYear ?? existing.taxYear ?? new Date(`${parsed.data.effectiveFrom}T00:00:00`).getFullYear(),
+          effectiveFrom: parsed.data.effectiveFrom,
+          effectiveTo: parsed.data.effectiveTo ?? null,
+          sourceReference: parsed.data.sourceReference ?? existing.sourceReference ?? null,
+          version: Number(existing.version || 1) + 1,
+        })
+        .where(eq(payrollTaxTables.id, id))
+        .returning();
 
-    await auditPayroll(req, "PAYROLL_TAX_CONFIG_UPDATED", "tax_tables_config", updated.id, {
-      currency: updated.currency,
-      effectiveFrom: updated.effectiveFrom,
+      await tx.delete(payrollTaxBrackets).where(eq(payrollTaxBrackets.taxTableId, id));
+      await insertTaxBands(tx, id, bands);
+      return row;
     });
-    res.json(updated);
+
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_UPDATED", "payroll_tax_tables", updated.id, {
+      currency: updated.currency,
+      taxYear: updated.taxYear,
+      effectiveFrom: updated.effectiveFrom,
+      bandCount: bands.length,
+    });
+    res.json(await taxConfigView(db, updated));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // Activate a configuration. Applicability is determined by effective dates, so
 // activating one table must NOT deactivate others — but two active tables must
-// not cover the same period.
+// not cover the same period, and a table with gaps or mixed rate units must not
+// be made live just because it was stored before validation existed.
 router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
-    const [config] = await db.select().from(taxTablesConfig).where(eq(taxTablesConfig.id, id)).limit(1);
-    if (!config) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+    const [table] = await db.select().from(payrollTaxTables).where(eq(payrollTaxTables.id, id)).limit(1);
+    if (!table) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
-    const overlapError = await assertTaxConfigNoOverlap(db, config.currency, config.effectiveFrom, config.effectiveTo, id);
+    const brackets = await loadTaxBrackets(db, id);
+    if (!brackets.length) {
+      return res.status(409).json({ error: "EMPTY_TABLE", message: "This tax table has no bands and cannot be activated." });
+    }
+    const bracketErrors = validateBrackets(brackets);
+    if (bracketErrors.length) {
+      return res.status(409).json({ error: "INVALID_BRACKETS", details: bracketErrors });
+    }
+
+    const overlapError = await assertTaxConfigNoOverlap(db, table.currency, table.countryCode, table.payFrequency, table.effectiveFrom, table.effectiveTo, id);
     if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
-    const [updated] = await db.update(taxTablesConfig)
+    const [updated] = await db.update(payrollTaxTables)
       .set({ isActive: true })
-      .where(eq(taxTablesConfig.id, id))
+      .where(eq(payrollTaxTables.id, id))
       .returning();
 
-    await auditPayroll(req, "PAYROLL_TAX_CONFIG_ACTIVATED", "tax_tables_config", updated.id, {
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_ACTIVATED", "payroll_tax_tables", updated.id, {
       currency: updated.currency,
       effectiveFrom: updated.effectiveFrom,
     });
-    res.json(updated);
+    res.json(await taxConfigView(db, updated));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -2969,21 +3505,45 @@ router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res)
 router.post("/tax-config/:id/deactivate", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
-    const [updated] = await db.update(taxTablesConfig)
+    const [updated] = await db.update(payrollTaxTables)
       .set({ isActive: false })
-      .where(eq(taxTablesConfig.id, id))
+      .where(eq(payrollTaxTables.id, id))
       .returning();
     if (!updated) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
-    await auditPayroll(req, "PAYROLL_TAX_CONFIG_DEACTIVATED", "tax_tables_config", updated.id, {
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_DEACTIVATED", "payroll_tax_tables", updated.id, {
       currency: updated.currency,
       effectiveFrom: updated.effectiveFrom,
     });
-    res.json(updated);
+    res.json(await taxConfigView(db, updated));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
+
+/**
+ * Type lookups by code, across the tenant's own rows and the shared system
+ * templates (companyId IS NULL) the list endpoints also show. A second row with
+ * the same code would make a recurring assignment ambiguous, so writes refuse it.
+ */
+async function findPayrollTypeByCode(table: typeof payrollEarningTypes | typeof payrollDeductionTypes, companyId: number, code: string) {
+  const [existing] = await db.select({ id: table.id, companyId: table.companyId })
+    .from(table)
+    .where(and(
+      sql`${table.companyId} = ${companyId} OR ${table.companyId} IS NULL`,
+      sql`lower(${table.code}) = lower(${code.trim()})`,
+    ))
+    .limit(1);
+  return existing || null;
+}
+
+function respondDuplicateCode(res: any, label: string, code: string): boolean {
+  res.status(409).json({
+    error: "DUPLICATE_CODE",
+    message: `A ${label} with the code "${code}" already exists. Payroll matches recurring items to their definition by code, so two rows sharing one would make every payslip ambiguous.`,
+  });
+  return true;
+}
 
 router.get("/earning-types", async (req, res) => {
   try {
@@ -2994,7 +3554,7 @@ router.get("/earning-types", async (req, res) => {
       .orderBy(asc(payrollEarningTypes.code));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3004,7 +3564,7 @@ router.post("/earning-types", requirePayrollApproval, async (req, res) => {
     name: z.string().trim().min(1),
     category: z.string().default("ALLOWANCE"),
     taxTreatment: z.enum(["TAXABLE", "NON_TAXABLE", "PARTIAL"]).default("TAXABLE"),
-    taxablePercentage: z.coerce.string().default("100.00"),
+    taxablePercentage: z.coerce.number().min(0).max(100).default(100),
     isPensionable: z.boolean().default(false),
     isNssaApplicable: z.boolean().default(false),
     isRecurring: z.boolean().default(false),
@@ -3014,23 +3574,26 @@ router.post("/earning-types", requirePayrollApproval, async (req, res) => {
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
+    const clash = await findPayrollTypeByCode(payrollEarningTypes, companyId, parsed.data.code);
+    if (clash) return respondDuplicateCode(res, "earning type", parsed.data.code);
     const [row] = await db.insert(payrollEarningTypes)
       .values({
         ...parsed.data,
+        taxablePercentage: parsed.data.taxablePercentage.toFixed(2),
         effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
         companyId,
-        countryCode: "ZW",
+        countryCode: (await payrollJurisdiction(companyId)).countryCode,
         isActive: true,
       })
       .returning();
     await auditPayroll(req, "PAYROLL_EARNING_TYPE_CREATED", "payroll_earning_types", row.id, { code: row.code });
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3042,7 +3605,7 @@ router.patch("/earning-types/:id", requirePayrollApproval, async (req, res) => {
     name: z.string().trim().min(1).optional(),
     category: z.string().optional(),
     taxTreatment: z.enum(["TAXABLE", "NON_TAXABLE", "PARTIAL"]).optional(),
-    taxablePercentage: z.coerce.string().optional(),
+    taxablePercentage: z.coerce.number().min(0).max(100).optional(),
     isPensionable: z.boolean().optional(),
     isNssaApplicable: z.boolean().optional(),
     isRecurring: z.boolean().optional(),
@@ -3053,7 +3616,7 @@ router.patch("/earning-types/:id", requirePayrollApproval, async (req, res) => {
     isActive: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const [existing] = await db.select()
@@ -3065,14 +3628,32 @@ router.patch("/earning-types/:id", requirePayrollApproval, async (req, res) => {
       .limit(1);
     if (!existing) return res.status(404).json({ message: "Earning type not found" });
 
+    // A template row (companyId IS NULL) is read by every tenant, so editing it
+    // here would rewrite somebody else's payroll. The company makes its own copy.
+    if (existing.companyId !== companyId) {
+      return res.status(422).json({
+        error: "SYSTEM_TYPE_READ_ONLY",
+        message: `"${existing.code}" is a built-in earning type shared by every account. Create your own earning type with a different code instead of changing it.`,
+      });
+    }
+
+    if (parsed.data.code) {
+      const clash = await findPayrollTypeByCode(payrollEarningTypes, companyId, parsed.data.code);
+      if (clash && clash.id !== id) return respondDuplicateCode(res, "earning type", parsed.data.code);
+    }
+
     const [row] = await db.update(payrollEarningTypes)
-      .set({ ...parsed.data, effectiveFrom: parsed.data.effectiveFrom || undefined })
-      .where(eq(payrollEarningTypes.id, id))
+      .set({
+        ...parsed.data,
+        taxablePercentage: parsed.data.taxablePercentage != null ? parsed.data.taxablePercentage.toFixed(2) : undefined,
+        effectiveFrom: parsed.data.effectiveFrom || undefined,
+      })
+      .where(and(eq(payrollEarningTypes.id, id), eq(payrollEarningTypes.companyId, companyId)))
       .returning();
     await auditPayroll(req, "PAYROLL_EARNING_TYPE_UPDATED", "payroll_earning_types", row.id, { code: row.code });
     res.json(row);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3085,7 +3666,7 @@ router.get("/deduction-types", async (req, res) => {
       .orderBy(asc(payrollDeductionTypes.priorityOrder), asc(payrollDeductionTypes.code));
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3098,31 +3679,36 @@ router.post("/deduction-types", requirePayrollApproval, async (req, res) => {
     contributionSide: z.enum(["EMPLOYEE", "EMPLOYER", "BOTH"]).default("EMPLOYEE"),
     calculationMethod: z.string().default("FIXED"),
     formula: z.string().optional().nullable(),
-    employeeRate: z.coerce.string().default("0.000000"),
-    employerRate: z.coerce.string().default("0.000000"),
-    maxAmount: z.coerce.string().optional().nullable(),
+    employeeRate: z.coerce.number().min(0).max(100).default(0),
+    employerRate: z.coerce.number().min(0).max(100).default(0),
+    maxAmount: z.coerce.number().min(0).optional().nullable(),
     priorityOrder: z.coerce.number().int().default(100),
     effectiveFrom: z.string().optional().nullable(),
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
+    const clash = await findPayrollTypeByCode(payrollDeductionTypes, companyId, parsed.data.code);
+    if (clash) return respondDuplicateCode(res, "deduction type", parsed.data.code);
     const [row] = await db.insert(payrollDeductionTypes)
       .values({
         ...parsed.data,
+        employeeRate: parsed.data.employeeRate.toFixed(6),
+        employerRate: parsed.data.employerRate.toFixed(6),
+        maxAmount: parsed.data.maxAmount != null ? parsed.data.maxAmount.toFixed(2) : null,
         effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
         companyId,
-        countryCode: "ZW",
+        countryCode: (await payrollJurisdiction(companyId)).countryCode,
         isActive: true,
       })
       .returning();
     await auditPayroll(req, "PAYROLL_DEDUCTION_TYPE_CREATED", "payroll_deduction_types", row.id, { code: row.code });
     res.status(201).json(row);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3135,7 +3721,7 @@ router.get("/runs", async (req, res) => {
       .orderBy(desc(payrollRuns.periodEnd));
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3163,21 +3749,41 @@ router.get("/dashboard", async (req, res) => {
       .orderBy(desc(payrollRuns.periodEnd))
       .limit(6);
 
-    // Current-year payroll totals from locked runs
+    // Current-year payroll totals from locked runs. ZiG and USD runs are different
+    // money, so they are totalled apart instead of added into one meaningless sum.
     const year = String(new Date().getFullYear());
-    const yearRuns = await db.select({ totalGross: payrollRuns.totalGross, totalDeductions: payrollRuns.totalDeductions, totalNet: payrollRuns.totalNet })
+    const yearRuns = await db.select({
+      totalGross: payrollRuns.totalGross,
+      totalDeductions: payrollRuns.totalDeductions,
+      totalNet: payrollRuns.totalNet,
+      currency: payrollRuns.currency,
+    })
       .from(payrollRuns)
       .where(and(
         eq(payrollRuns.companyId, companyId),
         gte(payrollRuns.periodStart, `${year}-01-01`),
         lte(payrollRuns.periodEnd, `${year}-12-31`),
-        ne(payrollRuns.status, "REVERSED")
+        eq(payrollRuns.status, "LOCKED")
       ));
-    const yearTotals = yearRuns.reduce((acc, r) => ({
-      totalGross: acc.totalGross + parseFloat(r.totalGross || "0"),
-      totalDeductions: acc.totalDeductions + parseFloat(r.totalDeductions || "0"),
-      totalNet: acc.totalNet + parseFloat(r.totalNet || "0"),
-    }), { totalGross: 0, totalDeductions: 0, totalNet: 0 });
+    const [companyRow] = await db.select({ currency: companies.currency, country: companies.country })
+      .from(companies)
+      .where(eq(companies.id, companyId));
+
+    const grouped = new Map<string, typeof yearRuns>();
+    for (const run of yearRuns) {
+      const key = displayCurrency(run.currency);
+      grouped.set(key, [...(grouped.get(key) ?? []), run]);
+    }
+    const yearTotalsByCurrency = [...grouped.entries()].map(([currency, rows]) => ({
+      currency,
+      totalGross: sumMoney(rows.map((r) => r.totalGross)),
+      totalDeductions: sumMoney(rows.map((r) => r.totalDeductions)),
+      totalNet: sumMoney(rows.map((r) => r.totalNet)),
+    }));
+    const bookedCurrency = displayCurrency(companyRow?.currency);
+    const yearTotals = yearTotalsByCurrency.find((t) => t.currency === bookedCurrency)
+      ?? yearTotalsByCurrency[0]
+      ?? { currency: bookedCurrency, totalGross: 0, totalDeductions: 0, totalNet: 0 };
 
     const statusCounts: Record<string, number> = {};
     for (const r of recentRuns) {
@@ -3195,6 +3801,7 @@ router.get("/dashboard", async (req, res) => {
         periodStart: r.periodStart,
         periodEnd: r.periodEnd,
         status: r.status,
+        currency: r.currency,
         totalGross: r.totalGross,
         totalDeductions: r.totalDeductions,
         totalNet: r.totalNet,
@@ -3203,18 +3810,42 @@ router.get("/dashboard", async (req, res) => {
       yearTotals: {
         ...yearTotals,
         totalTax: yearTotals.totalDeductions,
-        totalGross: Math.round(yearTotals.totalGross * 100) / 100,
-        totalDeductions: Math.round(yearTotals.totalDeductions * 100) / 100,
-        totalNet: Math.round(yearTotals.totalNet * 100) / 100,
       },
+      // Every other currency the year was paid in, so the dashboard can say the
+      // headline figure is not the whole payroll.
+      yearTotalsByCurrency,
     });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // GET /runs/:id/worksheet - Grid calculations worksheet
 // POST /runs - Initiate draft run
+/**
+ * Payroll pays people, not periods, so two runs are a double payment only when
+ * their date ranges overlap AND they can cover the same staff: a company-wide
+ * run (no branch) reaches every branch, a branch run reaches its own. Matching
+ * on the exact period and branch, as this used to, let a company run and a
+ * branch run for the same month through together.
+ */
+async function findOverlappingRun(
+  executor: any,
+  args: { companyId: number; periodStart: string; periodEnd: string; currency: string; runType: string; branchId: number | null }
+) {
+  const overlapping = await executor.select().from(payrollRuns).where(and(
+    eq(payrollRuns.companyId, args.companyId),
+    eq(payrollRuns.runType, args.runType),
+    eq(payrollRuns.currency, args.currency),
+    ne(payrollRuns.status, "REVERSED"),
+    lte(payrollRuns.periodStart, args.periodEnd),
+    gte(payrollRuns.periodEnd, args.periodStart)
+  ));
+  return overlapping.find((run: any) =>
+    args.branchId === null || run.branchId === null || Number(run.branchId) === args.branchId
+  ) || null;
+}
+
 router.post("/runs", requirePayrollWrite, async (req, res) => {
   const schema = z.object({
     periodStart: z.string(),
@@ -3229,34 +3860,44 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
     bonuses: z.array(z.object({ employeeId: z.number().int(), amount: z.number() })).optional(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   const isBonusRun = parsed.data.runType === "BONUS";
   const bonusMap = new Map((parsed.data.bonuses || []).map((b) => [b.employeeId, b.amount]));
 
   try {
     const companyId = getTargetCompanyId(req);
+    const branchId = parsed.data.branchId ?? null;
 
-    // 0. Duplicate run validation: check for existing active run for same period, currency, branch & runType
-    const existingRunConditions = [
-      eq(payrollRuns.companyId, companyId),
-      eq(payrollRuns.periodStart, parsed.data.periodStart),
-      eq(payrollRuns.periodEnd, parsed.data.periodEnd),
-      eq(payrollRuns.currency, parsed.data.currency),
-      eq(payrollRuns.runType, parsed.data.runType),
-      ne(payrollRuns.status, "REVERSED"),
-    ];
-    if (parsed.data.branchId) {
-      existingRunConditions.push(eq(payrollRuns.branchId, parsed.data.branchId));
-    }
-    const [existingRun] = await db.select().from(payrollRuns).where(and(...existingRunConditions)).limit(1);
-    if (existingRun) {
-      return res.status(400).json({
-        error: "DUPLICATE_PAYROLL_RUN",
-        message: `An active payroll run already exists for period ${parsed.data.periodStart} to ${parsed.data.periodEnd} (${parsed.data.currency} ${parsed.data.runType}).`,
+    // Which levies this tenant owes, and what a run may be paid in, is a
+    // property of the country the company trades in - not of the code path.
+    const jurisdiction = await payrollJurisdiction(companyId);
+    if (!supportsCurrency(jurisdiction, parsed.data.currency)) {
+      return res.status(422).json({
+        error: "UNSUPPORTED_PAYROLL_CURRENCY",
+        message: `${jurisdiction.name} payroll runs in ${jurisdiction.currencies.join(" or ")}. Requested currency: ${parsed.data.currency}.`,
+        currencies: jurisdiction.currencies,
       });
     }
-    
+
+    // 0. Duplicate run validation: no other live run may overlap this period
+    // for the same currency, run type and staff.
+    const existingRun = await findOverlappingRun(db, {
+      companyId,
+      periodStart: parsed.data.periodStart,
+      periodEnd: parsed.data.periodEnd,
+      currency: parsed.data.currency,
+      runType: parsed.data.runType,
+      branchId,
+    });
+    if (existingRun) {
+      return res.status(409).json({
+        error: "DUPLICATE_PAYROLL_RUN",
+        message: `Run #${existingRun.id} already pays ${existingRun.branchId ? `branch ${existingRun.branchId}` : "the whole company"} for ${existingRun.periodStart} to ${existingRun.periodEnd} in ${existingRun.currency}. Reverse it first or lock the new run for a different period.`,
+        existingRunId: existingRun.id,
+      });
+    }
+
     // Fetch active employees with active contracts matching company and branch
     const employeeConditions = [
       eq(employees.companyId, companyId),
@@ -3280,11 +3921,29 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
     }
 
     const run = await db.transaction(async (tx) => {
+      // Creation is check-then-insert with no unique constraint behind it, so
+      // two clerks clicking at once could both pass the validation above and
+      // pay the same staff twice. This lock serialises run creation per company
+      // for the life of the transaction - no schema change needed.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`payroll-run-${companyId}`}))`);
+
+      const racingRun = await findOverlappingRun(tx, {
+        companyId,
+        periodStart: parsed.data.periodStart,
+        periodEnd: parsed.data.periodEnd,
+        currency: parsed.data.currency,
+        runType: parsed.data.runType,
+        branchId,
+      });
+      if (racingRun) {
+        throw new PayrollHttpError(409, `Run #${racingRun.id} was created for this period while you were starting this one. Reload the run list.`, "DUPLICATE_PAYROLL_RUN");
+      }
+
       // 1. Create run header
       const [newRun] = await tx.insert(payrollRuns)
         .values({
           companyId,
-          branchId: parsed.data.branchId || null,
+          branchId: branchId || null,
           periodStart: parsed.data.periodStart,
           periodEnd: parsed.data.periodEnd,
           payFrequency: parsed.data.payFrequency,
@@ -3300,16 +3959,25 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
       const taxConfig = await loadEffectiveTaxConfig(tx, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
 
       if (!taxConfig) {
-        throw new Error(`Effective tax configuration not found for ${parsed.data.currency} ${parsed.data.payFrequency} covering ${parsed.data.periodStart} to ${parsed.data.periodEnd}`);
+        throw new PayrollHttpError(422, `Effective tax configuration not found for ${parsed.data.currency} ${parsed.data.payFrequency} covering ${parsed.data.periodStart} to ${parsed.data.periodEnd}`, "TAX_CONFIG_NOT_FOUND");
       }
 
       // 2b. Load effective statutory rule overrides (ZIMDEF, STANDARDS_LEVY,
       // APWCS, PENSION, NSSA_POBS, AIDS_LEVY) for the run period.
       const statutoryRules = await loadEffectiveStatutoryRules(tx, companyId, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
-      
-      if (!statutoryRules["AIDS_LEVY"] || !statutoryRules["NSSA_POBS"]) {
-        throw new Error("Missing required statutory rules (AIDS_LEVY or NSSA_POBS). Please configure them in the Statutory Settings before running payroll.");
+
+      const missingRules = missingRequiredRules(jurisdiction, Object.keys(statutoryRules));
+      if (missingRules.length > 0) {
+        throw new PayrollHttpError(422, `Missing required statutory rules for ${jurisdiction.name} payroll (${missingRules.join(", ")}). Please configure them in the Statutory Settings before running payroll.`, "STATUTORY_RULES_MISSING");
       }
+
+      // A levy this country does not charge stays at zero even when another
+      // tenant's rule rows are visible: ZW rates must never price a payslip
+      // outside Zimbabwe.
+      const levyRate = (ruleCode: string, field: "employeeRate" | "employerRate", fallback: number) =>
+        jurisdictionLevies(jurisdiction, ruleCode) ? statutoryRate(statutoryRules[ruleCode], field, fallback) : 0;
+      // Older tenants stored the Standards levy under STANDARDS, so read either.
+      const standardsRule = statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"];
 
       // 3. For each employee, fetch contract details and perform payroll calculations
       for (const emp of activeEmployees) {
@@ -3362,8 +4030,8 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         const prorated = parsed.data.prorate && !isBonusRun && proration.isProrated;
 
         let effectiveBaseSalary = prorated
-          ? Math.round(parseFloat(effectiveSalary.baseSalary) * proration.factor * 100) / 100
-          : parseFloat(effectiveSalary.baseSalary);
+          ? roundMoney(toMoney(effectiveSalary.baseSalary) * proration.factor)
+          : toMoney(effectiveSalary.baseSalary);
 
         const bonusAmount = isBonusRun ? (bonusMap.get(emp.id) ?? 0) : 0;
         const isTerminal = !!emp.terminationDate && emp.terminationDate >= parsed.data.periodStart && emp.terminationDate <= parsed.data.periodEnd;
@@ -3388,10 +4056,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               ne(payrollRuns.status, "REVERSED"),
               gte(payrollRuns.periodStart, yearStart)
             ));
-          for (const row of priorBonus) {
-            const val = Number(row.bonus || 0);
-            if (Number.isFinite(val)) ytdBonusAmount += val;
-          }
+          ytdBonusAmount = sumMoney(priorBonus.map((row: any) => row.bonus));
         }
 
         // For bonus runs the employee's regular salary is not paid again; the
@@ -3430,7 +4095,9 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           ))
           .limit(1);
         
-        const loanDeduction = activeLoan ? Math.min(parseFloat(activeLoan.remainingBalance), parseFloat(activeLoan.monthlyRepaymentAmount)) : 0;
+        const loanDeduction = activeLoan
+          ? centsToMoney(Math.min(centsOf(activeLoan.remainingBalance), centsOf(activeLoan.monthlyRepaymentAmount)))
+          : 0;
 
         // Feed recurring items and the loan repayment into the engine so gross,
         // taxable income, PAYE and net pay all reflect them. (Previously the
@@ -3475,6 +4142,19 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         const pensionEmployeeRate = pensionRule ? statutoryRate(pensionRule, "employeeRate", 0) : 0;
         const pensionEmployerRate = pensionRule ? statutoryRate(pensionRule, "employerRate", 0) : 0;
 
+        // The rates actually charged, hoisted so the snapshot records what the
+        // engine got instead of re-reading rule rows that may not exist in this
+        // country.
+        const appliedStatutoryRates = {
+          aidsLevyRate: levyRate("AIDS_LEVY", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.aidsLevyRate),
+          nssaRateEmployee: levyRate("NSSA_POBS", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployee),
+          nssaRateEmployer: levyRate("NSSA_POBS", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployer),
+          nssaCeilingLimit: jurisdictionLevies(jurisdiction, "NSSA_POBS") ? toMoney(statutoryRules["NSSA_POBS"]?.ceilingAmount) : 0,
+          zimdefRate: levyRate("ZIMDEF", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.zimdefRate),
+          standardsLevyRate: jurisdictionLevies(jurisdiction, "STANDARDS_LEVY") ? statutoryRate(standardsRule, "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.standardsLevyRate) : 0,
+          apwcsRate: jurisdictionLevies(jurisdiction, "APWCS") && statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
+        };
+
         // Perform calculation
         const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
           baseSalary: engineBaseSalary,
@@ -3483,33 +4163,20 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           ytdBonusAmount: isBonusRun ? ytdBonusAmount : undefined,
           pensionEmployeeRate,
           pensionEmployerRate,
-          apwcsRate: statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
-          necRate: parseFloat(necRate),
-          necEmployerRate: parseFloat(necEmployerRate),
-          necFixedAmount: parseFloat(necFixedAmount),
-          usdPercentage: parseFloat(effectiveSalary.usdPercentage),
-          zigPercentage: parseFloat(effectiveSalary.zigPercentage),
-          exchangeRate: parseFloat(parsed.data.exchangeRate),
+          apwcsRate: appliedStatutoryRates.apwcsRate,
+          necRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necRate) : 0,
+          necEmployerRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necEmployerRate) : 0,
+          necFixedAmount: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necFixedAmount) : 0,
+          usdPercentage: toNumber(effectiveSalary.usdPercentage),
+          zigPercentage: toNumber(effectiveSalary.zigPercentage),
+          exchangeRate: toNumber(parsed.data.exchangeRate),
           elements,
           taxConfig: {
             brackets: taxConfig.brackets as TaxBracket[],
           },
           statutoryConfig: {
-            aidsLevyRate: statutoryRate(statutoryRules["AIDS_LEVY"], "employeeRate", 0.03),
-            nssaRateEmployee: statutoryRate(statutoryRules["NSSA_POBS"], "employeeRate", 0.045),
-            nssaRateEmployer: statutoryRate(statutoryRules["NSSA_POBS"], "employerRate", 0.045),
-            nssaCeilingLimit: Number(statutoryRules["NSSA_POBS"].ceilingAmount || 0),
-            zimdefRate: statutoryRules["ZIMDEF"] ? statutoryRate(statutoryRules["ZIMDEF"], "employerRate", 0.01) : 0.01,
-            standardsLevyRate: (statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"]) ? statutoryRate(statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"], "employerRate", 0.005) : 0.005,
-            taxFreeBonusThreshold: 400,
-            medicalAidCreditMonthly: 75,
-            blindPersonCreditAnnual: 900,
-            elderlyPersonCreditAnnual: 900,
-            maxTaxDeductiblePensionAnnual: 54000,
-            hoursPerDay: 8,
-            workingDaysPerMonth: 22,
-            overtimeMultiplierStandard: 1.5,
-            overtimeMultiplierSunday: 2.0
+            ...ZIMBABWE_STATUTORY_DEFAULTS,
+            ...appliedStatutoryRates,
           }
         });
 
@@ -3518,19 +4185,22 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           continue;
         }
 
+        // A negative net is an impossible payslip: it would book a wages payable
+        // credit the bank file then tries to pay backwards.
+        if (calcs.netSalary < 0) {
+          throw new PayrollHttpError(
+            422,
+            `Deductions exceed gross pay for ${emp.firstName} ${emp.lastName} (net ${calcs.netSalary.toFixed(2)}). Reduce the loan repayment or deductions before running payroll.`,
+            "NEGATIVE_NET_PAY",
+          );
+        }
+
         const processedEarnings = calcs.processedEarnings;
         const processedDeductions = calcs.processedDeductions;
-        const taxableAllowances = processedEarnings
-          .filter((e) => e.isTaxable)
-          .reduce((sum: number, e) => sum + e.amount, 0);
-        const nontaxableAllowances = processedEarnings
-          .filter((e) => !e.isTaxable)
-          .reduce((sum: number, e) => sum + e.amount, 0);
-        const recurringDeductionTotal = processedDeductions
-          .reduce((sum: number, d) => sum + d.amount, 0);
-        const taxDeductibleDeductions = processedDeductions
-          .filter((d) => d.isTaxDeductible)
-          .reduce((sum: number, d) => sum + d.amount, 0);
+        const taxableAllowances = sumMoney(processedEarnings.filter((e) => e.isTaxable).map((e) => e.amount));
+        const nontaxableAllowances = sumMoney(processedEarnings.filter((e) => !e.isTaxable).map((e) => e.amount));
+        const recurringDeductionTotal = sumMoney(processedDeductions.map((d) => d.amount));
+        const taxDeductibleDeductions = sumMoney(processedDeductions.filter((d) => d.isTaxDeductible).map((d) => d.amount));
 
         // Insert employee payroll run line
         const [runEmployeeLine] = await tx.insert(payrollRunEmployees)
@@ -3540,7 +4210,10 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
             basicSalary: calcs.basicSalary.toFixed(2),
             grossSalary: calcs.grossSalary.toFixed(2),
             netSalary: calcs.netSalary.toFixed(2),
-            paye: calcs.payeRaw.toFixed(2),
+            // The amount withheld for tax is the credit-relieved PAYE - that is
+            // what the employee is deducted by and what ZIMRA is owed. payeRaw
+            // stays in the snapshot for the ITF16 credit column.
+            paye: calcs.payeAfterCredit.toFixed(2),
             aidsLevy: calcs.aidsLevy.toFixed(2),
             nssaEmployee: calcs.nssaEmployee.toFixed(2),
             nssaEmployer: calcs.nssaEmployer.toFixed(2),
@@ -3583,13 +4256,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               pensionEmployeeRate,
               pensionEmployerRate,
               statutoryRatesUsed: {
-                aidsLevyRate: statutoryRules["AIDS_LEVY"].employeeRate,
-                nssaRateEmployee: statutoryRules["NSSA_POBS"].employeeRate,
-                nssaRateEmployer: statutoryRules["NSSA_POBS"].employerRate,
-                nssaCeilingLimit: statutoryRules["NSSA_POBS"].ceilingAmount || "0.00",
-                zimdefRate: statutoryRules["ZIMDEF"]?.employerRate ?? "0.010000",
-                standardsLevyRate: (statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"])?.employerRate ?? "0.005000",
-                apwcsRate: statutoryRules["APWCS"]?.employerRate ?? null,
+                ...appliedStatutoryRates,
                 pensionEmployeeRate,
                 pensionEmployerRate,
               },
@@ -3609,7 +4276,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         }
 
         const statutoryDeductions = [
-          { name: "PAYE", amount: calcs.payeRaw, isTaxDeductible: false, deductionType: "PAYE" },
+          { name: "PAYE", amount: calcs.payeAfterCredit, isTaxDeductible: false, deductionType: "PAYE" },
           { name: "AIDS Levy", amount: calcs.aidsLevy, isTaxDeductible: false, deductionType: "AIDS_LEVY" },
           { name: "NSSA Employee", amount: calcs.nssaEmployee, isTaxDeductible: true, deductionType: "NSSA" },
           { name: "NEC Employee", amount: calcs.necEmployee, isTaxDeductible: false, deductionType: "NEC" },
@@ -3641,17 +4308,10 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
 
       // 4. Update run metrics totals
       const lines = await tx.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, newRun.id));
-      let totalBasic = 0;
-      let totalGross = 0;
-      let totalDeductions = 0;
-      let totalNet = 0;
-
-      for (const line of lines) {
-        totalBasic += parseFloat(line.basicSalary);
-        totalGross += parseFloat(line.grossSalary);
-        totalDeductions += parseFloat(line.totalDeductions);
-        totalNet += parseFloat(line.netSalary);
-      }
+      const totalBasic = sumMoney(lines.map((line) => line.basicSalary));
+      const totalGross = sumMoney(lines.map((line) => line.grossSalary));
+      const totalDeductions = sumMoney(lines.map((line) => line.totalDeductions));
+      const totalNet = sumMoney(lines.map((line) => line.netSalary));
 
       const [updatedRun] = await tx.update(payrollRuns)
         .set({
@@ -3674,7 +4334,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
     });
     res.status(201).json(run);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3707,7 +4367,7 @@ router.get("/runs/:id", async (req, res) => {
     if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
     res.json(run);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3734,17 +4394,20 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
   });
 
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
+    // Which levies apply is a property of the company's country, same as at run
+    // creation - an adjustment must re-price the line under the same rules.
+    const jurisdiction = await payrollJurisdiction(companyId);
     const [run] = await db.select().from(payrollRuns)
       .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
       .limit(1);
 
     if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
     if (run.status !== "DRAFT") {
-      return res.status(400).json({ error: "STATE_ERROR", message: "Adjustments can only be made to DRAFT payroll runs" });
+      return res.status(409).json({ error: "STATE_ERROR", message: "Adjustments can only be made to DRAFT payroll runs" });
     }
 
     const [runLine] = await db.select().from(payrollRunEmployees)
@@ -3753,8 +4416,18 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
 
     if (!runLine) return res.status(404).json({ error: "NOT_FOUND", message: "Employee line not found in this payroll run" });
 
+    const reservedSubmitted = [...new Set((parsed.data.deductions || [])
+      .map((d) => String(d.deductionType || "OTHER").toUpperCase())
+      .filter((type) => ENGINE_DEDUCTION_TYPES.has(type)))];
+    if (reservedSubmitted.length > 0) {
+      return res.status(400).json({
+        error: "RESERVED_DEDUCTION_TYPE",
+        message: `${reservedSubmitted.join(", ")} are calculated by payroll from the whole payslip and cannot be entered by hand.`,
+      });
+    }
+
     await db.transaction(async (tx) => {
-      // 1. Update/replace custom allowances if provided
+      // 1. Replace the clerk-entered earnings
       if (parsed.data.allowances) {
         await tx.delete(payrollAllowances).where(eq(payrollAllowances.payrollRunEmployeeId, runLine.id));
         if (parsed.data.allowances.length > 0) {
@@ -3769,11 +4442,15 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
         }
       }
 
-      // 2. Update/replace custom deductions if provided
+      // 2. Replace only the clerk-entered deductions. The calculated lines
+      // (PAYE, AIDS levy, NSSA, NEC, pension) stay until the recalculation
+      // below rewrites them, and a loan repayment is kept - dropping it used to
+      // silently stop the employee repaying and leave PAYE computed on old pay.
       if (parsed.data.deductions) {
+        const editable = [...ENGINE_DEDUCTION_TYPES].map((type) => sql`${payrollDeductions.deductionType} != ${type}`);
         await tx.delete(payrollDeductions).where(and(
           eq(payrollDeductions.payrollRunEmployeeId, runLine.id),
-          sql`${payrollDeductions.deductionType} NOT IN ('PAYE', 'AIDS_LEVY', 'NSSA', 'NEC')`
+          ...editable
         ));
         if (parsed.data.deductions.length > 0) {
           await tx.insert(payrollDeductions).values(parsed.data.deductions.map((d) => ({
@@ -3781,49 +4458,164 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
             name: d.name,
             amount: d.amount.toFixed(2),
             isTaxDeductible: d.isTaxDeductible,
-            deductionType: d.deductionType,
+            deductionType: String(d.deductionType || "OTHER").toUpperCase(),
           })));
         }
       }
 
-      // 3. Re-calculate line financial totals
+      // 3. Recalculate the line with the same engine the run was created with,
+      // so gross, taxable income, PAYE, NSSA and net pay move together.
       const currentAllowances = await tx.select().from(payrollAllowances).where(eq(payrollAllowances.payrollRunEmployeeId, runLine.id));
       const currentDeductions = await tx.select().from(payrollDeductions).where(eq(payrollDeductions.payrollRunEmployeeId, runLine.id));
 
-      const totalAllowances = currentAllowances.reduce((sum, a) => sum + parseFloat(a.amount), 0);
-      const totalDeductions = currentDeductions.reduce((sum, d) => sum + parseFloat(d.amount), 0);
-      const grossSalary = parseFloat(runLine.basicSalary) + totalAllowances;
-      const netSalary = Math.max(0, grossSalary - totalDeductions);
+      const elements: PayrollElementInput[] = [
+        ...currentAllowances.map((a) => ({
+          type: "EARNING" as const,
+          name: a.name,
+          calculationMethod: "FIXED" as const,
+          amount: toMoney(a.amount),
+          isTaxable: !!a.isTaxable,
+          isRecurring: false,
+        })),
+        ...currentDeductions
+          .filter((d) => !ENGINE_DEDUCTION_TYPES.has(d.deductionType))
+          .map((d) => ({
+            type: "DEDUCTION" as const,
+            name: d.name,
+            calculationMethod: "FIXED" as const,
+            amount: toMoney(d.amount),
+            isTaxDeductible: !!d.isTaxDeductible,
+            isRecurring: false,
+          })),
+      ];
 
+      const taxConfig = await loadEffectiveTaxConfig(tx, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
+      if (!taxConfig) {
+        throw new PayrollHttpError(422, `Effective tax configuration not found for ${run.currency} ${run.payFrequency} covering ${run.periodStart} to ${run.periodEnd}`, "TAX_CONFIG_NOT_FOUND");
+      }
+      const statutoryRules = await loadEffectiveStatutoryRules(tx, companyId, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
+      const missingRules = missingRequiredRules(jurisdiction, Object.keys(statutoryRules));
+      if (missingRules.length > 0) {
+        throw new PayrollHttpError(422, `Missing required statutory rules for ${jurisdiction.name} payroll (${missingRules.join(", ")}). Configure them in Statutory Settings before adjusting payroll.`, "STATUTORY_RULES_MISSING");
+      }
+      const levyRate = (ruleCode: string, field: "employeeRate" | "employerRate", fallback: number) =>
+        jurisdictionLevies(jurisdiction, ruleCode) ? statutoryRate(statutoryRules[ruleCode], field, fallback) : 0;
+      // Older tenants stored the Standards levy under STANDARDS, so read either.
+      const standardsRule = statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"];
+
+      const snapshot = runSnapshot(runLine.snapshotData);
+      let necRate = "0.0000";
+      let necEmployerRate = "0.0000";
+      let necFixedAmount = "0.00";
+      const contractId = Number(snapshot.contractId || 0);
+      if (contractId) {
+        const [contract] = await tx.select().from(employeeContracts)
+          .where(and(eq(employeeContracts.id, contractId), eq(employeeContracts.employeeId, runLine.employeeId)))
+          .limit(1);
+        if (contract?.necSectorId) {
+          const [nec] = await tx.select().from(necSectorsConfig)
+            .where(eq(necSectorsConfig.id, contract.necSectorId))
+            .limit(1);
+          if (nec) {
+            necRate = nec.employeeRate;
+            necEmployerRate = nec.employerRate;
+            necFixedAmount = nec.fixedAmount;
+          }
+        }
+      }
+
+      const pensionRule = statutoryRules["PENSION"];
+      const isBonusLine = run.runType === "BONUS";
+      const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
+        baseSalary: isBonusLine ? 0 : toMoney(runLine.basicSalary),
+        payFrequency: run.payFrequency as "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" | "DAILY",
+        bonusAmount: isBonusLine ? toMoney(snapshot.bonusAmount) : undefined,
+        ytdBonusAmount: isBonusLine ? toMoney(snapshot.ytdBonusAmount) : undefined,
+        pensionEmployeeRate: pensionRule ? statutoryRate(pensionRule, "employeeRate", 0) : 0,
+        pensionEmployerRate: pensionRule ? statutoryRate(pensionRule, "employerRate", 0) : 0,
+        apwcsRate: jurisdictionLevies(jurisdiction, "APWCS") && statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
+        necRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necRate) : 0,
+        necEmployerRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necEmployerRate) : 0,
+        necFixedAmount: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necFixedAmount) : 0,
+        usdPercentage: toMoney(runLine.usdPercentage),
+        zigPercentage: toMoney(runLine.zigPercentage),
+        exchangeRate: toMoney(run.exchangeRate),
+        elements,
+        taxConfig: { brackets: taxConfig.brackets as TaxBracket[] },
+        statutoryConfig: {
+          ...ZIMBABWE_STATUTORY_DEFAULTS,
+          aidsLevyRate: levyRate("AIDS_LEVY", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.aidsLevyRate),
+          nssaRateEmployee: levyRate("NSSA_POBS", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployee),
+          nssaRateEmployer: levyRate("NSSA_POBS", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployer),
+          nssaCeilingLimit: jurisdictionLevies(jurisdiction, "NSSA_POBS") ? toMoney(statutoryRules["NSSA_POBS"]?.ceilingAmount) : 0,
+          zimdefRate: levyRate("ZIMDEF", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.zimdefRate),
+          standardsLevyRate: jurisdictionLevies(jurisdiction, "STANDARDS_LEVY") ? statutoryRate(standardsRule, "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.standardsLevyRate) : 0,
+        }
+      });
+
+      if (calcs.netSalary < 0) {
+        throw new PayrollHttpError(422, `Deductions exceed gross pay for this employee (net ${calcs.netSalary.toFixed(2)}). Reduce the deductions before adjusting the line.`, "NEGATIVE_NET_PAY");
+      }
+
+      const { snapshotHash: _oldHash, snapshotVersion: _oldVersion, ...snapshotCarryOver } = snapshot;
       await tx.update(payrollRunEmployees)
         .set({
-          grossSalary: grossSalary.toFixed(2),
-          totalAllowances: totalAllowances.toFixed(2),
-          totalDeductions: totalDeductions.toFixed(2),
-          netSalary: netSalary.toFixed(2),
-          snapshotData: {
-            ...(runLine.snapshotData as object),
+          grossSalary: calcs.grossSalary.toFixed(2),
+          netSalary: calcs.netSalary.toFixed(2),
+          paye: calcs.payeAfterCredit.toFixed(2),
+          aidsLevy: calcs.aidsLevy.toFixed(2),
+          nssaEmployee: calcs.nssaEmployee.toFixed(2),
+          nssaEmployer: calcs.nssaEmployer.toFixed(2),
+          necEmployee: calcs.necEmployee.toFixed(2),
+          necEmployer: calcs.necEmployer.toFixed(2),
+          netSalaryUsd: calcs.netSalaryUsd.toFixed(2),
+          netSalaryZig: calcs.netSalaryZig.toFixed(2),
+          payeUsd: calcs.payeUsd.toFixed(2),
+          payeZig: calcs.payeZig.toFixed(2),
+          nssaEmployeeUsd: calcs.nssaEmployeeUsd.toFixed(2),
+          nssaEmployeeZig: calcs.nssaEmployeeZig.toFixed(2),
+          totalAllowances: calcs.totalAllowances.toFixed(2),
+          totalDeductions: calcs.totalDeductions.toFixed(2),
+          snapshotData: buildPayrollSnapshot({
+            ...snapshotCarryOver,
+            ...calcs,
             auditNote: parsed.data.auditNote || "Manual line adjustment updated",
             lastAdjustedAt: new Date().toISOString(),
-          }
+          }),
         })
         .where(eq(payrollRunEmployees.id, runLine.id));
 
-      // 4. Update parent run header totals
-      const allLines = await tx.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
-      let totalBasic = 0, totalGross = 0, totalDeductionsSum = 0, totalNet = 0;
-      for (const l of allLines) {
-        totalBasic += parseFloat(l.basicSalary);
-        totalGross += parseFloat(l.grossSalary);
-        totalDeductionsSum += parseFloat(l.totalDeductions);
-        totalNet += parseFloat(l.netSalary);
+      // 4. Rewrite the calculated deduction lines to match the recalculation
+      const keep = [...ENGINE_DEDUCTION_TYPES].map((type) => sql`${payrollDeductions.deductionType} != ${type}`);
+      await tx.delete(payrollDeductions).where(and(
+        eq(payrollDeductions.payrollRunEmployeeId, runLine.id),
+        ...keep
+      ));
+      const statutoryRows = [
+        { name: "PAYE", amount: calcs.payeAfterCredit, isTaxDeductible: false, deductionType: "PAYE" },
+        { name: "AIDS Levy", amount: calcs.aidsLevy, isTaxDeductible: false, deductionType: "AIDS_LEVY" },
+        { name: "NSSA Employee", amount: calcs.nssaEmployee, isTaxDeductible: true, deductionType: "NSSA" },
+        { name: "NEC Employee", amount: calcs.necEmployee, isTaxDeductible: false, deductionType: "NEC" },
+        { name: "Pension Employee", amount: calcs.pensionEmployee, isTaxDeductible: true, deductionType: "PENSION" },
+      ].filter((item) => item.amount > 0);
+      if (statutoryRows.length > 0) {
+        await tx.insert(payrollDeductions).values(statutoryRows.map((item) => ({
+          payrollRunEmployeeId: runLine.id,
+          name: item.name,
+          amount: item.amount.toFixed(2),
+          isTaxDeductible: item.isTaxDeductible,
+          deductionType: item.deductionType,
+        })));
       }
+
+      // 5. Update parent run header totals
+      const allLines = await tx.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
       await tx.update(payrollRuns)
         .set({
-          totalBasic: totalBasic.toFixed(2),
-          totalGross: totalGross.toFixed(2),
-          totalDeductions: totalDeductionsSum.toFixed(2),
-          totalNet: totalNet.toFixed(2),
+          totalBasic: sumMoney(allLines.map((l) => l.basicSalary)).toFixed(2),
+          totalGross: sumMoney(allLines.map((l) => l.grossSalary)).toFixed(2),
+          totalDeductions: sumMoney(allLines.map((l) => l.totalDeductions)).toFixed(2),
+          totalNet: sumMoney(allLines.map((l) => l.netSalary)).toFixed(2),
           updatedAt: new Date(),
         })
         .where(eq(payrollRuns.id, runId));
@@ -3837,7 +4629,7 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
 
     res.json({ success: true, message: "Adjustments updated successfully" });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3879,22 +4671,22 @@ router.get("/runs/:id/variances", async (req, res) => {
 
     const variances = currentLines.map((cur) => {
       const prior = priorMap.get(cur.employeeId);
-      const curGross = parseFloat(cur.grossSalary);
-      const priorGross = prior ? parseFloat(prior.grossSalary) : 0;
-      const curNet = parseFloat(cur.netSalary);
-      const priorNet = prior ? parseFloat(prior.netSalary) : 0;
+      const curGross = centsOf(cur.grossSalary);
+      const priorGross = prior ? centsOf(prior.grossSalary) : 0;
+      const curNet = centsOf(cur.netSalary);
+      const priorNet = prior ? centsOf(prior.netSalary) : 0;
 
       return {
         employeeId: cur.employeeId,
         employeeNumber: cur.employee?.employeeNumber,
         employeeName: cur.employee ? `${cur.employee.firstName} ${cur.employee.lastName}` : "Unknown",
-        currentGross: curGross,
-        priorGross,
-        grossVariance: Math.round((curGross - priorGross) * 100) / 100,
-        currentNet: curNet,
-        priorNet,
-        netVariance: Math.round((curNet - priorNet) * 100) / 100,
-        status: !prior ? "NEW_EMPLOYEE" : (Math.abs(curGross - priorGross) > 0.01 ? "CHANGED" : "UNCHANGED"),
+        currentGross: centsToMoney(curGross),
+        priorGross: centsToMoney(priorGross),
+        grossVariance: centsToMoney(curGross - priorGross),
+        currentNet: centsToMoney(curNet),
+        priorNet: centsToMoney(priorNet),
+        netVariance: centsToMoney(curNet - priorNet),
+        status: !prior ? "NEW_EMPLOYEE" : (Math.abs(curGross - priorGross) > 0 ? "CHANGED" : "UNCHANGED"),
       };
     });
 
@@ -3905,7 +4697,7 @@ router.get("/runs/:id/variances", async (req, res) => {
       variances,
     });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3918,13 +4710,19 @@ router.post("/runs/:id/submit-for-approval", requirePayrollWrite, async (req, re
       .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
       .limit(1);
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    if (run.status === "LOCKED") return res.status(422).json({ message: "Locked payroll runs cannot be resubmitted" });
-    if (run.status === "APPROVED") return res.status(422).json({ message: "Payroll run is already approved" });
+    if (run.status === "LOCKED") return res.status(409).json({ error: "RUN_LOCKED", message: "Locked payroll runs cannot be resubmitted" });
+    if (run.status === "APPROVED") return res.status(409).json({ error: "RUN_APPROVED", message: "Payroll run is already approved" });
+    // A reversed run has a reversing journal in the ledger. Resubmitting it
+    // would put the same pay period back on the approval queue a second time.
+    if (run.status === "REVERSED") return res.status(409).json({ error: "RUN_REVERSED", message: "A reversed payroll run cannot be resubmitted. Create a replacement run." });
 
     const [updated] = await db.update(payrollRuns)
       .set({ status: "PENDING_APPROVAL", updatedAt: new Date() })
-      .where(eq(payrollRuns.id, runId))
+      .where(and(eq(payrollRuns.id, runId), inArray(payrollRuns.status, ["DRAFT", "PENDING_APPROVAL"])))
       .returning();
+    if (!updated) {
+      return res.status(409).json({ error: "RUN_STATE_CHANGED", message: "The payroll run changed state. Reload the list and try again." });
+    }
 
     await auditPayroll(req, "PAYROLL_RUN_SUBMITTED", "payroll_runs", runId, {
       periodStart: updated.periodStart,
@@ -3932,7 +4730,7 @@ router.post("/runs/:id/submit-for-approval", requirePayrollWrite, async (req, re
     });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3946,7 +4744,9 @@ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
       .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
       .limit(1);
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    if (run.status === "LOCKED") return res.status(422).json({ message: "Locked payroll runs cannot be approved again" });
+    if (run.status === "LOCKED") return res.status(409).json({ error: "RUN_LOCKED", message: "Locked payroll runs cannot be approved again" });
+    if (run.status === "APPROVED") return res.status(409).json({ error: "RUN_APPROVED", message: "Payroll run is already approved" });
+    if (run.status === "REVERSED") return res.status(409).json({ error: "RUN_REVERSED", message: "A reversed payroll run cannot be approved. Create a replacement run." });
 
     const [updated] = await db.update(payrollRuns)
       .set({
@@ -3955,8 +4755,15 @@ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
         approvedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(payrollRuns.id, runId))
+      .where(and(
+        eq(payrollRuns.id, runId),
+        inArray(payrollRuns.status, ["DRAFT", "PENDING_APPROVAL"]),
+        eq(payrollRuns.companyId, companyId)
+      ))
       .returning();
+    if (!updated) {
+      return res.status(409).json({ error: "RUN_STATE_CHANGED", message: "The payroll run changed state. Reload the list and try again." });
+    }
 
     await auditPayroll(req, "PAYROLL_RUN_APPROVED", "payroll_runs", runId, {
       periodStart: updated.periodStart,
@@ -3966,7 +4773,7 @@ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
 
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -3980,104 +4787,147 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
       where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
     });
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    if (run.status === "LOCKED") return res.status(422).json({ message: "Payroll run is already locked" });
-    if (run.status !== "APPROVED") return res.status(422).json({ message: "Approve payroll before locking" });
+    if (run.status === "LOCKED") return res.status(409).json({ error: "ALREADY_LOCKED", message: "Payroll run is already locked" });
+    if (run.status === "REVERSED") {
+      return res.status(409).json({ error: "RUN_REVERSED", message: "A reversed payroll run cannot be locked again. Create a replacement run." });
+    }
+    if (run.status !== "APPROVED") return res.status(422).json({ error: "NOT_APPROVED", message: "Approve payroll before locking" });
 
     // Fetch employee lines
     const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
+    if (lines.length === 0) {
+      return res.status(422).json({ error: "NO_PAYSLIPS", message: "This run has no employees, so there is nothing to post to the ledger." });
+    }
+    const deductionRows = await db.select().from(payrollDeductions)
+      .where(inArray(payrollDeductions.payrollRunEmployeeId, lines.map((line) => line.id)));
+
+    const journal = buildPayrollJournal({
+      lines: lines.map((line) => ({
+        runEmployeeId: line.id,
+        grossSalary: line.grossSalary,
+        netSalary: line.netSalary,
+        nssaEmployer: line.nssaEmployer,
+        necEmployer: line.necEmployer,
+        pensionEmployer: line.pensionEmployer,
+        snapshot: runSnapshot(line.snapshotData),
+      })),
+      deductions: deductionRows.map((row) => ({
+        runEmployeeId: row.payrollRunEmployeeId,
+        deductionType: row.deductionType,
+        amount: row.amount,
+        name: row.name,
+      })),
+    });
+
+    if (journal.variances.length > 0) {
+      const affected = journal.variances.map((variance) => variance.runEmployeeId);
+      const who = await db.select({
+        runEmployeeId: payrollRunEmployees.id,
+        employeeNumber: employees.employeeNumber,
+        employeeName: sql<string>`trim(concat(${employees.firstName}, ' ', ${employees.lastName}))`,
+      })
+        .from(payrollRunEmployees)
+        .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
+        .where(inArray(payrollRunEmployees.id, affected));
+      const byId = new Map(who.map((row) => [row.runEmployeeId, row]));
+      return res.status(422).json({
+        error: "PAYROLL_GL_IMBALANCE",
+        message: "Some payslips do not reconcile - net pay is not gross minus the deduction lines. Fix the affected payslips before locking.",
+        variances: journal.variances.map((variance) => ({
+          ...variance,
+          ...(byId.get(variance.runEmployeeId) || {}),
+        })),
+      });
+    }
+
+    // Locking writes to the ledger, so a tenant with no chart of accounts is
+    // told to build one instead of having a payroll-scoped chart invented for them.
+    const [anyAccount] = await db.select({ id: accounts.id }).from(accounts)
+      .where(eq(accounts.companyId, companyId))
+      .limit(1);
+    if (!anyAccount) {
+      return res.status(422).json({
+        error: "NO_CHART_OF_ACCOUNTS",
+        message: "Set up a chart of accounts before locking payroll - the run cannot be posted to the ledger.",
+      });
+    }
+
+    const accountCodes = {} as Record<PayrollJournalAccountKey, string>;
+    for (const key of PAYROLL_JOURNAL_ACCOUNT_KEYS) {
+      accountCodes[key] = await storage.getSystemAccountCode(companyId, key);
+    }
 
     await db.transaction(async (tx) => {
-      // 1. Post to double-entry general ledger
-      // A. Create Draft Journal Entry
-      const [draft] = await tx.insert(journalEntryDrafts).values({
+      // 1. Draft the payroll journal for accounting approval. It is a DRAFT so
+      // the existing journal_post approval can actually pick it up.
+      await storage.createJournalEntryDraft(companyId, {
         companyId,
-        entryDate: new Date(),
-        description: `Payroll Journal - Period Ending ${run.periodEnd}`,
+        entryDate: new Date(`${run.periodEnd}T12:00:00Z`),
+        description: `Payroll ${run.periodStart} to ${run.periodEnd} (${lines.length} payslip${lines.length === 1 ? "" : "s"})`,
         referenceType: "PAYROLL",
         referenceId: runId.toString(),
-        status: "PENDING_APPROVAL",
-        createdBy: userId || null
-      }).returning();
+        createdBy: userId || null,
+        lines: journal.lines.map((line) => ({
+          accountCode: accountCodes[line.accountKey],
+          type: line.type,
+          amount: line.amount,
+          memo: line.memo,
+          branchId: run.branchId ?? undefined,
+        })),
+      }, tx);
 
-      // B. Retrieve default accounts (fallback if mapping is not configured)
-      const accountsList = await tx.select().from(accounts).where(eq(accounts.companyId, companyId));
-      const getAccount = (type: string, code: string) => {
-        return accountsList.find(a => a.code === code) || accountsList.find(a => a.type === type) || accountsList[0];
-      };
-
-      // Aggregate values
-      let totalBasic = 0, totalPaye = 0, totalNssaEmployee = 0, totalNssaEmployer = 0, totalNecEmployee = 0, totalNet = 0;
-      let totalNetUsd = 0, totalNetZig = 0;
-
+      // 2. Record loan capital recovered by this run
       for (const line of lines) {
-        totalBasic += parseFloat(line.basicSalary);
-        totalPaye += parseFloat(line.paye) + parseFloat(line.aidsLevy);
-        totalNssaEmployee += parseFloat(line.nssaEmployee);
-        totalNssaEmployer += parseFloat(line.nssaEmployer);
-        totalNecEmployee += parseFloat(line.necEmployee);
-        totalNet += parseFloat(line.netSalary);
-        totalNetUsd += parseFloat(line.netSalaryUsd);
-        totalNetZig += parseFloat(line.netSalaryZig);
+        const snapshot = runSnapshot(line.snapshotData);
+        const loanId = Number(snapshot.loanId || 0);
+        const loanRepaymentCents = Math.round(toMoney(snapshot.loanDeduction) * 100);
+        if (!loanId || loanRepaymentCents <= 0) continue;
 
-        // Update outstanding loan balances and record installments
-        const loanId = (line.snapshotData as any).loanId;
-        const loanDeduction = (line.snapshotData as any).loanDeduction;
-        if (loanId && loanDeduction > 0) {
-          const [loan] = await tx.select().from(employeeLoans).where(eq(employeeLoans.id, loanId)).limit(1);
-          if (loan) {
-            const nextBal = Math.max(0, parseFloat(loan.remainingBalance) - loanDeduction);
-            const status = nextBal === 0 ? "COMPLETED" : "ACTIVE";
-            
-            // Deduct loan balance
-            await tx.update(employeeLoans)
-              .set({ remainingBalance: nextBal.toFixed(2), status })
-              .where(eq(employeeLoans.id, loanId));
+        const [loan] = await tx.select().from(employeeLoans)
+          .where(and(eq(employeeLoans.id, loanId), eq(employeeLoans.companyId, companyId)))
+          .limit(1);
+        if (!loan) continue;
 
-            // Create loan installment record
-            await tx.insert(loanInstallments).values({
-              loanId,
-              payrollRunEmployeeId: line.id,
-              amountPaid: loanDeduction.toFixed(2),
-              principalPaid: loanDeduction.toFixed(2),
-              interestPaid: "0.00",
-              remainingBalanceAfter: nextBal.toFixed(2)
-            });
-          }
-        }
+        const balanceCents = Math.round(toMoney(loan.remainingBalance) * 100);
+        const nextBalanceCents = Math.max(0, balanceCents - loanRepaymentCents);
+        const nextBalance = (nextBalanceCents / 100).toFixed(2);
+        await tx.update(employeeLoans)
+          .set({ remainingBalance: nextBalance, status: nextBalanceCents === 0 ? "COMPLETED" : "ACTIVE" })
+          .where(eq(employeeLoans.id, loanId));
+
+        await tx.insert(loanInstallments).values({
+          loanId,
+          payrollRunEmployeeId: line.id,
+          amountPaid: (loanRepaymentCents / 100).toFixed(2),
+          principalPaid: (loanRepaymentCents / 100).toFixed(2),
+          interestPaid: "0.00",
+          remainingBalanceAfter: nextBalance,
+        });
       }
 
-      const basicSalariesAcc = getAccount("EXPENSE", "6000");
-      const netSalariesAcc = getAccount("LIABILITY", "2000");
-      const payeAcc = getAccount("LIABILITY", "2100");
-      const nssaAcc = getAccount("LIABILITY", "2110");
-      
-      const journalLines = [
-        { draftId: draft.id, accountId: basicSalariesAcc.id, type: "DEBIT", amount: totalBasic.toFixed(2), currency: run.currency },
-        { draftId: draft.id, accountId: netSalariesAcc.id, type: "CREDIT", amount: totalNet.toFixed(2), currency: run.currency },
-        { draftId: draft.id, accountId: payeAcc.id, type: "CREDIT", amount: totalPaye.toFixed(2), currency: run.currency },
-        { draftId: draft.id, accountId: nssaAcc.id, type: "CREDIT", amount: (totalNssaEmployee + totalNssaEmployer).toFixed(2), currency: run.currency },
-      ];
-      await tx.insert(journalEntryDraftLines).values(journalLines);
-
-      // 2. Lock Payroll Run
-      await tx.update(payrollRuns)
-        .set({ 
+      // 3. Lock Payroll Run - only if it is still the approved run we loaded,
+      // so two concurrent locks cannot post the journal twice.
+      const [locked] = await tx.update(payrollRuns)
+        .set({
           status: "LOCKED",
           lockedBy: userId || null,
           lockedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(payrollRuns.id, runId));
+        .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.status, "APPROVED")))
+        .returning();
+      if (!locked) throw new PayrollHttpError(409, "Payroll run changed state while locking. Reload and try again.", "PAYROLL_LOCK_CONFLICT");
     });
 
     await auditPayroll(req, "PAYROLL_RUN_LOCKED", "payroll_runs", runId, {
       periodStart: run.periodStart,
       periodEnd: run.periodEnd,
       totalNet: run.totalNet,
+      journal: journal.totals,
     });
-    res.json({ success: true, status: "LOCKED" });
+    res.json({ success: true, status: "LOCKED", journal: journal.totals });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4091,72 +4941,102 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
       .limit(1);
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
     if (run.status !== "LOCKED") {
-      return res.status(400).json({ error: "STATE_ERROR", message: `Only LOCKED runs can be reversed (current: ${run.status})` });
-    }
-    if (run.runType === "BONUS") {
-      return res.status(400).json({ error: "STATE_ERROR", message: "Bonus runs cannot be reversed" });
+      return res.status(409).json({ error: "STATE_ERROR", message: `Only LOCKED runs can be reversed (current: ${run.status})` });
     }
 
     const userId = req.user?.id || null;
 
+    const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
+    const deductionRows = lines.length > 0
+      ? await db.select().from(payrollDeductions)
+          .where(inArray(payrollDeductions.payrollRunEmployeeId, lines.map((line) => line.id)))
+      : [];
+
+    // The reversal is rebuilt from the same payslip data the lock used and then
+    // mirrored, so the two entries cancel to the cent even if the chart of
+    // accounts or the mapping moved on since the run was locked.
+    const journal = buildPayrollJournal({
+      lines: lines.map((line) => ({
+        runEmployeeId: line.id,
+        grossSalary: line.grossSalary,
+        netSalary: line.netSalary,
+        nssaEmployer: line.nssaEmployer,
+        necEmployer: line.necEmployer,
+        pensionEmployer: line.pensionEmployer,
+        snapshot: runSnapshot(line.snapshotData),
+      })),
+      deductions: deductionRows.map((row) => ({
+        runEmployeeId: row.payrollRunEmployeeId,
+        deductionType: row.deductionType,
+        amount: row.amount,
+        name: row.name,
+      })),
+    });
+
+    if (journal.variances.length > 0) {
+      return res.status(422).json({
+        error: "PAYROLL_GL_IMBALANCE",
+        message: "Some payslips on this run no longer reconcile, so the reversal cannot be derived. Reversal blocked without writing to the ledger.",
+        variances: journal.variances,
+      });
+    }
+
+    const accountCodes = {} as Record<PayrollJournalAccountKey, string>;
+    for (const key of PAYROLL_JOURNAL_ACCOUNT_KEYS) {
+      accountCodes[key] = await storage.getSystemAccountCode(companyId, key);
+    }
+
     await db.transaction(async (tx) => {
-      // 1. Reversing journal entry: negate the original draft lines
-      const [originalDraft] = await tx.select().from(journalEntryDrafts)
-        .where(and(eq(journalEntryDrafts.referenceType, "PAYROLL"), eq(journalEntryDrafts.referenceId, String(runId))))
-        .limit(1);
-
-      if (originalDraft) {
-        const originalLines = await tx.select().from(journalEntryDraftLines)
-          .where(eq(journalEntryDraftLines.draftId, originalDraft.id));
-
-        const [reverseDraft] = await tx.insert(journalEntryDrafts).values({
+      if (journal.lines.length > 0) {
+        await storage.createJournalEntryDraft(companyId, {
           companyId,
           entryDate: new Date(),
-          description: `Reversal of Payroll Journal - Run #${runId} (${run.periodEnd})`,
+          description: `Reversal of payroll journal - run #${runId} (${run.periodEnd})`,
           referenceType: "PAYROLL_REVERSAL",
-          referenceId: String(runId),
-          status: "PENDING_APPROVAL",
-          createdBy: userId
-        }).returning();
-
-        if (originalLines.length > 0) {
-          await tx.insert(journalEntryDraftLines).values(
-            originalLines.map((line) => ({
-              draftId: reverseDraft.id,
-              accountId: line.accountId,
-              type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
-              amount: line.amount,
-              memo: line.memo ?? null,
-            }))
-          );
-        }
+          referenceId: runId.toString(),
+          createdBy: userId,
+          lines: reversePayrollJournal(journal).map((line) => ({
+            accountCode: accountCodes[line.accountKey],
+            type: line.type,
+            amount: line.amount,
+            memo: line.memo,
+            branchId: run.branchId ?? undefined,
+          })),
+        }, tx);
       }
 
-      // 2. Refund Loan Installments
-      const installments = await tx.select().from(loanInstallments).innerJoin(payrollRunEmployees, eq(loanInstallments.payrollRunEmployeeId, payrollRunEmployees.id)).where(eq(payrollRunEmployees.payrollRunId, runId));
+      // Restore the loan capital this run recovered
+      const installments = await tx.select().from(loanInstallments)
+        .innerJoin(payrollRunEmployees, eq(loanInstallments.payrollRunEmployeeId, payrollRunEmployees.id))
+        .where(eq(payrollRunEmployees.payrollRunId, runId));
+
       for (const inst of installments) {
-        const [loan] = await tx.select().from(employeeLoans).where(eq(employeeLoans.id, inst.loan_installments.loanId)).limit(1);
-        if (loan) {
-          const refundedBal = parseFloat(loan.remainingBalance) + parseFloat(inst.loan_installments.principalPaid);
-          await tx.update(employeeLoans)
-            .set({ 
-              remainingBalance: refundedBal.toFixed(2), 
-              status: refundedBal > 0.001 ? "ACTIVE" : loan.status 
-            })
-            .where(eq(employeeLoans.id, loan.id));
-        }
-      }
-      
-      // Delete the installments created by this run
-      if (installments.length > 0) {
-        const idsToDelete = installments.map(i => i.loan_installments.id);
-        await tx.delete(loanInstallments).where(inArray(loanInstallments.id, idsToDelete));
+        const [loan] = await tx.select().from(employeeLoans)
+          .where(and(eq(employeeLoans.id, inst.loan_installments.loanId), eq(employeeLoans.companyId, companyId)))
+          .limit(1);
+        if (!loan) continue;
+
+        const restoredCents = Math.round(toMoney(loan.remainingBalance) * 100)
+          + Math.round(toMoney(inst.loan_installments.principalPaid) * 100);
+        await tx.update(employeeLoans)
+          .set({
+            remainingBalance: (restoredCents / 100).toFixed(2),
+            status: restoredCents > 0 ? "ACTIVE" : loan.status,
+          })
+          .where(eq(employeeLoans.id, loan.id));
       }
 
-      // 3. Mark the run as reversed
-      await tx.update(payrollRuns)
+      if (installments.length > 0) {
+        await tx.delete(loanInstallments).where(inArray(loanInstallments.id, installments.map((i) => i.loan_installments.id)));
+      }
+
+      // Only a run that is still locked flips to REVERSED, so two approvers
+      // clicking reverse at once cannot post the reversal journal twice.
+      const [reversed] = await tx.update(payrollRuns)
         .set({ status: "REVERSED", updatedAt: new Date() })
-        .where(eq(payrollRuns.id, runId));
+        .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.status, "LOCKED")))
+        .returning();
+      if (!reversed) throw new PayrollHttpError(409, "Payroll run changed state while reversing. Reload and try again.", "PAYROLL_REVERSE_CONFLICT");
     });
 
     await auditPayroll(req, "PAYROLL_RUN_REVERSED", "payroll_runs", runId, {
@@ -4164,10 +5044,11 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
       periodEnd: run.periodEnd,
       totalNet: run.totalNet,
       reversedBy: userId,
+      journal: journal.totals,
     });
-    res.json({ success: true, status: "REVERSED", message: `Run #${runId} reversed. A reversing journal entry has been posted for GL approval.` });
+    res.json({ success: true, status: "REVERSED", message: `Run #${runId} reversed. A reversing journal entry is waiting for GL approval.` });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4180,7 +5061,7 @@ router.get("/attendance/imports", async (req, res) => {
       .orderBy(desc(payrollAttendanceImports.createdAt));
     res.json(results);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4195,7 +5076,7 @@ router.post("/attendance/imports", requirePayrollWrite, async (req, res) => {
     summaryData: z.record(z.any()).default({}),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
   try {
     const companyId = getTargetCompanyId(req);
     const [record] = await db.insert(payrollAttendanceImports)
@@ -4208,9 +5089,149 @@ router.post("/attendance/imports", requirePayrollWrite, async (req, res) => {
     });
     res.status(201).json(record);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
+
+/**
+ * Per-company payroll settings. A company that has never set anything up still gets a
+ * usable file: no prefix, four-digit numbers, and the documents every employer in
+ * Zimbabwe has to be able to show on request.
+ */
+const PAYROLL_SETTINGS_FALLBACK = {
+  staffNumberPrefix: "",
+  staffNumberDigits: 4,
+  staffNumberNext: 1,
+  requiredDocumentTypes: ["CONTRACT", "ID_COPY", "NSSA"] as string[],
+  expiryWarningDays: 30,
+};
+
+async function loadPayrollSettings(companyId: number) {
+  const [row] = await db.select().from(payrollCompanySettings)
+    .where(eq(payrollCompanySettings.companyId, companyId))
+    .limit(1);
+  if (!row) return { ...PAYROLL_SETTINGS_FALLBACK };
+  return {
+    staffNumberPrefix: row.staffNumberPrefix ?? "",
+    staffNumberDigits: Number(row.staffNumberDigits) || PAYROLL_SETTINGS_FALLBACK.staffNumberDigits,
+    staffNumberNext: Number(row.staffNumberNext) || 1,
+    requiredDocumentTypes: Array.isArray(row.requiredDocumentTypes)
+      ? row.requiredDocumentTypes.map((type) => String(type).toUpperCase())
+      : PAYROLL_SETTINGS_FALLBACK.requiredDocumentTypes,
+    expiryWarningDays: Number(row.expiryWarningDays ?? 30),
+  };
+}
+
+router.get("/settings", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const settings = await loadPayrollSettings(companyId);
+    res.json({ ...settings, documentTypes: EMPLOYEE_DOCUMENT_TYPES });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+// Changing how staff are numbered, or which documents a file must contain, is a
+// settings decision rather than a data-entry one, so it needs payroll approval.
+router.patch("/settings", requirePayrollApproval, async (req, res) => {
+  const schema = z.object({
+    staffNumberPrefix: z.string().trim().max(8).optional(),
+    staffNumberDigits: z.coerce.number().int().min(1).max(12).optional(),
+    staffNumberNext: z.coerce.number().int().min(1).max(999_999_999).optional(),
+    requiredDocumentTypes: z.array(z.string().trim().min(1)).max(EMPLOYEE_DOCUMENT_TYPES.length).optional(),
+    expiryWarningDays: z.coerce.number().int().min(0).max(365).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  const unknown = (parsed.data.requiredDocumentTypes ?? [])
+    .map((t) => t.toUpperCase())
+    .filter((t) => !isKnownDocumentType(t));
+  if (unknown.length > 0) {
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: `Unknown document type(s): ${unknown.join(", ")}. This product tracks: ${EMPLOYEE_DOCUMENT_TYPES.join(", ")}.`,
+    });
+  }
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const current = await loadPayrollSettings(companyId);
+    const values = {
+      staffNumberPrefix: (parsed.data.staffNumberPrefix ?? current.staffNumberPrefix).toUpperCase(),
+      staffNumberDigits: parsed.data.staffNumberDigits ?? current.staffNumberDigits,
+      staffNumberNext: parsed.data.staffNumberNext ?? current.staffNumberNext,
+      requiredDocumentTypes: (parsed.data.requiredDocumentTypes
+        ?? current.requiredDocumentTypes.map((t: string) => String(t))
+      ).map((t: string) => t.toUpperCase()),
+      expiryWarningDays: parsed.data.expiryWarningDays ?? current.expiryWarningDays,
+      updatedAt: new Date(),
+    };
+
+    const [row] = await db.insert(payrollCompanySettings)
+      .values({ ...values, companyId })
+      .onConflictDoUpdate({ target: payrollCompanySettings.companyId, set: values })
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_SETTINGS_UPDATED", "payroll_company_settings", row.id, {
+      staffNumberPrefix: row.staffNumberPrefix,
+      staffNumberDigits: row.staffNumberDigits,
+      staffNumberNext: row.staffNumberNext,
+      requiredDocumentTypes: row.requiredDocumentTypes,
+      expiryWarningDays: row.expiryWarningDays,
+    });
+    res.json(row);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+
+/**
+ * Take the next staff number for a company and advance its counter.
+ *
+ * Runs inside the caller's transaction: the counter and the employee row commit
+ * together, so a failed hire never burns a number. Candidates that are already taken
+ * are stepped over, because an employer may have deleted staff or imported rows with
+ * their own numbering, and the unique index on (company, employee_number) is the thing
+ * that actually decides a collision.
+ */
+// The exact shape drizzle hands to a db.transaction() callback - `typeof db` would
+// demand its $client pool, which a transaction does not have.
+type PayrollTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function allocateStaffNumber(
+  tx: PayrollTransaction,
+  companyId: number,
+  settings: { staffNumberPrefix: string; staffNumberDigits: number; staffNumberNext: number }
+) {
+  let candidate = settings.staffNumberNext;
+  for (let attempts = 0; attempts < 200; attempts++) {
+    const number = nextStaffNumber(settings.staffNumberPrefix, settings.staffNumberDigits, candidate);
+    const [taken] = await tx.select({ id: employees.id }).from(employees)
+      .where(and(eq(employees.companyId, companyId), eq(employees.employeeNumber, number)))
+      .limit(1);
+    if (!taken) return { number, next: candidate + 1 };
+    candidate += 1;
+  }
+  throw Object.assign(new Error("Could not allocate a staff number. Check the payroll numbering settings."), {
+    status: 409,
+    code: "STAFF_NUMBER_EXHAUSTED",
+  });
+}
+
+// --- 22. STAFF FILE -------------------------------------------------------
+//
+// A payroll file is a compliance artefact, not a folder of scans. An expired contract
+// still lets payslips run for someone the business no longer employs, and the first
+// thing an NSSA or labour inspection asks for is the ID copy and the signed contract -
+// on paper, not "we scanned it once". So each document carries its expiry date and
+// whether the original is physically held, and the company declares which types every
+// active employee must have.
+//
+// All of the judgement lives in shared/staff-file.ts so the list badge, the expiry
+// radar, the month-end checklist and the write path cannot drift apart.
 
 router.get("/employees/:id/documents", async (req, res) => {
   const employeeId = parseInt(req.params.id, 10);
@@ -4219,40 +5240,557 @@ router.get("/employees/:id/documents", async (req, res) => {
     const docs = await db.select().from(employeeDocuments)
       .where(and(eq(employeeDocuments.companyId, companyId), eq(employeeDocuments.employeeId, employeeId)))
       .orderBy(desc(employeeDocuments.createdAt));
-    res.json(docs);
+    const settings = await loadPayrollSettings(companyId);
+    res.json({
+      documents: docs,
+      status: staffFileStatus(docs as any, settings.requiredDocumentTypes as string[], settings.expiryWarningDays),
+    });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 router.post("/employees/:id/documents", requirePayrollWrite, async (req, res) => {
   const employeeId = parseInt(req.params.id, 10);
   const schema = z.object({
-    documentType: z.string(),
-    fileName: z.string(),
-    fileUrl: z.string(),
+    documentType: z.string().trim().min(1),
+    fileName: z.string().trim().min(1),
+    fileUrl: z.string().trim().min(1),
     mimeType: z.string().optional().nullable(),
     fileHash: z.string().optional().nullable(),
+    expiryDate: z.preprocess(
+      (v: unknown) => (v === "" || v === undefined || v === null ? null : v),
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expiryDate must be YYYY-MM-DD").nullable().optional()
+    ),
+    hardCopyOnFile: boolField(false),
+    notes: z.string().trim().max(2000).optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  const documentType = parsed.data.documentType.toUpperCase();
+  if (!isKnownDocumentType(documentType)) {
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: `"${parsed.data.documentType}" is not a document this product tracks. Choose one of: ${EMPLOYEE_DOCUMENT_TYPES.join(", ")}.`,
+    });
+  }
+
   try {
     const companyId = getTargetCompanyId(req);
     const [emp] = await db.select().from(employees)
       .where(and(eq(employees.companyId, companyId), eq(employees.id, employeeId)))
       .limit(1);
-    if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "Employee not found" });
 
     const [doc] = await db.insert(employeeDocuments)
-      .values({ ...parsed.data, companyId, employeeId, uploadedBy: (req as any).user?.id || null })
+      .values({
+        documentType,
+        fileName: parsed.data.fileName,
+        fileUrl: parsed.data.fileUrl,
+        mimeType: parsed.data.mimeType ?? null,
+        fileHash: parsed.data.fileHash ?? null,
+        expiryDate: parsed.data.expiryDate ?? null,
+        hardCopyOnFile: parsed.data.hardCopyOnFile,
+        notes: parsed.data.notes ?? null,
+        companyId,
+        employeeId,
+        uploadedBy: (req as any).user?.id || null,
+      })
       .returning();
     await auditPayroll(req, "PAYROLL_EMPLOYEE_DOCUMENT_ADDED", "employee_documents", doc.id, {
       employeeId,
       documentType: doc.documentType,
+      expiryDate: doc.expiryDate,
     });
     res.status(201).json(doc);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
+  }
+});
+
+/**
+ * Correct the paperwork around a stored file: when it expires, whether the signed
+ * original is in the cabinet, and a note. The scan itself is never replaced here.
+ */
+router.patch("/staff-file/documents/:id", requirePayrollWrite, async (req, res) => {
+  const documentId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(documentId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid document ID" });
+
+  const schema = z.object({
+    expiryDate: z.preprocess(
+      (v: unknown) => (v === "" || v === undefined ? null : v),
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expiryDate must be YYYY-MM-DD").nullable().optional()
+    ),
+    hardCopyOnFile: optionalBoolField(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    // Scoped on company as well as id, so one tenant cannot rewrite another's file.
+    const [existing] = await db.select().from(employeeDocuments)
+      .where(and(eq(employeeDocuments.id, documentId), eq(employeeDocuments.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Document not found for this company" });
+
+    const patch: Record<string, any> = {};
+    if (parsed.data.expiryDate !== undefined) patch.expiryDate = parsed.data.expiryDate;
+    if (parsed.data.hardCopyOnFile !== undefined) patch.hardCopyOnFile = parsed.data.hardCopyOnFile;
+    if (parsed.data.notes !== undefined) patch.notes = parsed.data.notes;
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "Nothing to update" });
+    }
+
+    const [doc] = await db.update(employeeDocuments).set(patch)
+      .where(and(eq(employeeDocuments.id, documentId), eq(employeeDocuments.companyId, companyId)))
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_EMPLOYEE_DOCUMENT_UPDATED", "employee_documents", doc.id, patch);
+    res.json(doc);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.delete("/staff-file/documents/:id", requirePayrollWrite, async (req, res) => {
+  const documentId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(documentId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid document ID" });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [removed] = await db.delete(employeeDocuments)
+      .where(and(eq(employeeDocuments.id, documentId), eq(employeeDocuments.companyId, companyId)))
+      .returning();
+    if (!removed) return res.status(404).json({ error: "NOT_FOUND", message: "Document not found for this company" });
+
+    await auditPayroll(req, "PAYROLL_EMPLOYEE_DOCUMENT_REMOVED", "employee_documents", removed.id, {
+      employeeId: removed.employeeId,
+      documentType: removed.documentType,
+    });
+    res.json({ deleted: true, id: documentId });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+/**
+ * One read for the whole staff file: per-employee completeness for the directory
+ * badges, and the expiry radar for the dashboard and the month-end checklist.
+ *
+ * Deliberately scoped to the company and computed in memory - a small employer's
+ * documents number in the hundreds, and the same maths has to run per employee anyway.
+ */
+/**
+ * The scan behind a staff-file record.
+ *
+ * `/api/upload` is the avatar/logo endpoint and only accepts images; a contract, an
+ * ID copy or an NSSA return arrives as a PDF as often as not. So staff files get their
+ * own endpoint: PDF and image only, size-capped, stored under uploads/staff-files with
+ * a server-generated name (never the client's, which is attacker-controlled), and
+ * fingerprinted with a sha256 so a later question about whether the scan in the drawer
+ * is the scan on the file has an answer.
+ */
+const STAFF_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const STAFF_FILE_EXTENSIONS: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+};
+
+function staffFileUploadHandler(req: any, res: any, next: any) {
+  const uploadsDir = path.join(process.cwd(), "uploads", "staff-files");
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: (_req: any, _file: any, cb: any) => {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        cb(null, uploadsDir);
+      },
+      filename: (_req: any, file: any, cb: any) => {
+        // Extension comes from the sniffed mime type, not from originalname.
+        cb(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${STAFF_FILE_EXTENSIONS[file.mimetype] ?? ""}`);
+      },
+    }),
+    limits: { fileSize: STAFF_FILE_MAX_BYTES },
+    fileFilter: (_req: any, file: any, cb: any) => {
+      if (!STAFF_FILE_EXTENSIONS[file.mimetype]) {
+        cb(new Error(`Only ${Object.values(STAFF_FILE_EXTENSIONS).join(", ").replace(".", "").toUpperCase()} scans are accepted. Received ${file.mimetype}.`));
+        return;
+      }
+      cb(null, true);
+    },
+  });
+  upload.single("file")(req, res, (err: any) => {
+    if (err) {
+      const tooBig = err?.code === "LIMIT_FILE_SIZE";
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: tooBig
+          ? `A staff document scan must be ${STAFF_FILE_MAX_BYTES / (1024 * 1024)}MB or smaller.`
+          : err.message,
+      });
+    }
+    next();
+  });
+}
+
+router.post("/staff-file/upload", requirePayrollWrite, staffFileUploadHandler, async (req, res) => {
+  try {
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ error: "VALIDATION_ERROR", message: "No file received. Send it as multipart field \"file\"." });
+
+    const [emp] = await db.select({ id: employees.id }).from(employees)
+      .where(and(eq(employees.companyId, getTargetCompanyId(req)), eq(employees.id, parseInt(String(req.body?.employeeId ?? ""), 10) || -1)))
+      .limit(1);
+    if (!emp) {
+      // Never leave an orphan scan sitting on disk when the caller named a worker the
+      // company does not have.
+      fs.unlink(file.path, () => {});
+      return res.status(404).json({ error: "NOT_FOUND", message: "Employee not found for this company" });
+    }
+
+    const fileHash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
+    await auditPayroll(req, "PAYROLL_EMPLOYEE_DOCUMENT_UPLOADED", "employee_documents", file.filename, {
+      employeeId: emp.id,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      fileHash,
+    });
+    res.status(201).json({
+      url: `/uploads/staff-files/${file.filename}`,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      fileHash,
+    });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.get("/staff-file/summary", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const settings = await loadPayrollSettings(companyId);
+    const requiredTypes = (settings.requiredDocumentTypes ?? []) as string[];
+    const warningDays = settings.expiryWarningDays;
+
+    const [directory, docs] = await Promise.all([
+      db.select({
+        id: employees.id,
+        employeeNumber: employees.employeeNumber,
+        firstName: employees.firstName,
+        lastName: employees.lastName,
+        status: employees.status,
+      }).from(employees)
+        .where(and(eq(employees.companyId, companyId), eq(employees.status, "ACTIVE")))
+        .orderBy(asc(employees.lastName), asc(employees.firstName)),
+      db.select().from(employeeDocuments).where(eq(employeeDocuments.companyId, companyId)),
+    ]);
+
+    const byEmployee = new Map<number, any[]>();
+    for (const doc of docs) {
+      const bucket = byEmployee.get(doc.employeeId);
+      if (bucket) bucket.push(doc);
+      else byEmployee.set(doc.employeeId, [doc]);
+    }
+
+    const employeesOut: Array<Record<string, any>> = [];
+    const radar: Array<Record<string, any>> = [];
+    for (const emp of directory) {
+      const empDocs = byEmployee.get(emp.id) ?? [];
+      const status = staffFileStatus(empDocs as any, requiredTypes, warningDays);
+      employeesOut.push({ ...emp, fileStatus: status, documentCount: empDocs.length });
+
+      for (const doc of empDocs) {
+        const state = documentExpiryState(doc, warningDays);
+        if (state === "EXPIRED" || state === "EXPIRING") {
+          radar.push({
+            documentId: doc.id,
+            employeeId: emp.id,
+            employeeName: `${emp.firstName} ${emp.lastName}`,
+            employeeNumber: emp.employeeNumber,
+            documentType: doc.documentType,
+            fileName: doc.fileName,
+            expiryDate: doc.expiryDate,
+            hardCopyOnFile: doc.hardCopyOnFile,
+            state,
+          });
+        }
+      }
+    }
+
+    radar.sort((a, b) => String(a.expiryDate).localeCompare(String(b.expiryDate)));
+
+    res.json({
+      requiredDocumentTypes: requiredTypes,
+      expiryWarningDays: warningDays,
+      employees: employeesOut,
+      expiringDocuments: radar,
+      totals: {
+        activeEmployees: directory.length,
+        completeFiles: employeesOut.filter((e) => e.fileStatus.complete).length,
+        expiredDocuments: radar.filter((r) => r.state === "EXPIRED").length,
+        expiringDocuments: radar.filter((r) => r.state === "EXPIRING").length,
+        missingHardCopies: docs.filter((d) => !d.hardCopyOnFile).length,
+      },
+    });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+/**
+ * The month-end close, as a list instead of as a memory.
+ *
+ * A payroll close fails in the same handful of ways: someone's contract expired and
+ * they kept being paid, a rise was approved but never applied so the run pays the old
+ * salary, a run is sitting in DRAFT while the period it covers is already over, or a
+ * filing is due and nobody filed it. Each check below is one of those, computed from
+ * the data rather than ticked by hand, and ordered so a blocker always outranks a
+ * warning.
+ */
+router.get("/month-end-checklist", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const settings = await loadPayrollSettings(companyId);
+    const requiredTypes = settings.requiredDocumentTypes;
+    const warningDays = settings.expiryWarningDays;
+
+    const period = requestedMonth(req.query.period) ?? todayLocalIso().slice(0, 7);
+    const { start: periodStart, end: periodEnd } = monthBoundsIso(period);
+    const today = todayLocalIso();
+    const horizon = addDaysIso(today, warningDays);
+
+    const [directory, docs, openRuns, periodRuns, pendingChanges, expiringContracts, unpaidRemittances] = await Promise.all([
+      db.select({
+        id: employees.id,
+        employeeNumber: employees.employeeNumber,
+        firstName: employees.firstName,
+        lastName: employees.lastName,
+      }).from(employees)
+        .where(and(eq(employees.companyId, companyId), eq(employees.status, "ACTIVE"))),
+      db.select().from(employeeDocuments).where(eq(employeeDocuments.companyId, companyId)),
+      db.select({
+        id: payrollRuns.id,
+        status: payrollRuns.status,
+        periodStart: payrollRuns.periodStart,
+        periodEnd: payrollRuns.periodEnd,
+        currency: payrollRuns.currency,
+      }).from(payrollRuns)
+        .where(and(
+          eq(payrollRuns.companyId, companyId),
+          inArray(payrollRuns.status, ["DRAFT", "PENDING_APPROVAL", "APPROVED"])
+        ))
+        .orderBy(asc(payrollRuns.periodStart)),
+      db.select({ id: payrollRuns.id, status: payrollRuns.status, currency: payrollRuns.currency })
+        .from(payrollRuns)
+        .where(and(
+          eq(payrollRuns.companyId, companyId),
+          lte(payrollRuns.periodStart, periodEnd),
+          gte(payrollRuns.periodEnd, periodStart),
+          ne(payrollRuns.status, "REVERSED")
+        )),
+      db.select({
+        id: employeeSalaryChanges.id,
+        effectiveDate: employeeSalaryChanges.effectiveDate,
+        employeeId: employeeSalaryChanges.employeeId,
+      }).from(employeeSalaryChanges)
+        .where(and(
+          eq(employeeSalaryChanges.companyId, companyId),
+          eq(employeeSalaryChanges.status, "PENDING"),
+          lte(employeeSalaryChanges.effectiveDate, periodEnd)
+        )),
+      db.select({
+        id: employeeContracts.id,
+        employeeId: employeeContracts.employeeId,
+        endDate: employeeContracts.endDate,
+        contractType: employeeContracts.contractType,
+        firstName: employees.firstName,
+        lastName: employees.lastName,
+      }).from(employeeContracts)
+        .innerJoin(employees, eq(employeeContracts.employeeId, employees.id))
+        .where(and(
+          eq(employees.companyId, companyId),
+          eq(employees.status, "ACTIVE"),
+          eq(employeeContracts.isActive, true),
+          isNotNull(employeeContracts.endDate),
+          lte(employeeContracts.endDate, horizon)
+        ))
+        .orderBy(asc(employeeContracts.endDate)),
+      db.select({
+        id: payrollRemittances.id,
+        name: payrollRemittances.name,
+        authority: payrollRemittances.authority,
+        dueDate: payrollRemittances.dueDate,
+        amount: payrollRemittances.amount,
+        currency: payrollRemittances.currency,
+      }).from(payrollRemittances)
+        .where(and(
+          eq(payrollRemittances.companyId, companyId),
+          eq(payrollRemittances.status, "NOT_SUBMITTED"),
+          lte(payrollRemittances.dueDate, horizon)
+        ))
+        .orderBy(asc(payrollRemittances.dueDate)),
+    ]);
+
+    const byEmployee = new Map<number, any[]>();
+    for (const doc of docs) {
+      const bucket = byEmployee.get(doc.employeeId);
+      if (bucket) bucket.push(doc);
+      else byEmployee.set(doc.employeeId, [doc]);
+    }
+
+    const incompleteFiles: string[] = [];
+    const missingHardCopyEmployees = new Set<number>();
+    let expiredDocs = 0;
+    let expiringDocs = 0;
+    for (const emp of directory) {
+      const empDocs = byEmployee.get(emp.id) ?? [];
+      const status = staffFileStatus(empDocs as any, requiredTypes, warningDays);
+      if (!status.complete) incompleteFiles.push(`${emp.firstName} ${emp.lastName}`.trim());
+      if (empDocs.some((d) => EXPIRY_TRACKED_TYPES.includes(d.documentType as any) && !d.hardCopyOnFile)) {
+        missingHardCopyEmployees.add(emp.id);
+      }
+      for (const doc of empDocs) {
+        const state = documentExpiryState(doc, warningDays);
+        if (state === "EXPIRED") expiredDocs += 1;
+        else if (state === "EXPIRING") expiringDocs += 1;
+      }
+    }
+
+    const lapsedContracts = expiringContracts.filter((c) => String(c.endDate) < today);
+    const endingContracts = expiringContracts.filter((c) => String(c.endDate) >= today);
+    const overdueRemittances = unpaidRemittances.filter((r) => String(r.dueDate) < today);
+    const dueRemittances = unpaidRemittances.filter((r) => String(r.dueDate) >= today);
+
+    const items = [
+      {
+        id: "STAFF_FILE_COMPLETE",
+        label: `Every active file holds the ${requiredTypes.length} required document(s)`,
+        count: incompleteFiles.length,
+        severity: incompleteFiles.length > 0 ? "WARN" : "OK",
+        detail: incompleteFiles.length > 0
+          ? `${incompleteFiles.slice(0, 3).join(", ")}${incompleteFiles.length > 3 ? ` and ${incompleteFiles.length - 3} more` : ""}`
+          : `All ${directory.length} active ${directory.length === 1 ? "file is" : "files are"} complete.`,
+        href: "/hr/employees",
+      },
+      {
+        id: "DOCUMENTS_UNEXPIRED",
+        label: "No document on an active file has expired",
+        count: expiredDocs,
+        severity: expiredDocs > 0 ? "BLOCK" : "OK",
+        detail: expiredDocs > 0
+          ? `${expiredDocs} expired; an expired contract still lets the holder be paid.`
+          : expiringDocs > 0
+            ? `${expiringDocs} expire within ${warningDays} days.`
+            : "Nothing is expired or due to expire.",
+        href: "/hr/employees",
+      },
+      {
+        id: "HARD_COPIES_ON_FILE",
+        label: "Signed originals are physically on file",
+        count: missingHardCopyEmployees.size,
+        severity: missingHardCopyEmployees.size > 0 ? "WARN" : "OK",
+        detail: missingHardCopyEmployees.size > 0
+          ? `${missingHardCopyEmployees.size} ${missingHardCopyEmployees.size === 1 ? "employee is" : "employees are"} missing a paper original for a contract, ID, NSSA or medical.`
+          : "Every tracked document is marked as held in hard copy.",
+        href: "/hr/employees",
+      },
+      {
+        id: "CONTRACTS_LAPSED",
+        label: "No active employee is past their contract end date",
+        count: lapsedContracts.length,
+        severity: lapsedContracts.length > 0 ? "BLOCK" : "OK",
+        detail: lapsedContracts.length > 0
+          ? lapsedContracts.slice(0, 3).map((c) => `${c.firstName} ${c.lastName} (${c.endDate})`).join(", ")
+          : endingContracts.length > 0
+            ? `${endingContracts.length} end within ${warningDays} days.`
+            : "No contract is ending.",
+        href: "/hr/employees",
+      },
+      {
+        id: "SALARY_CHANGES_APPLIED",
+        label: `No pending salary change takes effect before ${periodEnd}`,
+        count: pendingChanges.length,
+        severity: pendingChanges.length > 0 ? "BLOCK" : "OK",
+        detail: pendingChanges.length > 0
+          ? `${pendingChanges.length} change(s) still to approve - the run pays the old salary until they are.`
+          : "Nothing waiting on approval for this period.",
+        href: "/hr/employees",
+      },
+      {
+        id: "PERIOD_RUN_EXISTS",
+        label: `A payroll run exists for ${period}`,
+        count: periodRuns.length === 0 ? 1 : 0,
+        severity: periodRuns.length === 0 ? "BLOCK" : "OK",
+        detail: periodRuns.length === 0
+          ? "Start the run before the close date."
+          : `${periodRuns.length} ${periodRuns.length === 1 ? "run covers" : "runs cover"} this period.`,
+        href: "/hr/payroll",
+      },
+      {
+        id: "RUNS_LOCKED",
+        label: "Every run for the period is locked",
+        count: openRuns.filter((r) => String(r.periodStart) <= periodEnd && String(r.periodEnd) >= periodStart).length,
+        severity: openRuns.some((r) => String(r.periodStart) <= periodEnd && String(r.periodEnd) >= periodStart) ? "WARN" : "OK",
+        detail: (() => {
+          const open = openRuns.filter((r) => String(r.periodStart) <= periodEnd && String(r.periodEnd) >= periodStart);
+          if (open.length === 0) return `Nothing in ${period} is waiting on approval or locking.`;
+          return `${open.length} ${open.length === 1 ? "run is" : "runs are"} still ${[...new Set(open.map((r) => r.status.replace(/_/g, " ").toLowerCase()))].join(" / ")}.`;
+        })(),
+        href: "/hr/payroll",
+      },
+      {
+        id: "STALE_RUNS_OPEN",
+        label: "No run from an earlier period is still open",
+        count: openRuns.filter((r) => String(r.periodEnd) < periodStart).length,
+        severity: openRuns.some((r) => String(r.periodEnd) < periodStart) ? "WARN" : "OK",
+        detail: (() => {
+          const stale = openRuns.filter((r) => String(r.periodEnd) < periodStart);
+          return stale.length === 0
+            ? "The only open runs belong to this period."
+            : `${stale.length} older run(s) still open, e.g. ${stale[0].periodStart} to ${stale[0].periodEnd}.`;
+        })(),
+        href: "/hr/payroll",
+      },
+      {
+        id: "REMITTANCES_OVERDUE",
+        label: "No statutory remittance is past its due date",
+        count: overdueRemittances.length,
+        severity: overdueRemittances.length > 0 ? "BLOCK" : "OK",
+        detail: overdueRemittances.length > 0
+          ? overdueRemittances.slice(0, 3).map((r) => `${r.name} (${r.dueDate})`).join(", ")
+          : dueRemittances.length > 0
+            ? `${dueRemittances.length} due within ${warningDays} days.`
+            : "Nothing outstanding with your fiscal authority.",
+        href: "/hr/reports/remittances",
+      },
+    ];
+
+    const blockers = items.filter((i) => i.severity === "BLOCK").length;
+    const warnings = items.filter((i) => i.severity === "WARN").length;
+
+    res.json({
+      period,
+      periodStart,
+      periodEnd,
+      generatedAt: new Date().toISOString(),
+      items: items.sort((a, b) => severityRank(a.severity) - severityRank(b.severity)),
+      summary: {
+        total: items.length,
+        clear: items.length - blockers - warnings,
+        warnings,
+        blockers,
+        readyToClose: blockers === 0 && warnings === 0,
+      },
+    });
+  } catch (err: any) {
+    respondPayrollError(res, err);
   }
 });
 
@@ -4289,21 +5827,23 @@ router.get("/report/csv", async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="payroll_report_${runId ?? month}.csv"`);
     res.send(csvData);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 router.get("/report/payslip/:employeeId", async (req, res) => {
   try {
+    const companyId = getTargetCompanyId(req);
     const employeeId = parseInt(req.params.employeeId, 10);
+    if (!Number.isInteger(employeeId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid employee id" });
     const period = typeof req.query.period === "string" ? req.query.period : monthStartIso().slice(0, 7);
     const runId = typeof req.query.runId === "string" && /^\d+$/.test(req.query.runId) ? parseInt(req.query.runId, 10) : undefined;
-    const pdfData = await reportService.generatePayslip(employeeId, period, runId);
+    const pdfData = await reportService.generatePayslip(companyId, employeeId, period, runId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="payslip_${employeeId}_${period}.pdf"`);
     res.send(Buffer.from(pdfData));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4329,9 +5869,23 @@ router.get("/runs/:runId/payslips", async (req, res) => {
       .where(eq(payrollRunEmployees.payrollRunId, runId))
       .orderBy(employees.firstName);
 
-    res.json({ run, payslips: records });
+    // Year-to-date and the band table behind this month's PAYE, so the screen shows
+    // exactly what the printed slip shows.
+    const employeeIds = records.map((r) => r.employee.id);
+    const taxYear = Number(String(run.periodEnd).slice(0, 4));
+    const [ytd, labels] = await Promise.all([
+      taxYearTotalsByEmployee(companyId, employeeIds, { taxYear, currency: run.currency }),
+      taxTableLabels(companyId, records.map((r) => runSnapshot(r.runData.snapshotData)?.taxConfigId)),
+    ]);
+    const payslips = records.map((record) => ({
+      ...record,
+      ytd: ytd.get(record.employee.id) ?? null,
+      taxTableLabel: labelForSnapshot(runSnapshot(record.runData.snapshotData), labels),
+    }));
+
+    res.json({ run, payslips });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4374,7 +5928,7 @@ router.post("/runs/:runId/email-payslips", requirePayrollApproval, async (req, r
         continue;
       }
       try {
-        const pdf = await reportService.generatePayslip(employee.id, run.periodStart.slice(0, 7), runId);
+        const pdf = await reportService.generatePayslip(companyId, employee.id, run.periodStart.slice(0, 7), runId);
         await sendPayslipEmail(to, name, periodLabel, Buffer.from(pdf), emailSettings);
         sent.push({ employeeId: employee.id, name, email: to });
       } catch (err: any) {
@@ -4391,7 +5945,7 @@ router.post("/runs/:runId/email-payslips", requirePayrollApproval, async (req, r
 
     res.json({ runId, requested: records.length, sent, skipped, failed });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4416,39 +5970,74 @@ router.get("/runs/:runId/report", async (req, res) => {
       .orderBy(employees.firstName);
 
     const lines = records.map(({ runData, employee }) => {
-      let snapshot: any = null;
-      if (runData.snapshotData) {
-        try {
-          snapshot = typeof runData.snapshotData === "string" ? JSON.parse(runData.snapshotData) : runData.snapshotData;
-        } catch (e) { /* keep null */ }
-      }
+      const snapshot: any = runSnapshot(runData.snapshotData);
       const rates = snapshot?.statutoryRatesUsed || {};
-      const gross = Number(runData.grossSalary) || 0;
+      const gross = toMoney(runData.grossSalary);
       const r2 = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
       const zimdefRate = Number(rates.zimdefRate ?? 0.01) || 0.01;
       const standardsRate = Number(rates.standardsLevyRate ?? 0.005) || 0.005;
       const apwcsRate = rates.apwcsRate != null ? Number(rates.apwcsRate) : zimdefRate / 2;
+      // The levy actually charged, from the immutable snapshot, so the report
+      // matches the locked journal instead of a rate re-derived here.
       const employerCosts = {
-        nssaEmployer: Number(runData.nssaEmployer) || 0,
-        necEmployer: Number(runData.necEmployer) || 0,
-        pensionEmployer: Number(runData.pensionEmployer) || 0,
-        zimdef: r2(gross * zimdefRate),
-        standardsLevy: r2(gross * standardsRate),
-        apwcs: r2(gross * apwcsRate),
+        nssaEmployer: toMoney(runData.nssaEmployer),
+        necEmployer: toMoney(runData.necEmployer),
+        pensionEmployer: toMoney(runData.pensionEmployer),
+        zimdef: snapshot.zimdefAmount != null ? toMoney(snapshot.zimdefAmount) : r2(gross * zimdefRate),
+        standardsLevy: snapshot.standardsLevyAmount != null ? toMoney(snapshot.standardsLevyAmount) : r2(gross * standardsRate),
+        apwcs: snapshot.apwcsAmount != null ? toMoney(snapshot.apwcsAmount) : r2(gross * apwcsRate),
         total: 0,
       };
-      employerCosts.total = r2(employerCosts.nssaEmployer + employerCosts.necEmployer + employerCosts.pensionEmployer + employerCosts.zimdef + employerCosts.standardsLevy + employerCosts.apwcs);
+      employerCosts.total = centsToMoney(
+        centsOf(employerCosts.nssaEmployer) + centsOf(employerCosts.necEmployer) + centsOf(employerCosts.pensionEmployer)
+        + centsOf(employerCosts.zimdef) + centsOf(employerCosts.standardsLevy) + centsOf(employerCosts.apwcs),
+      );
       return { runData, employee, employerCosts, snapshot };
     });
 
-    res.json({ run, lines });
+    const taxYear = Number(String(run.periodEnd).slice(0, 4));
+    const [ytd, labels] = await Promise.all([
+      taxYearTotalsByEmployee(companyId, lines.map((l) => l.employee.id), { taxYear, currency: run.currency }),
+      taxTableLabels(companyId, lines.map((l) => l.snapshot?.taxConfigId)),
+    ]);
+    const evidencedLines = lines.map((line) => ({
+      ...line,
+      ytd: ytd.get(line.employee.id) ?? null,
+      taxTableLabel: labelForSnapshot(line.snapshot, labels),
+    }));
+
+    // The register is signed before it is filed, so the people who approved and locked
+    // it travel with it rather than living only in the audit trail.
+    const signoffIds = [run.approvedBy, run.lockedBy].filter((id): id is string => typeof id === "string" && id.length > 0);
+    const signoffNames = new Map<string, string>();
+    if (signoffIds.length > 0) {
+      const people = await db.select({
+        id: users.id,
+        name: users.name,
+        username: users.username,
+        email: users.email,
+      }).from(users).where(inArray(users.id, signoffIds));
+      for (const person of people) {
+        signoffNames.set(person.id, (person.name || person.username || person.email || "").trim());
+      }
+    }
+    const signoff = {
+      preparedBy: null as string | null,
+      approvedBy: run.approvedBy ? (signoffNames.get(run.approvedBy) ?? null) : null,
+      approvedAt: run.approvedAt ?? null,
+      lockedBy: run.lockedBy ? (signoffNames.get(run.lockedBy) ?? null) : null,
+      lockedAt: run.lockedAt ?? null,
+    };
+
+    res.json({ run, lines: evidencedLines, signoff });
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // Download Bank Export CSV
-router.get("/runs/:runId/bank-export", async (req, res) => {  try {
+router.get("/runs/:runId/bank-export", async (req, res) => {
+  try {
     const companyId = getTargetCompanyId(req);
     const runId = parseInt(req.params.runId);
     
@@ -4458,6 +6047,15 @@ router.get("/runs/:runId/bank-export", async (req, res) => {  try {
 
     const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Run not found" });
+
+    // A bank file is a payment instruction, so a run that has not been approved -
+    // or one that has since been reversed - must never leave the building as one.
+    if (run.status === "DRAFT" || run.status === "PENDING_APPROVAL" || run.status === "REVERSED") {
+      return res.status(422).json({
+        error: "RUN_NOT_PAYABLE",
+        message: `Only an approved or locked run can be exported for payment. This run is ${run.status}.`,
+      });
+    }
 
     const records = await db.select({
       runData: payrollRunEmployees,
@@ -4481,32 +6079,47 @@ router.get("/runs/:runId/bank-export", async (req, res) => {  try {
     };
 
     let csvContent = "";
-    
-    // Add headers
-    // @ts-ignore
-    csvContent += formatConfig.columns.map((c: any) => `"${c.label}"`).join(",") + "\n";
 
-    // Add rows
+    // A split run pays two legs, so a file quoting net_salary (the USD base)
+    // would pay the ZiG half of every salary to nobody. One row per leg instead,
+    // with the currency named, and single-currency files stay byte-identical.
+    const isSplit = run.currency === "SPLIT";
+    // @ts-ignore
+    const columns = isSplit ? [...formatConfig.columns, { label: "Currency", field: "leg.currency" }] : formatConfig.columns;
+
+    // Add headers
+    csvContent += columns.map((c: any) => `"${String(c.label ?? "").replace(/"/g, '""')}"`).join(",") + "\n";
+
     records.forEach(({ runData, employee }) => {
-      // @ts-ignore
-      const row = formatConfig.columns.map((col: any) => {
-        let val = "";
-        if (col.field === 'employee.lastName') val = `${employee.firstName} ${employee.lastName}`;
-        else if (col.field === 'employee.bankAccountNumber') val = employee.bankAccountNumber || "";
-        else if (col.field === 'employee.bankName') val = employee.bankName || "";
-        else if (col.field === 'employee.bankBranch') val = employee.bankBranch || "";
-        else if (col.field === 'runData.netSalary') val = runData.netSalary || "0.00";
-        else if (col.field === 'static') val = col.value;
-        return `"${val}"`;
-      });
-      csvContent += row.join(",") + "\n";
+      const legs = isSplit
+        ? [
+            { currency: "USD", amount: runData.netSalaryUsd },
+            { currency: "ZiG", amount: runData.netSalaryZig },
+          ]
+        : [{ currency: run.currency, amount: runData.netSalary }];
+      for (const leg of legs) {
+        const row = columns.map((col: any) => {
+          let val = "";
+          if (col.field === 'employee.lastName') val = `${employee.firstName} ${employee.lastName}`;
+          else if (col.field === 'employee.bankAccountNumber') val = employee.bankAccountNumber || "";
+          else if (col.field === 'employee.bankName') val = employee.bankName || "";
+          else if (col.field === 'employee.bankBranch') val = employee.bankBranch || "";
+          else if (col.field === 'runData.netSalary') val = leg.amount || "0.00";
+          else if (col.field === 'leg.currency') val = leg.currency;
+          else if (col.field === 'static') val = col.value;
+          // Every field is quoted, so an embedded quote has to be doubled or the
+          // bank's parser drops the row.
+          return `"${String(val ?? "").replace(/"/g, '""')}"`;
+        });
+        csvContent += row.join(",") + "\n";
+      }
     });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="bank_export_run_${runId}.csv"`);
     res.send(csvContent);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4516,261 +6129,374 @@ router.get("/runs/:runId/bank-export", async (req, res) => {  try {
 router.get("/exports/itf16", async (req, res) => {
   const companyId = getTargetCompanyId(req);
   const taxYear = req.query.taxYear ? String(req.query.taxYear) : String(new Date().getFullYear());
+  if (!/^\d{4}$/.test(taxYear)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "taxYear must be a four digit year" });
 
   try {
+    const jurisdiction = await payrollJurisdiction(companyId);
+    // ITF16 reports PAYE and the AIDS levy, neither of which every market charges.
+    if (respondsLevyNotCharged(res, jurisdiction, "ITF16", [STATUTORY_RULE_CODES.aidsLevy])) return;
+
     const startDate = `${taxYear}-01-01`;
     const endDate = `${taxYear}-12-31`;
+    const currency = reportCurrencyParam(req.query.currency);
+    const report = await loadFinalizedReport(companyId, startDate, endDate, "ITF16", currency);
+    if (respondReportBlocked(res, report)) return;
 
-    const runs = await db.select({ id: payrollRuns.id, runType: payrollRuns.runType }).from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, companyId),
-        gte(payrollRuns.periodStart, startDate),
-        lte(payrollRuns.periodEnd, endDate),
-        ne(payrollRuns.status, "REVERSED")
-      ));
+    // One return cannot mix currencies: ZiG and USD amounts would be added together.
+    if (respondMixedReportCurrency(res, report.runs, currency)) return;
 
-    if (runs.length === 0) {
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
-      return res.send("Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n");
-    }
+    const HEADER = "Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n";
 
     const runTypes: Record<number, string> = {};
-    for (const run of runs) runTypes[run.id] = run.runType;
+    for (const run of report.runs) runTypes[run.id] = run.runType;
 
-    const runIds = runs.map(r => r.id);
-    const lines = await db.query.payrollRunEmployees.findMany({
-      where: inArray(payrollRunEmployees.payrollRunId, runIds),
-      with: { employee: true }
-    });
-
+    // Accumulate in cents: these totals are transcribed onto the ITF16 return,
+    // so a float drift that shows up as one cent on a thousand payslips is a
+    // filing error the employee can be assessed for.
     const agg: Record<number, any> = {};
-    for (const line of lines) {
+    for (const { line } of report.lines) {
       const eid = line.employeeId;
       if (!agg[eid]) {
         agg[eid] = { emp: line.employee, months: 0, gross: 0, taxable: 0, paye: 0, aids: 0, medical: 0, netPaye: 0 };
       }
       const isBonusLine = runTypes[line.payrollRunId] === "BONUS";
-      const snapshot = (line.snapshotData as any) || {};
+      const snapshot: any = runSnapshot(line.snapshotData);
       if (!isBonusLine) agg[eid].months++;
-      agg[eid].gross += parseFloat(line.grossSalary);
-      // Bonus runs carry their taxable bonus in the snapshot (base is 0 in
-      // those lines, so basic + allowances would understate taxable income).
-      agg[eid].taxable += isBonusLine
-        ? (Number(snapshot.taxableBonus) || 0)
-        : parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
-      agg[eid].paye += parseFloat(line.paye);
-      agg[eid].aids += parseFloat(line.aidsLevy);
-      agg[eid].netPaye += parseFloat(line.paye) + parseFloat(line.aidsLevy);
+      agg[eid].gross += centsOf(line.grossSalary);
+      // Taxable income is the figure PAYE was actually charged on, read from the
+      // immutable snapshot. Older lines have no snapshot figure, so fall back to
+      // what the line used to: bonus lines stored their taxable bonus, and the
+      // base on those lines is zero so basic + allowances would understate them.
+      const legacyTaxable = centsOf(line.basicSalary) + centsOf(line.totalAllowances);
+      agg[eid].taxable += isBonusLine && snapshot.taxableIncome == null
+        ? centsOf(snapshot.taxableBonus)
+        : snapshot.taxableIncome != null ? centsOf(snapshot.taxableIncome) : legacyTaxable;
+      agg[eid].medical += centsOf(snapshot.medicalCredit);
+      agg[eid].paye += centsOf(line.paye);
+      agg[eid].aids += centsOf(line.aidsLevy);
+      agg[eid].netPaye += centsOf(line.paye) + centsOf(line.aidsLevy);
     }
 
-    let csv = "Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n";
+    let csv = HEADER;
     for (const [eid, data] of Object.entries(agg)) {
-      csv += `${data.emp.nationalId || eid},${data.emp.lastName || ''},${data.emp.firstName || ''},${taxYear},${data.months},${data.gross.toFixed(2)},${data.taxable.toFixed(2)},${data.paye.toFixed(2)},${data.aids.toFixed(2)},0.00,${data.netPaye.toFixed(2)}\n`;
+      csv += `${csvEscape(data.emp.nationalId || eid)},${csvEscape(data.emp.lastName)},${csvEscape(data.emp.firstName)},${taxYear},${data.months},${centsToMoney(data.gross).toFixed(2)},${centsToMoney(data.taxable).toFixed(2)},${centsToMoney(data.paye).toFixed(2)},${centsToMoney(data.aids).toFixed(2)},${centsToMoney(data.medical).toFixed(2)},${centsToMoney(data.netPaye).toFixed(2)}\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}${reportCurrencySuffix(currency)}.csv`);
     res.send(csv);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // P2: Monthly PAYE remittance summary
 router.get("/exports/p2", async (req, res) => {
   const companyId = getTargetCompanyId(req);
-  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+  const month = requestedMonth(req.query.month);
+  if (!month) return res.status(400).json({ error: "VALIDATION_ERROR", message: "month must be yyyy-MM" });
 
   try {
-    const periodStart = `${month}-01`;
-    const periodEnd = `${month}-31`;
+    const jurisdiction = await payrollJurisdiction(companyId);
+    if (respondsLevyNotCharged(res, jurisdiction, "P2", [STATUTORY_RULE_CODES.aidsLevy])) return;
+    const currency = reportCurrencyParam(req.query.currency);
 
-    const runs = await db.query.payrollRuns.findMany({
-      where: and(
-        eq(payrollRuns.companyId, companyId),
-        gte(payrollRuns.periodStart, periodStart),
-        lte(payrollRuns.periodStart, periodEnd),
-        ne(payrollRuns.status, "REVERSED")
-      )
-    });
+    const { start, end } = monthBoundsIso(month);
+    const report = await loadFinalizedReport(companyId, start, end, "P2", currency);
+    if (respondReportBlocked(res, report)) return;
+    if (respondMixedReportCurrency(res, report.runs, currency)) return;
 
-    let totalGross = 0;
-    let totalPaye = 0;
-    let totalAids = 0;
-    let count = 0;
-
-    for (const run of runs) {
-      totalGross += parseFloat(run.totalGross || "0");
-      const lines = await db.select({ paye: payrollRunEmployees.paye, aids: payrollRunEmployees.aidsLevy })
-        .from(payrollRunEmployees)
-        .where(eq(payrollRunEmployees.payrollRunId, run.id));
-      count += lines.length;
-      for (const line of lines) {
-        totalPaye += parseFloat(line.paye);
-        totalAids += parseFloat(line.aids);
-      }
-    }
+    const lines = report.lines.map(({ line }: any) => line);
+    const totalGross = sumMoney(lines.map((line: any) => line.grossSalary));
+    const totalPaye = sumMoney(lines.map((line: any) => line.paye));
+    const totalAids = sumMoney(lines.map((line: any) => line.aidsLevy));
 
     const result = {
       month,
-      employeeCount: count,
+      // The currency the return is filed in, so the screen can sign the figures
+      // instead of assuming dollars.
+      currency: report.runs[0]?.currency ?? null,
+      employeeCount: lines.length,
       totalGross: totalGross.toFixed(2),
       totalPaye: totalPaye.toFixed(2),
       totalAids: totalAids.toFixed(2),
-      totalRemittable: (totalPaye + totalAids).toFixed(2),
+      totalRemittable: sumMoney([totalPaye, totalAids]).toFixed(2),
+      validation: report.summary,
     };
 
     if (req.query.format === "csv") {
       const csv = "Month,Employees Paid,Total Gross,PAYE,AIDS Levy,Total Remittable\n"
-        + `${month},${count},${result.totalGross},${result.totalPaye},${result.totalAids},${result.totalRemittable}\n`;
+        + `${month},${lines.length},${result.totalGross},${result.totalPaye},${result.totalAids},${result.totalRemittable}\n`;
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=P2_${month}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=P2_${month}${reportCurrencySuffix(currency)}.csv`);
       return res.send(csv);
     }
 
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // ZIMDEF + Standards Levy: monthly employer levy summary
 router.get("/exports/zimdef", async (req, res) => {
   const companyId = getTargetCompanyId(req);
-  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+  const month = requestedMonth(req.query.month);
+  if (!month) return res.status(400).json({ error: "VALIDATION_ERROR", message: "month must be yyyy-MM" });
 
   try {
-    const periodStart = `${month}-01`;
-    const periodEnd = `${month}-31`;
+    const jurisdiction = await payrollJurisdiction(companyId);
+    if (respondsLevyNotCharged(res, jurisdiction, "ZIMDEF", [STATUTORY_RULE_CODES.zimdef])) return;
+    const currency = reportCurrencyParam(req.query.currency);
 
-    const runs = await db.query.payrollRuns.findMany({
-      where: and(
-        eq(payrollRuns.companyId, companyId),
-        gte(payrollRuns.periodStart, periodStart),
-        lte(payrollRuns.periodStart, periodEnd),
-        ne(payrollRuns.status, "REVERSED")
-      )
-    });
+    const { start, end } = monthBoundsIso(month);
+    const report = await loadFinalizedReport(companyId, start, end, "ZIMDEF", currency);
+    if (respondReportBlocked(res, report)) return;
+    if (respondMixedReportCurrency(res, report.runs, currency)) return;
 
-    let totalGross = 0;
-    for (const run of runs) {
-      totalGross += parseFloat(run.totalGross || "0");
-    }
-
-    const zimdef = totalGross * 0.01;
-    const standards = totalGross * 0.005;
+    // The levy actually charged, not a rate re-applied here: the percentage can
+    // differ from 1% / 0.5%, and the return has to match the locked payroll.
+    const snapshots = report.lines.map(({ line }: any) => runSnapshot(line.snapshotData));
+    const totalGross = sumMoney(report.lines.map(({ line }: any) => line.grossSalary));
+    const zimdef = sumMoney(snapshots.map((s: any) => s.zimdefAmount ?? 0));
+    const standards = sumMoney(snapshots.map((s: any) => s.standardsLevyAmount ?? 0));
+    const unrecorded = snapshots.filter((s: any) => s.zimdefAmount == null || s.standardsLevyAmount == null).length;
 
     const result = {
       month,
+      currency: report.runs[0]?.currency ?? null,
       totalGrossWageBill: totalGross.toFixed(2),
       zimdefAmount: zimdef.toFixed(2),
       standardsLevyAmount: standards.toFixed(2),
-      totalDue: (zimdef + standards).toFixed(2),
+      totalDue: sumMoney([zimdef, standards]).toFixed(2),
+      validation: { ...report.summary, unrecordedLevyLines: unrecorded },
     };
 
     if (req.query.format === "csv") {
-      const csv = "Month,Gross Wage Bill,ZIMDEF (1%),Standards Levy (0.5%),Total Due\n"
+      const csv = "Month,Gross Wage Bill,ZIMDEF,Standards Levy,Total Due\n"
         + `${month},${result.totalGrossWageBill},${result.zimdefAmount},${result.standardsLevyAmount},${result.totalDue}\n`;
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=ZIMDEF_${month}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=ZIMDEF_${month}${reportCurrencySuffix(currency)}.csv`);
       return res.send(csv);
     }
 
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
 // --- STATUTORY REMITTANCE TRACKER ---
-// Computes monthly obligations (P2 PAYE, ZIMDEF + Standards Levy, NSSA) from
-// LOCKED payroll runs, upserts them into payroll_remittances and returns the
-// schedule with filing status so compliance officers can track what is due.
+// The filing calendar: P2 PAYE, ZIMDEF + Standards Levy and NSSA obligations
+// derived from LOCKED payroll runs. Reading it never writes - saving it as
+// tracking records is an explicit POST.
 
-// GET /statutory-remittances?months=13 - schedule for the last N months
+/** First pay period ("yyyy-MM") of a window of `months` periods. */
+function remittanceStartMonth(months: number): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1)).toISOString().slice(0, 7);
+}
+
+/**
+ * The filing calendar. Dates are statutory: PAYE, AIDS levy, ZIMDEF and the
+ * Standards Development Levy are due by the 10th of the month after the pay
+ * month, NSSA by the end of that month. `dueDay: null` means the last day.
+ */
+const STATUTORY_OBLIGATIONS: Array<{
+  reportType: string;
+  name: string;
+  authority: string;
+  dueDay: number | null;
+  /** The levy that has to exist in the tenant's jurisdiction for this filing to be owed. */
+  ruleCodes: string[];
+  /** Takes the cent accumulator and returns the cent amount due. */
+  compute: (agg: { payeAids: number; nssa: number; employerLevies: number }) => number;
+}> = [
+  { reportType: "P2", name: "ZIMRA PAYE & AIDS Levy Return", authority: "ZIMRA", dueDay: 10, ruleCodes: [STATUTORY_RULE_CODES.aidsLevy], compute: (a) => a.payeAids },
+  { reportType: "ZIMDEF", name: "ZIMDEF & Standards Development Levy", authority: "ZIMRA", dueDay: 10, ruleCodes: [STATUTORY_RULE_CODES.zimdef], compute: (a) => a.employerLevies },
+  { reportType: "NSSA", name: "NSSA Contributions Schedule", authority: "NSSA", dueDay: null, ruleCodes: [STATUTORY_RULE_CODES.nssaPobs], compute: (a) => a.nssa },
+];
+
+/**
+ * The filings a jurisdiction actually owes. Listing ZIMRA or NSSA obligations to
+ * a tenant whose payroll never charged them would have it "saving" and remitting
+ * amounts no authority is expecting.
+ */
+function obligationsFor(jurisdiction: PayrollJurisdiction) {
+  return STATUTORY_OBLIGATIONS.filter((obligation) => obligation.ruleCodes.some((code) => jurisdictionLevies(jurisdiction, code)));
+}
+
+function obligationDueDate(period: string, dueDay: number | null): string {
+  const [year, month] = period.split("-").map(Number);
+  // Deadlines fall in the month after the pay month.
+  if (dueDay == null) {
+    return new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+  }
+  return new Date(Date.UTC(year, month, dueDay)).toISOString().slice(0, 10);
+}
+
+/**
+ * Per-period amounts owed, read from locked runs only. The accumulators hold
+ * cents so a year of runs cannot drift the figure a remittance is keyed off.
+ */
+async function loadRemittanceAggregates(companyId: number, startMonth: string) {
+  const runs = await db.select().from(payrollRuns)
+    .where(and(
+      eq(payrollRuns.companyId, companyId),
+      eq(payrollRuns.status, "LOCKED"),
+      gte(payrollRuns.periodStart, startMonth)
+    ))
+    .orderBy(asc(payrollRuns.periodStart));
+
+  const byPeriod: Record<string, { gross: number; payeAids: number; nssa: number; employerLevies: number; currency: string }> = {};
+  for (const run of runs) {
+    const period = String(run.periodStart).slice(0, 7);
+    const agg = byPeriod[period] || (byPeriod[period] = { gross: 0, payeAids: 0, nssa: 0, employerLevies: 0, currency: run.currency });
+    const lines = await db.select({
+      paye: payrollRunEmployees.paye,
+      aids: payrollRunEmployees.aidsLevy,
+      nssaEmp: payrollRunEmployees.nssaEmployee,
+      nssaEr: payrollRunEmployees.nssaEmployer,
+      snapshotData: payrollRunEmployees.snapshotData,
+    }).from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, run.id));
+
+    // Cent accumulators: these are the figures a remittance is keyed off, so a
+    // drifted total would put the tenant's filing out by a cent per run.
+    agg.gross += centsOf(run.totalGross);
+    for (const line of lines) {
+      agg.payeAids += centsOf(line.paye) + centsOf(line.aids);
+      agg.nssa += centsOf(line.nssaEmp) + centsOf(line.nssaEr);
+      const snapshot = runSnapshot(line.snapshotData);
+      agg.employerLevies += centsOf(snapshot.zimdefAmount) + centsOf(snapshot.standardsLevyAmount);
+    }
+  }
+  return byPeriod;
+}
+
+function buildRemittanceSchedule(byPeriod: Record<string, any>, records: any[], startMonth: string, months: number, jurisdiction: PayrollJurisdiction) {
+  const obligations = obligationsFor(jurisdiction);
+  const recordByKey = new Map(records.map((record) => [`${record.reportType}:${record.period}`, record]));
+  const schedule: any[] = [];
+  const [startYear, startMonthNumber] = startMonth.split("-").map(Number);
+
+  for (let index = 0; index < months; index++) {
+    const periodDate = new Date(Date.UTC(startYear, startMonthNumber - 1 + index, 1));
+    if (periodDate > new Date()) break;
+    const period = periodDate.toISOString().slice(0, 7);
+    const agg = byPeriod[period];
+
+    for (const obligation of obligations) {
+      const key = `${obligation.reportType}:${period}`;
+      const record = recordByKey.get(key);
+      const derivedAmount = agg ? centsToMoney(obligation.compute(agg)) : 0;
+      schedule.push({
+        ...(record || {}),
+        id: record?.id ?? null,
+        companyId: record?.companyId ?? null,
+        authority: obligation.authority,
+        reportType: obligation.reportType,
+        name: obligation.name,
+        period,
+        currency: record?.currency || agg?.currency || "USD",
+        // A filed return is never re-derived: what was submitted is what was paid.
+        amount: record ? record.amount : derivedAmount.toFixed(2),
+        derivedAmount: derivedAmount.toFixed(2),
+        dueDate: record?.dueDate || obligationDueDate(period, obligation.dueDay),
+        status: record?.status || (derivedAmount > 0 ? "NOT_RECORDED" : "NOTHING_DUE"),
+        referenceNumber: record?.referenceNumber ?? null,
+        paidAmount: record?.paidAmount ?? null,
+        paidDate: record?.paidDate ?? null,
+        recorded: !!record,
+      });
+    }
+  }
+
+  return schedule
+    // A month with no payroll and no saved tracking row is not an obligation.
+    .filter((entry: any) => entry.recorded || toMoney(entry.derivedAmount) > 0)
+    .sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)) || String(b.reportType).localeCompare(String(a.reportType)));
+}
+
+// GET /statutory-remittances?months=13 - filing calendar (read-only)
 router.get("/statutory-remittances", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
     const months = Math.min(36, Math.max(1, parseInt(String(req.query.months || "13"), 10) || 13));
+    const startMonth = remittanceStartMonth(months);
 
-    const today = new Date();
-    const startMonth = new Date(today.getFullYear(), today.getMonth() - (months - 1), 1);
+    const [byPeriod, records, jurisdiction] = await Promise.all([
+      loadRemittanceAggregates(companyId, `${startMonth}-01`),
+      db.select().from(payrollRemittances).where(and(
+        eq(payrollRemittances.companyId, companyId),
+        gte(payrollRemittances.period, startMonth)
+      )),
+      payrollJurisdiction(companyId),
+    ]);
 
-    const runs = await db.select().from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, companyId),
-        eq(payrollRuns.status, "LOCKED"),
-        gte(payrollRuns.periodStart, startMonth.toISOString().slice(0, 7) + "-01")
-      ))
-      .orderBy(asc(payrollRuns.periodStart));
-
-    // Aggregate per period
-    const byPeriod: Record<string, { gross: number; payeAids: number; nssa: number }> = {};
-    for (const run of runs) {
-      const period = String(run.periodStart).slice(0, 7);
-      const agg = byPeriod[period] || (byPeriod[period] = { gross: 0, payeAids: 0, nssa: 0 });
-      const lines = await db.select({
-        paye: payrollRunEmployees.paye,
-        aids: payrollRunEmployees.aidsLevy,
-        nssaEmp: payrollRunEmployees.nssaEmployee,
-        nssaEr: payrollRunEmployees.nssaEmployer,
-      }).from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, run.id));
-      agg.gross += parseFloat(run.totalGross || "0");
-      for (const line of lines) {
-        agg.payeAids += parseFloat(line.paye) + parseFloat(line.aids);
-        agg.nssa += parseFloat(line.nssaEmp) + parseFloat(line.nssaEr);
-      }
-    }
-
-    const obligations = [
-      { reportType: "P2", name: "ZIMRA PAYE & AIDS Levy Return", authority: "ZIMRA", dueDay: 10, dueEndOfMonth: false, compute: (a: any) => a.payeAids },
-      { reportType: "ZIMDEF", name: "ZIMDEF & Standards Development Levy", authority: "ZIMRA", dueDay: 10, dueEndOfMonth: false, compute: (a: any) => a.gross * 0.015 },
-      { reportType: "NSSA", name: "NSSA Contributions Schedule", authority: "NSSA", dueDay: 0, dueEndOfMonth: true, compute: (a: any) => a.nssa },
-    ];
-
-    const schedule = [];
-    for (let d = new Date(startMonth); d <= today; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
-      const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const agg = byPeriod[period];
-      for (const obligation of obligations) {
-        const amount = agg ? obligation.compute(agg) : 0;
-        const due = new Date(d.getFullYear(), d.getMonth() + 1, obligation.dueEndOfMonth ? 0 : obligation.dueDay);
-        const dueDate = due.toISOString().slice(0, 10);
-
-        const [existing] = await db.select().from(payrollRemittances)
-          .where(and(
-            eq(payrollRemittances.companyId, companyId),
-            eq(payrollRemittances.reportType, obligation.reportType),
-            eq(payrollRemittances.period, period)
-          ))
-          .limit(1);
-
-        let record;
-        if (existing) {
-          [record] = await db.update(payrollRemittances)
-            .set({ amount: amount.toFixed(2), dueDate })
-            .where(eq(payrollRemittances.id, existing.id))
-            .returning();
-        } else {
-          [record] = await db.insert(payrollRemittances).values({
-            companyId,
-            authority: obligation.authority,
-            reportType: obligation.reportType,
-            name: obligation.name,
-            period,
-            currency: "USD",
-            amount: amount.toFixed(2),
-            dueDate,
-          }).returning();
-        }
-        schedule.push(record);
-      }
-    }
-
-    res.json(schedule.sort((a: any, b: any) => b.period.localeCompare(a.period) || b.reportType.localeCompare(a.reportType)));
+    res.json(buildRemittanceSchedule(byPeriod, records, startMonth, months, jurisdiction));
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
+  }
+});
+
+// POST /statutory-remittances/regenerate - save the calendar as tracking records
+router.post("/statutory-remittances/regenerate", requirePayrollWrite, async (req, res) => {
+  const schema = z.object({ months: z.coerce.number().int().min(1).max(36).default(13) });
+  const parsed = schema.safeParse(req.body || {});
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const months = parsed.data.months;
+    const startMonth = remittanceStartMonth(months);
+
+    const [byPeriod, records, jurisdiction] = await Promise.all([
+      loadRemittanceAggregates(companyId, `${startMonth}-01`),
+      db.select().from(payrollRemittances).where(and(
+        eq(payrollRemittances.companyId, companyId),
+        gte(payrollRemittances.period, startMonth)
+      )),
+      payrollJurisdiction(companyId),
+    ]);
+
+    const schedule = buildRemittanceSchedule(byPeriod, records, startMonth, months, jurisdiction);
+    const saved: any[] = [];
+
+    for (const entry of schedule) {
+      if (toMoney(entry.derivedAmount) <= 0) continue;
+      // A return that has been filed keeps the amount it was filed with.
+      if (entry.recorded && (entry.status === "SUBMITTED" || entry.status === "PAID")) {
+        saved.push(entry);
+        continue;
+      }
+      if (entry.recorded) {
+        const [updated] = await db.update(payrollRemittances)
+          .set({ amount: entry.derivedAmount, dueDate: entry.dueDate, currency: entry.currency })
+          .where(and(eq(payrollRemittances.id, entry.id), eq(payrollRemittances.companyId, companyId)))
+          .returning();
+        if (updated) saved.push(updated);
+        continue;
+      }
+      const [inserted] = await db.insert(payrollRemittances).values({
+        companyId,
+        authority: entry.authority,
+        reportType: entry.reportType,
+        name: entry.name,
+        period: entry.period,
+        currency: entry.currency,
+        amount: entry.derivedAmount,
+        dueDate: entry.dueDate,
+      }).returning();
+      saved.push(inserted);
+    }
+
+    await auditPayroll(req, "PAYROLL_REMITTANCE_SCHEDULE_REGENERATED", "payroll_remittances", null as any, {
+      months,
+      saved: saved.length,
+    });
+    res.json({ success: true, saved: saved.length });
+  } catch (err: any) {
+    respondPayrollError(res, err);
   }
 });
 
@@ -4783,7 +6509,7 @@ router.post("/statutory-remittances/:id/mark-paid", requirePayrollApproval, asyn
     paidDate: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -4807,7 +6533,7 @@ router.post("/statutory-remittances/:id/mark-paid", requirePayrollApproval, asyn
     });
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 
@@ -4818,68 +6544,64 @@ router.post("/statutory-remittances/:id/mark-paid", requirePayrollApproval, asyn
 router.get("/exports/p6", async (req, res) => {
   const companyId = getTargetCompanyId(req);
   const taxYear = req.query.taxYear ? String(req.query.taxYear) : String(new Date().getFullYear());
+  if (!/^\d{4}$/.test(taxYear)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "taxYear must be a four digit year" });
   const employeeId = req.query.employeeId ? parseInt(String(req.query.employeeId), 10) : null;
+  if (req.query.employeeId && !Number.isInteger(employeeId)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "employeeId must be a number" });
+  }
 
   try {
+    const jurisdiction = await payrollJurisdiction(companyId);
+    if (respondsLevyNotCharged(res, jurisdiction, "P6", [STATUTORY_RULE_CODES.aidsLevy])) return;
+
     const startDate = `${taxYear}-01-01`;
     const endDate = `${taxYear}-12-31`;
-
-    const runs = await db.select({ id: payrollRuns.id, runType: payrollRuns.runType }).from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, companyId),
-        gte(payrollRuns.periodStart, startDate),
-        lte(payrollRuns.periodEnd, endDate),
-        ne(payrollRuns.status, "REVERSED")
-      ));
+    const currency = reportCurrencyParam(req.query.currency);
+    const report = await loadFinalizedReport(companyId, startDate, endDate, "P6", currency, employeeId);
+    if (respondReportBlocked(res, report)) return;
+    if (respondMixedReportCurrency(res, report.runs, currency)) return;
 
     const header = "Employee ID,Surname,First Name,National ID,PAYE Number,Tax Year,Months Employed,Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total NSSA,Total Net PAYE Payable\n";
-    if (runs.length === 0) {
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=P6_${taxYear}.csv`);
-      return res.send(header);
-    }
 
     const runTypes: Record<number, string> = {};
-    for (const run of runs) runTypes[run.id] = run.runType;
-
-    const runIds = runs.map(r => r.id);
-    const lines = await db.query.payrollRunEmployees.findMany({
-      where: and(
-        inArray(payrollRunEmployees.payrollRunId, runIds),
-        employeeId ? eq(payrollRunEmployees.employeeId, employeeId) : undefined
-      ),
-      with: { employee: true }
-    });
+    for (const run of report.runs) runTypes[run.id] = run.runType;
 
     const agg: Record<number, any> = {};
-    for (const line of lines) {
+    for (const { line } of report.lines) {
       const eid = line.employeeId;
       if (!agg[eid]) {
         agg[eid] = { emp: line.employee, months: 0, gross: 0, taxable: 0, paye: 0, aids: 0, nssa: 0 };
       }
       const isBonusLine = runTypes[line.payrollRunId] === "BONUS";
-      const snapshot = (line.snapshotData as any) || {};
+      const snapshot: any = runSnapshot(line.snapshotData);
       if (!isBonusLine) agg[eid].months++;
-      agg[eid].gross += parseFloat(line.grossSalary);
-      agg[eid].taxable += isBonusLine
-        ? (Number(snapshot.taxableBonus) || 0)
-        : parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
-      agg[eid].paye += parseFloat(line.paye);
-      agg[eid].aids += parseFloat(line.aidsLevy);
-      agg[eid].nssa += parseFloat(line.nssaEmployee);
+      agg[eid].gross += centsOf(line.grossSalary);
+      // Same rule as ITF16: report the income PAYE was charged on, from the snapshot.
+      const legacyTaxable = centsOf(line.basicSalary) + centsOf(line.totalAllowances);
+      agg[eid].taxable += isBonusLine && snapshot.taxableIncome == null
+        ? centsOf(snapshot.taxableBonus)
+        : snapshot.taxableIncome != null ? centsOf(snapshot.taxableIncome) : legacyTaxable;
+      agg[eid].paye += centsOf(line.paye);
+      agg[eid].aids += centsOf(line.aidsLevy);
+      agg[eid].nssa += centsOf(line.nssaEmployee);
     }
 
     let csv = header;
     for (const [eid, data] of Object.entries(agg)) {
-      const netPaye = data.paye + data.aids;
-      csv += `${csvEscape(data.emp.employeeNumber || eid)},${csvEscape(data.emp.lastName || '')},${csvEscape(data.emp.firstName || '')},${csvEscape(data.emp.nationalId || '')},${csvEscape(data.emp.zimraTaxNumber || '')},${taxYear},${data.months},${data.gross.toFixed(2)},${data.taxable.toFixed(2)},${data.paye.toFixed(2)},${data.aids.toFixed(2)},${data.nssa.toFixed(2)},${netPaye.toFixed(2)}\n`;
+      const netPaye = centsToMoney(data.paye + data.aids);
+      const gross = centsToMoney(data.gross);
+      const taxable = centsToMoney(data.taxable);
+      const paye = centsToMoney(data.paye);
+      const aids = centsToMoney(data.aids);
+      const nssa = centsToMoney(data.nssa);
+      csv += `${csvEscape(data.emp.employeeNumber || eid)},${csvEscape(data.emp.lastName || '')},${csvEscape(data.emp.firstName || '')},${csvEscape(data.emp.nationalId || '')},${csvEscape(data.emp.zimraTaxNumber || '')},${taxYear},${data.months},${gross.toFixed(2)},${taxable.toFixed(2)},${paye.toFixed(2)},${aids.toFixed(2)},${nssa.toFixed(2)},${netPaye.toFixed(2)}\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=P6_${taxYear}${employeeId ? `_${employeeId}` : ''}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=P6_${taxYear}${employeeId ? `_${employeeId}` : ''}${reportCurrencySuffix(currency)}.csv`);
     res.send(csv);
   } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    respondPayrollError(res, err);
   }
 });
 

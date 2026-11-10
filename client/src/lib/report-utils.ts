@@ -35,17 +35,26 @@ export function computeTotal(records: any[], field: string): number {
 
 /**
  * Serializes records to a CSV string with a header row.
- * Values containing commas are wrapped in double quotes.
+ * Columns are either raw field names or { key, header } pairs when the
+ * exported header should differ from the field name.
+ * Values containing commas, quotes or newlines are quoted per RFC 4180.
  */
-export function generateCsv(records: any[], columns: string[]): string {
+export function generateCsv(
+  records: any[],
+  columns: Array<string | { key: string; header?: string }>
+): string {
+  const cols = columns.map((col) =>
+    typeof col === "string" ? { key: col, header: col } : { key: col.key, header: col.header ?? col.key }
+  );
+
   const escape = (value: any): string => {
     const str = value == null ? "" : String(value);
-    return str.includes(",") ? `"${str}"` : str;
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   };
 
-  const header = columns.join(",");
+  const header = cols.map((col) => escape(col.header)).join(",");
   const rows = records.map((record) =>
-    columns.map((col) => escape(record[col])).join(",")
+    cols.map((col) => escape(record[col.key])).join(",")
   );
 
   return [header, ...rows].join("\n");
@@ -81,20 +90,4 @@ export function downloadCsv(filename: string, csvString: string): void {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-/**
- * Returns the AR aging bucket for a given number of days overdue.
- * - "current"  : daysOverdue <= 30 (includes 0 and negative)
- * - "31-60"    : 31 <= daysOverdue <= 60
- * - "61-90"    : 61 <= daysOverdue <= 90
- * - "90+"      : daysOverdue > 90
- */
-export function getAgingBucket(
-  daysOverdue: number
-): "current" | "31-60" | "61-90" | "90+" {
-  if (daysOverdue <= 30) return "current";
-  if (daysOverdue <= 60) return "31-60";
-  if (daysOverdue <= 90) return "61-90";
-  return "90+";
 }

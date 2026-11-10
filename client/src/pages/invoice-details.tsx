@@ -45,7 +45,7 @@ import { PDFDownloadLink } from "@react-pdf/renderer";
 import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { useCompany } from "@/hooks/use-companies";
 import QRCode from "qrcode";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PaymentModal } from "@/components/invoices/payment-modal";
 import { EmailInvoiceDialog } from "@/components/invoices/email-invoice-dialog";
@@ -168,6 +168,7 @@ export default function InvoiceDetailsPage() {
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const autoDownloadedRef = useRef(false);
 
   const totalPaid = Number(
     paymentSummary?.allocatedTotal ??
@@ -235,6 +236,19 @@ export default function InvoiceDetailsPage() {
     company?.branchCode,
     company?.bankDetails,
   ]);
+
+  // Direct download link support (?download=1), used by the vehicle page.
+  useEffect(() => {
+    if (!pdfBlobUrl || !invoice || autoDownloadedRef.current) return;
+    if (new URLSearchParams(window.location.search).get("download") !== "1") return;
+    autoDownloadedRef.current = true;
+    const a = document.createElement("a");
+    a.href = pdfBlobUrl;
+    a.download = `${invoice.invoiceNumber}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [pdfBlobUrl, invoice]);
 
   const handleIssue = async () => {
     if (isIssuing || !invoice) return;

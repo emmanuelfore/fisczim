@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/media";
 import { useToast } from "@/hooks/use-toast";
 import { useUpdateCompany } from "@/hooks/use-companies";
 
@@ -256,7 +257,7 @@ export function OrganizationProfile({
                 <div className="relative group/logo">
                   {company.logoUrl ? (
                     <img
-                      src={company.logoUrl}
+                      src={resolveMediaUrl(company.logoUrl)}
                       alt="Logo"
                       className="h-24 w-24 rounded-[14px] border border-[#E5E7EB] bg-white object-contain p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-transform group-hover/logo:scale-105"
                     />

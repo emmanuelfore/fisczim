@@ -1,31 +1,33 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext } from "react";
 
-export interface ReportExportDef {
-  rows: any[];
-  columns: string[];
-  filename: string;
+export interface ReportExportColumn {
+  /** Field name on the row object. */
+  key: string;
+  /** Header written to the CSV. Defaults to `key`. */
+  header?: string;
 }
 
+export interface ReportExportDef {
+  /** Filename stem; the hub appends the active date range. */
+  label: string;
+  columns: ReportExportColumn[];
+  rows: any[];
+}
+
+type ExportBuilder = () => ReportExportDef;
+
 export const ReportExportContext = createContext<{
-  register: (def: ReportExportDef | null) => void;
+  register: (build: ExportBuilder) => void;
 }>({
   register: () => {},
 });
 
 /**
- * Call inside any report component to feed the header Export CSV button.
- * The report passes its currently filtered rows + raw field columns; the
- * button stays disabled until a report registers (so export works for every
- * report without lifting each one's data fetching up).
+ * Call inside a report component to feed the Reports Hub header Export CSV
+ * button. The builder is re-registered on every render, so the button always
+ * downloads the rows currently on screen — post date range, search and
+ * zero-activity filters — without lifting data fetching out of the report.
  */
-export function useReportExport(def: ReportExportDef | null) {
-  const { register } = useContext(ReportExportContext);
-  const key = def
-    ? `${def.filename}:${def.columns.join(",")}:${def.rows.length}`
-    : "none";
-  useEffect(() => {
-    register(def);
-    return () => register(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+export function useReportExport(build: ExportBuilder) {
+  useContext(ReportExportContext).register(build);
 }

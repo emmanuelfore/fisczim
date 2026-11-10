@@ -19,6 +19,7 @@ import { LoadingRows } from "@/components/ui/page-skeleton";
 const BLANK_FORM = {
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "" as string,
+  sourceReference: "" as string,
   brackets: `[\n  { "min": 0, "max": null, "rate": 0, "deduction": 0 }\n]`
 };
 
@@ -30,6 +31,7 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
   return {
     effectiveFrom: new Date().toISOString().slice(0, 10),
     effectiveTo: "",
+    sourceReference: active.sourceReference || "",
     brackets: JSON.stringify(active.brackets || [], null, 2),
   };
 }
@@ -38,8 +40,25 @@ function fromConfig(config: any): typeof BLANK_FORM {
   return {
     effectiveFrom: (config.effectiveFrom || new Date().toISOString().slice(0, 10)).slice(0, 10),
     effectiveTo: (config.effectiveTo || "").slice(0, 10),
+    sourceReference: config.sourceReference || "",
     brackets: JSON.stringify(config.brackets || [], null, 2),
   };
+}
+
+// The API rejects a bad table with { error, details: string[] } inside the raw
+// thrown message; show the band problems rather than a JSON blob.
+function readableSaveError(err: any): string {
+  const raw = String(err?.message || "Unknown error");
+  const match = raw.match(/\{.*\}$/s);
+  if (!match) return raw;
+  try {
+    const body = JSON.parse(match[0]);
+    const details = Array.isArray(body.details) ? body.details : null;
+    if (details) return details.join(" ");
+    return body.message || body.error || raw;
+  } catch {
+    return raw;
+  }
 }
 
 export function TaxTablesTab() {
@@ -85,7 +104,7 @@ export function TaxTablesTab() {
       setForm(BLANK_FORM);
     },
     onError: (err: any) => {
-      toast({ title: "Failed to save configuration", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to save configuration", description: readableSaveError(err), variant: "destructive" });
     }
   });
 
@@ -99,7 +118,7 @@ export function TaxTablesTab() {
       toast({ title: vars.activate ? "Configuration activated" : "Configuration deactivated" });
     },
     onError: (err: any) => {
-      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+      toast({ title: "Action failed", description: readableSaveError(err), variant: "destructive" });
     }
   });
 
@@ -121,7 +140,7 @@ export function TaxTablesTab() {
           <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-slate-100 dark:to-slate-400 tracking-tight">
             Tax Tables
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Manage PAYE tax tables, NSSA limits, and AIDS levy rates.</p>
+          <p className="text-sm text-slate-500 mt-1">PAYE bands only. NSSA limits and the AIDS levy are set in Statutory Settings.</p>
         </div>
           
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -158,6 +177,15 @@ export function TaxTablesTab() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label>Source <span className="text-muted-foreground">(which published table or gazette this came from)</span></Label>
+                  <Input
+                    placeholder="e.g. ZIMRA USD Jan-Dec 2025 Tax Tables"
+                    value={form.sourceReference}
+                    onChange={e => setForm(f => ({ ...f, sourceReference: e.target.value }))}
+                  />
+                </div>
+
+                <div className="space-y-2">
                   <Label>Tax Brackets (JSON format)</Label>
                   <Textarea 
                     required
@@ -166,7 +194,10 @@ export function TaxTablesTab() {
                     value={form.brackets}
                     onChange={e => setForm(f => ({ ...f, brackets: e.target.value }))}
                   />
-                  <p className="text-xs text-muted-foreground">Example: {`[{"min":0,"max":100,"rate":0,"deduction":0}]`}</p>
+                  <p className="text-xs text-muted-foreground">
+                    One band per row: {"{"}"min":0,"max":100,"rate":0,"deduction":0{"}"} — rate is a percent (20 = 20%),
+                    bands must be contiguous, and exactly one band has no "max".
+                  </p>
                 </div>
 
                 <div className="flex justify-end pt-4">
@@ -212,19 +243,31 @@ export function TaxTablesTab() {
                   {taxConfigs.map((config: any) => (
                     <TableRow key={config.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <TableCell className="font-medium">
-                        {new Date(config.effectiveFrom).toLocaleDateString()}
+                        {config.currency} · {new Date(config.effectiveFrom).toLocaleDateString()}
                         {config.effectiveTo
                           ? ` → ${new Date(config.effectiveTo).toLocaleDateString()}`
                           : " → open"}
+                        {config.sourceReference && (
+                          <p className="mt-0.5 max-w-[28rem] truncate text-xs font-normal text-slate-400">
+                            {config.sourceReference}
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell>
-                        {config.isActive ? (
-                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400">
-                            Active
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary">Historical</Badge>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1">
+                          {config.isActive ? (
+                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400">
+                              Active
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">Historical</Badge>
+                          )}
+                          {config.isActive && config.stale && (
+                            <Badge variant="outline" className="border-amber-300 text-amber-700 dark:text-amber-400">
+                              Tax year {config.taxYear} — confirm no newer table is published
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="outline" className="font-mono text-xs">

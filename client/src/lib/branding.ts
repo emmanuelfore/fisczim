@@ -3,6 +3,8 @@ export type Brand = "fiscalstack" | "fiscalzone" | "fiscalstack_lesotho";
 export interface BrandConfig {
   name: string;
   logo: string;
+  /** Mark shown on the boot/loading screen; falls back to `logo`. */
+  loadingLogo?: string;
   supportEmail: string;
   website: string;
   whatsappMessage: string;
@@ -18,6 +20,9 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
   fiscalstack: {
     name: "FiscalStack",
     logo: "/fiscalstack-logo.png",
+    // The boot screen keeps the previous mark even though the in-app logo has
+    // changed; it is the same artwork users saw while the app started.
+    loadingLogo: "/fiscalstack-logo-loader.png",
     supportEmail: "info@fiscalstack.co.zw",
     website: "https://fiscalstack.co.zw",
     whatsappMessage: "Hi FiscalStack! I'd like to learn more about your fiscalization platform.",
@@ -43,6 +48,7 @@ const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
     name: "Lekuka",
     // Same real FiscalStack mark as the main site, not a separate placeholder.
     logo: "/fiscalstack-logo.png",
+    loadingLogo: "/fiscalstack-logo-loader.png",
     supportEmail: "info@fiscalstack.co.ls",
     website: "https://fiscalstack.co.ls",
     whatsappMessage: "Hi Lekuka! I'd like to learn more about your fiscalization platform.",

@@ -9,7 +9,6 @@ import {
   computeTotal,
   generateCsv,
   generateCsvFilename,
-  getAgingBucket,
 } from "../report-utils";
 
 // ---------------------------------------------------------------------------
@@ -133,38 +132,6 @@ describe("computeTotal", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Property 4: AR aging bucket assignment correctness
-// Validates: Requirements 4.1, 4.3
-// ---------------------------------------------------------------------------
-describe("getAgingBucket", () => {
-  // Feature: reports-module, Property 4: AR aging bucket assignment correctness
-  test("bucket is correctly assigned for any days overdue value", () => {
-    fc.assert(
-      fc.property(fc.integer({ min: -365, max: 730 }), (daysOverdue) => {
-        const bucket = getAgingBucket(daysOverdue);
-        if (daysOverdue <= 30) return bucket === "current";
-        if (daysOverdue <= 60) return bucket === "31-60";
-        if (daysOverdue <= 90) return bucket === "61-90";
-        return bucket === "90+";
-      }),
-      { numRuns: 100 }
-    );
-  });
-
-  test("boundary values", () => {
-    expect(getAgingBucket(0)).toBe("current");
-    expect(getAgingBucket(1)).toBe("current");
-    expect(getAgingBucket(30)).toBe("current");
-    expect(getAgingBucket(31)).toBe("31-60");
-    expect(getAgingBucket(60)).toBe("31-60");
-    expect(getAgingBucket(61)).toBe("61-90");
-    expect(getAgingBucket(90)).toBe("61-90");
-    expect(getAgingBucket(91)).toBe("90+");
-    expect(getAgingBucket(-5)).toBe("current");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Property 9: CSV export rows match filtered list
 // Validates: Requirements 9.3
 // ---------------------------------------------------------------------------
@@ -205,6 +172,32 @@ describe("generateCsv", () => {
   test("empty records produce only header", () => {
     const csv = generateCsv([], ["id", "name"]);
     expect(csv.trim()).toBe("id,name");
+  });
+
+  test("{ key, header } columns label the header but read the field", () => {
+    const csv = generateCsv(
+      [{ taxAmount: "12.50", customerName: "Mutare Hardware" }],
+      [
+        { key: "customerName", header: "Customer" },
+        { key: "taxAmount", header: "Tax" },
+      ]
+    );
+    const [header, row] = csv.split("\n");
+    expect(header).toBe("Customer,Tax");
+    expect(row).toBe("Mutare Hardware,12.50");
+  });
+
+  test("missing fields export as empty cells", () => {
+    const csv = generateCsv([{ a: "1" }], [
+      { key: "a", header: "A" },
+      { key: "supplierName", header: "Supplier" },
+    ]);
+    expect(csv.split("\n")[1]).toBe("1,");
+  });
+
+  test("quotes and newlines inside values are escaped", () => {
+    const csv = generateCsv([{ name: 'Smith, "John"' }], ["name"]);
+    expect(csv.split("\n")[1]).toBe('"Smith, ""John"""');
   });
 });
 

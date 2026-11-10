@@ -8,6 +8,7 @@ import {
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
+import { resolveMediaUrl } from "@/lib/media";
 
 const s = StyleSheet.create({
   page: {
@@ -168,7 +169,7 @@ export const FiscalReportPDF = ({
           <View style={s.logoBox}>
             {company?.logoUrl ? (
               <Image
-                src={company.logoUrl}
+                src={resolveMediaUrl(company.logoUrl)}
                 style={{ width: 100, height: 35, objectFit: "contain" }}
               />
             ) : (

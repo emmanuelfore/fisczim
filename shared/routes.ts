@@ -634,20 +634,6 @@ export const api = {
         })
       }
     },
-    receivablesAging: {
-      method: "GET" as const,
-      path: "/api/companies/:companyId/reports/receivables-aging",
-      responses: {
-        200: z.object({
-          total: z.number(),
-          current: z.number(),
-          days1_15: z.number(),
-          days16_30: z.number(),
-          days31_45: z.number(),
-          above45: z.number(),
-        })
-      }
-    },
     fiscalYearStats: {
       method: "GET" as const,
       path: "/api/companies/:companyId/reports/fiscal-year-stats",
@@ -675,17 +661,6 @@ export const api = {
           totalRevenue: z.number(),
           totalCogs: z.number()
         })
-      }
-    },
-    hourlySales: {
-      method: "GET" as const,
-      path: "/api/reports/charts/hourly-sales/:companyId",
-      responses: {
-        200: z.array(z.object({
-          hour: z.number(),
-          count: z.number(),
-          total: z.number()
-        }))
       }
     },
     stockAlerts: {

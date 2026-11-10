@@ -39,6 +39,12 @@ const ConsignmentsPage = lazy(() => import("@/pages/freight/consignments"));
 const FreightDashboardPage = lazy(() => import("@/pages/freight/dashboard"));
 const FreightReceivingPage = lazy(() => import("@/pages/freight/receiving"));
 const FreightReportsPage = lazy(() => import("@/pages/freight/reports"));
+const CrmEnquiriesPage = lazy(() => import("@/pages/crm"));
+const VehiclesPage = lazy(() => import("@/pages/vehicles"));
+const VehicleDetailPage = lazy(() => import("@/pages/vehicles/detail"));
+const VehicleProfitabilityPage = lazy(() => import("@/pages/vehicles/profitability"));
+const VehicleCostingPage = lazy(() => import("@/pages/vehicles/costing"));
+const VehicleStatementsPage = lazy(() => import("@/pages/vehicles/statements"));
 const ExpensesPage = lazy(() => import("@/pages/expenses"));
 const InventoryTransactionsPage = lazy(() => import("@/pages/inventory-transactions"));
 const InventoryAdjustmentsPage = lazy(() => import("@/pages/inventory-adjustments"));
@@ -66,7 +72,6 @@ const TaxConfigPage = lazy(() => import("@/pages/tax-config"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const ZimraSettingsPage = lazy(() => import("@/pages/zimra-settings"));
 const FdmsTestPage = lazy(() => import("@/pages/fdms-test"));
-const CurrencySettingsPage = lazy(() => import("@/pages/currency-settings"));
 const TeamSettingsPage = lazy(() => import("@/pages/team-settings"));
 const UserProfilePage = lazy(() => import("@/pages/user-profile"));
 const AuditLogsPage = lazy(() => import("@/pages/audit-logs"));
@@ -91,7 +96,6 @@ const OrderStatusPage = lazy(() => import("@/pages/order-status"));
 const SubscriptionPage = lazy(() => import("@/pages/subscription"));
 import PosLoginPage from "@/pages/pos-login";
 const ReportsPage = lazy(() => import("@/pages/reports"));
-const BulkAdjustmentPage = lazy(() => import("@/pages/bulk-adjustment"));
 const StockTakePage = lazy(() => import("@/pages/stock-take"));
 const PaymentsReceivedPage = lazy(() => import("@/pages/payments-received"));
 const PaymentPreviewPage = lazy(() => import("@/pages/payment-preview"));
@@ -145,12 +149,15 @@ const ApprovalsPage = lazy(() => import("@/pages/approvals"));
 const PartnershipSalesReportPage = lazy(() => import("@/pages/partnership-sales-report"));
 const HRPayrollRuns = lazy(() => import("@/pages/hr/payroll"));
 const HREmployees = lazy(() => import("@/pages/hr/employees"));
+const HRPositions = lazy(() => import("@/pages/hr/positions"));
 const HRLoans = lazy(() => import("@/pages/hr/loans"));
 const HRLeave = lazy(() => import("@/pages/hr/leave"));
 const HRSetup = lazy(() => import("@/pages/hr/setup"));
 const HrRunReport = lazy(() => import("@/pages/hr/run-report"));
 const HRZimraReports = lazy(() => import("@/pages/hr/zimra-reports"));
+const HRStatutoryRemittances = lazy(() => import("@/pages/hr/remittances"));
 const HRSelfService = lazy(() => import("@/pages/hr/self-service"));
+const HRSop = lazy(() => import("@/pages/hr/sop"));
 const SystemConfigPage = lazy(() => import("@/pages/mx-3f7a"));
 const MaterialDocumentLedger = lazy(() => import("@/pages/inventory/reports/ledger"));
 const StockOverview = lazy(() => import("@/pages/inventory/reports/overview"));
@@ -168,6 +175,7 @@ import { useBranding } from "@/hooks/use-branding";
 import { brand } from "@/lib/branding";
 import { ThemeManager } from "@/components/theme-manager";
 import { getCompanyHomeRoute } from "@/lib/company-home-route";
+import { isPathInScope, HR_HOME_PATH } from "@/lib/product-scope";
 function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   const [timedOut, setTimedOut] = useState(false);
 
@@ -195,7 +203,7 @@ function LoadingScreen({ message }: { message?: string }) {
   return (
     <div className="min-h-screen grid place-items-center bg-background px-6" role="status" aria-live="polite">
       <div className="loading-fade flex flex-col items-center gap-4">
-        <img src={brand.logo} alt="" className="h-8 w-auto opacity-80" />
+        <img src={brand.loadingLogo ?? brand.logo} alt="" className="h-8 w-auto opacity-80" />
         <div className="relative h-1 w-44 overflow-hidden rounded-full bg-slate-200/80">
           <div className="loading-bar-fill absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary" />
         </div>
@@ -256,7 +264,7 @@ function WorkspaceReconnect({ onRetry }: { onRetry: () => unknown }) {
   return (
     <div className="min-h-screen grid place-items-center bg-background px-6" role="status" aria-live="polite">
       <div className="loading-fade flex w-full max-w-sm flex-col items-center gap-4 text-center">
-        <img src={brand.logo} alt="" className="h-8 w-auto opacity-80" />
+        <img src={brand.loadingLogo ?? brand.logo} alt="" className="h-8 w-auto opacity-80" />
         <div className="relative h-1 w-44 overflow-hidden rounded-full bg-slate-200/80">
           <div className="loading-bar-fill absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary" />
         </div>
@@ -329,6 +337,12 @@ function ProtectedRoute({
   // No user at all — if offline send to /pos (they may have cached data),
   // if online send to /auth
   if (!user) return <Redirect to="/auth" />;
+
+  // An HR-only build doesn't ship the rest of the platform. Checked here, at the
+  // single chokepoint every protected screen passes through, rather than route by
+  // route — and before the role fallbacks below, so a super admin can't reach an
+  // out-of-scope screen either.
+  if (!isPathInScope(location)) return <Redirect to={HR_HOME_PATH} />;
   // Memberships are still resolving: login warm-up, a slow link, or the query's
   // retry backoff. Show one honest, self-healing state instead of a shell with
   // no company context (empty dashboards, dead navigation).
@@ -449,7 +463,9 @@ function Router() {
       <Route path="/auth">{user ? <AuthRedirect /> : <AuthPage />}</Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
-      <Route path="/pos-login" component={PosLoginPage} />
+      <Route path="/pos-login">
+        {() => (isPathInScope("/pos-login") ? <PosLoginPage /> : <Redirect to={HR_HOME_PATH} />)}
+      </Route>
 
       <Route path="/onboarding" component={OnboardingRoute} />
 
@@ -565,7 +581,7 @@ function Router() {
         {() => <ProtectedRoute component={InventoryStockCountsPage} />}
       </Route>
       <Route path="/inventory/bulk-adjust">
-        {() => <ProtectedRoute component={BulkAdjustmentPage} />}
+        {() => <Redirect to="/inventory/adjustments" />}
       </Route>
       <Route path="/inventory/stock-take">
         {() => <ProtectedRoute component={StockTakePage} />}
@@ -595,7 +611,7 @@ function Router() {
         {() => <ProtectedRoute component={InventoryReportsPage} />}
       </Route>
       <Route path="/reports/financial">
-        {() => <ProtectedRoute component={FinancialReportsPage} />}
+        {() => <Redirect to="/accounting/reports/financial" />}
       </Route>
       <Route path="/reports/daily">
         {() => <ProtectedRoute component={DailySalesLedgerPage} />}
@@ -627,6 +643,30 @@ function Router() {
       <Route path="/freight/reports">
         {user ? <FreightReportsPage /> : <Redirect to="/auth" />}
       </Route>
+      {/* ProtectedRoute, not a bare `user ?` check: the CRM has its own nav.crm
+          permission, and this is the only place that permission is enforced. A raw
+          redirect here also bounced a refresh to /auth while the session hydrated. */}
+      <Route path="/crm">
+        {() => <ProtectedRoute component={CrmEnquiriesPage} />}
+      </Route>
+      <Route path="/crm/enquiries">
+        {() => <ProtectedRoute component={CrmEnquiriesPage} />}
+      </Route>
+      <Route path="/vehicles">
+        {() => <ProtectedRoute component={VehiclesPage} />}
+      </Route>
+      <Route path="/vehicles/profitability">
+        {() => <ProtectedRoute component={VehicleProfitabilityPage} />}
+      </Route>
+      <Route path="/vehicles/costing">
+        {() => <ProtectedRoute component={VehicleCostingPage} />}
+      </Route>
+      <Route path="/vehicles/statements">
+        {() => <ProtectedRoute component={VehicleStatementsPage} />}
+      </Route>
+      <Route path="/vehicles/:id">
+        {() => <ProtectedRoute component={VehicleDetailPage} />}
+      </Route>
       <Route path="/services">
         {() => <Redirect to="/products" />}
       </Route>
@@ -640,7 +680,10 @@ function Router() {
         {() => <ProtectedRoute component={ApprovalsPage} />}
       </Route>
       <Route path="/currencies">
-        {() => <ProtectedRoute component={CurrencySettingsPage} />}
+        {() => <Redirect to="/settings?tab=currencies" />}
+      </Route>
+      <Route path="/audit-logs">
+        {() => <ProtectedRoute component={AuditLogsPage} />}
       </Route>
       <Route path="/team-settings">
         {() => <ProtectedRoute component={TeamSettingsPage} />}
@@ -907,8 +950,14 @@ function Router() {
       <Route path="/hr/employees">
         {() => <ProtectedRoute component={HREmployees} />}
       </Route>
+      <Route path="/hr/positions">
+        {() => <ProtectedRoute component={HRPositions} />}
+      </Route>
       <Route path="/hr/self-service">
         {() => <ProtectedRoute component={HRSelfService} />}
+      </Route>
+      <Route path="/hr/sop">
+        {() => <ProtectedRoute component={HRSop} />}
       </Route>
       <Route path="/hr/loans">
         {() => <ProtectedRoute component={HRLoans} />}
@@ -926,7 +975,7 @@ function Router() {
         {() => <ProtectedRoute component={HRZimraReports} />}
       </Route>
       <Route path="/hr/reports/remittances">
-        {() => <ProtectedRoute component={HRZimraReports} />}
+        {() => <ProtectedRoute component={HRStatutoryRemittances} />}
       </Route>
       <Route path="/">{user ? <AuthRedirect /> : <LandingPage />}</Route>
       <Route component={NotFound} />

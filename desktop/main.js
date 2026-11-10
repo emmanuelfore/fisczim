@@ -18,7 +18,6 @@ autoUpdater.autoDownload = true;
 log.info('[Main] App starting...');
 
 const { SerialPort } = require('serialport');
-const offlineShell = require('./offline-shell');
 
 const PROD_URL = 'https://fiscalstack.co.zw/pos-login';
 const DEV_URL = 'http://localhost:5001/pos-login';
@@ -677,11 +676,11 @@ function createWindow() {
     },
     title: "POS Desktop Terminal",
     icon: path.join(__dirname, 'icon.png'), // Placeholder if icon exists
-    show: false, // Revealed on ready-to-show, so the first frame on screen is content
-    backgroundColor: '#0f172a' // The app's dark shell; Electron's default white reads as a crash
+    show: false // We will show it and maximize it to prevent flickering
   });
 
   mainWindow.maximize();
+  mainWindow.show();
 
   // Open DevTools with Ctrl+Shift+I (toggle)
   mainWindow.webContents.on('before-input-event', (_event, input) => {
@@ -700,64 +699,16 @@ function createWindow() {
   initBarcodeScanner(mainWindow, config.scannerPort);
 
   const posUrl = resolveStartUrl();
-
-  // The bundled client is intercepted under the server's own origin, so the offline
-  // credentials and cached books in IndexedDB stay reachable with no link at all.
-  let shellAvailable = false;
-  try {
-    shellAvailable = offlineShell.mount(path.join(__dirname, 'renderer'), new URL(posUrl).origin);
-  } catch (err) {
-    log.error(`[createWindow] Bundled client could not be mounted: ${err.message}`);
-  }
-  if (!shellAvailable) {
-    log.warn('[createWindow] No bundled client found; the POS cannot start offline');
-  }
-
-  // The window is created hidden to avoid a flash of unstyled content, but
-  // ready-to-show never fires when the page itself never arrives — so reveal on
-  // a deadline regardless. A POS that is invisible looks identical to a POS that
-  // failed to install, and staff cannot tell the difference.
-  let revealed = false;
-  const revealWindow = () => {
-    if (revealed || mainWindow.isDestroyed()) return;
-    revealed = true;
-    mainWindow.show();
-  };
-  mainWindow.once('ready-to-show', revealWindow);
-  setTimeout(revealWindow, 3000);
-
-  let loadSettled = false;
-  const showLoadFailure = (reason) => {
-    if (loadSettled || mainWindow.isDestroyed()) return;
-    loadSettled = true;
-    log.error(`[createWindow] POS UI failed to load: ${reason}`);
-
+  mainWindow.loadURL(posUrl).catch(err => {
     mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
       <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
         <h2 style="color: #e53e3e;">POS Application Failed to Load</h2>
         <p><strong>Attempted to start at:</strong> ${posUrl}</p>
-        <p><strong>Error:</strong> ${reason}</p>
+        <p><strong>Error:</strong> ${err.message}</p>
         <p>If you are testing the packaged application locally, please create a <code>config.json</code> file in <code>%APPDATA%\\fisczim-pos\\</code> with <code>{"startUrl": "http://localhost:5001/pos-login"}</code>, or ensure your production domain is reachable.</p>
       </body>
     </html>`);
-  };
-
-  // -3 is ABORTED, which Chromium reports for any superseded navigation.
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
-    if (!isMainFrame || errorCode === -3) return;
-    showLoadFailure(`${errorDescription || 'load failed'} (net error code ${errorCode})`);
   });
-  mainWindow.webContents.on('did-finish-load', () => {
-    loadSettled = true;
-  });
-
-  // Last resort if the interception itself ever dies: never leave a blank window.
-  const loadDeadline = setTimeout(() => showLoadFailure('no response within 20 seconds'), 20000);
-  mainWindow.webContents.once('did-finish-load', () => clearTimeout(loadDeadline));
-
-  // A dead or stalled link is answered from disk by offline-shell.js, so Chromium's
-  // own multi-minute connect timeout is never what the cashier waits on.
-  mainWindow.loadURL(posUrl).catch(err => showLoadFailure(err.message));
 
   // Requirement 3.4: intercept will-navigate and block external URLs (same-origin check).
   // Same-origin navigation (e.g., /pos → /reports/pos) is allowed; only cross-origin is blocked.

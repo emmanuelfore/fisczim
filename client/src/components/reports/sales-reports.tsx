@@ -5,6 +5,7 @@ import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
 
 interface ReportProps {
   companyId: number;
@@ -69,6 +70,19 @@ export function SalesReport({ companyId, dateRange, search, hideZeroActivity }: 
     filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
   }
   const total = computeTotal(filtered, "total");
+
+  useReportExport(() => ({
+    label: "sales-summary",
+    columns: [
+      { key: "date", header: "Date" },
+      { key: "invoiceCount", header: "Invoices" },
+      { key: "currency", header: "Currency" },
+      { key: "subtotal", header: "Subtotal" },
+      { key: "taxAmount", header: "Tax" },
+      { key: "total", header: "Total" },
+    ],
+    rows: filtered,
+  }));
 
   if (isLoading)
     return (
@@ -225,6 +239,17 @@ export function SalesByCustomerReport({
   }
   const total = computeTotal(filtered, "total");
 
+  useReportExport(() => ({
+    label: "sales-by-customer",
+    columns: [
+      { key: "customerName", header: "Customer" },
+      { key: "invoiceCount", header: "Invoices" },
+      { key: "currency", header: "Currency" },
+      { key: "total", header: "Total" },
+    ],
+    rows: filtered,
+  }));
+
   if (isLoading)
     return (
       <div className="flex justify-center p-8">
@@ -361,6 +386,17 @@ export function SalesByItemReport({
   }
   const total = computeTotal(filtered, "revenue");
 
+  useReportExport(() => ({
+    label: "sales-by-item",
+    columns: [
+      { key: "description", header: "Item" },
+      { key: "quantitySold", header: "Qty Sold" },
+      { key: "currency", header: "Currency" },
+      { key: "revenue", header: "Revenue" },
+    ],
+    rows: filtered,
+  }));
+
   if (isLoading)
     return (
       <div className="flex justify-center p-8">
@@ -449,142 +485,6 @@ export function SalesByItemReport({
                     {label}
                   </p>
                   <p className=" font-black text-slate-800">{String(value)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── SalesBySalespersonReport ──────────────────────────────────────────────────
-
-export function SalesBySalespersonReport({
-  companyId,
-  dateRange,
-  search,
-  hideZeroActivity,
-}: ReportProps) {
-  const [selectedRow, setSelectedRow] = useState<any>(null);
-
-  const {
-    data = [],
-    isLoading,
-    error,
-  } = useQuery<any[]>({
-    queryKey: [
-      "reports/sales-by-salesperson",
-      companyId,
-      dateRange.from,
-      dateRange.to,
-    ],
-    queryFn: async () => {
-      const res = await apiFetch(
-        buildUrl(companyId, "sales-by-salesperson", dateRange),
-      );
-      if (!res.ok)
-        throw new Error(`Failed to load sales by salesperson (${res.status})`);
-      return res.json();
-    },
-    enabled: !!companyId,
-  });
-
-  let filtered = filterRecords(data, search, ["userName"]);
-  if (hideZeroActivity) {
-     filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
-  }
-  const total = computeTotal(filtered, "total");
-
-  if (isLoading)
-    return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
-      </div>
-    );
-  if (error) return <EmptyState message="Failed to load report" />;
-
-  return (
-    <div className="flex h-full">
-      <div className="w-1/2 border-r border-slate-100 overflow-auto">
-        <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-            By Salesperson
-          </span>
-          <span className="text-xs font-black text-slate-700">
-            {filtered.length} rows · {total.toFixed(2)}
-          </span>
-        </div>
-        {filtered.length === 0 ? (
-          <EmptyState message="No sales in this period" />
-        ) : (
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-white border-b border-slate-100">
-              <tr>
-                <th className="text-left px-4 py-2 font-bold text-slate-500">
-                  Salesperson
-                </th>
-                <th className="text-right px-4 py-2 font-bold text-slate-500">
-                  Invoices
-                </th>
-                <th className="text-right px-4 py-2 font-bold text-slate-500">
-                  Currency
-                </th>
-                <th className="text-right px-4 py-2 font-bold text-slate-500">
-                  Total
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row, i) => (
-                <tr
-                  key={i}
-                  className={cn(
-                    "border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors",
-                    selectedRow === row && "bg-violet-50",
-                  )}
-                  onClick={() =>
-                    setSelectedRow(row === selectedRow ? null : row)
-                  }
-                >
-                  <td className="px-4 py-2 font-medium text-slate-700">
-                    {row.userName}
-                  </td>
-                  <td className="px-4 py-2 text-right text-slate-600">
-                    {row.invoiceCount}
-                  </td>
-                  <td className="px-4 py-2 text-right text-slate-600">
-                    {row.currency}
-                  </td>
-                  <td className="px-4 py-2 text-right font-black text-slate-800">
-                    {row.total}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-      <div className="flex-1 overflow-auto p-4">
-        {!selectedRow ? (
-          <DetailEmpty />
-        ) : (
-          <div className="space-y-3">
-            <h3 className=" font-black text-slate-800 uppercase tracking-tight">
-              {selectedRow.userName}
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {[
-                { label: "User ID", value: selectedRow.userId },
-                { label: "Invoice Count", value: selectedRow.invoiceCount },
-                { label: "Total Revenue", value: selectedRow.total },
-              ].map(({ label, value }) => (
-                <div key={label} className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                    {label}
-                  </p>
-                  <p className=" font-black text-slate-800">{value}</p>
                 </div>
               ))}
             </div>

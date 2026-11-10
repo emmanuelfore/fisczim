@@ -24,6 +24,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Badge } from "@/components/ui/badge";
 import { 
   Table, 
@@ -61,23 +62,33 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
-import { formatMoney } from "@shared/currency";
+import { displayCurrency, formatMoney } from "@shared/currency";
+import { jurisdictionForCountry } from "@shared/statutory/jurisdictions";
 
 // Intl throws on codes it doesn't know (ZWG), so payslips format through the shared table.
-const money = (value: unknown, currency = "USD") => formatMoney(Number(value || 0), currency);
+const money = (value: unknown, currency = "USD") => formatMoney(Number(value || 0), displayCurrency(currency));
 
 export default function HRPayrollRuns() {
   const { user } = useAuth();
-  const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
+  const { activeCompanyId, activeCompany } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
+  // Which currencies a run can be paid in is the company's jurisdiction, not a
+  // list baked into this page - the server rejects anything else.
+  const jurisdiction = jurisdictionForCountry(activeCompany?.country);
+  const runCurrencies = jurisdiction.currencies;
   const { toast } = useToast();
+  // The run route answers 403 for these anyway; hiding the buttons keeps a viewer
+  // from clicking their way to an error they cannot act on.
+  const { can } = usePermissions();
+  const canRunPayroll = can("payroll.write");
+  const canApprovePayroll = can("payroll.approve");
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     periodStart: format(new Date(), "yyyy-MM-01"),
     periodEnd: format(new Date(), "yyyy-MM-28"),
     payFrequency: "MONTHLY",
-    currency: "USD",
+    currency: jurisdiction.currencies[0] ?? "USD",
     runType: "REGULAR" as "REGULAR" | "BONUS",
     prorate: true,
     prorationBasis: "CALENDAR_DAYS" as "CALENDAR_DAYS" | "WORKING_DAYS" | "PAYABLE_DAYS" | "HOURS_WORKED",
@@ -223,6 +234,7 @@ export default function HRPayrollRuns() {
             </p>
           </div>
           
+          {canRunPayroll && (
           <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
             <DialogTrigger asChild>
               <Button className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all gap-2">
@@ -269,9 +281,11 @@ export default function HRPayrollRuns() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="ZiG">ZiG</SelectItem>
-                        <SelectItem value="SPLIT">SPLIT</SelectItem>
+                        {runCurrencies.map((code) => (
+                          <SelectItem key={code} value={code}>
+                            {code === "SPLIT" ? "SPLIT (USD/ZiG)" : code}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -320,7 +334,11 @@ export default function HRPayrollRuns() {
 
                 {formData.runType === "BONUS" && (
                   <div className="space-y-2 max-h-56 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-800 p-3">
-                    <div className="text-xs font-semibold text-slate-500 uppercase">13th Cheque / Bonus Amounts (tax-free up to $400/yr per Finance Act)</div>
+                    <div className="text-xs font-semibold text-slate-500 uppercase">
+                      {jurisdiction.countryCode === "ZW"
+                        ? "13th Cheque / Bonus Amounts (tax-free up to $400/yr per Finance Act)"
+                        : "13th Cheque / Bonus Amounts"}
+                    </div>
                     {activeEmployees.filter((emp: any) => emp.contracts?.[0]).map((emp: any) => (
                       <div key={emp.id} className="flex items-center gap-2">
                         <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-300">
@@ -351,6 +369,7 @@ export default function HRPayrollRuns() {
               </form>
             </DialogContent>
           </Dialog>
+          )}
         </div>
 
         {pendingSalaryChanges.length > 0 && (
@@ -371,16 +390,20 @@ export default function HRPayrollRuns() {
                         <span className="text-slate-400 font-normal"> · {change.employee?.employeeNumber}</span>
                       </div>
                       <div className="text-xs text-slate-500">
-                        ${Number(change.previousBaseSalary).toLocaleString()} → <span className="font-semibold text-emerald-600 dark:text-emerald-400">${Number(change.newBaseSalary).toLocaleString()}</span>
-                        {change.currency} · effective {change.effectiveDate} · {change.reason}
+                        {money(change.previousBaseSalary, change.currency)} → <span className="font-semibold text-emerald-600 dark:text-emerald-400">{money(change.newBaseSalary, change.currency)}</span>
+                        {" "}{change.payFrequency} · effective {change.effectiveDate} · {change.reason}
                       </div>
                     </div>
-                    <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1" onClick={() => salaryApproveMutation.mutate(change.id)}>
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Approve
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900 gap-1" onClick={() => salaryRejectMutation.mutate(change.id)}>
-                      <XCircle className="h-3.5 w-3.5" /> Reject
-                    </Button>
+                    {canApprovePayroll && (
+                      <>
+                        <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1" onClick={() => salaryApproveMutation.mutate(change.id)}>
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-8 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900 gap-1" onClick={() => salaryRejectMutation.mutate(change.id)}>
+                          <XCircle className="h-3.5 w-3.5" /> Reject
+                        </Button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -469,14 +492,19 @@ export default function HRPayrollRuns() {
                                 Report
                               </Button>
                             </Link>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className="text-blue-600 dark:text-blue-400"
+                              disabled={!["APPROVED", "LOCKED"].includes(run.status)}
+                              title={["APPROVED", "LOCKED"].includes(run.status)
+                                ? "Payment file for the bank"
+                                : `Approve or lock the run before exporting a payment file (this run is ${run.status})`}
                               onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/runs/${run.id}/bank-export`, `bank_export_${run.id}.csv`)}
                             >
                               Export Bank File
                             </Button>
+                            {(canRunPayroll || canApprovePayroll) && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="outline" size="sm" className="ml-2 gap-1 border-slate-200">
@@ -484,25 +512,25 @@ export default function HRPayrollRuns() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {run.status === "DRAFT" && (
+                                {run.status === "DRAFT" && canRunPayroll && (
                                   <DropdownMenuItem onClick={() => submitRunMutation.mutate(run.id)}>
                                     <Send className="mr-2 h-4 w-4 text-amber-500" />
                                     Submit for Approval
                                   </DropdownMenuItem>
                                 )}
-                                {run.status === "PENDING_APPROVAL" && (
+                                {run.status === "PENDING_APPROVAL" && canApprovePayroll && (
                                   <DropdownMenuItem onClick={() => approveRunMutation.mutate(run.id)}>
                                     <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-500" />
                                     Approve Run
                                   </DropdownMenuItem>
                                 )}
-                                {run.status === "APPROVED" && (
+                                {run.status === "APPROVED" && canApprovePayroll && (
                                   <DropdownMenuItem onClick={() => lockRunMutation.mutate(run.id)}>
                                     <LockKeyhole className="mr-2 h-4 w-4 text-slate-500" />
                                     Lock & Post Journals
                                   </DropdownMenuItem>
                                 )}
-                                {run.status === "LOCKED" && run.runType !== "BONUS" && (
+                                {run.status === "LOCKED" && canApprovePayroll && (
                                   <DropdownMenuItem
                                     onClick={() => {
                                       if (window.confirm(`Reverse run #${run.id}? This posts a reversing journal entry and marks the run REVERSED.`)) {
@@ -517,6 +545,7 @@ export default function HRPayrollRuns() {
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

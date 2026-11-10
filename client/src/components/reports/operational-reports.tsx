@@ -5,6 +5,7 @@ import { filterRecords } from "@/lib/report-utils";
 import { format, parseISO } from "date-fns";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
 
 interface ReportProps {
   companyId: number;
@@ -96,22 +97,83 @@ function ProductTable({
   );
 }
 
+type RowFilter = { hideZeroActivity?: boolean; search: string };
+
+function dayHasActivity(day: any) {
+  return (
+    Number(day.cashSales || 0) > 0 ||
+    Number(day.creditSales || 0) > 0 ||
+    Number(day.collections || 0) > 0 ||
+    Number(day.expenses || 0) > 0 ||
+    Number(day.moneyBanked || 0) > 0
+  );
+}
+
+function periodHasActivity(period: any) {
+  return (
+    Number(period.sales || 0) > 0 ||
+    Number(period.collections || 0) > 0 ||
+    Number(period.expenses || 0) > 0 ||
+    Number(period.moneyBanked || 0) > 0
+  );
+}
+
+function productHasMovement(row: any) {
+  return (
+    Number(row.openingStock || 0) !== 0 ||
+    Number(row.production || 0) !== 0 ||
+    Number(row.purchases || 0) !== 0 ||
+    Number(row.sales || 0) !== 0 ||
+    Number(row.adjustments || 0) !== 0 ||
+    Number(row.closingStock || 0) !== 0
+  );
+}
+
+// Rows stay visible if the search box matches the row itself or any product
+// nested inside it.
+function dayMatchesSearch(day: any, search: string) {
+  if (!search) return true;
+  return (
+    day.date?.includes(search) ||
+    filterRecords(day.salesByProduct || [], search, ["productName", "sku"]).length > 0 ||
+    filterRecords(day.stockByProduct || [], search, ["productName", "sku"]).length > 0 ||
+    filterRecords(day.production || [], search, ["productName"]).length > 0
+  );
+}
+
+function periodMatchesSearch(period: any, search: string) {
+  if (!search) return true;
+  return (
+    period.periodLabel?.toLowerCase().includes(search.toLowerCase()) ||
+    filterRecords(period.stockMovement || [], search, ["productName", "sku"]).length > 0 ||
+    filterRecords(period.production || [], search, ["productName"]).length > 0
+  );
+}
+
+function visibleDays(days: any[], { hideZeroActivity, search }: RowFilter) {
+  return days.filter(
+    (day) => (!hideZeroActivity || dayHasActivity(day)) && dayMatchesSearch(day, search),
+  );
+}
+
+function visiblePeriods(periods: any[], { hideZeroActivity, search }: RowFilter) {
+  return periods.filter(
+    (period) => (!hideZeroActivity || periodHasActivity(period)) && periodMatchesSearch(period, search),
+  );
+}
+
+function visibleStockProducts(products: any[], { hideZeroActivity, search }: RowFilter) {
+  return filterRecords(products, search, ["productName", "sku"]).filter(
+    (row) => !hideZeroActivity || productHasMovement(row),
+  );
+}
+
 function ExpandableDayRow({ day, search }: { day: any; search: string }) {
   const [open, setOpen] = useState(false);
 
   const salesFiltered = filterRecords(day.salesByProduct || [], search, ["productName", "sku"]);
   const stockFiltered = filterRecords(day.stockByProduct || [], search, ["productName", "sku"]);
   const productionFiltered = filterRecords(day.production || [], search, ["productName"]);
-
-  if (
-    search &&
-    !day.date.includes(search) &&
-    salesFiltered.length === 0 &&
-    stockFiltered.length === 0 &&
-    productionFiltered.length === 0
-  ) {
-    return null;
-  }
 
   return (
     <div className="border-b border-slate-100">
@@ -179,6 +241,21 @@ export function DailyOperationalReport({ companyId, dateRange, search, hideZeroA
     enabled: !!companyId,
   });
 
+  useReportExport(() => ({
+    label: "operational-daily",
+    columns: [
+      { key: "date", header: "Date" },
+      { key: "openingCash", header: "Opening Cash" },
+      { key: "cashSales", header: "Cash Sales" },
+      { key: "creditSales", header: "Credit Sales" },
+      { key: "collections", header: "Collections" },
+      { key: "expenses", header: "Expenses" },
+      { key: "moneyBanked", header: "Money Banked" },
+      { key: "salesValue", header: "Total Sales" },
+    ],
+    rows: visibleDays(data?.days || [], { hideZeroActivity, search }),
+  }));
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -192,16 +269,7 @@ export function DailyOperationalReport({ companyId, dateRange, search, hideZeroA
   }
 
   const totals = data?.totals || {};
-  let days = data?.days || [];
-  if (hideZeroActivity) {
-    days = days.filter((day: any) => {
-      return Number(day.cashSales || 0) > 0 ||
-             Number(day.creditSales || 0) > 0 ||
-             Number(day.collections || 0) > 0 ||
-             Number(day.expenses || 0) > 0 ||
-             Number(day.moneyBanked || 0) > 0;
-    });
-  }
+  const days = visibleDays(data?.days || [], { hideZeroActivity, search });
 
   return (
     <div className="flex flex-col h-full">
@@ -235,15 +303,6 @@ function PeriodRow({ period, search, type }: { period: any; search: string; type
   const [open, setOpen] = useState(false);
   const stockFiltered = filterRecords(period.stockMovement || [], search, ["productName", "sku"]);
   const productionFiltered = filterRecords(period.production || [], search, ["productName"]);
-
-  if (
-    search &&
-    !period.periodLabel.toLowerCase().includes(search.toLowerCase()) &&
-    stockFiltered.length === 0 &&
-    productionFiltered.length === 0
-  ) {
-    return null;
-  }
 
   return (
     <div className="border-b border-slate-100">
@@ -305,6 +364,20 @@ export function WeeklyOperationalReport({ companyId, dateRange, search, hideZero
     enabled: !!companyId,
   });
 
+  useReportExport(() => ({
+    label: "operational-weekly",
+    columns: [
+      { key: "periodLabel", header: "Period" },
+      { key: "sales", header: "Sales" },
+      { key: "collections", header: "Collections" },
+      { key: "expenses", header: "Expenses" },
+      { key: "moneyBanked", header: "Money Banked" },
+      { key: "startDate", header: "Start Date" },
+      { key: "endDate", header: "End Date" },
+    ],
+    rows: visiblePeriods(data?.weeks || [], { hideZeroActivity, search }),
+  }));
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -318,15 +391,7 @@ export function WeeklyOperationalReport({ companyId, dateRange, search, hideZero
   }
 
   const totals = data?.totals || {};
-  let weeks = data?.weeks || [];
-  if (hideZeroActivity) {
-    weeks = weeks.filter((week: any) => {
-      return Number(week.sales || 0) > 0 ||
-             Number(week.collections || 0) > 0 ||
-             Number(week.expenses || 0) > 0 ||
-             Number(week.moneyBanked || 0) > 0;
-    });
-  }
+  const weeks = visiblePeriods(data?.weeks || [], { hideZeroActivity, search });
 
   return (
     <div className="flex flex-col h-full">
@@ -369,6 +434,20 @@ export function MonthlyOperationalReport({ companyId, dateRange, search, hideZer
     enabled: !!companyId,
   });
 
+  useReportExport(() => ({
+    label: "operational-monthly",
+    columns: [
+      { key: "periodLabel", header: "Period" },
+      { key: "sales", header: "Sales" },
+      { key: "collections", header: "Collections" },
+      { key: "expenses", header: "Expenses" },
+      { key: "moneyBanked", header: "Money Banked" },
+      { key: "startDate", header: "Start Date" },
+      { key: "endDate", header: "End Date" },
+    ],
+    rows: visiblePeriods(data?.months || [], { hideZeroActivity, search }),
+  }));
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -382,15 +461,7 @@ export function MonthlyOperationalReport({ companyId, dateRange, search, hideZer
   }
 
   const totals = data?.totals || {};
-  let months = data?.months || [];
-  if (hideZeroActivity) {
-    months = months.filter((month: any) => {
-      return Number(month.sales || 0) > 0 ||
-             Number(month.collections || 0) > 0 ||
-             Number(month.expenses || 0) > 0 ||
-             Number(month.moneyBanked || 0) > 0;
-    });
-  }
+  const months = visiblePeriods(data?.months || [], { hideZeroActivity, search });
 
   return (
     <div className="flex flex-col h-full">
@@ -433,6 +504,21 @@ export function StockMovementReport({ companyId, dateRange, search, hideZeroActi
     enabled: !!companyId,
   });
 
+  useReportExport(() => ({
+    label: "stock-movement",
+    columns: [
+      { key: "productName", header: "Product" },
+      { key: "sku", header: "SKU" },
+      { key: "openingStock", header: "Opening" },
+      { key: "production", header: "Production" },
+      { key: "purchases", header: "Purchases" },
+      { key: "sales", header: "Sales" },
+      { key: "adjustments", header: "Adjustments" },
+      { key: "closingStock", header: "Closing" },
+    ],
+    rows: visibleStockProducts(data?.products || [], { hideZeroActivity, search }),
+  }));
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -445,17 +531,7 @@ export function StockMovementReport({ companyId, dateRange, search, hideZeroActi
     return <div className="p-8 text-center text-red-500 text-sm">Failed to load stock movement report</div>;
   }
 
-  let products = filterRecords(data?.products || [], search, ["productName", "sku"]);
-  if (hideZeroActivity) {
-    products = products.filter((row: any) => {
-      return Number(row.openingStock || 0) !== 0 ||
-             Number(row.production || 0) !== 0 ||
-             Number(row.purchases || 0) !== 0 ||
-             Number(row.sales || 0) !== 0 ||
-             Number(row.adjustments || 0) !== 0 ||
-             Number(row.closingStock || 0) !== 0;
-    });
-  }
+  const products = visibleStockProducts(data?.products || [], { hideZeroActivity, search });
   const totals = data?.totals || {};
 
   return (
@@ -543,6 +619,19 @@ export function ProductProfitMarginsReport(props: ReportProps) {
              Number(row.grossProfit || 0) > 0;
     });
   }
+
+  useReportExport(() => ({
+    label: "profit-margins-product",
+    columns: [
+      { key: "dimension", header: "Product" },
+      { key: "quantitySold", header: "Qty Sold" },
+      { key: "revenue", header: "Revenue" },
+      { key: "cogs", header: "COGS" },
+      { key: "grossProfit", header: "Profit" },
+      { key: "marginPercent", header: "Margin %" },
+    ],
+    rows: filtered,
+  }));
 
   if (isLoading) {
     return (

@@ -8,6 +8,7 @@ import { Settings2, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { LoadingRows } from "@/components/ui/page-skeleton";
 
 export function BankExportSettingsModal({ companyId }: { companyId: number }) {
   const [open, setOpen] = useState(false);
@@ -59,6 +60,12 @@ export function BankExportSettingsModal({ companyId }: { companyId: number }) {
     setColumns(columns.filter((_, i) => i !== index));
   };
 
+  // Rows are replaced, never written into: the array is seeded from the cached
+  // company row, so mutating it would edit the query cache behind React's back.
+  const updateColumn = (index: number, patch: Record<string, any>) => {
+    setColumns(prev => prev.map((col, i) => (i === index ? { ...col, ...patch } : col)));
+  };
+
   const handleSave = () => {
     updateCompanyMutation.mutate({
       payrollBankExportFormat: { columns }
@@ -82,31 +89,28 @@ export function BankExportSettingsModal({ companyId }: { companyId: number }) {
         </DialogHeader>
 
         {isLoading ? (
-          <div className="py-8 text-center">Loading...</div>
+          <div className="py-6 space-y-3">
+            <LoadingRows rows={4} />
+          </div>
         ) : (
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+            <p className="text-xs text-slate-500">
+              A run paid in two currencies (SPLIT) exports one row per currency, with a Currency column added, so no leg is left unpaid.
+            </p>
             {columns.map((col, idx) => (
               <div key={idx} className="flex items-end gap-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border">
                 <div className="grid gap-2 flex-1">
                   <Label>CSV Header</Label>
-                  <Input 
-                    value={col.label} 
-                    onChange={e => {
-                      const newCols = [...columns];
-                      newCols[idx].label = e.target.value;
-                      setColumns(newCols);
-                    }} 
+                  <Input
+                    value={col.label}
+                    onChange={e => updateColumn(idx, { label: e.target.value })}
                   />
                 </div>
                 <div className="grid gap-2 flex-1">
                   <Label>Data Source</Label>
-                  <Select 
-                    value={col.field} 
-                    onValueChange={v => {
-                      const newCols = [...columns];
-                      newCols[idx].field = v;
-                      setColumns(newCols);
-                    }}
+                  <Select
+                    value={col.field}
+                    onValueChange={v => updateColumn(idx, { field: v })}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -125,13 +129,9 @@ export function BankExportSettingsModal({ companyId }: { companyId: number }) {
                 {col.field === 'static' && (
                   <div className="grid gap-2 flex-1">
                     <Label>Static Value</Label>
-                    <Input 
-                      value={col.value || ""} 
-                      onChange={e => {
-                        const newCols = [...columns];
-                        newCols[idx].value = e.target.value;
-                        setColumns(newCols);
-                      }} 
+                    <Input
+                      value={col.value || ""}
+                      onChange={e => updateColumn(idx, { value: e.target.value })}
                       placeholder="e.g. SALARY"
                     />
                   </div>

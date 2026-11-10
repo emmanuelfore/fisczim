@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Search, RefreshCw, Loader2, Save, FileSpreadsheet } from "lucide-react";
+import { Plus, Search, RefreshCw, Loader2, Save, FileSpreadsheet, Lock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { jurisdictionForCountry, jurisdictionLevies, STATUTORY_RULE_CODES } from "@shared/statutory/jurisdictions";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
 
@@ -55,9 +57,18 @@ function YesNoBadge({ value }: { value: boolean }) {
 
 export function IncomesTab() {
   const { user } = useAuth();
-  const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
+  const { activeCompany, activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
   const { toast } = useToast();
+  const { can } = usePermissions();
+
+  // Writing an earning type is requirePayrollApproval on the server, so the
+  // create/edit affordances only appear for users who hold payroll.approve.
+  const canManage = can("payroll.approve");
+  const nssaApplies = jurisdictionLevies(
+    jurisdictionForCountry(activeCompany?.country),
+    STATUTORY_RULE_CODES.nssaPobs,
+  );
 
   const [search, setSearch] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -68,6 +79,15 @@ export function IncomesTab() {
     queryKey: [`/api/companies/${companyId}/payroll/earning-types`],
     enabled: !!companyId,
   });
+
+  // Rows with companyId IS NULL are shared system templates: every account reads
+  // them and the server rejects PATCH on them, so they open read-only.
+  const editingRow = editingId == null
+    ? null
+    : (earningTypes as any[]).find((et: any) => et.id === editingId) ?? null;
+  const isSystemTemplate = !!editingRow && editingRow.companyId == null;
+  const readOnly = !canManage || isSystemTemplate;
+  const columnCount = nssaApplies ? 6 : 5;
 
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -113,6 +133,7 @@ export function IncomesTab() {
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     saveMutation.mutate({ ...form, companyId });
   }
 
@@ -140,9 +161,15 @@ export function IncomesTab() {
             <Button variant="outline" size="icon" onClick={() => refetch()} className="h-10 w-10 shrink-0">
               <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
             </Button>
-            <Button onClick={openNewModal} className="h-10 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20">
-              <Plus className="h-4 w-4 mr-2" /> Create New
-            </Button>
+            {canManage ? (
+              <Button onClick={openNewModal} className="h-10 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20">
+                <Plus className="h-4 w-4 mr-2" /> Create New
+              </Button>
+            ) : (
+              <Badge variant="outline" className="h-10 px-3 gap-2 text-xs font-medium text-slate-500 border-slate-200 dark:border-slate-800">
+                <Lock className="h-3.5 w-3.5" /> View only
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -157,14 +184,16 @@ export function IncomesTab() {
                     <TableHead className="font-semibold text-slate-600 dark:text-slate-300">Name</TableHead>
                     <TableHead className="font-semibold text-slate-600 dark:text-slate-300">Category</TableHead>
                     <TableHead className="font-semibold text-slate-600 dark:text-slate-300">Tax Treatment</TableHead>
-                    <TableHead className="text-center font-semibold text-slate-600 dark:text-slate-300">NSSA</TableHead>
+                    {nssaApplies && (
+                      <TableHead className="text-center font-semibold text-slate-600 dark:text-slate-300">NSSA</TableHead>
+                    )}
                     <TableHead className="text-center font-semibold text-slate-600 dark:text-slate-300">Recurring</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={columnCount} className="h-32 text-center">
                         <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                           <LoadingRows rows={4} />
                         </div>
@@ -172,7 +201,7 @@ export function IncomesTab() {
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center">
+                      <TableCell colSpan={columnCount} className="h-32 text-center">
                         <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                           <FileSpreadsheet className="h-8 w-8 text-slate-300 dark:text-slate-600" />
                           <span>No income records found.</span>
@@ -191,6 +220,11 @@ export function IncomesTab() {
                         </TableCell>
                         <TableCell className="font-medium text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                           {et.name}
+                          {et.companyId == null && (
+                            <Badge variant="secondary" className="ml-2 text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0 border-0 text-slate-500">
+                              Built-in
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge className={cn("text-[10px] uppercase tracking-wider font-semibold border-0", CATEGORY_COLORS[et.category] ?? CATEGORY_COLORS.OTHER)}>
@@ -202,9 +236,11 @@ export function IncomesTab() {
                             {et.taxTreatment?.replace("_", " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center">
-                          <YesNoBadge value={!!et.isNssaApplicable} />
-                        </TableCell>
+                        {nssaApplies && (
+                          <TableCell className="text-center">
+                            <YesNoBadge value={!!et.isNssaApplicable} />
+                          </TableCell>
+                        )}
                         <TableCell className="text-center">
                           <YesNoBadge value={!!et.isRecurring} />
                         </TableCell>
@@ -222,10 +258,14 @@ export function IncomesTab() {
           <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden border-slate-200/60 dark:border-slate-800 shadow-2xl">
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 px-6 py-4 border-b border-blue-100 dark:border-blue-900/30">
               <DialogTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                {editingId ? "Edit Income Type" : "Create New Income Type"}
+                {readOnly && editingId ? "Income Type" : editingId ? "Edit Income Type" : "Create New Income Type"}
               </DialogTitle>
               <DialogDescription className="text-sm mt-1">
-                Fill in the details below to configure this earning component.
+                {isSystemTemplate
+                  ? `"${editingRow?.code}" is a built-in earning type shared by every account. Create your own earning type with a different code instead of changing it.`
+                  : readOnly
+                    ? "You have view-only access to payroll settings. Payroll approval is needed to change earning types."
+                    : "Fill in the details below to configure this earning component."}
               </DialogDescription>
             </div>
             
@@ -236,6 +276,7 @@ export function IncomesTab() {
                   <Input 
                     id="code"
                     required
+                    disabled={readOnly}
                     value={form.code} 
                     onChange={e => setForm((f: any) => ({ ...f, code: e.target.value.toUpperCase() }))} 
                     className="font-mono text-sm h-9" 
@@ -244,7 +285,7 @@ export function IncomesTab() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="category" className="text-xs font-semibold text-slate-600 dark:text-slate-300">Category</Label>
-                  <Select value={form.category} onValueChange={v => setForm((f: any) => ({ ...f, category: v }))}>
+                  <Select disabled={readOnly} value={form.category} onValueChange={v => setForm((f: any) => ({ ...f, category: v }))}>
                     <SelectTrigger id="category" className="h-9">
                       <SelectValue placeholder="Select Category" />
                     </SelectTrigger>
@@ -262,6 +303,7 @@ export function IncomesTab() {
                 <Input 
                   id="name"
                   required 
+                  disabled={readOnly}
                   value={form.name} 
                   onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))} 
                   className="h-9" 
@@ -271,7 +313,7 @@ export function IncomesTab() {
 
               <div className="space-y-2">
                 <Label htmlFor="taxTreatment" className="text-xs font-semibold text-slate-600 dark:text-slate-300">Tax Treatment</Label>
-                <Select value={form.taxTreatment} onValueChange={v => setForm((f: any) => ({ ...f, taxTreatment: v }))}>
+                <Select disabled={readOnly} value={form.taxTreatment} onValueChange={v => setForm((f: any) => ({ ...f, taxTreatment: v }))}>
                   <SelectTrigger id="taxTreatment" className="h-9">
                     <SelectValue placeholder="Select Treatment" />
                   </SelectTrigger>
@@ -285,24 +327,28 @@ export function IncomesTab() {
               <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-4">
                 <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Applicability Rules</h4>
                 
-                <div className="flex items-center space-x-3">
-                  <Checkbox 
-                    id="isNssaApplicable" 
-                    checked={form.isNssaApplicable} 
-                    onCheckedChange={(c) => setForm((f: any) => ({ ...f, isNssaApplicable: c === true }))}
-                    className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                  />
-                  <div className="space-y-1 leading-none">
-                    <Label htmlFor="isNssaApplicable" className="text-sm font-medium cursor-pointer">
-                      NSSA Applicable
-                    </Label>
-                    <p className="text-xs text-muted-foreground">Is this income subject to NSSA contributions?</p>
+                {nssaApplies && (
+                  <div className="flex items-center space-x-3">
+                    <Checkbox 
+                      id="isNssaApplicable" 
+                      disabled={readOnly}
+                      checked={form.isNssaApplicable} 
+                      onCheckedChange={(c) => setForm((f: any) => ({ ...f, isNssaApplicable: c === true }))}
+                      className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                    />
+                    <div className="space-y-1 leading-none">
+                      <Label htmlFor="isNssaApplicable" className="text-sm font-medium cursor-pointer">
+                        NSSA Applicable
+                      </Label>
+                      <p className="text-xs text-muted-foreground">Is this income subject to NSSA contributions?</p>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="flex items-center space-x-3">
                   <Checkbox 
                     id="isRecurring" 
+                    disabled={readOnly}
                     checked={form.isRecurring} 
                     onCheckedChange={(c) => setForm((f: any) => ({ ...f, isRecurring: c === true }))}
                     className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
@@ -318,16 +364,18 @@ export function IncomesTab() {
 
               <DialogFooter className="pt-2">
                 <DialogClose asChild>
-                  <Button type="button" variant="outline" className="h-9">Cancel</Button>
+                  <Button type="button" variant="outline" className="h-9">{readOnly ? "Close" : "Cancel"}</Button>
                 </DialogClose>
-                <Button 
-                  type="submit" 
-                  disabled={saveMutation.isPending}
-                  className="h-9 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white min-w-[100px]"
-                >
-                  {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save
-                </Button>
+                {!readOnly && (
+                  <Button 
+                    type="submit" 
+                    disabled={saveMutation.isPending}
+                    className="h-9 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white min-w-[100px]"
+                  >
+                    {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                    Save
+                  </Button>
+                )}
               </DialogFooter>
             </form>
           </DialogContent>

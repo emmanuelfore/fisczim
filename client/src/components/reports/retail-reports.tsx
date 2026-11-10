@@ -2,240 +2,18 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { apiFetch } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
-import {
-  ShoppingCart,
-  TrendingUp,
-  ShoppingBag,
-  Clock,
-  AlertCircle,
-} from "lucide-react";
-import { format, isValid } from "date-fns";
-import { Loader2, Package, List, History, Truck } from "lucide-react";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertCircle } from "lucide-react";
+import { format } from "date-fns";
+import { Loader2, Package, History, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
 
 interface ReportProps {
   companyId: number;
   dateRange: { from: Date; to: Date };
   search: string;
   hideZeroActivity?: boolean;
-}
-
-export function OperationalMetricsReport({
-  companyId,
-  dateRange,
-}: ReportProps) {
-  const { data, isLoading } = useQuery<any>({
-    queryKey: [
-      api.reports.operationalMetrics.path,
-      companyId,
-      dateRange.from,
-      dateRange.to,
-    ],
-    queryFn: async () => {
-      const url = buildUrl(api.reports.operationalMetrics.path, { companyId });
-      const res = await apiFetch(
-        `${url}?startDate=${dateRange.from.toISOString()}&endDate=${dateRange.to.toISOString()}`,
-      );
-      return res.json();
-    },
-    enabled: !!companyId,
-  });
-
-  if (isLoading)
-    return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
-
-  return (
-    <div className="p-6 space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="border-none shadow-md bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-bold uppercase text-slate-500 flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4 text-blue-500" /> Avg.
-              Transaction (ATV)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-black text-slate-900">
-              ${(data?.atv || 0).toFixed(2)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-none shadow-md bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-bold uppercase text-slate-500 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-500" /> profit margin
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-black text-emerald-600">
-              {Math.round(data?.profitMargin || 0)}%
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-none shadow-md bg-slate-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-bold uppercase text-slate-500 flex items-center gap-2">
-              <ShoppingBag className="w-4 h-4 text-purple-500" /> Items per
-              Receipt
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-black text-slate-900">
-              {(data?.itemsPerReceipt || 0).toFixed(1)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-none shadow-md bg-white">
-        <CardHeader>
-          <CardTitle className="text-lg font-black text-slate-800">
-            Financial Performance Breakdown
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center py-2 border-b border-slate-100">
-              <span className=" font-medium text-slate-500 uppercase tracking-tight">
-                Total Revenue
-              </span>
-              <span className="text-lg font-black text-slate-900">
-                ${(data?.totalRevenue || 0).toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-slate-100">
-              <span className=" font-medium text-slate-500 uppercase tracking-tight">
-                Total Cost of Goods (COGS)
-              </span>
-              <span className="text-lg font-black text-rose-600">
-                ${(data?.totalCogs || 0).toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-2 bg-emerald-50 px-4 rounded-xl">
-              <span className=" font-bold text-emerald-700 uppercase tracking-tight">
-                Gross Profit
-              </span>
-              <span className="text-xl font-black text-emerald-700">
-                $
-                {((data?.totalRevenue || 0) - (data?.totalCogs || 0)).toFixed(
-                  2,
-                )}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-export function HourlySalesAnalysisReport({
-  companyId,
-  dateRange,
-}: ReportProps) {
-  const { data, isLoading } = useQuery<any[]>({
-    queryKey: [
-      api.reports.hourlySales.path,
-      companyId,
-      dateRange.from,
-      dateRange.to,
-    ],
-    queryFn: async () => {
-      const url = buildUrl(api.reports.hourlySales.path, { companyId });
-      const res = await apiFetch(
-        `${url}?startDate=${dateRange.from.toISOString()}&endDate=${dateRange.to.toISOString()}`,
-      );
-      return res.json();
-    },
-    enabled: !!companyId,
-  });
-
-  if (isLoading)
-    return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
-
-  return (
-    <div className="p-6">
-      <Card className="border-none shadow-md bg-white">
-        <CardHeader>
-          <CardTitle className="text-lg font-black text-slate-800 flex items-center gap-2">
-            <Clock className="w-5 h-5 text-primary" /> Hourly Sales Heatmap
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[400px] w-full mt-6">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data || []}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="#f1f5f9"
-                />
-                <XAxis
-                  dataKey="hour"
-                  tickFormatter={(h) => `${h}:00`}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "#94a3b8", fontSize: 11, fontWeight: 700 }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "#94a3b8", fontSize: 11, fontWeight: 700 }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: "16px",
-                    border: "none",
-                    boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                  }}
-                  formatter={(val: number) => [`$${val.toFixed(2)}`, "Sales"]}
-                  labelFormatter={(h) => `Time: ${h}:00`}
-                />
-                <Bar
-                  dataKey="total"
-                  radius={[6, 6, 0, 0]}
-                  fill="hsl(var(--primary))"
-                >
-                  {data?.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        entry.total >
-                        Math.max(...data.map((d) => d.total)) * 0.8
-                          ? "hsl(var(--primary))"
-                          : "hsl(var(--primary) / 0.4)"
-                      }
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
 }
 
 export function InventoryHealthReport({ companyId, search }: ReportProps) {
@@ -249,18 +27,29 @@ export function InventoryHealthReport({ companyId, search }: ReportProps) {
     enabled: !!companyId,
   });
 
+  const filteredData = data?.filter(
+    (item) =>
+      item.name.toLowerCase().includes(search.toLowerCase()) ||
+      (item.sku && item.sku.toLowerCase().includes(search.toLowerCase())),
+  );
+
+  useReportExport(() => ({
+    label: "stock-alerts",
+    columns: [
+      { key: "name", header: "Product" },
+      { key: "sku", header: "SKU" },
+      { key: "stockLevel", header: "Current Stock" },
+      { key: "lowStockThreshold", header: "Threshold" },
+    ],
+    rows: filteredData ?? [],
+  }));
+
   if (isLoading)
     return (
       <div className="flex justify-center p-12">
         <Loader2 className="animate-spin" />
       </div>
     );
-
-  const filteredData = data?.filter(
-    (item) =>
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      (item.sku && item.sku.toLowerCase().includes(search.toLowerCase())),
-  );
 
   return (
     <div className="p-6">
@@ -353,18 +142,28 @@ export function StockOnHandReport({ companyId, search }: ReportProps) {
     enabled: !!companyId,
   });
 
+  const filteredData = data?.filter(
+    (item) =>
+      item.name.toLowerCase().includes(search.toLowerCase()) ||
+      (item.sku && item.sku.toLowerCase().includes(search.toLowerCase())),
+  );
+
+  useReportExport(() => ({
+    label: "stock-on-hand",
+    columns: [
+      { key: "name", header: "Product" },
+      { key: "stockLevel", header: "Stock" },
+      { key: "totalValue", header: "Value" },
+    ],
+    rows: filteredData ?? [],
+  }));
+
   if (isLoading)
     return (
       <div className="flex justify-center p-12">
         <Loader2 className="animate-spin" />
       </div>
     );
-
-  const filteredData = data?.filter(
-    (item) =>
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      (item.sku && item.sku.toLowerCase().includes(search.toLowerCase())),
-  );
 
   return (
     <div className="flex h-full min-h-[500px]">
@@ -520,19 +319,29 @@ export function InventoryMovementsReport({
     enabled: !!companyId,
   });
 
-  if (isLoading)
-    return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
-
   const filteredData = data?.filter(
     (item) =>
       item.productName.toLowerCase().includes(search.toLowerCase()) ||
       (item.reference &&
         item.reference.toLowerCase().includes(search.toLowerCase())),
   );
+
+  useReportExport(() => ({
+    label: "inventory-movements",
+    columns: [
+      { key: "date", header: "Date" },
+      { key: "productName", header: "Product" },
+      { key: "quantity", header: "Qty" },
+    ],
+    rows: filteredData ?? [],
+  }));
+
+  if (isLoading)
+    return (
+      <div className="flex justify-center p-12">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
 
   return (
     <div className="flex h-full min-h-[500px]">
@@ -720,13 +529,6 @@ export function PurchaseHistoryReport({
     enabled: !!companyId,
   });
 
-  if (isLoading)
-    return (
-      <div className="flex justify-center p-12">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
-
   const filteredData = data?.filter(
     (item) =>
       item.productName.toLowerCase().includes(search.toLowerCase()) ||
@@ -735,6 +537,23 @@ export function PurchaseHistoryReport({
       (item.reference &&
         item.reference.toLowerCase().includes(search.toLowerCase())),
   );
+
+  useReportExport(() => ({
+    label: "purchase-report",
+    columns: [
+      { key: "date", header: "Date" },
+      { key: "supplierName", header: "Supplier / Product" },
+      { key: "totalCost", header: "Total Cost" },
+    ],
+    rows: filteredData ?? [],
+  }));
+
+  if (isLoading)
+    return (
+      <div className="flex justify-center p-12">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
 
   return (
     <div className="flex h-full min-h-[500px]">

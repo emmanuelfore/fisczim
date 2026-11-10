@@ -4,6 +4,7 @@ import { api } from "@shared/routes";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { isLesothoInstance, getDefaultCountry, getDefaultCurrency, getDefaultCity } from "@/lib/country-detect";
+import { resolveMediaUrl } from "@/lib/media";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -320,7 +321,7 @@ export default function OnboardingPage() {
                     <div className="w-24 h-24 rounded-[1.5rem] bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden transition-all group-hover:border-violet-400 cursor-pointer">
                       {companyForm.watch("logoUrl") ? (
                         <img
-                          src={companyForm.watch("logoUrl")}
+                          src={resolveMediaUrl(companyForm.watch("logoUrl"))}
                           className="w-full h-full object-cover"
                         />
                       ) : (

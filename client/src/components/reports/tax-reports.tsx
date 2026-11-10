@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
 
 interface ReportProps {
   companyId: number;
@@ -79,6 +80,20 @@ export function TaxSummaryReport({
 
   const filtered = filterRecords(data, search, ["taxCode", "taxName"]);
   const netVatTotal = computeTotal(filtered, "netVat");
+
+  useReportExport(() => ({
+    label: "tax-summary",
+    columns: [
+      { key: "taxCode", header: "Tax Code" },
+      { key: "taxName", header: "Tax Name" },
+      { key: "taxRate", header: "Rate" },
+      { key: "taxableAmount", header: "Taxable Amount" },
+      { key: "outputTax", header: "Output Tax" },
+      { key: "inputTax", header: "Input Tax" },
+      { key: "netVat", header: "Net VAT" },
+    ],
+    rows: filtered,
+  }));
 
   if (isLoading)
     return (

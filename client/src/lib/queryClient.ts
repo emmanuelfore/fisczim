@@ -3,8 +3,26 @@ import { apiFetch, getCachedSession } from "./api";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const raw = (await res.text()) || res.statusText;
+    // The API answers failures as { error, message }; showing the raw JSON body
+    // in a toast tells the user nothing and buries the reason for the failure.
+    let message = raw;
+    let code: string | undefined;
+    try {
+      const body = JSON.parse(raw);
+      message = String(body?.message ?? body?.error ?? raw);
+      code = typeof body?.error === "string" ? body.error : undefined;
+    } catch {
+      // Not JSON - a plain-text body is already the message.
+    }
+    throw new ApiError(res.status, message, code);
+  }
+}
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string, public code?: string) {
+    super(message);
+    this.name = "ApiError";
   }
 }
 

@@ -10,6 +10,7 @@ import {
   FileBarChart2,
   Landmark,
   UserRound,
+  ClipboardCheck,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -21,10 +22,12 @@ import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 const hrNavigation = [
   { name: "Home", href: "/hr", icon: PieChart },
   { name: "Employees", href: "/hr/employees", icon: Users },
+  { name: "Positions & Vacancies", href: "/hr/positions", icon: Briefcase },
   { name: "Processing", href: "/hr/payroll", icon: FileSpreadsheet },
   { name: "Leave", href: "/hr/leave", icon: CalendarCheck },
   { name: "Loans & Advances", href: "/hr/loans", icon: Banknote },
   { name: "Self-Service", href: "/hr/self-service", icon: UserRound },
+  { name: "Procedures & Sign-offs", href: "/hr/sop", icon: ClipboardCheck },
 ];
 
 const hrSetupNav = [

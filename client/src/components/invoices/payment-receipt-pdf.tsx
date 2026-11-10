@@ -11,6 +11,7 @@ import { format, isValid } from "date-fns";
 import { formatCurrencyAmount } from "@shared/currency";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 import { getDefaultCity, getDefaultCountry } from "@/lib/country-detect";
+import { resolveMediaUrl } from "@/lib/media";
 
 // Use built-in Helvetica — removing font registration to eliminate fetch issues
 
@@ -323,7 +324,7 @@ export const PaymentReceiptPDF = ({
             (company.logoUrl.startsWith("http") ||
               company.logoUrl.startsWith("/")) ? (
               <Image
-                src={company.logoUrl}
+                src={resolveMediaUrl(company.logoUrl)}
                 style={{ width: 100, height: 30, objectFit: "contain" }}
               />
             ) : (

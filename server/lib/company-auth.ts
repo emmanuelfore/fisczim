@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { guardMiddleware } from "./guard-middleware.js";
 
 type CompanyLike = {
   id: number;
@@ -117,7 +118,7 @@ export async function checkCompanyAccess(
 }
 
 export function createRequireAuthOrApiKey(storage: CompanyAuthStorage) {
-  return async function requireAuthOrApiKey(
+  return guardMiddleware("requireAuthOrApiKey", async function requireAuthOrApiKey(
     req: CompanyScopedRequest,
     res: Response,
     next: NextFunction,
@@ -155,11 +156,11 @@ export function createRequireAuthOrApiKey(storage: CompanyAuthStorage) {
     }
 
     return next();
-  };
+  });
 }
 
 export function createRequireOwner(storage: CompanyAuthStorage) {
-  return async function requireOwner(
+  return guardMiddleware("requireOwner", async function requireOwner(
     req: CompanyScopedRequest,
     res: Response,
     next: NextFunction,
@@ -191,5 +192,5 @@ export function createRequireOwner(storage: CompanyAuthStorage) {
     }
 
     return next();
-  };
+  });
 }

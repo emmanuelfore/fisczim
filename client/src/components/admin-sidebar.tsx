@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Building2, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveMediaUrl } from "@/lib/media";
 import { useBranding } from "@/hooks/use-branding";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useCompanies } from "@/hooks/use-companies";
@@ -49,7 +50,7 @@ function CompanyAvatarCollapsed() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <div className="w-10 h-10 mx-auto rounded-[10px] flex items-center justify-center cursor-pointer overflow-hidden relative" style={{ background: "#fff", border: `1px solid ${SIDEBAR_BORDER}` }} title={activeCompany.name}>
-          {activeCompany.logoUrl ? <img src={activeCompany.logoUrl} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-4 h-4" style={{ color: SIDEBAR_ACTIVE }} />}
+          {activeCompany.logoUrl ? <img src={resolveMediaUrl(activeCompany.logoUrl)} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-4 h-4" style={{ color: SIDEBAR_ACTIVE }} />}
           <span className="absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full border border-white" style={{ background: activeCompany.zimraEnvironment === "production" ? "#10b981" : "#f59e0b" }} />
         </div>
       </DropdownMenuTrigger>
@@ -96,7 +97,7 @@ function CompanySelectorMini() {
       <DropdownMenuTrigger asChild>
         <div className="rounded-[10px] p-2.5 flex items-center gap-3 cursor-pointer hover:bg-white transition-colors" style={{ background: "#fff", border: `1px solid ${SIDEBAR_BORDER}` }}>
           <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden" style={{ background: SIDEBAR_BG, border: `1px solid ${SIDEBAR_BORDER}` }}>
-            {activeCompany.logoUrl ? <img src={activeCompany.logoUrl} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-4 h-4" style={{ color: SIDEBAR_ACTIVE }} />}
+            {activeCompany.logoUrl ? <img src={resolveMediaUrl(activeCompany.logoUrl)} alt="" className="w-full h-full object-cover" /> : <Building2 className="w-4 h-4" style={{ color: SIDEBAR_ACTIVE }} />}
           </div>
           <div className="min-w-0 flex-1 text-left">
             <div className="text-[13px] font-semibold truncate leading-none" style={{ color: SIDEBAR_TEXT }}>{activeCompany.name}</div>
@@ -138,7 +139,7 @@ function CompanySelectorMini() {
                 className="w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold relative"
                 style={activeCompany.id === company.id ? { background: "#A7F3D0", color: "#065F46" } : { background: "#F1F5F9", color: "#94A3B8" }}
               >
-                {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
+                {company.logoUrl ? <img src={resolveMediaUrl(company.logoUrl)} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
               </div>
               <span className="text-xs font-medium truncate">{company.name}</span>
             </DropdownMenuItem>

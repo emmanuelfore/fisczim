@@ -93,6 +93,7 @@ export default function SettingsPage() {
         accountName: activeCompany.accountName || "",
         accountNumber: activeCompany.accountNumber || "",
         branchCode: activeCompany.branchCode || "",
+        invoiceTerms: (activeCompany as any).invoiceTerms || "",
         currency: activeCompany.currency || "USD",
         country: activeCompany.country || getDefaultCountry(),
         fiscalProvider: (activeCompany as any).fiscalProvider || (isLesothoInstance() ? "LEKUKA" : "ZIMRA"),

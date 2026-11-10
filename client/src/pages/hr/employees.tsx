@@ -17,11 +17,15 @@ import {
   Wallet,
   X,
   BadgeDollarSign,
-  History
+  History,
+  FileCheck,
+  FolderCog
 } from "lucide-react";
 import Papa from "papaparse";
 import { format } from "date-fns";
 import { HRLayout } from "./layout";
+import { StaffFileDialog } from "@/components/hr/StaffFileDialog";
+import { PayrollSettingsDialog } from "@/components/hr/PayrollSettingsDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,6 +33,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useBranchContext } from "@/lib/branch-context";
+import { currencySign, displayCurrency, formatMoney } from "@shared/currency";
 import { Badge } from "@/components/ui/badge";
 import { 
   Table, 
@@ -60,19 +67,34 @@ import {
 import { Label } from "@/components/ui/label";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
+import { jurisdictionForCountry } from "@shared/statutory/jurisdictions";
+import { nextStaffNumber } from "@shared/staff-file";
 
 export default function HREmployees() {
   const { user } = useAuth();
-  const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
+  const { activeCompanyId, activeCompany } = useActiveCompany(!!user, user?.id ?? null);
+  const { branches } = useBranchContext();
   const companyId = activeCompanyId ?? null;
+  // A contract can only be priced in a currency this country's payroll runs in.
+  const contractCurrencies = jurisdictionForCountry(activeCompany?.country).currencies;
+  // Amounts print with the sign of the currency they are actually held in.
+  const companyCurrency = String(activeCompany?.currency || "USD");
+  const money = (value: unknown, code?: string | null) => formatMoney(value, displayCurrency(code || companyCurrency));
   const { toast } = useToast();
   const fa = useFiscalAuthority();
+  // The payroll routes answer 403 for these writes anyway; hiding the control
+  // keeps a viewer from clicking their way to an error they cannot act on
+  // (same gate the Payroll Processing page uses).
+  const { can } = usePermissions();
+  const canApprovePayroll = can("payroll.approve");
 
   const [search, setSearch] = useState("");
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [isStatutoryModalOpen, setIsStatutoryModalOpen] = useState(false);
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [staffFileModal, setStaffFileModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   
   const [formData, setFormData] = useState({
@@ -203,7 +225,8 @@ export default function HREmployees() {
 
   const validateEmployeePayload = (payload: ReturnType<typeof buildEmployeePayload>) => {
     if (!payload.firstName || !payload.lastName) return "First name and last name are required.";
-    if (!payload.employeeNumber) return "Employee number is required.";
+    // A blank staff number is the normal path now: cleanText() drops it from the
+    // payload and the server allocates the next number in the company's scheme.
     if (!payload.nationalId) return "National ID is required (Statutory tab).";
     if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(payload.email))) return `"${payload.email}" is not a valid email address.`;
     const usd = Number(payload.contract.usdPercentage || 0);
@@ -218,6 +241,34 @@ export default function HREmployees() {
     enabled: !!companyId,
   });
 
+  // One summary query for the whole directory - never a query per row.
+  const staffFileSummaryKey = `/api/companies/${companyId}/payroll/staff-file/summary`;
+  const payrollSettingsKey = `/api/companies/${companyId}/payroll/settings`;
+  const { data: staffFileSummary } = useQuery<any>({
+    queryKey: [staffFileSummaryKey],
+    enabled: !!companyId,
+  });
+  const { data: payrollSettings } = useQuery<any>({
+    queryKey: [payrollSettingsKey],
+    enabled: !!companyId,
+  });
+
+  const fileStatusById = new Map<number, any>();
+  for (const row of (staffFileSummary?.employees ?? []) as any[]) {
+    fileStatusById.set(row.id, row.fileStatus);
+  }
+
+  // Preview of what a blank staff number will become, straight from the
+  // company's numbering scheme (shared helper, so the settings dialog and
+  // the server agree on the shape).
+  const nextStaffPreview = payrollSettings
+    ? nextStaffNumber(
+        String(payrollSettings.staffNumberPrefix ?? ""),
+        Number(payrollSettings.staffNumberDigits) || 4,
+        Number(payrollSettings.staffNumberNext) || 1,
+      )
+    : null;
+
   const { data: payGrades = [] as any[] } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/pay-grades`],
     enabled: !!companyId,
@@ -230,6 +281,8 @@ export default function HREmployees() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      // Auto-allocation advances the company counter, so refresh the preview.
+      queryClient.invalidateQueries({ queryKey: [payrollSettingsKey] });
       setIsEmployeeModalOpen(false);
       setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "", terminationType: "", terminationReason: "" });
       toast({ title: "Employee created successfully" });
@@ -438,12 +491,14 @@ export default function HREmployees() {
     if (selectedEmployeeId) {
       updateEmployeeMutation.mutate(payload);
     } else {
+      // The remembered branch is a global choice and can belong to another
+      // company, so it is only sent when this company actually has it; otherwise
+      // the backend puts the employee on the company's first branch.
       const storedBranch = Number(localStorage.getItem("selectedBranchId"));
+      const branchBelongsHere = branches.some((b: any) => b.id === storedBranch);
       createEmployeeMutation.mutate({
         ...payload,
-        // Backend verifies the branch belongs to this company and falls back
-        // to the company's first branch when missing/invalid.
-        ...(Number.isInteger(storedBranch) && storedBranch > 0 ? { branchId: storedBranch } : {}),
+        ...(Number.isInteger(storedBranch) && storedBranch > 0 && branchBelongsHere ? { branchId: storedBranch } : {}),
       });
     }
   };
@@ -531,7 +586,9 @@ export default function HREmployees() {
     } else {
       setSelectedEmployeeId(null);
       setFormData({
-        firstName: "", lastName: "", employeeNumber: `EMP-${Date.now().toString().slice(-4)}`,
+        // Blank by default: the server hands out the next number in the company's
+        // scheme on hire, so the old EMP-<timestamp> filler is no longer needed.
+        firstName: "", lastName: "", employeeNumber: "",
         nationalId: "", email: "", phone: "", bankName: "", bankBranch: "",
         bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "",
         gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", 
@@ -557,6 +614,34 @@ export default function HREmployees() {
       emp.employeeNumber.toLowerCase().includes(term)
     );
   });
+
+  // Compact staff-file verdict for a row, straight from the summary's fileStatus.
+  // Severity order: expired first, then missing required, then expiring, then green.
+  const renderFileBadge = (fileStatus: any) => {
+    if (!fileStatus) return null;
+    if (fileStatus.expired?.length > 0) {
+      return <Badge variant="destructive">{fileStatus.expired.length} expired</Badge>;
+    }
+    if (fileStatus.missing?.length > 0) {
+      return (
+        <Badge variant="outline" className="border-amber-300 text-amber-700 dark:border-amber-900/60 dark:text-amber-400">
+          {fileStatus.missing.length} missing
+        </Badge>
+      );
+    }
+    if (fileStatus.expiring?.length > 0) {
+      return (
+        <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          {fileStatus.expiring.length} expiring
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+        File complete
+      </Badge>
+    );
+  };
 
   return (
     <HRLayout>
@@ -606,6 +691,11 @@ export default function HREmployees() {
                 </label>
               </Button>
             </div>
+            {canApprovePayroll && (
+              <Button variant="outline" className="gap-2" onClick={() => setIsSettingsDialogOpen(true)}>
+                <FolderCog className="h-4 w-4" /> File & numbering settings
+              </Button>
+            )}
             <Button onClick={() => openEmployeeModal()} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md">
               <Plus className="h-4 w-4" /> Create Employee
             </Button>
@@ -649,7 +739,18 @@ export default function HREmployees() {
                   </div>
                   <div className="space-y-2 md:col-span-3">
                     <Label>Employee Number</Label>
-                    <Input disabled={!!selectedEmployeeId} value={formData.employeeNumber} onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})} className="bg-slate-50 dark:bg-slate-900" />
+                    <Input
+                      disabled={!!selectedEmployeeId}
+                      value={formData.employeeNumber}
+                      onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})}
+                      placeholder={nextStaffPreview ? `Blank = next in scheme (${nextStaffPreview})` : "Leave blank to auto-assign"}
+                      className="bg-slate-50 dark:bg-slate-900"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Leave blank to take the next number in your company's scheme
+                      {nextStaffPreview ? <> (next: <span className="font-mono font-semibold">{nextStaffPreview}</span>)</> : "."}
+                      {" "}A number you type here is always used as given.
+                    </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -811,9 +912,9 @@ export default function HREmployees() {
                     >
                       <SelectTrigger><SelectValue placeholder="Currency" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="ZiG">ZiG</SelectItem>
-                        <SelectItem value="SPLIT">SPLIT (USD/ZiG)</SelectItem>
+                        {contractCurrencies.map((code) => (
+                          <SelectItem key={code} value={code}>{code === "SPLIT" ? "SPLIT (USD/ZiG)" : code}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -905,9 +1006,9 @@ export default function HREmployees() {
                       <SelectValue placeholder="Select base currency" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="ZiG">ZiG</SelectItem>
-                      <SelectItem value="SPLIT">SPLIT (USD/ZiG)</SelectItem>
+                      {contractCurrencies.map((code) => (
+                        <SelectItem key={code} value={code}>{code === "SPLIT" ? "SPLIT (USD/ZiG)" : code}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1069,7 +1170,7 @@ export default function HREmployees() {
                             {employee.contracts?.[0] ? (
                               <>
                                 <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  {employee.contracts[0].currency} {Number(employee.contracts[0].baseSalary).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                  {money(employee.contracts[0].baseSalary, employee.contracts[0].currency)}
                                 </div>
                                 <div className="text-xs text-slate-500">
                                   {employee.contracts[0].contractType}
@@ -1086,16 +1187,28 @@ export default function HREmployees() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="secondary"
-                            className={
-                              employee.status === "ACTIVE" 
-                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 hover:bg-emerald-200"
-                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
-                            }
-                          >
-                            {employee.status}
-                          </Badge>
+                          <div className="flex flex-col items-start gap-1.5">
+                            <Badge 
+                              variant="secondary"
+                              className={
+                                employee.status === "ACTIVE" 
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 hover:bg-emerald-200"
+                                  : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                              }
+                            >
+                              {employee.status}
+                            </Badge>
+                            {fileStatusById.has(employee.id) && (
+                              <button
+                                type="button"
+                                className="cursor-pointer"
+                                title="Open this employee's staff file"
+                                onClick={() => setStaffFileModal({ employee, open: true })}
+                              >
+                                {renderFileBadge(fileStatusById.get(employee.id))}
+                              </button>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -1110,6 +1223,9 @@ export default function HREmployees() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem className="cursor-pointer font-medium" onSelect={() => openEmployeeModal(employee)}>
                                 Edit Employee Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-sky-600 dark:text-sky-400" onSelect={() => setStaffFileModal({ employee, open: true })}>
+                                <FileCheck className="mr-2 h-4 w-4" /> Staff file
                               </DropdownMenuItem>
                               <DropdownMenuItem className="cursor-pointer text-amber-600 dark:text-amber-400" onSelect={() => openSalaryChangeModal(employee)}>
                                 <BadgeDollarSign className="mr-2 h-4 w-4" /> Request Salary Change
@@ -1142,8 +1258,7 @@ export default function HREmployees() {
               </DialogTitle>
               <DialogDescription>
                 {salaryModal.employee?.firstName} {salaryModal.employee?.lastName} — current{" "}
-                {salaryModal.employee?.contracts?.[0]?.currency || "USD"}{" "}
-                {Number(salaryModal.employee?.contracts?.[0]?.baseSalary || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {money(salaryModal.employee?.contracts?.[0]?.baseSalary, salaryModal.employee?.contracts?.[0]?.currency)}
                 . An approver must confirm the change before it applies to the contract.
               </DialogDescription>
             </DialogHeader>
@@ -1184,7 +1299,7 @@ export default function HREmployees() {
                   {salaryHistory.slice(0, 5).map((c: any) => (
                     <div key={c.id} className="flex items-center justify-between text-xs">
                       <span className="text-slate-600 dark:text-slate-300">
-                        {new Date(c.createdAt).toLocaleDateString()} — ${Number(c.previousBaseSalary).toLocaleString()} → ${Number(c.newBaseSalary).toLocaleString()}
+                        {new Date(c.createdAt).toLocaleDateString()} — {money(c.previousBaseSalary, c.currency)} → {money(c.newBaseSalary, c.currency)}
                       </span>
                       <Badge variant="secondary" className={c.status === "APPROVED" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : c.status === "REJECTED" ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}>
                         {c.status}
@@ -1316,7 +1431,7 @@ export default function HREmployees() {
                       <Input className="h-8" required value={newRecurringItem.name} onChange={(e) => setNewRecurringItem({...newRecurringItem, name: e.target.value})} placeholder="e.g. Transport Allowance" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Amount ($)</Label>
+                      <Label className="text-xs">Amount ({currencySign(companyCurrency)})</Label>
                       <Input className="h-8" type="number" step="0.01" required value={newRecurringItem.amount} onChange={(e) => setNewRecurringItem({...newRecurringItem, amount: e.target.value})} />
                     </div>
                     <div className="space-y-1">
@@ -1357,7 +1472,7 @@ export default function HREmployees() {
                             <div className="font-medium flex items-center gap-2">
                               {item.name} 
                               <Badge variant="outline" className={item.type === "ALLOWANCE" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : "text-rose-600 border-rose-200 bg-rose-50"}>
-                                {item.type === "ALLOWANCE" ? "+" : "-"}${Number(item.amount).toFixed(2)}
+                                {item.type === "ALLOWANCE" ? "+" : "-"}{money(item.amount)}
                               </Badge>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1 flex gap-2">
@@ -1384,6 +1499,18 @@ export default function HREmployees() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <PayrollSettingsDialog
+          companyId={companyId}
+          open={isSettingsDialogOpen}
+          onOpenChange={setIsSettingsDialogOpen}
+        />
+        <StaffFileDialog
+          companyId={companyId}
+          employee={staffFileModal.employee}
+          open={staffFileModal.open}
+          onOpenChange={(open) => setStaffFileModal((s) => ({ ...s, open }))}
+        />
       </div>
     </HRLayout>
   );

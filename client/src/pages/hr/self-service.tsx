@@ -14,15 +14,24 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Loader2, UserRound, CalendarCheck, FileText, PhoneCall, Save } from "lucide-react";
+import { displayCurrency, formatMoney, sumMoney } from "@shared/currency";
+import { jurisdictionForCountry, jurisdictionLevies, STATUTORY_RULE_CODES } from "@shared/statutory/jurisdictions";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 const LEAVE_TYPES = ["ANNUAL", "SICK", "MATERNITY", "PATERNITY", "COMPASSIONATE", "STUDY"];
 
 export default function HRSelfService() {
   const { user } = useAuth();
-  const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
+  const { activeCompanyId, activeCompany } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
   const { toast } = useToast();
+
+  // Each payslip row is printed in the currency its run was paid in, so a ZiG
+  // month and a loti month never read as dollars.
+  const companyCurrency = String(activeCompany?.currency || "USD");
+  const money = (value: unknown, code?: string | null) => formatMoney(value, displayCurrency(code || companyCurrency));
+  const jurisdiction = jurisdictionForCountry(activeCompany?.country);
+  const taxLabel = jurisdictionLevies(jurisdiction, STATUTORY_RULE_CODES.aidsLevy) ? "PAYE + AIDS" : "PAYE";
 
   const { data, isLoading, isError } = useQuery<any>({
     queryKey: [`/api/companies/${companyId}/payroll/self-service`],
@@ -187,7 +196,7 @@ export default function HRSelfService() {
                     <TableRow>
                       <TableHead>Period</TableHead>
                       <TableHead className="text-right">Gross</TableHead>
-                      <TableHead className="text-right">PAYE + AIDS</TableHead>
+                      <TableHead className="text-right">{taxLabel}</TableHead>
                       <TableHead className="text-right">Net Pay</TableHead>
                       <TableHead className="text-right pr-6">Download</TableHead>
                     </TableRow>
@@ -198,12 +207,12 @@ export default function HRSelfService() {
                         <TableCell className="font-medium">
                           {new Date(p.periodStart).toLocaleDateString()} — {new Date(p.periodEnd).toLocaleDateString()}
                         </TableCell>
-                        <TableCell className="text-right">${Number(p.grossSalary).toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right">{money(p.grossSalary, p.currency)}</TableCell>
                         <TableCell className="text-right text-red-600 dark:text-red-400">
-                          ${(Number(p.paye) + Number(p.aidsLevy)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {money(sumMoney([p.paye, p.aidsLevy]), p.currency)}
                         </TableCell>
                         <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400">
-                          ${Number(p.netSalary).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {money(p.netSalary, p.currency)}
                         </TableCell>
                         <TableCell className="text-right pr-6">
                           <a

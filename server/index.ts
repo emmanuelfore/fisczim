@@ -7,6 +7,7 @@ import { setupSwagger } from "./swagger.js";
 import { startRecurringInvoiceWorker, startFiscalDayClosingWorker } from "./jobs.js";
 import { startFiscalizationWorker } from "./workers/fiscalization_worker.js";
 import { initializeScheduler } from "./scheduler.js";
+import { seedGlobalPayrollDefaults } from "./lib/payroll-seeding.js";
 
 import cors from "cors";
 import compression from "compression";
@@ -23,6 +24,12 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
+
+// We run behind nginx in production. Trust exactly one proxy hop so
+// req.protocol / req.ip reflect the original client instead of the
+// plain-HTTP hop between nginx and Node. Without this, generated URLs
+// come out as http:// and get blocked as mixed content on HTTPS pages.
+app.set("trust proxy", 1);
 
 // Restrict CORS in production. Local development can be opened through
 // localhost, 127.0.0.1, a desktop shell, or file:// (reported as "null").
@@ -256,6 +263,17 @@ async function initializeApp() {
   // Setup application
   setupSwagger(app);
   await registerRoutes(httpServer, app);
+
+  // ZIMRA statutory reference data. A Lesotho deployment carries its own tables
+  // and must not have Zimbabwean bands written into its tax tables.
+  const countryScope = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase();
+  if (countryScope !== "lesotho") {
+    try {
+      await seedGlobalPayrollDefaults();
+    } catch (err: any) {
+      log(`payroll statutory seeding failed: ${err.message}`);
+    }
+  }
 
   app.route("/api/user").get((req: any, res: Response) => {
     if (!req.isAuthenticated()) return res.json({ user: null });

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Search, Loader2, Save } from "lucide-react";
+import { Plus, Search, Loader2, Save, Lock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
@@ -32,11 +33,21 @@ const BLANK_FORM = {
   employeeRate: "0",
 };
 
+// Rates arrive as decimal strings; a blank or unparsable one reads as "—" rather
+// than "NaN%" in the table.
+function rateLabel(value: unknown): string {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate > 0 ? `${rate.toFixed(2)}%` : "—";
+}
+
 export function DeductionsTab() {
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
   const { toast } = useToast();
+  const { can } = usePermissions();
+  // POST /deduction-types is requirePayrollApproval on the server.
+  const canManage = can("payroll.approve");
 
   const [search, setSearch] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,6 +93,7 @@ export function DeductionsTab() {
           <p className="text-sm text-muted-foreground mt-1">Configure company and voluntary payroll deductions</p>
         </div>
 
+          {canManage ? (
           <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => setForm(BLANK_FORM)} className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-md shadow-indigo-200 dark:shadow-none gap-2">
@@ -138,6 +150,8 @@ export function DeductionsTab() {
                   <Input 
                     type="number" 
                     step="0.01" 
+                    min="0"
+                    max="100"
                     value={form.employeeRate} 
                     onChange={e => setForm(f => ({ ...f, employeeRate: e.target.value }))} 
                     className="font-mono"
@@ -153,6 +167,11 @@ export function DeductionsTab() {
               </form>
             </DialogContent>
           </Dialog>
+          ) : (
+            <Badge variant="outline" className="px-3 py-2 text-xs font-medium text-slate-500 border-slate-200 dark:border-slate-800 inline-flex items-center gap-2">
+              <Lock className="h-3.5 w-3.5" /> View only
+            </Badge>
+          )}
         </div>
 
         <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -197,15 +216,22 @@ export function DeductionsTab() {
                   filtered.map((d: any) => (
                     <TableRow key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <TableCell className="font-mono font-medium text-slate-700 dark:text-slate-300">{d.code}</TableCell>
-                      <TableCell className="font-medium text-slate-900 dark:text-slate-100">{d.name}</TableCell>
+                      <TableCell className="font-medium text-slate-900 dark:text-slate-100">
+                        {d.name}
+                        {d.companyId == null && (
+                          <Badge variant="secondary" className="ml-2 text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0 border-0 text-slate-500">
+                            Built-in
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge className={cn("font-medium", CAT_COLORS[d.category] || CAT_COLORS.OTHER)}>
                           {d.category}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-slate-500">{d.timing.replace('_', '-')}</TableCell>
+                      <TableCell className="text-slate-500">{d.timing ? String(d.timing).replace('_', '-') : "—"}</TableCell>
                       <TableCell className="text-right font-mono">
-                        {d.employeeRate && Number(d.employeeRate) > 0 ? `${Number(d.employeeRate).toFixed(2)}%` : "—"}
+                        {rateLabel(d.employeeRate)}
                       </TableCell>
                     </TableRow>
                   ))

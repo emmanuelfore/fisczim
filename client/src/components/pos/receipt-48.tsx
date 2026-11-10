@@ -1,6 +1,7 @@
 
 import { QRCodeSVG } from "qrcode.react";
 import { format } from "date-fns";
+import { resolveMediaUrl } from "@/lib/media";
 
 interface Receipt48Props {
     id?: string;
@@ -80,10 +81,10 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
             {(company.logoUrl || (invoice as any)?.partnerSnapshot?.logoUrl) && (
                 <div className="flex justify-center items-center gap-3 mb-2">
                     {company.logoUrl && (
-                        <img src={company.logoUrl} alt="Logo" className="max-h-16 object-contain" />
+                        <img src={resolveMediaUrl(company.logoUrl)} alt="Logo" className="max-h-16 object-contain" />
                     )}
                     {(invoice as any)?.partnerSnapshot?.logoUrl && (
-                        <img src={(invoice as any).partnerSnapshot.logoUrl} alt="Partner" className="max-h-14 object-contain" />
+                        <img src={resolveMediaUrl((invoice as any).partnerSnapshot.logoUrl)} alt="Partner" className="max-h-14 object-contain" />
                     )}
                 </div>
             )}

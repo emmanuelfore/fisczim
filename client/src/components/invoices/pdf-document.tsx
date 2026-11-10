@@ -5,6 +5,7 @@ import { formatCurrencyAmount } from "@shared/currency";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
+import { resolveMediaUrl } from "@/lib/media";
 const styles = StyleSheet.create({
     page: {
         padding: 24,
@@ -276,14 +277,14 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     {/* Left: Logo(s) */}
                     <View style={{ width: '28%', flexDirection: showDualLogo && partnerLogoPlacement === 'stacked' ? 'column' : 'row', alignItems: 'center', gap: 4 }}>
                         {company?.logoUrl ? (
-                            <Image src={company.logoUrl} style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
+                            <Image src={resolveMediaUrl(company.logoUrl)} style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
                         ) : (
                             hasDesignerPartnership ? (
                                 <Image src="https://placehold.co/200x100/png?text=Company+Logo" style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
                             ) : null
                         )}
                         {showDualLogo && partner?.logoUrl && partnerLogoPlacement !== 'right_header' ? (
-                            <Image src={partner.logoUrl} style={{ width: partnerLogoPlacement === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
+                            <Image src={resolveMediaUrl(partner.logoUrl)} style={{ width: partnerLogoPlacement === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
                         ) : null}
                     </View>
 
@@ -307,7 +308,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     {/* Right: QR Code / Partner Logo */}
                     <View style={{ width: '28%', alignItems: 'flex-end', gap: 4 }}>
                         {showDualLogo && partner?.logoUrl && partnerLogoPlacement === 'right_header' ? (
-                            <Image src={partner.logoUrl} style={{ width: 72, height: 44, objectFit: 'contain', marginBottom: 4 }} />
+                            <Image src={resolveMediaUrl(partner.logoUrl)} style={{ width: 72, height: 44, objectFit: 'contain', marginBottom: 4 }} />
                         ) : null}
                         {showHeaderQr && designerSettings.qrPlacement === "header-right" ? (
                             <Image style={{ width: 68, height: 68 }} src={qrCodeUrl} />
@@ -757,6 +758,13 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         {partnershipSettings.partnershipFootnote ? (
                             <Text style={{ fontSize: 6, color: '#94a3b8', textAlign: 'center', marginTop: 2 }}>{partnershipSettings.partnershipFootnote}</Text>
                         ) : null}
+                    </View>
+                ) : null}
+
+                {company?.invoiceTerms ? (
+                    <View wrap={false} style={{ marginTop: 10, padding: 8, borderWidth: 1, borderColor, borderRadius: template.radius }}>
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 3, textTransform: 'uppercase' }}>Terms & Conditions</Text>
+                        <Text style={{ fontSize: 7, color: '#475569', lineHeight: 1.4 }}>{company.invoiceTerms}</Text>
                     </View>
                 ) : null}
 

@@ -117,6 +117,7 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
 // Created on first use so a missing default cannot abort a posting.
 const SUPPLEMENTAL_SYSTEM_ACCOUNTS = [
   { code: "1310", name: "Inventory In-Transit", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: true, isSystem: true },
+  { code: "2010", name: "Customer Deposits", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2015", name: "Goods Received Not Invoiced", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2016", name: "Landed Cost Clearing", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2017", name: "Partner Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },

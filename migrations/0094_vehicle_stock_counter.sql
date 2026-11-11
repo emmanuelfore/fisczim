@@ -7,13 +7,18 @@ CREATE TABLE IF NOT EXISTS vehicle_stock_counters (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Initialize counters for existing companies
+-- Seed from the highest numeric VH-#### already issued. COUNT(*) is not safe:
+-- deleted vehicles leave gaps and re-use numbers that were already printed.
 INSERT INTO vehicle_stock_counters (company_id, next_number)
-SELECT 
-  id, 
+SELECT
+  c.id,
   COALESCE(
-    (SELECT COUNT(*) + 1 FROM vehicles WHERE company_id = companies.id),
-    1
-  )
-FROM companies
-WHERE NOT EXISTS (SELECT 1 FROM vehicle_stock_counters WHERE company_id = companies.id);
+    (
+      SELECT MAX(NULLIF(regexp_replace(v.stock_number, '\D', '', 'g'), '')::int)
+      FROM vehicles v
+      WHERE v.company_id = c.id
+    ),
+    0
+  ) + 1
+FROM companies c
+ON CONFLICT (company_id) DO NOTHING;

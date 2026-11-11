@@ -1506,6 +1506,9 @@ export const payments = pgTable("payments", {
   paymentDate: timestamp("payment_date").defaultNow().notNull(),
   paymentMethod: text("payment_method").notNull(), // Cash, Card, Transfer, Ecocash
   reference: text("reference"), // Check No, Transaction ID
+  // GL account actually debited for this receipt (bank/cash). Null means the
+  // company's default cash account; vehicle receipts capture the real account.
+  bankAccountId: integer("bank_account_id").references(() => accounts.id),
 
   notes: text("notes"),
 

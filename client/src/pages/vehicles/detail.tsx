@@ -19,9 +19,12 @@ import { useMatchingEnquiries } from "@/hooks/use-crm";
 import { useConsignments } from "@/hooks/use-freight";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSuppliers } from "@/hooks/use-suppliers";
+import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 import { addDays, format } from "date-fns";
-import { ArrowLeft, Bell, Check, CircleDot, Download, Eye, FileText, Landmark, Lock, Mail, MessageCircle, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, Check, CircleDot, Download, Eye, FileText, Landmark, Lock, Mail, MessageCircle, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
 import {
   COST_CATEGORIES,
   COST_STATUSES,
@@ -110,6 +113,25 @@ function Kpi({ label, value, hint, tone }: { label: string; value: React.ReactNo
   );
 }
 
+/** Cash and bank asset accounts that money can actually land in or leave. */
+function useBankAccounts(companyId: number) {
+  return useQuery<any[]>({
+    queryKey: ["vehicle-bank-accounts", companyId],
+    enabled: !!companyId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/accounts`);
+      if (!res.ok) throw new Error("Failed to load cash and bank accounts");
+      const rows = await res.json();
+      return (Array.isArray(rows) ? rows : []).filter((a: any) => {
+        if (a.type !== "ASSET" || a.isActive === false) return false;
+        const haystack = `${a.name ?? ""} ${a.category ?? ""} ${a.subType ?? ""}`.toLowerCase();
+        return haystack.includes("cash") || haystack.includes("bank");
+      });
+    },
+  });
+}
+
 function useSubmit(companyId: number) {
   const { toast } = useToast();
   const action = useVehicleAction(companyId);
@@ -134,6 +156,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   const { data: suppliers = [] } = useSuppliers(companyId);
   const { data: staff = [] } = useCompanyStaff(companyId);
   const { run, pending } = useSubmit(companyId);
+  const { toast } = useToast();
   const keys = ["make", "model", "year", "vin", "colour", "mileage", "engine", "transmission", "supplierName", "auctionRef",
     "containerNumber", "vesselName", "portOfDischarge", "eta", "targetPrice", "salePrice", "saleCurrency", "saleExchangeRate", "status", "notes"] as const;
   const init = () => Object.fromEntries(keys.map((k) => [k, v[k] ?? ""])) as Record<(typeof keys)[number], any>;
@@ -148,9 +171,11 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: format(addDays(new Date(), 7), "yyyy-MM-dd"),
-    taxRate: "0",
+    taxTypeId: "none",
     notes: "",
   });
+  const { taxTypes } = useTaxConfig(companyId);
+  const invoiceTaxTypes = ((taxTypes.data ?? []) as any[]).filter((t) => t.isActive !== false);
 
   const hasInvoice = !!v.invoice;
   const hasPayments = Array.isArray(v.payments) && v.payments.length > 0;
@@ -199,8 +224,13 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   };
 
   const saleRate = Number(v.saleExchangeRate || 1) || 1;
-  const invoiceSubtotal = Math.round(Number(v.salePrice || 0) * saleRate * 100) / 100;
-  const invoiceTax = Math.round(invoiceSubtotal * (Number(invoiceForm.taxRate || 0) / 100) * 100) / 100;
+  const selectedInvoiceTaxType = invoiceTaxTypes.find((t) => String(t.id) === invoiceForm.taxTypeId);
+  const invoiceTaxRate = Number(selectedInvoiceTaxType?.rate ?? 0);
+  // The sale price is the agreed net amount in the sale currency; tax is added
+  // on top, exactly as the server writes it to the invoice.
+  const invoiceCurrency = v.saleCurrency || "USD";
+  const invoiceSubtotal = Math.round(Number(v.salePrice || 0) * 100) / 100;
+  const invoiceTax = Math.round(invoiceSubtotal * (invoiceTaxRate / 100) * 100) / 100;
   const invoiceTotal = Math.round((invoiceSubtotal + invoiceTax) * 100) / 100;
 
   const createInvoice = async () => {
@@ -209,7 +239,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
         path: `/${v.id}/invoice`,
         body: {
           dueDate: invoiceForm.dueDate || undefined,
-          taxRate: Number(invoiceForm.taxRate || 0),
+          taxTypeId: invoiceForm.taxTypeId === "none" ? null : Number(invoiceForm.taxTypeId),
           notes: invoiceForm.notes.trim() || null,
         },
       }, "Invoice created");
@@ -228,19 +258,20 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   const save = async () => {
     const num = (x: any) => (x === "" || x == null ? null : Number(x));
     const str = (x: any) => (x === "" ? null : x);
+    // Sale terms and the customer drive the invoice, so they are not part of
+    // the generic PATCH. They are applied through the reserve route below.
+    const commercialKeys = ["salePrice", "saleCurrency", "saleExchangeRate", "status"] as const;
+    const patchKeys = keys.filter((k) => !(commercialKeys as readonly string[]).includes(k));
     try {
       await run(
         {
           path: `/${v.id}`,
           method: "PATCH",
           body: {
-            ...Object.fromEntries(keys.map((k) => [k, str(form[k])])),
+            ...Object.fromEntries(patchKeys.map((k) => [k, str(form[k])])),
             year: num(form.year),
             mileage: num(form.mileage),
             targetPrice: form.targetPrice === "" ? "0" : String(form.targetPrice),
-            salePrice: form.salePrice === "" ? null : String(form.salePrice),
-            saleExchangeRate: form.saleExchangeRate === "" ? "1" : String(form.saleExchangeRate),
-            customerId: customerId === "none" ? null : Number(customerId),
             consignmentId: consignmentId === "none" ? null : Number(consignmentId),
             supplierId: supplierId === "none" ? null : Number(supplierId),
             salespersonId: salespersonId === "none" ? null : salespersonId,
@@ -250,8 +281,45 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
               : (suppliers as any[]).find((s) => Number(s.id) === Number(supplierId))?.name ?? str(form.supplierName),
           },
         },
-        "Vehicle saved",
+        undefined,
       );
+
+      const canReserve = !v.invoiceId && !["sold", "delivered", "cancelled"].includes(v.status);
+      const nextCustomer = customerId === "none" ? null : Number(customerId);
+      const nextSalePrice = form.salePrice === "" ? null : Number(form.salePrice);
+      const nextSaleCurrency = form.saleCurrency || "USD";
+      const nextRate = form.saleExchangeRate === "" ? 1 : Number(form.saleExchangeRate);
+      const termsChanged =
+        nextCustomer !== (v.customerId ?? null) ||
+        (nextSalePrice ?? null) !== (v.salePrice == null ? null : Number(v.salePrice)) ||
+        nextSaleCurrency !== (v.saleCurrency || "USD") ||
+        nextRate !== Number(v.saleExchangeRate || 1) ||
+        (salespersonId === "none" ? null : salespersonId) !== (v.salespersonId ?? null) ||
+        (enquiryId === "none" ? null : Number(enquiryId)) !== (v.enquiryId ?? null);
+
+      if (canReserve && termsChanged) {
+        if (!nextCustomer && !v.customerId && enquiryId === "none") {
+          toast({
+            title: "Customer required",
+            description: "Assign a customer (or a CRM enquiry) to save the agreed sale terms.",
+            variant: "destructive",
+          });
+        } else {
+          await run({
+            path: `/${v.id}/reserve`,
+            body: {
+              customerId: nextCustomer ?? undefined,
+              salePrice: nextSalePrice ?? undefined,
+              saleCurrency: nextSaleCurrency,
+              saleExchangeRate: nextRate,
+              salespersonId: salespersonId === "none" ? null : salespersonId,
+              enquiryId: enquiryId === "none" ? undefined : Number(enquiryId),
+            },
+          });
+        }
+      }
+
+      toast({ title: "Vehicle saved" });
       setEditing(false);
     } catch {
       // useSubmit has already shown the failure toast.
@@ -630,25 +698,27 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
             <div className="rounded-lg bg-slate-50 p-3 text-sm space-y-1.5">
               <div className="flex justify-between">
                 <span className="text-slate-600">Agreed sale price</span>
-                <span>{Number(v.salePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {v.saleCurrency || "USD"}</span>
+                <span>{Number(v.salePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
               {saleRate !== 1 && (
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>Converted at {saleRate} USD per 1 {v.saleCurrency || "USD"}</span>
-                  <span />
+                  <span>Converted at {saleRate} USD per 1 {invoiceCurrency}</span>
+                  <span>{fmtMoney(invoiceSubtotal * saleRate)}</span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-slate-600">Invoice subtotal (USD)</span>
-                <span>{fmtMoney(invoiceSubtotal)}</span>
+                <span className="text-slate-600">Invoice subtotal</span>
+                <span>{invoiceSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-600">Tax ({Number(invoiceForm.taxRate || 0)}%)</span>
-                <span>{fmtMoney(invoiceTax)}</span>
+                <span className="text-slate-600">
+                  Tax {selectedInvoiceTaxType ? `(${selectedInvoiceTaxType.name} ${invoiceTaxRate}%)` : "(none)"}
+                </span>
+                <span>{invoiceTax.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
               <div className="flex justify-between border-t pt-1.5 font-bold">
                 <span>Invoice total</span>
-                <span>{fmtMoney(invoiceTotal)}</span>
+                <span>{invoiceTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -662,16 +732,19 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="vehicle-invoice-tax">Tax rate (%)</Label>
-                <Input
-                  id="vehicle-invoice-tax"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={invoiceForm.taxRate}
-                  onChange={(e) => setInvoiceForm({ ...invoiceForm, taxRate: e.target.value })}
-                />
+                <Label htmlFor="vehicle-invoice-tax">Tax type</Label>
+                <Select
+                  value={invoiceForm.taxTypeId}
+                  onValueChange={(x) => setInvoiceForm({ ...invoiceForm, taxTypeId: x })}
+                >
+                  <SelectTrigger id="vehicle-invoice-tax"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No tax</SelectItem>
+                    {invoiceTaxTypes.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>{t.name} · {Number(t.rate)}%</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-1.5">
@@ -685,7 +758,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
               />
             </div>
             <p className="text-xs text-slate-400">
-              The invoice is raised in USD so payments and the ledger stay in the company base currency.
+              The invoice is raised in {invoiceCurrency} and goes through the normal sales VAT path, so it appears on the VAT return.
             </p>
           </div>
           <DialogFooter>
@@ -747,6 +820,10 @@ const emptyCost = {
   paidAt: format(new Date(), "yyyy-MM-dd"),
   status: "paid",
   supplierId: "none",
+  settlementMethod: "cash",
+  bankAccountId: "none",
+  inputVatAmount: "0",
+  inputVatTypeId: "none",
 };
 
 function costBody(form: typeof emptyCost) {
@@ -763,20 +840,39 @@ function costBody(form: typeof emptyCost) {
     paidAt: form.paidAt || null,
     status: form.status,
     supplierId: form.supplierId === "none" ? null : Number(form.supplierId),
+    settlementMethod: form.settlementMethod,
+    bankAccountId:
+      form.settlementMethod === "supplier_bill" || form.bankAccountId === "none"
+        ? null
+        : Number(form.bankAccountId),
+    inputVatAmount: Number(form.inputVatAmount || 0),
+    inputVatTypeId: form.inputVatTypeId === "none" ? null : Number(form.inputVatTypeId),
   };
 }
 
 function CostsTab({ v, companyId }: { v: any; companyId: number }) {
   const { run, pending } = useSubmit(companyId);
   const { data: suppliers = [] } = useSuppliers(companyId);
+  const { data: bankAccounts = [] } = useBankAccounts(companyId);
+  const { taxTypes } = useTaxConfig(companyId);
+  const costTaxTypes = ((taxTypes.data ?? []) as any[]).filter((t) => t.isActive !== false);
   const [form, setForm] = useState({ ...emptyCost });
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ ...emptyCost });
+  const [payFor, setPayFor] = useState<any | null>(null);
+  const [payForm, setPayForm] = useState({
+    bankAccountId: "none",
+    paymentDate: format(new Date(), "yyyy-MM-dd"),
+    reference: "",
+  });
   const base = Number(form.amount || 0) * Number(form.exchangeRate || 1);
   const costsLocked = !!v.cogsJournalEntryId;
 
+  const needsBank = (form.settlementMethod || "cash") !== "supplier_bill";
+
   const add = async () => {
     if (!form.amount || costsLocked) return;
+    if (needsBank && form.bankAccountId === "none") return;
     await run({ path: `/${v.id}/costs`, body: costBody(form) }, "Cost added");
     setForm({ ...emptyCost, category: form.category === "purchase" ? "shipping" : form.category });
   };
@@ -796,6 +892,10 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
       paidAt: c.paidAt ?? "",
       status: c.status ?? "pending",
       supplierId: c.supplierId ? String(c.supplierId) : "none",
+      settlementMethod: c.settlementMethod ?? "cash",
+      bankAccountId: c.bankAccountId ? String(c.bankAccountId) : "none",
+      inputVatAmount: String(c.inputVatAmount ?? "0"),
+      inputVatTypeId: c.inputVatTypeId ? String(c.inputVatTypeId) : "none",
     });
   };
 
@@ -807,11 +907,46 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
 
   const postCost = (c: any) => run(
     { path: `/${v.id}/costs/${c.id}/post`, method: "POST" },
-    "Cost posted to inventory",
+    c.settlementMethod === "supplier_bill" ? "Supplier bill posted" : "Cost posted to inventory",
   );
+
+  const openPay = (c: any) => {
+    setPayFor(c);
+    setPayForm({
+      bankAccountId: c.bankAccountId ? String(c.bankAccountId) : (bankAccounts[0] ? String(bankAccounts[0].id) : "none"),
+      paymentDate: format(new Date(), "yyyy-MM-dd"),
+      reference: c.reference ?? "",
+    });
+  };
+
+  const payBill = async () => {
+    if (!payFor || payForm.bankAccountId === "none") return;
+    await run(
+      {
+        path: `/${v.id}/costs/${payFor.id}/pay`,
+        method: "POST",
+        body: {
+          bankAccountId: Number(payForm.bankAccountId),
+          paymentDate: payForm.paymentDate || undefined,
+          reference: payForm.reference || null,
+        },
+      },
+      "Supplier bill paid",
+    );
+    setPayFor(null);
+  };
+
+  const reverseCost = (c: any) => {
+    const reason = window.prompt("Reason for reversing this cost (optional):") ?? "";
+    return run(
+      { path: `/${v.id}/costs/${c.id}/reverse`, method: "POST", body: { reason: reason || null } },
+      "Cost reversed",
+    );
+  };
 
   const byCat: Record<string, number> = v.summary.costsByCategory || {};
   const supplierName = (id: any) => suppliers.find((s: any) => Number(s.id) === Number(id))?.name;
+  const bankName = (id: any) => bankAccounts.find((a: any) => Number(a.id) === Number(id))?.name;
 
   return (
     <>
@@ -846,6 +981,37 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
               </div>
               <div className="space-y-1.5"><Label>Cost date</Label><Input id="cost-date" type="date" disabled={costsLocked} value={form.costDate} onChange={(e) => setForm({ ...form, costDate: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Due date</Label><Input id="cost-due" type="date" disabled={costsLocked} value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
+              <div className="space-y-1.5 col-span-2"><Label>Settlement</Label>
+                <Select value={form.settlementMethod} onValueChange={(x) => setForm({ ...form, settlementMethod: x })} disabled={costsLocked}>
+                  <SelectTrigger id="cost-settlement"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                    <SelectItem value="supplier_bill">Supplier bill (accounts payable)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {needsBank && (
+                <div className="space-y-1.5 col-span-2"><Label>Paid from bank / cash account</Label>
+                  <Select value={form.bankAccountId} onValueChange={(x) => setForm({ ...form, bankAccountId: x })} disabled={costsLocked}>
+                    <SelectTrigger id="cost-bank"><SelectValue placeholder="Choose account" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Choose account</SelectItem>
+                      {bankAccounts.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-1.5"><Label>Recoverable input VAT (USD)</Label><Input id="cost-vat" type="number" step="0.01" min="0" disabled={costsLocked} value={form.inputVatAmount} onChange={(e) => setForm({ ...form, inputVatAmount: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>VAT tax type</Label>
+                <Select value={form.inputVatTypeId} onValueChange={(x) => setForm({ ...form, inputVatTypeId: x })} disabled={costsLocked}>
+                  <SelectTrigger id="cost-vat-type"><SelectValue placeholder="No VAT" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No VAT</SelectItem>
+                    {costTaxTypes.map((t: any) => <SelectItem key={t.id} value={String(t.id)}>{t.name} · {Number(t.rate)}%</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5 col-span-2"><Label>Supplier</Label>
                 <Select value={form.supplierId} onValueChange={(x) => setForm({ ...form, supplierId: x })} disabled={costsLocked}>
                   <SelectTrigger id="cost-supplier"><SelectValue placeholder="No supplier" /></SelectTrigger>
@@ -857,7 +1023,7 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
               </div>
               <div className="space-y-1.5 col-span-2"><Label>Paid to</Label><Input id="cost-payee" disabled={costsLocked} value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Reference</Label><Input id="cost-reference" disabled={costsLocked} value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>
-              <Button id="cost-add" onClick={add} disabled={pending || costsLocked || !form.amount}><Plus className="w-4 h-4 mr-1" />{fmtMoney(base)}</Button>
+              <Button id="cost-add" onClick={add} disabled={pending || costsLocked || !form.amount || (needsBank && form.bankAccountId === "none")}><Plus className="w-4 h-4 mr-1" />{fmtMoney(base)}</Button>
             </CardContent>
           </Card>
 
@@ -882,9 +1048,19 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
                     <TableCell className="text-xs text-slate-500">
                       {[c.description, c.supplierId ? supplierName(c.supplierId) : null, c.payee, c.reference].filter(Boolean).join(" · ") || "—"}
                       {c.dueDate && <div className="text-[10px] text-slate-400">Due {c.dueDate}</div>}
+                      <div className="text-[10px] text-slate-400">
+                        {c.settlementMethod === "supplier_bill" ? "Supplier bill" : c.settlementMethod === "bank_transfer" ? "Bank transfer" : "Cash"}
+                        {c.bankAccountId ? ` · ${bankName(c.bankAccountId) ?? "bank"}` : ""}
+                        {Number(c.inputVatAmount || 0) > 0 ? ` · input VAT ${fmtMoney(c.inputVatAmount)}` : ""}
+                      </div>
                       {c.costJournalEntryId && (
                         <div className="mt-0.5 text-[10px] font-medium text-emerald-600">
                           Posted to inventory · journal #{c.costJournalEntryId}
+                        </div>
+                      )}
+                      {c.supplierInvoiceId && (
+                        <div className="text-[10px] font-medium text-sky-600">
+                          Supplier bill #{c.supplierInvoiceId}{c.paymentJournalEntryId ? " · paid" : " · awaiting payment"}
                         </div>
                       )}
                     </TableCell>
@@ -894,14 +1070,33 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
                     <TableCell className="text-right text-xs">{Number(c.amount).toLocaleString()} {c.currency}{c.currency !== "USD" ? ` @ ${Number(c.exchangeRate)}` : ""}</TableCell>
                     <TableCell className="text-right font-medium">{fmtMoney(c.baseAmount)}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      {!c.costJournalEntryId && !costsLocked && c.status !== "cancelled" && (
+                      {!c.costJournalEntryId && !costsLocked && c.status !== "cancelled" && c.status !== "disputed" && (c.status === "paid" || c.settlementMethod === "supplier_bill") && (
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Post to inventory"
-                          onClick={() => confirm(`Post ${fmtMoney(c.baseAmount)} to inventory and pay it from cash/bank?`) && postCost(c)}
+                          title={c.settlementMethod === "supplier_bill" ? "Post supplier bill to inventory / AP" : "Post to inventory and pay from bank/cash"}
+                          onClick={() => confirm(
+                            c.settlementMethod === "supplier_bill"
+                              ? `Post ${fmtMoney(c.baseAmount)} as a supplier bill (Dr inventory, Cr accounts payable)?`
+                              : `Post ${fmtMoney(c.baseAmount)} to inventory and pay it from ${bankName(c.bankAccountId) ?? "bank/cash"}?`,
+                          ) && postCost(c)}
                         >
                           <Landmark className="w-4 h-4 text-slate-400" />
+                        </Button>
+                      )}
+                      {c.supplierInvoiceId && !c.paymentJournalEntryId && !costsLocked && (
+                        <Button size="icon" variant="ghost" title="Pay supplier bill" onClick={() => openPay(c)}>
+                          <CircleDot className="w-4 h-4 text-sky-500" />
+                        </Button>
+                      )}
+                      {(c.costJournalEntryId || c.paymentJournalEntryId || c.supplierInvoiceId) && !costsLocked && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Reverse this cost"
+                          onClick={() => confirm("Reverse the journal entries for this cost?") && reverseCost(c)}
+                        >
+                          <Undo2 className="w-4 h-4 text-amber-500" />
                         </Button>
                       )}
                       <Button size="icon" variant="ghost" disabled={costsLocked} onClick={() => openEdit(c)}>
@@ -976,10 +1171,78 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
             </div>
             <div className="space-y-1.5 col-span-2"><Label>Paid to</Label><Input value={editForm.payee} onChange={(e) => setEditForm({ ...editForm, payee: e.target.value })} /></div>
             <div className="space-y-1.5 col-span-2"><Label>Reference</Label><Input value={editForm.reference} onChange={(e) => setEditForm({ ...editForm, reference: e.target.value })} /></div>
+            <div className="space-y-1.5 col-span-2"><Label>Settlement</Label>
+              <Select value={editForm.settlementMethod} onValueChange={(x) => setEditForm({ ...editForm, settlementMethod: x })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                  <SelectItem value="supplier_bill">Supplier bill (accounts payable)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {editForm.settlementMethod !== "supplier_bill" && (
+              <div className="space-y-1.5 col-span-2"><Label>Paid from bank / cash account</Label>
+                <Select value={editForm.bankAccountId} onValueChange={(x) => setEditForm({ ...editForm, bankAccountId: x })}>
+                  <SelectTrigger><SelectValue placeholder="Choose account" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Choose account</SelectItem>
+                    {bankAccounts.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-1.5"><Label>Recoverable input VAT (USD)</Label><Input type="number" step="0.01" min="0" value={editForm.inputVatAmount} onChange={(e) => setEditForm({ ...editForm, inputVatAmount: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>VAT tax type</Label>
+              <Select value={editForm.inputVatTypeId} onValueChange={(x) => setEditForm({ ...editForm, inputVatTypeId: x })}>
+                <SelectTrigger><SelectValue placeholder="No VAT" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No VAT</SelectItem>
+                  {costTaxTypes.map((t: any) => <SelectItem key={t.id} value={String(t.id)}>{t.name} · {Number(t.rate)}%</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
             <Button onClick={saveEdit} disabled={pending || !editForm.amount}>Save cost</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!payFor} onOpenChange={(open) => !open && setPayFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Pay supplier bill</DialogTitle>
+            <DialogDescription>
+              Clears accounts payable for {payFor ? fmtMoney(payFor.baseAmount) : ""} from the chosen account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Paid from bank / cash account</Label>
+              <Select value={payForm.bankAccountId} onValueChange={(x) => setPayForm({ ...payForm, bankAccountId: x })}>
+                <SelectTrigger><SelectValue placeholder="Choose account" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Choose account</SelectItem>
+                  {bankAccounts.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Payment date</Label>
+                <Input type="date" value={payForm.paymentDate} onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reference</Label>
+                <Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPayFor(null)}>Cancel</Button>
+            <Button onClick={payBill} disabled={pending || payForm.bankAccountId === "none"}>Pay bill</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1087,7 +1350,8 @@ function TrackingTab({ v, companyId, editable }: { v: any; companyId: number; ed
 
 function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
   const { run, pending } = useSubmit(companyId);
-  const [pay, setPay] = useState({ amount: "", currency: "USD", exchangeRate: "1", paymentMethod: "Transfer", reference: "", paymentDate: format(new Date(), "yyyy-MM-dd") });
+  const { data: bankAccounts = [] } = useBankAccounts(companyId);
+  const [pay, setPay] = useState({ amount: "", currency: "USD", exchangeRate: "1", paymentMethod: "Transfer", bankAccountId: "none", reference: "", paymentDate: format(new Date(), "yyyy-MM-dd") });
   const [lines, setLines] = useState<{ type: string; dueDate: string; amount: string }[]>([]);
   const [plan, setPlan] = useState({
     deposit: "",
@@ -1097,7 +1361,8 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
   useEffect(() => setLines(v.schedule.map((l: any) => ({ type: l.type, dueDate: l.dueDate, amount: String(l.amount) }))), [v.schedule]);
 
   const record = async () => {
-    await run({ path: `/${v.id}/payments`, body: { ...pay, reference: pay.reference || null } }, "Payment recorded");
+    if (pay.bankAccountId === "none") return;
+    await run({ path: `/${v.id}/payments`, body: { ...pay, bankAccountId: Number(pay.bankAccountId), reference: pay.reference || null } }, "Payment recorded");
     setPay({ ...pay, amount: "", reference: "" });
   };
   const saveSchedule = () => run({ path: `/${v.id}/schedule`, method: "PUT", body: { lines: lines.filter((l) => l.dueDate && Number(l.amount) > 0) } }, "Schedule saved");
@@ -1153,10 +1418,20 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
                     <SelectContent>{["Transfer", "Cash", "Card", "Ecocash", "Cheque"].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Bank / cash account</Label>
+                  <Select value={pay.bankAccountId} onValueChange={(x) => setPay({ ...pay, bankAccountId: x })}>
+                    <SelectTrigger id="pay-bank"><SelectValue placeholder="Choose account" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Choose account</SelectItem>
+                      {bankAccounts.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-1.5"><Label>Reference</Label><Input id="pay-ref" value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label>Currency</Label><Input id="pay-currency" value={pay.currency} onChange={(e) => setPay({ ...pay, currency: e.target.value.toUpperCase(), exchangeRate: e.target.value.toUpperCase() === "USD" ? "1" : pay.exchangeRate })} /></div>
                 <div className="space-y-1.5"><Label>USD per 1 {pay.currency}</Label><Input id="pay-rate" type="number" step="0.000001" disabled={pay.currency === "USD"} value={pay.exchangeRate} onChange={(e) => setPay({ ...pay, exchangeRate: e.target.value })} /></div>
-                <Button id="pay-submit" className="col-span-2" onClick={record} disabled={pending || !pay.amount}>Record payment</Button>
+                <Button id="pay-submit" className="col-span-2" onClick={record} disabled={pending || !pay.amount || pay.bankAccountId === "none"}>Record payment</Button>
               </div>
             ) : (
               <p className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">Assign a customer on the Details tab before recording payments.</p>

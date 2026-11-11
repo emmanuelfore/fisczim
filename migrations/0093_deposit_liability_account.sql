@@ -1,14 +1,22 @@
--- Add customer deposits liability account to system accounts
--- This account holds deposits received before invoice issuance.
+-- Add the customer-deposits liability account to every company chart.
+-- Deposits received before an invoice are held here (Dr bank/cash, Cr deposits)
+-- and cleared against accounts receivable when the invoice is raised.
 
-INSERT INTO system_account_defaults (company_id, account_code, account_name, account_type)
-SELECT 
-  id, 
-  '2010', 
-  'Customer Deposits', 
-  'LIABILITY'
-FROM companies
+INSERT INTO accounts
+  (company_id, code, name, type, sub_type, normal_balance, category, is_control_account, is_system, is_active)
+SELECT
+  c.id,
+  '2010',
+  'Customer Deposits',
+  'LIABILITY',
+  'Current',
+  'CREDIT',
+  'Current Liabilities',
+  false,
+  true,
+  true
+FROM companies c
 WHERE NOT EXISTS (
-  SELECT 1 FROM system_account_defaults 
-  WHERE company_id = companies.id AND account_code = '2010'
+  SELECT 1 FROM accounts a
+  WHERE a.company_id = c.id AND a.code = '2010'
 );

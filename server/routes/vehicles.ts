@@ -12,6 +12,13 @@ import {
   payments,
   paymentAllocations,
   journalEntries,
+  ledgerEntries,
+  accounts,
+  taxTypes,
+  supplierInvoices,
+  supplierInvoiceItems,
+  supplierPayments,
+  invoiceItems,
   crmStages,
   customers,
   companies,
@@ -23,11 +30,12 @@ import {
   VEHICLE_COST_CATEGORIES,
   VEHICLE_COST_STATUSES,
 } from "../../shared/schema.js";
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { enquiries, invoices } from "../../shared/schema.js";
 import { userHasPermission } from "../lib/permissions.js";
 import { storage } from "../storage.js";
+import { processInvoiceFiscalization } from "../lib/fiscalization.js";
 import {
   ensureEnquiryCustomer,
   logEnquiryVehicleActivity,
@@ -49,6 +57,7 @@ export function summariseVehicle(
   vehicle: { salePrice: string | null; targetPrice: string | null; saleExchangeRate?: string | null },
   costs: { category: string; baseAmount: string; status?: string | null }[],
   paid: number,
+  invoiceTotalBase?: number | null,
 ) {
   const byCategory: Record<string, number> = {};
   for (const c of costs) {
@@ -68,12 +77,16 @@ export function summariseVehicle(
   const sellingPrice = vehicle.salePrice != null ? money(Number(vehicle.salePrice) * saleRate) : money(vehicle.targetPrice ?? 0);
   const profit = money(sellingPrice - landedCost);
   const margin = sellingPrice > 0 ? Math.round((profit / sellingPrice) * 10000) / 100 : 0;
-  const balance = vehicle.salePrice != null ? money(sellingPrice - paid) : 0;
+  // Statements and schedules follow the actual invoice, because that carries
+  // the tax the customer owes. Before invoicing, fall back to the agreed sale.
+  const amountDue = invoiceTotalBase != null ? money(invoiceTotalBase) : sellingPrice;
+  const balance = vehicle.salePrice != null || invoiceTotalBase != null ? money(amountDue - paid) : 0;
   return {
     purchasePrice,
     landedCost,
     importCosts: money(landedCost - purchasePrice),
     sellingPrice,
+    amountDue,
     isProjected: vehicle.salePrice == null,
     profit,
     marginPercent: margin,
@@ -162,18 +175,27 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   }
 
   async function totalsFor(ids: number[]) {
-    if (!ids.length) return { costs: new Map<number, any[]>(), paid: new Map<number, number>() };
+    if (!ids.length) return { costs: new Map<number, any[]>(), paid: new Map<number, number>(), invoiceBase: new Map<number, number>() };
     const costRows = await db.select().from(vehicleCosts).where(inArray(vehicleCosts.vehicleId, ids));
     const paidRows = await db
       .select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} * COALESCE(${payments.exchangeRate}, 1)), 0)` })
       .from(payments)
       .where(inArray(payments.vehicleId, ids))
       .groupBy(payments.vehicleId);
+    // Balance/statement figures must follow the invoice total (tax included),
+    // not the pre-tax agreed sale price.
+    const invoiceRows = await db
+      .select({ vehicleId: vehicles.id, total: invoices.total, exchangeRate: invoices.exchangeRate })
+      .from(vehicles)
+      .innerJoin(invoices, eq(vehicles.invoiceId, invoices.id))
+      .where(inArray(vehicles.id, ids));
     const costs = new Map<number, any[]>();
     for (const c of costRows) costs.set(c.vehicleId, [...(costs.get(c.vehicleId) || []), c]);
     const paid = new Map<number, number>();
     for (const p of paidRows) if (p.vehicleId != null) paid.set(p.vehicleId, Number(p.total));
-    return { costs, paid };
+    const invoiceBase = new Map<number, number>();
+    for (const i of invoiceRows) invoiceBase.set(i.vehicleId, money(Number(i.total) * (Number(i.exchangeRate) || 1)));
+    return { costs, paid, invoiceBase };
   }
 
   const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -188,79 +210,119 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     return target.toISOString().slice(0, 10);
   }
 
+  async function lockedVehicle(tx: any, companyId: number, id: number) {
+    const [v] = await tx
+      .select()
+      .from(vehicles)
+      .where(and(eq(vehicles.id, id), eq(vehicles.companyId, companyId)))
+      .for("update");
+    return v ?? null;
+  }
+
+  async function accountCodeById(tx: any, companyId: number, accountId: number, label: string) {
+    const [account] = await tx
+      .select({ code: accounts.code })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.companyId, companyId)));
+    if (!account) throw new Error(`${label} not found for this company`);
+    return account.code;
+  }
+
+  /** Reverse a posted journal by posting the mirror image, linked for audit. */
+  async function reverseJournalEntry(
+    tx: any,
+    companyId: number,
+    journalEntryId: number,
+    description: string,
+    userId?: string,
+  ) {
+    const lines = await tx
+      .select()
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.journalEntryId, journalEntryId));
+    if (!lines.length) throw new Error(`Journal entry ${journalEntryId} has no lines to reverse`);
+
+    const reversal = await storage.postToLedger(companyId, {
+      entryDate: new Date(),
+      description,
+      referenceType: "REVERSAL",
+      referenceId: String(journalEntryId),
+      createdBy: userId,
+      lines: lines.map((line: any) => ({
+        accountId: line.accountId,
+        type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
+        amount: Number(line.amount),
+        memo: `Reversal of journal ${journalEntryId}`,
+        vatTypeId: line.vatTypeId ?? undefined,
+        vatAmount: line.vatAmount != null ? Number(line.vatAmount) : undefined,
+      })),
+    }, tx);
+
+    await tx
+      .update(journalEntries)
+      .set({ reversalOfJournalEntryId: journalEntryId })
+      .where(eq(journalEntries.id, reversal.id));
+    await tx
+      .update(journalEntries)
+      .set({ status: "REVERSED" })
+      .where(eq(journalEntries.id, journalEntryId));
+    return reversal;
+  }
+
+  /** Reverse a journal once; a reversed journal is left alone. */
+  async function reverseJournalIfPosted(tx: any, companyId: number, journalEntryId: number, description: string, userId?: string) {
+    const [entry] = await tx
+      .select({ status: journalEntries.status })
+      .from(journalEntries)
+      .where(eq(journalEntries.id, journalEntryId));
+    if (!entry || entry.status === "REVERSED") return null;
+    return reverseJournalEntry(tx, companyId, journalEntryId, description, userId);
+  }
+
+  /** Total of cost lines actually capitalised to inventory (journal posted). */
+  async function postedCostTotal(tx: any, vehicleId: number) {
+    const rows = await tx
+      .select({ baseAmount: vehicleCosts.baseAmount })
+      .from(vehicleCosts)
+      .where(and(
+        eq(vehicleCosts.vehicleId, vehicleId),
+        isNotNull(vehicleCosts.costJournalEntryId),
+        ne(vehicleCosts.status, "cancelled"),
+      ));
+    return money(rows.reduce((sum: number, row: any) => sum + Number(row.baseAmount), 0));
+  }
+
+  async function refreshVehicleCogsAmount(tx: any, vehicleId: number) {
+    const total = await postedCostTotal(tx, vehicleId);
+    await tx
+      .update(vehicles)
+      .set({ cogsAmount: total.toFixed(2), updatedAt: new Date() })
+      .where(eq(vehicles.id, vehicleId));
+    return total;
+  }
+
   /**
-   * Capitalises every active vehicle cost to inventory in transit based on
-   * settlement method (cash, bank transfer, or supplier bill/AP) and posts the
-   * COGS entry when the vehicle is sold.
+   * Capitalise the posted cost lines and record COGS.
    *
-   * - cash/bank_transfer: Dr Inventory / Cr Cash/Bank
-   * - supplier_bill: Dr Inventory / Cr AP (with input VAT if present)
-   *
-   * Runs inside the invoice transaction, so the sale, the cost capitalisation
-   * and COGS all commit together. Safe to re-run: costs that already carry a
-   * journal link are skipped, and an existing COGS entry is returned untouched.
+   * Only cost lines with a journal entry are included: pending/disputed lines
+   * have not entered inventory, so they must not be relieved to COGS. The
+   * vehicle row is locked by the caller (or here) so two concurrent invoices
+   * cannot double-post. A second COGS post is refused.
    */
-  async function postVehicleCogs(tx: any, companyId: number, vehicle: any, userId?: string) {
+  async function postVehicleCogs(tx: any, companyId: number, vehicleId: number, userId?: string) {
+    const vehicle = await lockedVehicle(tx, companyId, vehicleId);
+    if (!vehicle) throw new Error("Vehicle not found");
     if (vehicle.cogsJournalEntryId) {
-      return {
-        posted: false,
-        alreadyPosted: true,
-        journalEntryId: vehicle.cogsJournalEntryId,
-        amount: Number(vehicle.cogsAmount || 0),
-      };
+      throw new Error("COGS has already been posted for this vehicle");
     }
 
-    const costs = await tx.select().from(vehicleCosts).where(eq(vehicleCosts.vehicleId, vehicle.id));
-    const active = costs.filter((c: any) => c.status !== "cancelled");
-    const total = money(active.reduce((sum: number, c: any) => sum + Number(c.baseAmount), 0));
+    const total = await postedCostTotal(tx, vehicle.id);
     if (!(total > 0)) {
-      return { posted: false, alreadyPosted: false, journalEntryId: null, amount: 0 };
+      return { posted: false, journalEntryId: null, amount: 0 };
     }
 
     const inventoryCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx);
-    const cashCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
-    const apCode = await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
-    const inputVatCode = await storage.getSystemAccountCode(companyId, "vatInputAccountCode", tx);
     const cogsCode = await storage.getSystemAccountCode(companyId, "cogsAccountCode", tx);
-    const today = new Date().toISOString().slice(0, 10);
-
-    for (const cost of active) {
-      if (cost.costJournalEntryId) continue;
-      const amount = money(Number(cost.baseAmount));
-      if (!(amount > 0)) continue;
-
-      const settlementMethod = cost.settlementMethod || "cash";
-      const lines: any[] = [{ accountCode: inventoryCode, type: "DEBIT", amount }];
-
-      if (settlementMethod === "supplier_bill" && cost.supplierInvoiceId) {
-        // AP posting with input VAT
-        lines.push({ accountCode: apCode, type: "CREDIT", amount });
-        const inputVatAmount = Number(cost.inputVatAmount || 0);
-        if (inputVatAmount > 0.004) {
-          lines.push({ accountCode: inputVatCode, type: "CREDIT", amount: inputVatAmount, vatTypeId: cost.inputVatTypeId });
-        }
-      } else {
-        // Cash or bank transfer
-        const creditAccount = settlementMethod === "bank_transfer" && cost.bankAccountId
-          ? cost.bankAccountId
-          : cashCode;
-        lines.push({ accountCode: creditAccount, type: "CREDIT", amount });
-      }
-
-      const je = await storage.postToLedger(companyId, {
-        entryDate: cost.costDate ? new Date(cost.costDate) : new Date(),
-        description: `Vehicle cost capitalised: ${vehicle.stockNumber} ${cost.category}${cost.description ? ` — ${cost.description}` : ""}`,
-        referenceType: "VEHICLE_COST",
-        referenceId: String(cost.id),
-        createdBy: userId,
-        lines,
-      }, tx);
-      await tx
-        .update(vehicleCosts)
-        .set({ costJournalEntryId: je.id, status: "paid", paidAt: cost.paidAt ?? today })
-        .where(eq(vehicleCosts.id, cost.id));
-    }
-
     const cogs = await storage.postToLedger(companyId, {
       entryDate: new Date(),
       description: `COGS: vehicle ${vehicle.stockNumber} ${vehicle.year ?? ""} ${vehicle.make} ${vehicle.model}`.replace(/\s+/g, " ").trim(),
@@ -283,7 +345,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       })
       .where(eq(vehicles.id, vehicle.id));
 
-    return { posted: true, alreadyPosted: false, journalEntryId: cogs.id, amount: total };
+    return { posted: true, journalEntryId: cogs.id, amount: total };
   }
 
   type OpenScheduleLine = {
@@ -374,61 +436,81 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         await tx.update(payments).set({ invoiceId: invoice.id }).where(eq(payments.id, p.id));
       }
 
-      // Clear deposit liability against AR at invoice time
-      if (p.isDeposit && !p.clearedAt && p.journalEntryId) {
-        const clearingJe = await storage.postToLedger(companyId, {
-          entryDate: invoice.issueDate || new Date(),
-          description: `Clear deposit ${p.reference || p.id} against invoice ${invoice.invoiceNumber}`,
-          referenceType: "DEPOSIT_CLEARING",
-          referenceId: String(p.id),
-          createdBy: userId,
-          lines: [
-            { accountCode: depositsAccountCode, type: "DEBIT", amount: baseAmount },
-            { accountCode: arAccountCode, type: "CREDIT", amount: baseAmount },
-          ],
-        }, tx);
-        await tx.update(payments).set({
-          clearingJournalEntryId: clearingJe.id,
-          clearedAt: new Date(),
-        }).where(eq(payments.id, p.id));
-      }
-
+      const receiptAccountCode = p.bankAccountId
+        ? await accountCodeById(tx, companyId, Number(p.bankAccountId), "Bank/cash account")
+        : await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
       let journalEntryId = p.journalEntryId;
       if (!journalEntryId) {
-        // Backfill-safe: a receipt posted by another route may not have stamped
-        // the payment row yet, so look up the journal by its receipt reference.
         const [existingJe] = await tx
           .select({ id: journalEntries.id })
           .from(journalEntries)
           .where(and(
             eq(journalEntries.companyId, companyId),
-            eq(journalEntries.referenceType, "CUSTOMER_RECEIPT"),
+            or(eq(journalEntries.referenceType, "CUSTOMER_DEPOSIT"), eq(journalEntries.referenceType, "CUSTOMER_RECEIPT")),
             eq(journalEntries.referenceId, String(p.id)),
           ))
           .limit(1);
+        if (existingJe) journalEntryId = existingJe.id;
+      }
 
-        if (existingJe) {
-          journalEntryId = existingJe.id;
-        } else if (baseAmount > 0) {
-          const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+      if (p.isDeposit) {
+        // Deposits were posted immediately to the liability account. If a
+        // legacy row has no journal, post that liability now so clearing is
+        // still a two-sided movement (Dr deposits / Cr AR).
+        if (!journalEntryId && baseAmount > 0) {
           const je = await storage.postToLedger(companyId, {
             entryDate: p.paymentDate,
-            description: `Vehicle receipt ${p.reference || p.id}`,
-            referenceType: "CUSTOMER_RECEIPT",
+            description: `Vehicle deposit ${p.reference || p.id}`,
+            referenceType: "CUSTOMER_DEPOSIT",
             referenceId: String(p.id),
             createdBy: userId,
             lines: [
-              { accountCode: cashAccountCode, type: "DEBIT", amount: baseAmount },
-              { accountCode: arAccountCode, type: "CREDIT", amount: baseAmount },
+              { accountCode: receiptAccountCode, type: "DEBIT", amount: baseAmount },
+              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount },
             ],
           }, tx);
           journalEntryId = je.id;
-          postedTotal = round2(postedTotal + baseAmount);
-        }
-
-        if (journalEntryId) {
           await tx.update(payments).set({ journalEntryId }).where(eq(payments.id, p.id));
         }
+
+        // Clear only the part of the deposit actually applied to this invoice;
+        // any excess stays a customer liability (refundable/transferable).
+        if (journalEntryId && !p.clearedAt && toAllocate > 0.004) {
+          const clearingAmount = Math.min(baseAmount, round2(toAllocate * invoiceRate));
+          if (clearingAmount > 0.004) {
+            const clearingJe = await storage.postToLedger(companyId, {
+              entryDate: invoice.issueDate || new Date(),
+              description: `Clear deposit ${p.reference || p.id} against invoice ${invoice.invoiceNumber}`,
+              referenceType: "DEPOSIT_CLEARING",
+              referenceId: String(p.id),
+              createdBy: userId,
+              lines: [
+                { accountCode: depositsAccountCode, type: "DEBIT", amount: clearingAmount },
+                { accountCode: arAccountCode, type: "CREDIT", amount: clearingAmount },
+              ],
+            }, tx);
+            await tx.update(payments).set({
+              clearingJournalEntryId: clearingJe.id,
+              clearedAt: new Date(),
+            }).where(eq(payments.id, p.id));
+          }
+        }
+      } else if (!journalEntryId && baseAmount > 0) {
+        // A receipt taken after invoicing settles AR directly.
+        const je = await storage.postToLedger(companyId, {
+          entryDate: p.paymentDate,
+          description: `Vehicle receipt ${p.reference || p.id}`,
+          referenceType: "CUSTOMER_RECEIPT",
+          referenceId: String(p.id),
+          createdBy: userId,
+          lines: [
+            { accountCode: receiptAccountCode, type: "DEBIT", amount: baseAmount },
+            { accountCode: arAccountCode, type: "CREDIT", amount: baseAmount },
+          ],
+        }, tx);
+        journalEntryId = je.id;
+        postedTotal = round2(postedTotal + baseAmount);
+        await tx.update(payments).set({ journalEntryId }).where(eq(payments.id, p.id));
       }
     }
 
@@ -440,6 +522,75 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     }
 
     return { allocatedTotal, postedTotal, paidAmount: invoicePaid };
+  }
+
+  async function ownedBankAccount(executor: any, companyId: number, accountId?: number | null) {
+    if (!accountId) return { account: null, error: "Choose the bank or cash account the money moved through" };
+    const [account] = await executor
+      .select({ id: accounts.id, code: accounts.code, type: accounts.type })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.companyId, companyId)));
+    if (!account) return { account: null, error: "Bank/cash account not found for this company" };
+    if (account.type !== "ASSET") return { account: null, error: "Costs can only be paid from a bank or cash asset account" };
+    return { account, error: null };
+  }
+
+  async function ownedTaxType(executor: any, companyId: number, taxTypeId?: number | null) {
+    if (!taxTypeId) return { taxType: null, error: null };
+    const [taxType] = await executor
+      .select()
+      .from(taxTypes)
+      .where(and(eq(taxTypes.id, taxTypeId), or(eq(taxTypes.companyId, companyId), isNull(taxTypes.companyId))));
+    if (!taxType) return { taxType: null, error: "Tax type not found for this company" };
+    if (taxType.isActive === false) return { taxType: null, error: "Tax type is inactive" };
+    return { taxType, error: null };
+  }
+
+  /**
+   * Put a vehicle invoice through the same VAT/fiscal path as a normal sale.
+   * With a registered ZIMRA device the invoice is fiscalised; without one it is
+   * still marked as counted so the VAT return includes it (the previous vehicle
+   * route left `synced_with_fdms` false, silently dropping the sale from VAT).
+   */
+  async function ensureVehicleInvoiceFiscalized(
+    invoiceId: number,
+    companyId: number,
+    userId?: string,
+    isSuperAdmin?: boolean,
+  ) {
+    const [invoice] = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId)));
+    if (!invoice) throw new Error("Invoice not found");
+    if (invoice.syncedWithFdms) return invoice;
+
+    const [company] = await db
+      .select({
+        fdmsDeviceId: companies.fdmsDeviceId,
+        fdmsDeviceSerialNo: companies.fdmsDeviceSerialNo,
+        zimraPrivateKey: companies.zimraPrivateKey,
+        zimraCertificate: companies.zimraCertificate,
+      })
+      .from(companies)
+      .where(eq(companies.id, companyId));
+
+    const hasDevice = Boolean(
+      company?.fdmsDeviceId && company?.fdmsDeviceSerialNo && company?.zimraPrivateKey && company?.zimraCertificate,
+    );
+    if (hasDevice) {
+      await processInvoiceFiscalization(invoiceId, companyId, userId, Boolean(isSuperAdmin));
+    } else {
+      await db.update(invoices).set({
+        syncedWithFdms: true,
+        fdmsStatus: "issued",
+        status: invoice.status === "draft" ? "issued" : invoice.status,
+        lastValidationAttempt: new Date(),
+      }).where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId)));
+    }
+
+    const [refreshed] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+    return refreshed ?? invoice;
   }
 
   function reminderMessage(v: any, lines: OpenScheduleLine[], amount: number) {
@@ -468,7 +619,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .leftJoin(customers, eq(customers.id, vehicles.customerId))
         .where(and(...conds))
         .orderBy(desc(vehicles.createdAt));
-      const { costs, paid } = await totalsFor(rows.map((r) => r.vehicle.id));
+      const { costs, paid, invoiceBase } = await totalsFor(rows.map((r) => r.vehicle.id));
       const showCosts = await can(req, "vehicles.costs");
       res.json(
         rows.map((r) =>
@@ -476,7 +627,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             {
               ...r.vehicle,
               customerName: r.customerName,
-              summary: summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0),
+              summary: summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id)),
             },
             showCosts,
           ),
@@ -523,6 +674,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           : Promise.resolve(null),
       ]);
       const paid = paymentRows.reduce((s, p) => s + Number(p.amount) * Number(p.exchangeRate || 1), 0);
+      const invoiceBase = invoice ? money(Number(invoice.total) * (Number(invoice.exchangeRate) || 1)) : null;
       res.json(redact({
         ...v,
         customer,
@@ -536,7 +688,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         payments: paymentRows,
         invoice,
         reminders,
-        summary: summariseVehicle(v, costs, paid),
+        summary: summariseVehicle(v, costs, paid, invoiceBase),
       }, await can(req, "vehicles.costs")));
     } catch (error) {
       console.error(error);
@@ -548,33 +700,34 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     try {
       const companyId = parseInt(req.params.companyId);
       const body = { ...req.body };
-      if (!body.stockNumber) {
-        // Use stock counter table for race-condition-safe numbering
-        const [counter] = await db.select().from(vehicleStockCounters).where(eq(vehicleStockCounters.companyId, companyId));
-        const nextNumber = counter ? counter.nextNumber : 1;
-        body.stockNumber = `VH-${String(nextNumber).padStart(4, "0")}`;
-      }
-      const data = insertVehicleSchema.parse({ ...body, companyId, createdBy: req.user?.id });
-      const refError = await assertOwnedRefs(companyId, data);
-      if (refError) return res.status(400).json({ error: refError });
       const result = await db.transaction(async (tx: any) => {
-        const [created] = await tx.insert(vehicles).values(data).returning();
-        await tx.insert(vehicleStageEvents).values({ vehicleId: created.id, stage: created.stage, notes: "Vehicle recorded", createdBy: req.user?.id });
-        
-        // Increment stock counter if we auto-generated the number
-        if (!req.body.stockNumber) {
-          await tx
+        if (!body.stockNumber) {
+          // Claim the next number atomically. The counter stores the *next*
+          // number, so the claim returns the current one and leaves +1 behind.
+          const [claimed] = await tx
             .insert(vehicleStockCounters)
-            .values({ companyId, nextNumber: 1, updatedAt: new Date() })
+            .values({ companyId, nextNumber: 2, updatedAt: new Date() })
             .onConflictDoUpdate({
               target: vehicleStockCounters.companyId,
-              set: { nextNumber: sql`${vehicleStockCounters.nextNumber} + 1`, updatedAt: new Date() },
-            });
+              set: {
+                nextNumber: sql`${vehicleStockCounters.nextNumber} + 1`,
+                updatedAt: new Date(),
+              },
+            })
+            .returning({ nextNumber: vehicleStockCounters.nextNumber });
+          const issued = Number(claimed?.nextNumber ?? 1) - 1;
+          body.stockNumber = `VH-${String(issued).padStart(4, "0")}`;
         }
-        
+
+        const data = insertVehicleSchema.parse({ ...body, companyId, createdBy: req.user?.id });
+        const refError = await assertOwnedRefs(companyId, data);
+        if (refError) throw new Error(refError);
+
+        const [created] = await tx.insert(vehicles).values(data).returning();
+        await tx.insert(vehicleStageEvents).values({ vehicleId: created.id, stage: created.stage, notes: "Vehicle recorded", createdBy: req.user?.id });
         return created;
       });
-      
+
       if (result.enquiryId) {
         await logEnquiryVehicleActivity(
           db,
@@ -588,8 +741,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-      if (error?.code === "23505") return res.status(409).json({ error: "Stock number already exists" });
-      res.status(500).json({ error: "Failed to create vehicle" });
+      if (error?.code === "23505") return res.status(409).json({ error: "Stock number or VIN already exists for this company" });
+      res.status(500).json({ error: error.message || "Failed to create vehicle" });
     }
   });
 
@@ -605,51 +758,23 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       }
       
       const updates = insertVehicleSchema.partial().parse(req.body);
-      delete (updates as any).companyId;
-      delete (updates as any).stage; // stage changes go through /stage so they're logged
-      delete (updates as any).createdBy;
-      // COGS links are only written by the ledger posting helper.
-      delete (updates as any).cogsJournalEntryId;
-      delete (updates as any).cogsAmount;
-      delete (updates as any).cogsPostedAt;
-
-      // Commercial terms are frozen once they have been used on a document:
-      //  - the sale price/currency/FX rate drive the invoice, so they lock as soon
-      //    as an invoice exists;
-      //  - the customer can no longer change once an invoice or any payment exists,
-      //    because receipts and statements are already addressed to them.
-      const frozenAfterInvoice = ["salePrice", "saleCurrency", "saleExchangeRate"] as const;
-      const unchangedCommercial = (f: (typeof frozenAfterInvoice)[number]) => {
-        const next = (updates as any)[f];
-        const current = (v as any)[f];
-        if (f === "saleCurrency") return String(next ?? "") === String(current ?? "");
-        if (f === "saleExchangeRate") return Number(next ?? 1) === Number(current ?? 1);
-        if (next == null && current == null) return true;
-        return Number(next) === Number(current);
-      };
-      const invoiceLockHit = frozenAfterInvoice.some(
-        (f) => (updates as any)[f] !== undefined && !unchangedCommercial(f),
-      );
-      const customerChanged =
-        (updates as any).customerId !== undefined && (updates as any).customerId !== v.customerId;
+      // Fields that drive documents are never writable through a generic PATCH.
+      // Status changes go through reserve/invoice/deliver/cancel, and the
+      // commercial terms are set by the reserve (deal) route so they cannot be
+      // edited out from under an existing invoice or receipt.
+      for (const key of [
+        "companyId", "stage", "createdBy", "invoiceId", "status", "customerId",
+        "salePrice", "saleCurrency", "saleExchangeRate",
+        "cogsJournalEntryId", "cogsAmount", "cogsPostedAt",
+      ]) {
+        delete (updates as any)[key];
+      }
       const enquiryChanged =
         (updates as any).enquiryId !== undefined && (updates as any).enquiryId !== v.enquiryId;
-      if (invoiceLockHit || customerChanged || enquiryChanged) {
-        const [anyPayment] = await db
-          .select({ id: payments.id })
-          .from(payments)
-          .where(eq(payments.vehicleId, v.id))
-          .limit(1);
-        if (v.invoiceId && invoiceLockHit) {
-          return res.status(409).json({
-            error: "Sale price, currency and exchange rate cannot be changed after the invoice is created",
-          });
-        }
-        if ((v.invoiceId || anyPayment) && (customerChanged || enquiryChanged)) {
-          return res.status(409).json({
-            error: "Customer and linked enquiry cannot be changed after an invoice or payment exists",
-          });
-        }
+      if (enquiryChanged && (v.invoiceId || v.cogsJournalEntryId)) {
+        return res.status(409).json({
+          error: "The linked enquiry cannot be changed after the vehicle has been invoiced",
+        });
       }
 
       const refError = await assertOwnedRefs(companyId, updates);
@@ -729,7 +854,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         const saleCurrency = body.saleCurrency ?? v.saleCurrency ?? "USD";
         const saleExchangeRate = body.saleExchangeRate ?? Number(v.saleExchangeRate ?? 1);
 
-        // Conditional UPDATE: only change status to reserved if currently available
+        // Conditional UPDATE: only change status to reserved if currently
+        // available. A vehicle already reserved may have its deal terms amended
+        // before invoicing, but the state transition itself stays conditional so
+        // two salespeople cannot reserve the same unit.
         const [updated] = await tx
           .update(vehicles)
           .set({
@@ -742,7 +870,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             saleExchangeRate: saleExchangeRate.toFixed(6),
             updatedAt: new Date(),
           })
-          .where(and(eq(vehicles.id, v.id), eq(vehicles.status, "available")))
+          .where(and(
+            eq(vehicles.id, v.id),
+            inArray(vehicles.status, ["available", "reserved"]),
+          ))
           .returning();
 
         if (!updated) {
@@ -792,6 +923,25 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       
       const [hasPayment] = await db.select({ id: payments.id }).from(payments).where(eq(payments.vehicleId, v.id)).limit(1);
       if (hasPayment || v.invoiceId) return res.status(409).json({ error: "Vehicle has payments or an invoice; cancel it instead" });
+
+      // A cost line that has hit the ledger is a posted accounting document.
+      // Deleting the vehicle would cascade the cost and orphan the journal.
+      const [postedCost] = await db
+        .select({ id: vehicleCosts.id })
+        .from(vehicleCosts)
+        .where(and(
+          eq(vehicleCosts.vehicleId, v.id),
+          or(
+            isNotNull(vehicleCosts.costJournalEntryId),
+            isNotNull(vehicleCosts.paymentJournalEntryId),
+            isNotNull(vehicleCosts.supplierInvoiceId),
+          ),
+        ))
+        .limit(1);
+      if (postedCost) {
+        return res.status(409).json({ error: "Vehicle costs have journal entries; reverse them before deleting" });
+      }
+
       await db.delete(vehicles).where(eq(vehicles.id, v.id));
       res.status(204).end();
     } catch (error) {
@@ -802,6 +952,25 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
   // ── costs ──────────────────────────────────────────────────────────────────
 
+  const costBodySchema = z.object({
+    category: z.enum(VEHICLE_COST_CATEGORIES),
+    description: z.string().max(2000).nullable().optional(),
+    amount: z.coerce.number().positive(),
+    currency: z.string().min(1).max(8).default("USD"),
+    exchangeRate: z.coerce.number().positive().default(1),
+    payee: z.string().max(255).nullable().optional(),
+    reference: z.string().max(255).nullable().optional(),
+    costDate: z.string().nullable().optional(),
+    dueDate: z.string().nullable().optional(),
+    paidAt: z.string().nullable().optional(),
+    status: z.enum(VEHICLE_COST_STATUSES).default("pending"),
+    supplierId: z.coerce.number().int().positive().nullable().optional(),
+    settlementMethod: z.enum(["cash", "bank_transfer", "supplier_bill"]).default("cash"),
+    bankAccountId: z.coerce.number().int().positive().nullable().optional(),
+    inputVatAmount: z.coerce.number().min(0).default(0),
+    inputVatTypeId: z.coerce.number().int().positive().nullable().optional(),
+  });
+
   router.post("/companies/:companyId/vehicles/:id/costs", ...need("vehicles.costs"), async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
@@ -810,31 +979,58 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (v.cogsJournalEntryId) {
         return res.status(409).json({ error: "COGS has already been posted for this vehicle; costs are locked." });
       }
-      const data = insertVehicleCostSchema.parse({
-        ...req.body,
-        vehicleId: v.id,
-        source: "manual",
-        sourceId: null,
-        createdBy: req.user?.id,
-      });
-      if (!(VEHICLE_COST_CATEGORIES as readonly string[]).includes(data.category)) {
-        return res.status(400).json({ error: `Unknown cost category ${data.category}` });
-      }
-      delete (data as any).costJournalEntryId;
-      const status = String(data.status ?? "pending");
-      if (!(VEHICLE_COST_STATUSES as readonly string[]).includes(status)) {
-        return res.status(400).json({ error: `Unknown cost status ${status}` });
-      }
+
+      const data = costBodySchema.parse(req.body ?? {});
       const supplierError = await assertOwnedSupplier(companyId, data.supplierId ?? null);
       if (supplierError) return res.status(400).json({ error: supplierError });
-      const baseAmount = money(Number(data.amount) * Number(data.exchangeRate ?? 1)).toFixed(2);
+      if (data.settlementMethod === "supplier_bill" && !data.supplierId) {
+        return res.status(400).json({ error: "Choose the supplier for a supplier-bill cost" });
+      }
+
+      const baseAmount = money(Number(data.amount) * Number(data.exchangeRate ?? 1));
+      if (baseAmount <= 0) return res.status(400).json({ error: "The cost amount must be greater than zero" });
+      const vatAmount = money(data.inputVatAmount);
+      if (vatAmount > baseAmount) {
+        return res.status(400).json({ error: "Input VAT cannot exceed the total cost amount" });
+      }
+
+      if (data.settlementMethod !== "supplier_bill") {
+        const { error } = await ownedBankAccount(db, companyId, data.bankAccountId ?? null);
+        if (error) return res.status(400).json({ error });
+      }
+      const { error: taxError } = await ownedTaxType(db, companyId, data.inputVatTypeId ?? null);
+      if (taxError) return res.status(400).json({ error: taxError });
+      if (vatAmount > 0 && !data.inputVatTypeId) {
+        return res.status(400).json({ error: "Choose a tax type for the recoverable input VAT" });
+      }
+
+      const status = data.settlementMethod === "supplier_bill" && data.status === "paid"
+        ? "pending"
+        : data.status;
       const [created] = await db
         .insert(vehicleCosts)
         .values({
-          ...data,
+          vehicleId: v.id,
+          category: data.category,
+          description: data.description ?? null,
+          amount: data.amount.toFixed(2),
+          currency: data.currency.toUpperCase(),
+          exchangeRate: data.exchangeRate.toFixed(6),
+          baseAmount: baseAmount.toFixed(2),
+          payee: data.payee ?? null,
+          reference: data.reference ?? null,
+          costDate: data.costDate ?? null,
+          dueDate: data.dueDate ?? null,
+          paidAt: status === "paid" ? data.paidAt ?? data.costDate ?? new Date().toISOString().slice(0, 10) : null,
           status,
-          paidAt: status === "paid" ? data.paidAt ?? data.costDate ?? new Date().toISOString().slice(0, 10) : data.paidAt ?? null,
-          baseAmount,
+          supplierId: data.supplierId ?? null,
+          settlementMethod: data.settlementMethod,
+          bankAccountId: data.bankAccountId ?? null,
+          inputVatAmount: vatAmount.toFixed(2),
+          inputVatTypeId: data.inputVatTypeId ?? null,
+          source: "manual",
+          sourceId: null,
+          createdBy: req.user?.id,
         })
         .returning();
       res.status(201).json(created);
@@ -856,59 +1052,58 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .where(and(eq(vehicleCosts.id, parseInt(req.params.costId)), eq(vehicleCosts.vehicleId, v.id)));
       if (!existing) return res.status(404).json({ error: "Cost line not found" });
 
-      const body = z
-        .object({
-          category: z.string().optional(),
-          description: z.string().nullable().optional(),
-          amount: z.coerce.number().positive().optional(),
-          currency: z.string().optional(),
-          exchangeRate: z.coerce.number().positive().optional(),
-          payee: z.string().nullable().optional(),
-          reference: z.string().nullable().optional(),
-          costDate: z.string().nullable().optional(),
-          dueDate: z.string().nullable().optional(),
-          paidAt: z.string().nullable().optional(),
-          status: z.string().optional(),
-          supplierId: z.coerce.number().int().positive().nullable().optional(),
-        })
-        .parse(req.body);
-
-      if (
-        v.cogsJournalEntryId ||
-        (existing.costJournalEntryId &&
-          (body.amount !== undefined ||
-            body.currency !== undefined ||
-            body.exchangeRate !== undefined ||
-            body.supplierId !== undefined ||
-            body.status !== undefined))
-      ) {
+      if (v.cogsJournalEntryId) {
+        return res.status(409).json({ error: "COGS has already been posted for this vehicle; costs are locked." });
+      }
+      if (existing.costJournalEntryId || existing.paymentJournalEntryId || existing.supplierInvoiceId) {
         return res.status(409).json({
-          error: existing.costJournalEntryId
-            ? "This cost is already posted to inventory. Reverse the journal entry before changing its amount, supplier or status."
-            : "COGS has already been posted for this vehicle; costs are locked.",
+          error: "This cost has journal entries. Reverse it before changing its amount, settlement or tax.",
         });
       }
 
-      if (body.category && !(VEHICLE_COST_CATEGORIES as readonly string[]).includes(body.category)) {
-        return res.status(400).json({ error: `Unknown cost category ${body.category}` });
-      }
-      if (body.status && !(VEHICLE_COST_STATUSES as readonly string[]).includes(body.status)) {
-        return res.status(400).json({ error: `Unknown cost status ${body.status}` });
-      }
+      const body = costBodySchema.partial().parse(req.body ?? {});
       const supplierError = await assertOwnedSupplier(companyId, body.supplierId);
       if (supplierError) return res.status(400).json({ error: supplierError });
 
       const amount = body.amount ?? Number(existing.amount);
       const exchangeRate = body.exchangeRate ?? Number(existing.exchangeRate ?? 1);
+      const baseAmount = money(amount * exchangeRate);
+      const vatAmount = body.inputVatAmount !== undefined
+        ? money(body.inputVatAmount)
+        : money(Number(existing.inputVatAmount || 0));
+      if (vatAmount > baseAmount) {
+        return res.status(400).json({ error: "Input VAT cannot exceed the total cost amount" });
+      }
+      const settlementMethod = body.settlementMethod ?? existing.settlementMethod ?? "cash";
+      if (settlementMethod === "supplier_bill" && !(body.supplierId ?? existing.supplierId)) {
+        return res.status(400).json({ error: "Choose the supplier for a supplier-bill cost" });
+      }
+      const bankAccountId = body.bankAccountId !== undefined ? body.bankAccountId : existing.bankAccountId;
+      if (settlementMethod !== "supplier_bill") {
+        const { error } = await ownedBankAccount(db, companyId, bankAccountId ?? null);
+        if (error) return res.status(400).json({ error });
+      }
+      const taxTypeId = body.inputVatTypeId !== undefined ? body.inputVatTypeId : existing.inputVatTypeId;
+      const { error: taxError } = await ownedTaxType(db, companyId, taxTypeId ?? null);
+      if (taxError) return res.status(400).json({ error: taxError });
+      if (vatAmount > 0 && !taxTypeId) {
+        return res.status(400).json({ error: "Choose a tax type for the recoverable input VAT" });
+      }
+
+      const status = body.status ?? existing.status;
       const updates: Record<string, any> = {
         ...body,
-        baseAmount: money(amount * exchangeRate).toFixed(2),
+        baseAmount: baseAmount.toFixed(2),
+        inputVatAmount: vatAmount.toFixed(2),
+        settlementMethod,
+        bankAccountId: bankAccountId ?? null,
+        inputVatTypeId: taxTypeId ?? null,
       };
       // Keep the paid date sane when the lifecycle status is changed on its own.
-      if (body.status === "paid" && body.paidAt === undefined && !existing.paidAt) {
+      if (status === "paid" && body.paidAt === undefined && !existing.paidAt) {
         updates.paidAt = existing.costDate ?? new Date().toISOString().slice(0, 10);
       }
-      if (body.status === "pending" && body.paidAt === undefined) updates.paidAt = null;
+      if (status === "pending" && body.paidAt === undefined) updates.paidAt = null;
 
       const [updated] = await db.update(vehicleCosts).set(updates).where(eq(vehicleCosts.id, existing.id)).returning();
       res.json(updated);
@@ -920,44 +1115,133 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   });
 
   /**
-   * Vehicle costs are settled immediately by cash or bank transfer, so posting
-   * a cost capitalises it to inventory in transit and credits cash/bank in one
-   * journal. No supplier invoice or accounts-payable entry is created.
+   * Settle and capitalise a cost line.
+   *
+   * Cash/bank costs post only once the line is actually paid, and the bank/cash
+   * account captured on the line is the one credited. Supplier costs create a
+   * real supplier bill (Dr inventory in transit / Dr input VAT / Cr AP); the
+   * separate /pay route later clears AP from the chosen bank account. Nothing
+   * is posted while the line is pending, disputed or cancelled.
    */
   router.post("/companies/:companyId/vehicles/:id/costs/:costId/post", ...need("vehicles.costs"), async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const v = await loadVehicle(companyId, parseInt(req.params.id));
-      if (!v) return res.status(404).json({ error: "Vehicle not found" });
-      if (v.cogsJournalEntryId) {
-        return res.status(409).json({ error: "COGS has already been posted for this vehicle; costs are locked." });
-      }
-      const [cost] = await db
-        .select()
-        .from(vehicleCosts)
-        .where(and(eq(vehicleCosts.id, parseInt(req.params.costId)), eq(vehicleCosts.vehicleId, v.id)));
-      if (!cost) return res.status(404).json({ error: "Cost line not found" });
-      if (cost.costJournalEntryId) return res.status(409).json({ error: "This cost has already been posted to inventory" });
-      if (cost.status === "cancelled") return res.status(400).json({ error: "Cancelled costs cannot be posted" });
-
-      const amount = Number(cost.baseAmount);
-      if (!(amount > 0)) return res.status(400).json({ error: "The cost amount must be greater than zero" });
-
-      const inventoryCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode");
-      const cashCode = await storage.getSystemAccountCode(companyId, "cashAccountCode");
+      const costId = parseInt(req.params.costId);
 
       const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, parseInt(req.params.id));
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (v.cogsJournalEntryId) {
+          throw Object.assign(new Error("COGS has already been posted for this vehicle; costs are locked."), { status: 409 });
+        }
+
+        const [cost] = await tx
+          .select()
+          .from(vehicleCosts)
+          .where(and(eq(vehicleCosts.id, costId), eq(vehicleCosts.vehicleId, v.id)))
+          .for("update");
+        if (!cost) throw Object.assign(new Error("Cost line not found"), { status: 404 });
+        if (cost.costJournalEntryId) throw Object.assign(new Error("This cost has already been posted"), { status: 409 });
+        if (cost.status === "cancelled") throw Object.assign(new Error("Cancelled costs cannot be posted"), { status: 400 });
+        if (cost.status === "disputed") throw Object.assign(new Error("Disputed costs cannot be posted until the dispute is resolved"), { status: 400 });
+
+        const gross = money(Number(cost.baseAmount));
+        if (!(gross > 0)) throw Object.assign(new Error("The cost amount must be greater than zero"), { status: 400 });
+        const vat = Math.min(gross, money(Number(cost.inputVatAmount || 0)));
+        if (vat > 0 && !cost.inputVatTypeId) {
+          throw Object.assign(new Error("Choose a tax type for the recoverable input VAT"), { status: 400 });
+        }
+        const net = round2(gross - vat);
+
+        const inventoryCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx);
+        const inputVatCode = await storage.getSystemAccountCode(companyId, "vatInputAccountCode", tx);
+        const entryDate = cost.costDate ? new Date(cost.costDate) : new Date();
+
+        if (cost.settlementMethod === "supplier_bill") {
+          if (!cost.supplierId) {
+            throw Object.assign(new Error("Choose the supplier for a supplier-bill cost"), { status: 400 });
+          }
+          const apCode = await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
+          const invoiceNumber = cost.reference?.trim() || `VC-${cost.id}`;
+
+          const [bill] = await tx.insert(supplierInvoices).values({
+            companyId,
+            supplierId: cost.supplierId,
+            invoiceNumber,
+            date: entryDate,
+            dueDate: cost.dueDate ? new Date(cost.dueDate) : null,
+            transactionType: "Invoice",
+            subtotalAmount: net.toFixed(2),
+            totalAmount: gross.toFixed(2),
+            taxAmount: vat.toFixed(2),
+            taxInclusive: true,
+            currency: cost.currency,
+            exchangeRate: cost.exchangeRate,
+            status: "unpaid",
+            notes: `Vehicle cost ${v.stockNumber} — ${cost.category}${cost.description ? `: ${cost.description}` : ""}`,
+          }).returning();
+
+          await tx.insert(supplierInvoiceItems).values({
+            supplierInvoiceId: bill.id,
+            description: cost.description || `Vehicle cost — ${cost.category}`,
+            quantity: "1",
+            unitPrice: net.toFixed(2),
+            totalPrice: net.toFixed(2),
+            taxTypeId: vat > 0 ? cost.inputVatTypeId : null,
+            taxRate: vat > 0 && net > 0 ? ((vat / net) * 100).toFixed(2) : "0.00",
+            taxAmount: vat.toFixed(2),
+            isRecoverable: true,
+          });
+
+          const lines: any[] = [
+            { accountCode: inventoryCode, type: "DEBIT", amount: net },
+            { accountCode: apCode, type: "CREDIT", amount: gross },
+          ];
+          if (vat > 0) {
+            lines.splice(1, 0, { accountCode: inputVatCode, type: "DEBIT", amount: vat, vatTypeId: cost.inputVatTypeId });
+          }
+
+          const je = await storage.postToLedger(companyId, {
+            entryDate,
+            description: `Supplier bill: vehicle ${v.stockNumber} ${cost.category}`,
+            referenceType: "VEHICLE_COST",
+            referenceId: String(cost.id),
+            createdBy: req.user?.id,
+            lines,
+          }, tx);
+
+          const [updated] = await tx
+            .update(vehicleCosts)
+            .set({ costJournalEntryId: je.id, supplierInvoiceId: bill.id })
+            .where(eq(vehicleCosts.id, cost.id))
+            .returning();
+          return { cost: updated, journalEntry: je, supplierInvoice: bill };
+        }
+
+        // Cash / bank transfer: only an actually paid line reaches the ledger.
+        if (cost.status !== "paid") {
+          throw Object.assign(new Error("Mark the cost as paid before posting it to inventory"), { status: 400 });
+        }
+        const { account: bankAccount, error } = await ownedBankAccount(tx, companyId, cost.bankAccountId);
+        if (error || !bankAccount) throw Object.assign(new Error(error || "Bank account not found"), { status: 400 });
+
+        const lines: any[] = [
+          { accountCode: inventoryCode, type: "DEBIT", amount: net },
+          { accountCode: bankAccount.code, type: "CREDIT", amount: gross },
+        ];
+        if (vat > 0) {
+          lines.splice(1, 0, { accountCode: inputVatCode, type: "DEBIT", amount: vat, vatTypeId: cost.inputVatTypeId });
+        }
+
         const je = await storage.postToLedger(companyId, {
-          entryDate: cost.costDate ? new Date(cost.costDate) : new Date(),
+          entryDate,
           description: `Vehicle cost capitalised: ${v.stockNumber} ${cost.category}${cost.description ? ` — ${cost.description}` : ""}`,
           referenceType: "VEHICLE_COST",
           referenceId: String(cost.id),
           createdBy: req.user?.id,
-          lines: [
-            { accountCode: inventoryCode, type: "DEBIT", amount },
-            { accountCode: cashCode, type: "CREDIT", amount },
-          ],
+          lines,
         }, tx);
+
         const [updated] = await tx
           .update(vehicleCosts)
           .set({
@@ -973,7 +1257,165 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       res.status(201).json(result);
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message || "Failed to post cost to inventory" });
+      res.status(error.status || 500).json({ error: error.message || "Failed to post cost to inventory" });
+    }
+  });
+
+  /** Pay a supplier-bill cost and clear the AP it created. */
+  router.post("/companies/:companyId/vehicles/:id/costs/:costId/pay", ...need("vehicles.costs"), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const costId = parseInt(req.params.costId);
+      const body = z.object({
+        bankAccountId: z.coerce.number().int().positive(),
+        paymentDate: z.coerce.date().optional(),
+        reference: z.string().max(255).nullable().optional(),
+      }).parse(req.body ?? {});
+
+      const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, parseInt(req.params.id));
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+
+        const [cost] = await tx
+          .select()
+          .from(vehicleCosts)
+          .where(and(eq(vehicleCosts.id, costId), eq(vehicleCosts.vehicleId, v.id)))
+          .for("update");
+        if (!cost) throw Object.assign(new Error("Cost line not found"), { status: 404 });
+        if (cost.settlementMethod !== "supplier_bill" || !cost.supplierInvoiceId) {
+          throw Object.assign(new Error("Only posted supplier-bill costs can be paid here"), { status: 400 });
+        }
+        if (cost.paymentJournalEntryId) {
+          throw Object.assign(new Error("This supplier bill has already been paid"), { status: 409 });
+        }
+
+        const { account: bankAccount, error } = await ownedBankAccount(tx, companyId, body.bankAccountId);
+        if (error || !bankAccount) throw Object.assign(new Error(error || "Bank account not found"), { status: 400 });
+
+        const [bill] = await tx
+          .select()
+          .from(supplierInvoices)
+          .where(and(eq(supplierInvoices.id, cost.supplierInvoiceId), eq(supplierInvoices.companyId, companyId)))
+          .for("update");
+        if (!bill) throw Object.assign(new Error("Supplier bill not found"), { status: 404 });
+        if (bill.status === "cancelled") {
+          throw Object.assign(new Error("This supplier bill has been cancelled"), { status: 409 });
+        }
+
+        const outstanding = round2(Number(bill.totalAmount) - Number(bill.paidAmount || 0));
+        if (!(outstanding > 0)) throw Object.assign(new Error("This supplier bill is already settled"), { status: 409 });
+
+        const apCode = await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
+        const je = await storage.postToLedger(companyId, {
+          entryDate: body.paymentDate ?? new Date(),
+          description: `Pay supplier bill ${bill.invoiceNumber} — vehicle ${v.stockNumber}`,
+          referenceType: "VEHICLE_COST_PAYMENT",
+          referenceId: String(cost.id),
+          createdBy: req.user?.id,
+          lines: [
+            { accountCode: apCode, type: "DEBIT", amount: outstanding },
+            { accountCode: bankAccount.code, type: "CREDIT", amount: outstanding },
+          ],
+        }, tx);
+
+        await tx.insert(supplierPayments).values({
+          companyId,
+          supplierId: cost.supplierId!,
+          supplierInvoiceId: bill.id,
+          amount: outstanding.toFixed(2),
+          currency: bill.currency ?? "USD",
+          paymentDate: body.paymentDate ?? new Date(),
+          method: "Bank",
+          reference: body.reference ?? cost.reference ?? null,
+          notes: `Vehicle ${v.stockNumber} — ${cost.category}`,
+          createdBy: req.user?.id ?? null,
+        });
+
+        await tx.update(supplierInvoices).set({
+          paidAmount: Number(bill.totalAmount).toFixed(2),
+          status: "paid",
+        }).where(eq(supplierInvoices.id, bill.id));
+
+        const [updated] = await tx
+          .update(vehicleCosts)
+          .set({
+            paymentJournalEntryId: je.id,
+            status: "paid",
+            paidAt: (body.paymentDate ?? new Date()).toISOString().slice(0, 10),
+          })
+          .where(eq(vehicleCosts.id, cost.id))
+          .returning();
+
+        return { cost: updated, journalEntry: je };
+      });
+
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(error.status || 500).json({ error: error.message || "Failed to pay supplier bill" });
+    }
+  });
+
+  /** Reverse a posted cost and, for supplier bills, its payment and bill. */
+  router.post("/companies/:companyId/vehicles/:id/costs/:costId/reverse", ...need("vehicles.costs"), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const costId = parseInt(req.params.costId);
+      const body = z.object({ reason: z.string().max(500).nullable().optional() }).parse(req.body ?? {});
+
+      const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, parseInt(req.params.id));
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (v.cogsJournalEntryId) {
+          throw Object.assign(new Error("COGS has already been posted for this vehicle; reverse the sale before reversing costs"), { status: 409 });
+        }
+
+        const [cost] = await tx
+          .select()
+          .from(vehicleCosts)
+          .where(and(eq(vehicleCosts.id, costId), eq(vehicleCosts.vehicleId, v.id)))
+          .for("update");
+        if (!cost) throw Object.assign(new Error("Cost line not found"), { status: 404 });
+        if (!cost.costJournalEntryId && !cost.paymentJournalEntryId && !cost.supplierInvoiceId) {
+          throw Object.assign(new Error("This cost has not been posted, so there is nothing to reverse"), { status: 400 });
+        }
+
+        const detail = `${v.stockNumber} ${cost.category}${body.reason ? ` — ${body.reason}` : ""}`;
+        if (cost.paymentJournalEntryId) {
+          await reverseJournalEntry(tx, companyId, cost.paymentJournalEntryId, `Reverse cost payment: ${detail}`, req.user?.id);
+        }
+        if (cost.costJournalEntryId) {
+          await reverseJournalEntry(tx, companyId, cost.costJournalEntryId, `Reverse vehicle cost: ${detail}`, req.user?.id);
+        }
+        if (cost.supplierInvoiceId) {
+          await tx.update(supplierInvoices).set({
+            status: "cancelled",
+            paidAmount: "0.00",
+            notes: sql`COALESCE(${supplierInvoices.notes} || E'\n', '') || ${`Reversed with vehicle cost ${cost.id}: ${body.reason || "no reason given"}`}`,
+          }).where(and(eq(supplierInvoices.id, cost.supplierInvoiceId), eq(supplierInvoices.companyId, companyId)));
+        }
+
+        const [updated] = await tx
+          .update(vehicleCosts)
+          .set({
+            costJournalEntryId: null,
+            paymentJournalEntryId: null,
+            supplierInvoiceId: null,
+            status: "cancelled",
+            paidAt: null,
+          })
+          .where(eq(vehicleCosts.id, cost.id))
+          .returning();
+
+        return { cost: updated };
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(error.status || 500).json({ error: error.message || "Failed to reverse cost" });
     }
   });
 
@@ -986,11 +1428,15 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return res.status(409).json({ error: "COGS has already been posted for this vehicle; costs are locked." });
       }
       const [cost] = await db
-        .select({ costJournalEntryId: vehicleCosts.costJournalEntryId })
+        .select({
+          costJournalEntryId: vehicleCosts.costJournalEntryId,
+          paymentJournalEntryId: vehicleCosts.paymentJournalEntryId,
+          supplierInvoiceId: vehicleCosts.supplierInvoiceId,
+        })
         .from(vehicleCosts)
         .where(and(eq(vehicleCosts.id, parseInt(req.params.costId)), eq(vehicleCosts.vehicleId, v.id)));
-      if (cost?.costJournalEntryId) {
-        return res.status(409).json({ error: "This cost is already posted to inventory. Reverse the journal entry before deleting it." });
+      if (cost?.costJournalEntryId || cost?.paymentJournalEntryId || cost?.supplierInvoiceId) {
+        return res.status(409).json({ error: "This cost has journal entries. Reverse it before deleting it." });
       }
       await db.delete(vehicleCosts).where(and(eq(vehicleCosts.id, parseInt(req.params.costId)), eq(vehicleCosts.vehicleId, v.id)));
       res.status(204).end();
@@ -1039,16 +1485,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           .returning();
         const statusPatch = body.stage === "delivered" ? { status: "delivered" } : {};
         await tx.update(vehicles).set({ stage: body.stage, ...statusPatch, updatedAt: new Date() }).where(eq(vehicles.id, v.id));
-        if (body.stage === "delivered" && v.enquiryId) {
-          await markEnquiryWon(
-            tx,
-            companyId,
-            v.enquiryId,
-            `${v.stockNumber} delivered to the customer.`,
-            { vehicleId: v.id, stage: body.stage },
-            req.user?.id,
-          );
-        }
+        // A stage move only records the stage. The enquiry is marked won when
+        // the vehicle is actually invoiced, not when a card is dragged.
         return saved;
       });
       res.status(201).json(event);
@@ -1092,11 +1530,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           exchangeRate: z.coerce.number().positive().default(1),
           paymentDate: z.coerce.date().optional(),
           paymentMethod: z.string().min(1),
+          bankAccountId: z.coerce.number().int().positive().nullable().optional(),
           reference: z.string().optional().nullable(),
           notes: z.string().optional().nullable(),
         })
         .parse(req.body);
       const result = await db.transaction(async (tx: any) => {
+        // The money actually landed in the account the cashier picked, so the
+        // receipt must debit that account rather than a hard-coded cash till.
+        const { account: bankAccount, error: bankError } = await ownedBankAccount(tx, companyId, body.bankAccountId);
+        if (bankError || !bankAccount) {
+          throw Object.assign(new Error(bankError || "Bank account not found"), { status: 400 });
+        }
         const isDeposit = !v.invoiceId;
         const [created] = await tx
           .insert(payments)
@@ -1110,6 +1555,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             exchangeRate: body.exchangeRate.toFixed(6),
             paymentDate: body.paymentDate ?? new Date(),
             paymentMethod: body.paymentMethod,
+            bankAccountId: bankAccount.id,
             reference: body.reference ?? null,
             notes: body.notes ?? `Vehicle ${v.stockNumber} ${v.make} ${v.model}`,
             isDeposit,
@@ -1117,10 +1563,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           })
           .returning();
 
-        // Immediate posting for deposits (before invoice exists)
+        // Immediate posting for deposits (before invoice exists): the customer
+        // holds a credit until the invoice clears it against AR.
         if (isDeposit) {
           const baseAmount = baseAmountOf(created);
-          const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
           const depositsAccountCode = await storage.getSystemAccountCode(companyId, "customerDepositsAccountCode", tx) || "2010";
           const je = await storage.postToLedger(companyId, {
             entryDate: created.paymentDate,
@@ -1129,7 +1575,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             referenceId: String(created.id),
             createdBy: req.user?.id,
             lines: [
-              { accountCode: cashAccountCode, type: "DEBIT", amount: baseAmount },
+              { accountCode: bankAccount.code, type: "DEBIT", amount: baseAmount },
               { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount },
             ],
           }, tx);
@@ -1148,10 +1594,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return { ...saved, allocation };
       });
       res.status(201).json(result);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-      res.status(500).json({ error: "Failed to record payment" });
+      res.status(error.status || 500).json({ error: error.message || "Failed to record payment" });
     }
   });
 
@@ -1159,38 +1605,54 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
   /**
    * Creates a sales invoice from the vehicle's agreed sale price, links it to
-   * the vehicle and backfills any payments already taken against the deal.
+   * the vehicle, clears any deposits and posts COGS in the same transaction.
+   *
+   * The vehicle row is locked and `invoiceId` is re-checked inside the lock, so
+   * two concurrent clicks cannot create two invoices (and two COGS postings).
    */
   router.post("/companies/:companyId/vehicles/:id/invoice", ...need("vehicles.manage"), async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const v = await loadVehicle(companyId, parseInt(req.params.id));
-      if (!v) return res.status(404).json({ error: "Vehicle not found" });
-      if (v.invoiceId) return res.status(409).json({ error: "Vehicle already has an invoice" });
-      if (!v.customerId) return res.status(400).json({ error: "Assign a customer to this vehicle first" });
-      if (v.salePrice == null) return res.status(400).json({ error: "Set an agreed sale price before invoicing" });
+      const vehicleId = parseInt(req.params.id);
 
       const body = z
         .object({
           dueDate: z.coerce.date().optional(),
-          notes: z.string().optional().nullable(),
-          taxRate: z.coerce.number().min(0).max(100).default(0),
+          notes: z.string().max(4000).optional().nullable(),
+          taxTypeId: z.coerce.number().int().positive().nullable().optional(),
         })
         .parse(req.body ?? {});
 
-      const saleRate = Number(v.saleExchangeRate || 1) || 1;
-      const subtotal = round2(Number(v.salePrice) * saleRate);
-      if (subtotal <= 0) return res.status(400).json({ error: "The agreed sale price must be greater than zero" });
-
-      const taxAmount = round2(subtotal * (body.taxRate / 100));
-      const total = round2(subtotal + taxAmount);
-      const description = [
-        `${v.year ?? ""} ${v.make} ${v.model}`.replace(/\s+/g, " ").trim(),
-        `Stock ${v.stockNumber}`,
-        v.vin ? `VIN ${v.vin}` : null,
-      ].filter(Boolean).join(" — ");
-
       const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, vehicleId);
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (v.invoiceId) throw Object.assign(new Error("Vehicle already has an invoice"), { status: 409 });
+        if (!v.customerId) throw Object.assign(new Error("Assign a customer to this vehicle first"), { status: 400 });
+        if (v.salePrice == null) throw Object.assign(new Error("Set an agreed sale price before invoicing"), { status: 400 });
+
+        // salePrice is the agreed net sale in the sale currency. Tax is added
+        // on top and must come from a real tax type, not a free-text rate.
+        const subtotal = round2(Number(v.salePrice));
+        if (subtotal <= 0) throw Object.assign(new Error("The agreed sale price must be greater than zero"), { status: 400 });
+
+        let taxType: any = null;
+        if (body.taxTypeId) {
+          const { taxType: found, error } = await ownedTaxType(tx, companyId, body.taxTypeId);
+          if (error || !found) throw Object.assign(new Error(error || "Tax type not found"), { status: 400 });
+          taxType = found;
+        }
+        const taxRate = taxType ? Number(taxType.rate) : 0;
+        const taxAmount = round2(subtotal * (taxRate / 100));
+        const total = round2(subtotal + taxAmount);
+        const currency = v.saleCurrency || "USD";
+        const exchangeRate = Number(v.saleExchangeRate || 1) || 1;
+
+        const description = [
+          `${v.year ?? ""} ${v.make} ${v.model}`.replace(/\s+/g, " ").trim(),
+          `Stock ${v.stockNumber}`,
+          v.vin ? `VIN ${v.vin}` : null,
+        ].filter(Boolean).join(" — ");
+
         const created = await storage.createInvoice({
           companyId,
           customerId: v.customerId!,
@@ -1202,8 +1664,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           total: total.toFixed(2),
           status: "issued",
           paidAmount: "0.00",
-          currency: "USD",
-          exchangeRate: "1.000000",
+          currency,
+          exchangeRate: exchangeRate.toFixed(6),
           isFiscalized: false,
           notes: body.notes ?? description,
           createdBy: req.user?.id,
@@ -1212,7 +1674,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             quantity: "1",
             unitPrice: subtotal.toFixed(2),
             discountAmount: "0.00",
-            taxRate: body.taxRate.toFixed(2),
+            taxRate: taxRate.toFixed(2),
+            taxTypeId: taxType?.id ?? null,
             lineTotal: subtotal.toFixed(2),
           }],
         } as any, tx);
@@ -1224,7 +1687,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         }).where(eq(vehicles.id, v.id));
 
         const paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, created, req.user?.id);
-        const cogs = await postVehicleCogs(tx, companyId, { ...v, invoiceId: created.id }, req.user?.id);
+        const cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
         const enquiry = v.enquiryId
           ? await markEnquiryWon(
               tx,
@@ -1238,11 +1701,20 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return { invoice: created, ...paymentResult, cogs, enquiry };
       });
 
-      res.status(201).json(result);
+      // Runs after commit: fiscalization talks to the device and re-reads the
+      // invoice, so it cannot share the sale transaction.
+      const invoice = await ensureVehicleInvoiceFiscalized(
+        result.invoice.id,
+        companyId,
+        req.user?.id,
+        req.user?.isSuperAdmin,
+      );
+
+      res.status(201).json({ ...result, invoice });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-      res.status(400).json({ error: error.message || "Failed to create vehicle invoice" });
+      res.status(error.status || 400).json({ error: error.message || "Failed to create vehicle invoice" });
     }
   });
 
@@ -1250,38 +1722,70 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   router.put("/companies/:companyId/vehicles/:id/invoice", ...need("vehicles.manage"), async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const v = await loadVehicle(companyId, parseInt(req.params.id));
-      if (!v) return res.status(404).json({ error: "Vehicle not found" });
-      if (!v.customerId) return res.status(400).json({ error: "Assign a customer to this vehicle first" });
+      const vehicleId = parseInt(req.params.id);
 
       const body = z.object({
         invoiceId: z.coerce.number().int().positive().optional(),
         invoiceNumber: z.string().trim().min(1).optional(),
       }).refine((b) => b.invoiceId || b.invoiceNumber, { message: "Provide an invoice id or invoice number" }).parse(req.body ?? {});
 
-      const [invoice] = await db.select().from(invoices).where(and(
-        eq(invoices.companyId, companyId),
-        body.invoiceId ? eq(invoices.id, body.invoiceId) : eq(invoices.invoiceNumber, body.invoiceNumber!),
-      ));
-      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
-      if (invoice.customerId !== v.customerId) return res.status(400).json({ error: "The invoice belongs to a different customer" });
-      if (v.invoiceId && v.invoiceId !== invoice.id) return res.status(409).json({ error: "Vehicle already has a different invoice" });
-
-      const [otherVehicle] = await db.select({ id: vehicles.id }).from(vehicles).where(and(
-        eq(vehicles.companyId, companyId),
-        eq(vehicles.invoiceId, invoice.id),
-        sql`${vehicles.id} <> ${v.id}`,
-      )).limit(1);
-      if (otherVehicle) return res.status(409).json({ error: "This invoice is already linked to another vehicle" });
-
       const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, vehicleId);
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (v.invoiceId) throw Object.assign(new Error("Vehicle already has an invoice"), { status: 409 });
+        if (!v.customerId) throw Object.assign(new Error("Assign a customer to this vehicle first"), { status: 400 });
+        if (v.salePrice == null) throw Object.assign(new Error("Set an agreed sale price before attaching an invoice"), { status: 400 });
+
+        const [invoice] = await tx.select().from(invoices).where(and(
+          eq(invoices.companyId, companyId),
+          body.invoiceId ? eq(invoices.id, body.invoiceId) : eq(invoices.invoiceNumber, body.invoiceNumber!),
+        )).for("update");
+        if (!invoice) throw Object.assign(new Error("Invoice not found"), { status: 404 });
+        if (["cancelled", "void"].includes(String(invoice.status))) {
+          throw Object.assign(new Error("Cancelled or void invoices cannot be attached to a vehicle"), { status: 409 });
+        }
+        if (invoice.customerId !== v.customerId) {
+          throw Object.assign(new Error("The invoice belongs to a different customer"), { status: 400 });
+        }
+        const invoiceCurrency = String(invoice.currency || "USD").toUpperCase();
+        const saleCurrency = String(v.saleCurrency || "USD").toUpperCase();
+        if (invoiceCurrency !== saleCurrency) {
+          throw Object.assign(new Error(`The invoice currency (${invoiceCurrency}) does not match the agreed sale currency (${saleCurrency})`), { status: 400 });
+        }
+        // Accept either a net (subtotal) or tax-inclusive invoice amount equal
+        // to the agreed sale. Anything else is a different deal.
+        const agreed = round2(Number(v.salePrice));
+        const matchesAgreed =
+          Math.abs(round2(Number(invoice.subtotal)) - agreed) <= 0.01 ||
+          Math.abs(round2(Number(invoice.total)) - agreed) <= 0.01;
+        if (!matchesAgreed) {
+          throw Object.assign(new Error("The invoice total does not match the agreed sale price"), { status: 400 });
+        }
+        if (Number(invoice.taxAmount) > 0) {
+          const itemRows = await tx
+            .select({ taxTypeId: invoiceItems.taxTypeId })
+            .from(invoiceItems)
+            .where(eq(invoiceItems.invoiceId, invoice.id));
+          if (!itemRows.some((item: any) => item.taxTypeId)) {
+            throw Object.assign(new Error("Taxed invoices must use a real tax type before they can be attached"), { status: 400 });
+          }
+        }
+
+        const [otherVehicle] = await tx.select({ id: vehicles.id }).from(vehicles).where(and(
+          eq(vehicles.companyId, companyId),
+          eq(vehicles.invoiceId, invoice.id),
+          sql`${vehicles.id} <> ${v.id}`,
+        )).limit(1);
+        if (otherVehicle) throw Object.assign(new Error("This invoice is already linked to another vehicle"), { status: 409 });
+
         await tx.update(vehicles).set({
           invoiceId: invoice.id,
           status: ["available", "reserved"].includes(v.status) ? "sold" : v.status,
           updatedAt: new Date(),
         }).where(eq(vehicles.id, v.id));
+
         const paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, invoice, req.user?.id);
-        const cogs = await postVehicleCogs(tx, companyId, { ...v, invoiceId: invoice.id }, req.user?.id);
+        const cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
         const enquiry = v.enquiryId
           ? await markEnquiryWon(
               tx,
@@ -1295,18 +1799,140 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return { invoice, ...paymentResult, cogs, enquiry };
       });
 
-      res.json(result);
+      const invoice = await ensureVehicleInvoiceFiscalized(
+        result.invoice.id,
+        companyId,
+        req.user?.id,
+        req.user?.isSuperAdmin,
+      );
+
+      res.json({ ...result, invoice });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-      res.status(400).json({ error: error.message || "Failed to attach invoice" });
+      res.status(error.status || 400).json({ error: error.message || "Failed to attach invoice" });
     }
   });
 
   /**
+   * Cancel a sold vehicle and unwind the accounting in one transaction:
+   * invoice revenue/AR, COGS and deposit clearing are reversed; payment
+   * allocations are released and the invoice is marked cancelled. The receipt
+   * journals stay in place, so any money held becomes a customer credit/refund.
+   */
+  router.post(
+    ["/companies/:companyId/vehicles/:id/cancel", "/companies/:companyId/vehicles/:id/reverse-sale"],
+    ...need("vehicles.manage"),
+    async (req: any, res) => {
+      try {
+        const companyId = parseInt(req.params.companyId);
+        const vehicleId = parseInt(req.params.id);
+        const body = z.object({ reason: z.string().max(1000).nullable().optional() }).parse(req.body ?? {});
+
+        const result = await db.transaction(async (tx: any) => {
+          const v = await lockedVehicle(tx, companyId, vehicleId);
+          if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+          if (!v.invoiceId && v.status === "cancelled") {
+            throw Object.assign(new Error("This vehicle is already cancelled"), { status: 409 });
+          }
+
+          let invoice: any = null;
+          if (v.invoiceId) {
+            [invoice] = await tx
+              .select()
+              .from(invoices)
+              .where(and(eq(invoices.id, v.invoiceId), eq(invoices.companyId, companyId)))
+              .for("update");
+
+            if (invoice) {
+              const revenueJournals = await tx
+                .select({ id: journalEntries.id })
+                .from(journalEntries)
+                .where(and(
+                  eq(journalEntries.companyId, companyId),
+                  eq(journalEntries.referenceType, "INVOICE"),
+                  eq(journalEntries.referenceId, String(invoice.id)),
+                ));
+              for (const entry of revenueJournals) {
+                await reverseJournalIfPosted(tx, companyId, entry.id, `Cancel invoice ${invoice.invoiceNumber}`, req.user?.id);
+              }
+            }
+          }
+
+          if (v.cogsJournalEntryId) {
+            await reverseJournalIfPosted(tx, companyId, v.cogsJournalEntryId, `Reverse COGS for ${v.stockNumber}`, req.user?.id);
+          }
+
+          const vehiclePayments = await tx
+            .select()
+            .from(payments)
+            .where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, v.id)));
+
+          for (const payment of vehiclePayments) {
+            if (payment.clearingJournalEntryId) {
+              await reverseJournalIfPosted(
+                tx,
+                companyId,
+                payment.clearingJournalEntryId,
+                `Reverse deposit clearing for payment ${payment.id}`,
+                req.user?.id,
+              );
+              await tx.update(payments).set({
+                clearingJournalEntryId: null,
+                clearedAt: null,
+              }).where(eq(payments.id, payment.id));
+            }
+            if (invoice) {
+              await tx.update(paymentAllocations).set({ reversedAt: new Date() }).where(and(
+                eq(paymentAllocations.invoiceId, invoice.id),
+                eq(paymentAllocations.paymentId, payment.id),
+                isNull(paymentAllocations.reversedAt),
+              ));
+            }
+          }
+
+          if (invoice) {
+            await tx.update(invoices).set({
+              status: "cancelled",
+              paidAmount: "0.00",
+              notes: sql`COALESCE(${invoices.notes} || E'\n', '') || ${`Cancelled with vehicle ${v.stockNumber}${body.reason ? `: ${body.reason}` : ""}`}`,
+            }).where(and(eq(invoices.id, invoice.id), eq(invoices.companyId, companyId)));
+          }
+
+          const [updated] = await tx.update(vehicles).set({
+            status: "cancelled",
+            cogsJournalEntryId: null,
+            cogsAmount: null,
+            cogsPostedAt: null,
+            updatedAt: new Date(),
+          }).where(eq(vehicles.id, v.id)).returning();
+
+          if (v.enquiryId) {
+            await logEnquiryVehicleActivity(
+              tx,
+              v.enquiryId,
+              `Sale of ${v.stockNumber} was cancelled${body.reason ? ` — ${body.reason}` : ""}.`,
+              { vehicleId: v.id, invoiceId: invoice?.id ?? null },
+              req.user?.id,
+            );
+          }
+
+          return { vehicle: updated, invoice };
+        });
+
+        res.json(result);
+      } catch (error: any) {
+        console.error(error);
+        if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+        res.status(error.status || 500).json({ error: error.message || "Failed to cancel vehicle sale" });
+      }
+    },
+  );
+
+  /**
    * Posts COGS for a vehicle that was invoiced before the automatic COGS
-   * posting existed (or before all its costs were captured). Safe to call more
-   * than once: an existing COGS entry is returned untouched.
+   * posting existed. Refuses a second COGS post; only capitalised costs are
+   * relieved, so unposted pending/disputed lines are never expensed early.
    */
   router.post("/companies/:companyId/vehicles/:id/cogs", ...need("vehicles.manage"), async (req: any, res) => {
     try {
@@ -1316,7 +1942,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (!v.invoiceId) return res.status(400).json({ error: "Create or attach the vehicle invoice before posting COGS" });
 
       const result = await db.transaction(async (tx: any) => {
-        const cogs = await postVehicleCogs(tx, companyId, v, req.user?.id);
+        const cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
         const enquiry = v.enquiryId
           ? await markEnquiryWon(
               tx,
@@ -1334,7 +1960,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       res.status(result.cogs.posted ? 201 : 200).json(result);
     } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: error.message || "Failed to post COGS" });
+      res.status(error.status || 500).json({ error: error.message || "Failed to post COGS" });
     }
   });
 
@@ -1482,7 +2108,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .parse(req.body ?? {});
 
       const rate = Number(v.saleExchangeRate || 1) || 1;
-      const total = round2(Number(v.salePrice) * rate);
+      // Once invoiced, the customer owes the invoice total including tax, so the
+      // plan must cover that - not the pre-tax agreed sale.
+      let total = round2(Number(v.salePrice) * rate);
+      if (v.invoiceId) {
+        const [invoice] = await db
+          .select()
+          .from(invoices)
+          .where(and(eq(invoices.id, v.invoiceId), eq(invoices.companyId, companyId)));
+        if (invoice) {
+          total = round2(Number(invoice.total) * (Number(invoice.exchangeRate) || 1));
+        }
+      }
       if (total <= 0) return res.status(400).json({ error: "The agreed sale price must be greater than zero" });
 
       const deposit = round2(body.deposit);
@@ -1578,13 +2215,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .leftJoin(customers, eq(customers.id, vehicles.customerId))
         .where(and(eq(vehicles.companyId, companyId), sql`${vehicles.salePrice} IS NOT NULL`, sql`${vehicles.status} <> 'cancelled'`));
       const ids = rows.map((r) => r.vehicle.id);
-      const { costs, paid } = await totalsFor(ids);
+      const { costs, paid, invoiceBase } = await totalsFor(ids);
       const schedules = ids.length
         ? await db.select().from(vehiclePaymentSchedules).where(inArray(vehiclePaymentSchedules.vehicleId, ids)).orderBy(asc(vehiclePaymentSchedules.dueDate))
         : [];
       const result = rows
         .map((r) => {
-          const summary = summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0);
+          const summary = summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id));
           const lines = openScheduleLines(schedules.filter((s) => s.vehicleId === r.vehicle.id), summary.paid);
           const openLines = lines.filter((l) => l.open > 0.004);
           const overdue = money(openLines.filter((l) => l.state === "overdue").reduce((s, l) => s + l.open, 0));
@@ -1638,7 +2275,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       .where(and(eq(vehicles.companyId, companyId), sql`${vehicles.status} <> 'cancelled'`))
       .orderBy(desc(vehicles.createdAt));
     const ids = rows.map((r) => r.vehicle.id);
-    const { costs, paid } = await totalsFor(ids);
+    const { costs, paid, invoiceBase } = await totalsFor(ids);
     const supplierIds = Array.from(
       new Set(Array.from(costs.values()).flat().map((c: any) => c.supplierId).filter((x: any) => x != null)),
     ).map(Number);
@@ -1651,7 +2288,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         ...c,
         supplierName: c.supplierId ? supplierMap.get(Number(c.supplierId)) ?? null : null,
       }));
-      const summary = summariseVehicle(r.vehicle, lines, paid.get(r.vehicle.id) || 0);
+      const summary = summariseVehicle(r.vehicle, lines, paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id));
       const costSuppliers = Array.from(new Set(lines.map((l: any) => l.supplierId).filter((x: any) => x != null))).map((id: any) => ({
         id: Number(id),
         name: supplierMap.get(Number(id)) ?? null,

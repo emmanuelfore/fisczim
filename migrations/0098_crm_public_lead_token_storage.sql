@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS crm_public_lead_rate_limits (
   ip_address INET NOT NULL,
   submission_count INTEGER NOT NULL DEFAULT 1,
   window_start TIMESTAMP DEFAULT NOW(),
-  window_end TIMESTAMP NOT NULL,
-  INDEX (company_id, ip_address, window_end)
+  window_end TIMESTAMP NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS crm_public_lead_rate_limits_lookup_idx ON crm_public_lead_rate_limits(company_id, ip_address, window_end);
+CREATE INDEX IF NOT EXISTS crm_public_lead_rate_limits_lookup_idx
+  ON crm_public_lead_rate_limits(company_id, ip_address, window_end);

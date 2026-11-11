@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomBytes } from "node:crypto";
 import { db } from "../db.js";
 import {
   enquiries,
@@ -16,10 +17,12 @@ import {
   vehicles,
   vehicleCosts,
   invoices,
+  socialLeads,
+  socialComments,
   crmPublicLeadTokens,
   crmPublicLeadRateLimits,
 } from "../../shared/schema.js";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   captureLead,
@@ -40,11 +43,18 @@ import { userHasPermission } from "../lib/permissions.js";
  *   audit_logs  - not duplicated; enquiry_activities is the per-lead chatter
  */
 
-/** Keep the enquiry `status` column aligned with its stage's won/lost flags. */
-function statusForStage(stage: { isWon: boolean; isLost: boolean } | null | undefined) {
-  if (!stage) return "open";
-  if (stage.isWon) return "won";
-  if (stage.isLost) return "lost";
+/**
+ * Status after a manual stage move. A card dragged into a won column records
+ * the stage only: the deal becomes won when a vehicle invoice is raised (see
+ * `markEnquiryWon`), never because of the board. Closing as lost is still a
+ * manual decision, and a real won is never reopened by a drag.
+ */
+function statusAfterStageMove(
+  stage: { isWon: boolean; isLost: boolean } | null | undefined,
+  currentStatus: string | null | undefined,
+) {
+  if (stage?.isLost) return "lost";
+  if (currentStatus === "won") return "won";
   return "open";
 }
 
@@ -52,6 +62,32 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   const router = Router();
 
   // ── helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Permission check used by every CRM route. Super admins bypass the
+   * company-scoped permission table, which is why the flag has to be passed
+   * through rather than dropped at the call site.
+   */
+  async function can(req: any, companyId: number, permission: any) {
+    return userHasPermission(req.user.id, companyId, permission, Boolean(req.user?.isSuperAdmin));
+  }
+
+  /** Quotation numbers are allocated per company, inside the caller's tx. */
+  async function allocateQuotationNumber(companyId: number, tx: any): Promise<string> {
+    // Serialise allocators for this company so two concurrent quotes cannot
+    // read the same MAX() and collide on the unique (company, number) index.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`crm:quotation:${companyId}`}))`);
+    const rows = await tx
+      .select({ quotationNumber: quotations.quotationNumber })
+      .from(quotations)
+      .where(eq(quotations.companyId, companyId));
+    const max = rows
+      .filter((r: any) => r.quotationNumber?.startsWith("QT-"))
+      .map((r: any) => parseInt(r.quotationNumber.slice(3), 10))
+      .filter((n: number) => Number.isFinite(n))
+      .reduce((a: number, b: number) => Math.max(a, b), 0);
+    return `QT-${max + 1}`;
+  }
 
   async function getStage(companyId: number, stageId: number) {
     const [stage] = await db
@@ -67,15 +103,16 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
     body: string | null,
     metadata: unknown,
     userId?: string | null,
+    executor: any = db,
   ) {
-    await db.insert(enquiryActivities).values({
+    await executor.insert(enquiryActivities).values({
       enquiryId,
       type,
       body,
       metadata: metadata ?? null,
       userId: userId ?? null,
     });
-    await db.update(enquiries).set({ lastActivityAt: new Date() }).where(eq(enquiries.id, enquiryId));
+    await executor.update(enquiries).set({ lastActivityAt: new Date() }).where(eq(enquiries.id, enquiryId));
   }
 
   async function nextQuotationNumber(companyId: number, tx?: any): Promise<string> {
@@ -97,7 +134,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/dormant", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const days = Math.max(1, parseInt(String(req.query.days ?? "30")) || 30);
@@ -127,7 +164,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/stages", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const stages = await ensureStages(companyId);
@@ -141,7 +178,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/stages", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.stages.manage"))) {
+      if (!(await can(req, companyId, "crm.stages.manage"))) {
         return res.status(403).json({ error: "CRM stages manage permission required" });
       }
       const data = insertCrmStageSchema.parse({ ...req.body, companyId });
@@ -161,7 +198,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.patch("/companies/:companyId/crm/stages/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.stages.manage"))) {
+      if (!(await can(req, companyId, "crm.stages.manage"))) {
         return res.status(403).json({ error: "CRM stages manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -187,10 +224,19 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         return res.json(fixed);
       }
 
-      await db
-        .update(enquiries)
-        .set({ status: statusForStage(updated) })
-        .where(and(eq(enquiries.companyId, companyId), eq(enquiries.stageId, id)));
+      // A stage labelled won must not close deals by itself. Only a lost stage
+      // rewrites the status of the enquiries sitting in it, and an already-won
+      // deal is never reopened by a configuration change.
+      if (updated.isLost) {
+        await db
+          .update(enquiries)
+          .set({ status: "lost" })
+          .where(and(
+            eq(enquiries.companyId, companyId),
+            eq(enquiries.stageId, id),
+            ne(enquiries.status, "won"),
+          ));
+      }
 
       res.json(updated);
     } catch (error) {
@@ -202,7 +248,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.delete("/companies/:companyId/crm/stages/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.stages.manage"))) {
+      if (!(await can(req, companyId, "crm.stages.manage"))) {
         return res.status(403).json({ error: "CRM stages manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -233,7 +279,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/enquiries", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const { stageId, assignedTo, search, status } = req.query as Record<string, string | undefined>;
@@ -312,7 +358,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/matching-enquiries", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const make = String(req.query.make ?? "").trim();
@@ -359,7 +405,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/enquiries/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const id = parseInt(req.params.id);
@@ -423,7 +469,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/enquiries", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const data = insertEnquirySchema.parse({ ...req.body, companyId });
@@ -431,6 +477,28 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       const stages = await ensureStages(companyId);
       const openingStage = stages.find((s) => s.sequence === Math.min(...stages.map((x) => x.sequence))) ?? stages[0];
       const stageId = (data.stageId ?? openingStage?.id) ?? null;
+
+      // References captured from the client must belong to this company; a
+      // stage, customer or salesperson from another tenant would otherwise be
+      // attached to the lead.
+      if (data.stageId != null) {
+        const stage = await getStage(companyId, data.stageId);
+        if (!stage) return res.status(400).json({ error: "Stage does not belong to this company" });
+      }
+      if (data.customerId != null) {
+        const [ownedCustomer] = await db
+          .select({ id: customers.id })
+          .from(customers)
+          .where(and(eq(customers.id, data.customerId), eq(customers.companyId, companyId)));
+        if (!ownedCustomer) return res.status(400).json({ error: "Customer does not belong to this company" });
+      }
+      if (data.assignedTo) {
+        const [member] = await db
+          .select({ id: companyUsers.id })
+          .from(companyUsers)
+          .where(and(eq(companyUsers.userId, data.assignedTo), eq(companyUsers.companyId, companyId)));
+        if (!member) return res.status(400).json({ error: "User does not belong to this company" });
+      }
 
       const customerId = data.customerId ?? (await linkCustomer(companyId, data.phone, data.email));
 
@@ -461,7 +529,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           customerId,
           tags: [...tags],
           assignedTo: data.assignedTo ?? prior?.assignedTo ?? null,
-          status: statusForStage(stages.find((s) => s.id === stageId)),
+          status: statusAfterStageMove(stages.find((s) => s.id === stageId), "open"),
           createdBy: req.user?.id ?? null,
         })
         .returning();
@@ -490,7 +558,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.patch("/companies/:companyId/crm/enquiries/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -556,7 +624,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           return res.status(400).json({ error: "A lost reason is required to close an enquiry as lost" });
         }
         updates.stageId = stage.id;
-        updates.status = statusForStage(stage);
+        updates.status = statusAfterStageMove(stage, existing.status);
         if (stage.isLost) updates.lostReason = body.lostReason;
         await logActivity(
           id,
@@ -567,7 +635,6 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         );
       }
 
-      if ("customerId" in body) updates.customerId = body.customerId || null;
       if (!Object.keys(updates).length) return res.json(existing);
 
       updates.updatedAt = new Date();
@@ -588,7 +655,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/enquiries/:id/stage", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -610,7 +677,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .update(enquiries)
         .set({
           stageId: stage.id,
-          status: statusForStage(stage),
+          status: statusAfterStageMove(stage, existing.status),
           lostReason: stage.isLost ? req.body.lostReason : null,
           updatedAt: new Date(),
         })
@@ -636,7 +703,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/enquiries/:id/convert", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -703,7 +770,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/enquiries/:id/quotation", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.quotation.create"))) {
+      if (!(await can(req, companyId, "crm.quotation.create"))) {
         return res.status(403).json({ error: "CRM quotation create permission required" });
       }
       const id = parseInt(req.params.id);
@@ -747,8 +814,11 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       const subtotal = computed.reduce((sum, i) => sum + Number(i.lineTotal), 0);
       const taxAmount = computed.reduce((sum, i) => sum + i.taxTotal, 0);
 
-      const quotation = await db.transaction(async (tx) => {
-        const quotationNumber = await nextQuotationNumber(companyId, tx);
+      const { quotation, updated } = await db.transaction(async (tx) => {
+        // Allocate and insert under the advisory lock so two concurrent quotes
+        // cannot take the same number, and point the enquiry at the new quote
+        // in the same transaction. Older quotes are kept.
+        const quotationNumber = await allocateQuotationNumber(companyId, tx);
         const [created] = await tx
           .insert(quotations)
           .values({
@@ -768,14 +838,14 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           computed.map(({ taxTotal, ...item }) => ({ ...item, quotationId: created.id })),
         );
 
-        return created;
-      });
+        const [enq] = await tx
+          .update(enquiries)
+          .set({ quotationId: created.id, customerId, updatedAt: new Date() })
+          .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)))
+          .returning();
 
-      const [updated] = await db
-        .update(enquiries)
-        .set({ quotationId: quotation.id, customerId, updatedAt: new Date() })
-        .where(eq(enquiries.id, id))
-        .returning();
+        return { quotation: created, updated: enq };
+      });
 
       await logActivity(id, "quotation", `Quotation ${quotation.quotationNumber} raised.`, { quotationId: quotation.id }, req.user?.id);
 
@@ -791,7 +861,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/duplicates", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const rows = await db
@@ -827,7 +897,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/enquiries/:id/merge", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.duplicates.merge"))) {
+      if (!(await can(req, companyId, "crm.duplicates.merge"))) {
         return res.status(403).json({ error: "CRM duplicates merge permission required" });
       }
       const id = parseInt(req.params.id);
@@ -843,15 +913,50 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       if (!target) return res.status(404).json({ error: "Enquiry not found" });
 
       const valid = await db
-        .select({ id: enquiries.id, name: enquiries.name })
+        .select()
         .from(enquiries)
         .where(and(eq(enquiries.companyId, companyId), inArray(enquiries.id, sourceIds)));
 
       const result = await db.transaction(async (tx) => {
         const ids = valid.map((v) => v.id);
         if (!ids.length) return { merged: 0 };
+
+        // Everything that points at a duplicate follows the survivor, in the
+        // same transaction as the delete so no row is ever orphaned.
+        await tx.update(vehicles).set({ enquiryId: id }).where(inArray(vehicles.enquiryId, ids));
+        await tx.update(socialLeads).set({ enquiryId: id }).where(inArray(socialLeads.enquiryId, ids));
+        await tx.update(socialComments).set({ enquiryId: id }).where(inArray(socialComments.enquiryId, ids));
         await tx.update(enquiryActivities).set({ enquiryId: id }).where(inArray(enquiryActivities.enquiryId, ids));
         await tx.update(enquiryFollowUps).set({ enquiryId: id }).where(inArray(enquiryFollowUps.enquiryId, ids));
+
+        // Quotations are never deleted: the survivor points at the most recent
+        // one raised across the merged leads, and older quotes stay on record.
+        const quotationIds = [target.quotationId, ...valid.map((v) => v.quotationId)]
+          .filter((q): q is number => typeof q === "number");
+        if (quotationIds.length) {
+          const [latest] = await tx
+            .select({ id: quotations.id })
+            .from(quotations)
+            .where(and(eq(quotations.companyId, companyId), inArray(quotations.id, quotationIds)))
+            .orderBy(desc(quotations.createdAt), desc(quotations.id))
+            .limit(1);
+          if (latest && latest.id !== target.quotationId) {
+            await tx.update(enquiries).set({ quotationId: latest.id }).where(eq(enquiries.id, id));
+          }
+        }
+
+        // Keep the survivor usable when it was the emptier record.
+        const donor = valid.find((v) => v.customerId) ?? valid[0];
+        const fill: Record<string, unknown> = {};
+        if (!target.customerId && donor?.customerId) fill.customerId = donor.customerId;
+        if (!target.assignedTo && donor?.assignedTo) fill.assignedTo = donor.assignedTo;
+        if (!target.phone && donor?.phone) fill.phone = donor.phone;
+        if (!target.email && donor?.email) fill.email = donor.email;
+        if (!target.branchId && donor?.branchId) fill.branchId = donor.branchId;
+        if (Object.keys(fill).length) {
+          await tx.update(enquiries).set(fill).where(eq(enquiries.id, id));
+        }
+
         await tx.delete(enquiries).where(inArray(enquiries.id, ids));
         await logActivity(
           id,
@@ -859,6 +964,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           `Merged ${ids.length} duplicate enquiry(ies) into this record.`,
           { sourceIds: ids },
           req.user?.id,
+          tx,
         );
         return { merged: ids.length };
       });
@@ -875,7 +981,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/enquiries/:id/activities", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const id = parseInt(req.params.id);
@@ -900,7 +1006,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.post("/companies/:companyId/crm/enquiries/:id/activities", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -932,7 +1038,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.get("/companies/:companyId/crm/follow-ups", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.view"))) {
+      if (!(await can(req, companyId, "crm.pipeline.view"))) {
         return res.status(403).json({ error: "CRM pipeline view permission required" });
       }
       const scope = (req.query.scope as string) || "due";
@@ -968,7 +1074,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .where(eq(enquiries.id, id))
         .limit(1);
       if (!owned) return res.status(404).json({ error: "Enquiry not found" });
-      if (!(await userHasPermission(req.user.id, owned.companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, owned.companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       // The generated insert schema types `due_at` as z.date(), but a timestamp can
@@ -1007,7 +1113,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
   router.patch("/companies/:companyId/crm/follow-ups/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const id = parseInt(req.params.id);
@@ -1048,12 +1154,87 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
     }
   });
 
+  // ── public lead tokens ─────────────────────────────────────────────────────
+
+  router.get("/companies/:companyId/crm/public-lead-tokens", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
+        return res.status(403).json({ error: "CRM pipeline manage permission required" });
+      }
+      const rows = await db
+        .select({
+          id: crmPublicLeadTokens.id,
+          token: crmPublicLeadTokens.token,
+          isActive: crmPublicLeadTokens.isActive,
+          expiresAt: crmPublicLeadTokens.expiresAt,
+          createdAt: crmPublicLeadTokens.createdAt,
+        })
+        .from(crmPublicLeadTokens)
+        .where(eq(crmPublicLeadTokens.companyId, companyId))
+        .orderBy(desc(crmPublicLeadTokens.createdAt));
+      res.json(rows);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch lead tokens" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/public-lead-tokens", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
+        return res.status(403).json({ error: "CRM pipeline manage permission required" });
+      }
+      const body = z
+        .object({ expiresAt: z.coerce.date().nullable().optional() })
+        .parse(req.body ?? {});
+      const [created] = await db
+        .insert(crmPublicLeadTokens)
+        .values({
+          companyId,
+          token: randomBytes(24).toString("base64url"),
+          isActive: true,
+          expiresAt: body.expiresAt ?? null,
+          createdBy: req.user?.id ?? null,
+        })
+        .returning();
+      res.status(201).json(created);
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to create lead token" });
+    }
+  });
+
+  router.delete("/companies/:companyId/crm/public-lead-tokens/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
+        return res.status(403).json({ error: "CRM pipeline manage permission required" });
+      }
+      const [updated] = await db
+        .update(crmPublicLeadTokens)
+        .set({ isActive: false })
+        .where(and(
+          eq(crmPublicLeadTokens.id, parseInt(req.params.id)),
+          eq(crmPublicLeadTokens.companyId, companyId),
+        ))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Lead token not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to revoke lead token" });
+    }
+  });
+
   // ── reporting ──────────────────────────────────────────────────────────────
 
   router.get("/companies/:companyId/crm/reports/pipeline", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      if (!(await userHasPermission(req.user.id, companyId, "crm.reports.view"))) {
+      if (!(await can(req, companyId, "crm.reports.view"))) {
         return res.status(403).json({ error: "CRM reports view permission required" });
       }
       const stages = await ensureStages(companyId);
@@ -1273,31 +1454,44 @@ export function createPublicLeadRouter() {
       const companyId = parseInt(req.params.companyId);
       if (!companyId) return res.status(400).json({ error: "Unknown company" });
 
-      // Validate token
-      const token = req.headers["x-lead-token"] as string;
+      // A per-company token (issued from CRM settings) is the normal credential.
+      // A deployment-wide shared secret is accepted as a fallback so the public
+      // form can be wired before an admin issues tokens.
+      const token = (req.headers["x-lead-token"] as string | undefined)?.trim();
+      const sharedSecret = process.env.CRM_LEAD_SHARED_SECRET?.trim();
+      const isSharedSecret = Boolean(sharedSecret && token && token === sharedSecret);
+
       if (!token) return res.status(401).json({ error: "Missing lead token" });
 
-      const [validToken] = await db
-        .select()
-        .from(crmPublicLeadTokens)
-        .where(
-          and(
-            eq(crmPublicLeadTokens.companyId, companyId),
-            eq(crmPublicLeadTokens.token, token),
-            eq(crmPublicLeadTokens.isActive, true),
-          ),
-        )
-        .limit(1);
+      if (!isSharedSecret) {
+        const [validToken] = await db
+          .select()
+          .from(crmPublicLeadTokens)
+          .where(
+            and(
+              eq(crmPublicLeadTokens.companyId, companyId),
+              eq(crmPublicLeadTokens.token, token),
+              eq(crmPublicLeadTokens.isActive, true),
+            ),
+          )
+          .limit(1);
 
-      if (!validToken) return res.status(401).json({ error: "Invalid or inactive lead token" });
-      if (validToken.expiresAt && new Date(validToken.expiresAt) < new Date()) {
-        return res.status(401).json({ error: "Lead token has expired" });
+        if (!validToken) return res.status(401).json({ error: "Invalid or inactive lead token" });
+        if (validToken.expiresAt && new Date(validToken.expiresAt) < new Date()) {
+          return res.status(401).json({ error: "Lead token has expired" });
+        }
       }
 
-      // Rate limiting by IP address (max 5 submissions per hour)
-      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
-      const windowStart = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
-      const windowEnd = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+      // Rate limiting by IP address (max 5 submissions per hour). `ip_address`
+      // is INET, so a missing remote address must fall back to a valid address
+      // rather than the string "unknown".
+      const ipAddress =
+        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+        req.socket.remoteAddress ||
+        "0.0.0.0";
+      const now = new Date();
+      const windowStart = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
+      const windowEnd = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
 
       const [existingRateLimit] = await db
         .select()

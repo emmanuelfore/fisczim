@@ -13,6 +13,20 @@ import { pdfFontFamily } from "@/lib/pdf-fonts";
 import { getDefaultCity, getDefaultCountry } from "@/lib/country-detect";
 import { resolveMediaUrl } from "@/lib/media";
 
+/**
+ * @react-pdf/renderer's <Image> runs in a separate renderer context and
+ * cannot fetch relative URLs. This wrapper ensures the URL is always
+ * absolute so the PDF engine can download it.
+ */
+function pdfResolveMediaUrl(raw?: string | null): string {
+  const resolved = resolveMediaUrl(raw);
+  if (!resolved) return "";
+  if (/^(https?:|data:|blob:)/i.test(resolved)) return resolved;
+  if (resolved.startsWith("//")) return `${window.location.protocol}${resolved}`;
+  if (resolved.startsWith("/")) return `${window.location.origin}${resolved}`;
+  return `${window.location.origin}/${resolved}`;
+}
+
 // Use built-in Helvetica — removing font registration to eliminate fetch issues
 
 const s = StyleSheet.create({
@@ -324,7 +338,7 @@ export const PaymentReceiptPDF = ({
             (company.logoUrl.startsWith("http") ||
               company.logoUrl.startsWith("/")) ? (
               <Image
-                src={resolveMediaUrl(company.logoUrl)}
+                src={pdfResolveMediaUrl(company.logoUrl)}
                 style={{ width: 100, height: 30, objectFit: "contain" }}
               />
             ) : (

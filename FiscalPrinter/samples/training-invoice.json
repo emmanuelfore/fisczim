@@ -1,0 +1,70 @@
+{
+  "documentType": "Fiscal Tax Invoice",
+  "company": {
+    "name": "Eximium Premium Brands (Pvt) Ltd",
+    "logoMark": "epb",
+    "addressLines": ["84 West Road", "Avondale", "Harare Harare"],
+    "phone": "",
+    "email": "",
+    "tin": "2002533710",
+    "vat": "220451470"
+  },
+  "invoice": {
+    "number": "IN-000000027",
+    "date": "10/16/2026",
+    "time": "3:46:28PM",
+    "page": "1",
+    "reference": "test",
+    "required": "10/16/2026",
+    "account": "SAMP01",
+    "reason": "",
+    "salesPerson": "",
+    "currency": "USD"
+  },
+  "buyer": {
+    "name": "Sample Inv",
+    "tradeName": "",
+    "address": "::, Zimbabwe",
+    "tin": "",
+    "vat": "",
+    "email": "",
+    "phone": ""
+  },
+  "bank": {
+    "accountName": "EXIMIUM PREMIUM BRANDS PVT LTD",
+    "bank": "CBZ Borrowdale Branch",
+    "accounts": [
+      { "type": "ZWG", "number": "27808160027" },
+      { "type": "USD", "number": "27808160017" }
+    ]
+  },
+  "items": [
+    {
+      "hsCode": "85434000",
+      "code": "VOL018BLU",
+      "description": "V18X-BLUEBERRY",
+      "quantity": 1,
+      "unit": "EA",
+      "price": 1.0,
+      "vat": 0.16,
+      "total": 1.0
+    }
+  ],
+  "totals": {
+    "subtotal": 1.0,
+    "discount": 0.0,
+    "delivery": 0.0,
+    "vatTotal": 0.16,
+    "invoiceTotal": 1.16
+  },
+  "training": {
+    "watermark": "TRAINING — NOT A VALID FISCAL INVOICE",
+    "verificationCode": "TRAIN-IN-IN000000027",
+    "receiptNumber": "42",
+    "receiptGlobalNo": "1042",
+    "receiptCounter": "7",
+    "fiscalDayNo": "3",
+    "deviceSerial": "TRAINING-DEVICE-01",
+    "fiscalisedAt": "10/16/2026 3:46:28PM"
+  }
+}

@@ -16,13 +16,22 @@
     "process": "node src/cli.js process",
     "test:sample": "node src/cli.js process ./samples/sample-invoice.json",
     "test:pos": "node src/cli.js process ./samples/sample-pos-receipt.txt",
+    "training": "node src/cli.js training",
+    "training:invoice": "node src/cli.js training ./samples/training-invoice.json --out ./spool/training",
+    "training:credit": "node src/cli.js training ./samples/training-credit-note.json --out ./spool/training",
+    "training:pdf": "node src/cli.js training ./samples/training-invoice.json --pdf --open --out ./spool/training",
+    "parse": "node src/cli.js parse",
+    "training:stamp": "node src/cli.js training-stamp",
+    "training:stamp:samples": "node src/cli.js training-stamp \"./Eximium Premium Brands (Pvt) Ltd IN-000000027_20261016034644.pdf\" \"./Eximium Premium Brands (Pvt) Ltd CN-000000001_20261016034820.pdf\" --out ./spool/training",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux"
   },
   "build": {
     "appId": "com.fiscalstack.fiscalprinter",
     "productName": "FiscalPrinter",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "files": [
       "electron/**/*",
       "src/**/*",
@@ -30,14 +39,25 @@
       "package.json"
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   },
   "dependencies": {
     "chokidar": "^3.6.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

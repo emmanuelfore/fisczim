@@ -4,6 +4,7 @@
  */
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const chokidar = require("chokidar");
 
 let mainWindow = null;
@@ -86,6 +87,87 @@ async function startWatch(config) {
   log(`Watching ${config.spoolFolder}`);
 }
 
+/**
+ * TRAINING MODE — offline sample invoice + QR.
+ *
+ * This path deliberately never imports FiscalStackClient / processJob, so a
+ * training print cannot call /fiscalize, write an invoice or consume a fiscal
+ * counter. It only renders an HTML/PDF document and prints it locally.
+ */
+async function runTraining(config, { template = "invoice", action = "preview" } = {}) {
+  const { buildTrainingInvoiceHtml, writeTrainingFiles } = await loadEsm("src/trainingInvoice.js");
+  const { printHtmlElectron } = await loadEsm("src/printLocal.js");
+
+  const sampleName =
+    template === "credit" ? "training-credit-note.json" : "training-invoice.json";
+  const inputPath = path.join(__dirname, "..", "samples", sampleName);
+  const data = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+
+  const html = await buildTrainingInvoiceHtml({ data, config });
+  const baseName = `training-${template}-${Date.now()}`;
+  const outDir = path.join(config.outputFolder, "training");
+  const { htmlPath } = writeTrainingFiles({ outputFolder: outDir, baseName, html });
+
+  const result = { htmlPath, pdfPath: null, printed: false };
+
+  if (action === "preview") {
+    const preview = new BrowserWindow({
+      width: 900,
+      height: 1100,
+      title: "FiscalPrinter — Training sample (not a valid fiscal invoice)",
+      webPreferences: { contextIsolation: true, sandbox: true },
+    });
+    await preview.loadFile(htmlPath);
+    return result;
+  }
+
+  if (action === "pdf") {
+    result.pdfPath = path.join(outDir, `${baseName}.pdf`);
+    await printHtmlToPdf(htmlPath, result.pdfPath);
+    return result;
+  }
+
+  if (action === "print") {
+    await printHtmlElectron(html, config.printerName);
+    result.printed = true;
+    return result;
+  }
+
+  return result;
+}
+
+function printHtmlToPdf(htmlPath, pdfPath) {
+  return new Promise((resolve, reject) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { offscreen: true, javascript: false, sandbox: true },
+    });
+    const finish = (err) => {
+      if (!win.isDestroyed()) win.destroy();
+      if (err) reject(err);
+      else resolve();
+    };
+    win.webContents.on("did-fail-load", (_e, code, desc) =>
+      finish(new Error(`PDF window failed to load (${code}): ${desc}`))
+    );
+    win.webContents.on("did-finish-load", async () => {
+      try {
+        const pdf = await win.webContents.printToPDF({
+          pageSize: "A4",
+          printBackground: true,
+          preferCSSPageSize: true,
+        });
+        fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+        fs.writeFileSync(pdfPath, pdf);
+        finish();
+      } catch (err) {
+        finish(err);
+      }
+    });
+    win.loadFile(htmlPath);
+  });
+}
+
 app.whenReady().then(async () => {
   const { loadConfig, saveConfig } = await loadEsm("src/config.js");
   let config = loadConfig();
@@ -108,6 +190,16 @@ app.whenReady().then(async () => {
     queue.push(filePath);
     await drainQueue(config);
     return true;
+  });
+  ipcMain.handle("training-run", async (_e, options) => {
+    try {
+      const result = await runTraining(config, options);
+      log(`Training sample ready: ${path.basename(result.htmlPath)}`);
+      return { ok: true, ...result };
+    } catch (err) {
+      log(`Training failed: ${err.message}`);
+      return { ok: false, error: err.message };
+    }
   });
 
   await createWindow();

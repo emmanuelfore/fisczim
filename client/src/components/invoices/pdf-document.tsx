@@ -6,6 +6,23 @@ import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTempl
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
 import { resolveMediaUrl } from "@/lib/media";
+
+/**
+ * @react-pdf/renderer's <Image> runs in a separate renderer context and
+ * cannot fetch relative URLs.  This wrapper ensures the URL is always
+ * absolute so the PDF engine can download it.
+ */
+function pdfResolveMediaUrl(raw?: string | null): string {
+  const resolved = resolveMediaUrl(raw);
+  if (!resolved) return "";
+  // Already absolute (http / https / data / blob)
+  if (/^(https?:|data:|blob:)/i.test(resolved)) return resolved;
+  // Convert a protocol-relative URL
+  if (resolved.startsWith("//")) return `${window.location.protocol}${resolved}`;
+  // Relative path → make absolute using the current origin
+  if (resolved.startsWith("/")) return `${window.location.origin}${resolved}`;
+  return `${window.location.origin}/${resolved}`;
+}
 const styles = StyleSheet.create({
     page: {
         padding: 24,
@@ -277,14 +294,14 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     {/* Left: Logo(s) */}
                     <View style={{ width: '28%', flexDirection: showDualLogo && partnerLogoPlacement === 'stacked' ? 'column' : 'row', alignItems: 'center', gap: 4 }}>
                         {company?.logoUrl ? (
-                            <Image src={resolveMediaUrl(company.logoUrl)} style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
+                            <Image src={pdfResolveMediaUrl(company.logoUrl)} style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
                         ) : (
                             hasDesignerPartnership ? (
                                 <Image src="https://placehold.co/200x100/png?text=Company+Logo" style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
                             ) : null
                         )}
                         {showDualLogo && partner?.logoUrl && partnerLogoPlacement !== 'right_header' ? (
-                            <Image src={resolveMediaUrl(partner.logoUrl)} style={{ width: partnerLogoPlacement === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
+                            <Image src={pdfResolveMediaUrl(partner.logoUrl)} style={{ width: partnerLogoPlacement === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
                         ) : null}
                     </View>
 
@@ -308,7 +325,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     {/* Right: QR Code / Partner Logo */}
                     <View style={{ width: '28%', alignItems: 'flex-end', gap: 4 }}>
                         {showDualLogo && partner?.logoUrl && partnerLogoPlacement === 'right_header' ? (
-                            <Image src={resolveMediaUrl(partner.logoUrl)} style={{ width: 72, height: 44, objectFit: 'contain', marginBottom: 4 }} />
+                            <Image src={pdfResolveMediaUrl(partner.logoUrl)} style={{ width: 72, height: 44, objectFit: 'contain', marginBottom: 4 }} />
                         ) : null}
                         {showHeaderQr && designerSettings.qrPlacement === "header-right" ? (
                             <Image style={{ width: 68, height: 68 }} src={qrCodeUrl} />
@@ -395,7 +412,10 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             </View>
                             <View style={styles.fiscalRow}>
                                 <Text style={styles.fiscalLabel}>{invoice.status === 'quote' ? "Reference No:" : "Customer Reference No:"}</Text>
-                                <Text style={styles.fiscalValue}>{invoice.invoiceNumber}</Text>
+                                {/* For documents pushed by an external system (Palladium via
+                                    FiscalBridge) the caller's number is the reference the
+                                    customer holds; older rows only kept it in externalRef. */}
+                                <Text style={styles.fiscalValue}>{invoice.externalRef || invoice.invoiceNumber}</Text>
                             </View>
                             {invoice.status !== 'quote' && (
                                 <View style={styles.fiscalRow}>

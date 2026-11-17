@@ -811,6 +811,11 @@ router.post("/", async (req, res) => {
       fiscalCode:    fiscal.fiscalCode,   // SHA-256 hash for verification
       qrCode:        fiscal.qrCodeData,   // Render this on the receipt
       receiptNumber: fiscal.receiptGlobalNo,
+      // Printed verification code (XXXX-XXXX-XXXX-XXXX) and device identity
+      verificationCode: (fiscal as any).verificationCode ?? null,
+      deviceId:         company.fdmsDeviceId ?? null,
+      synced:           (fiscal as any).syncedWithFdms ?? null,
+      validationStatus: (fiscal as any).validationStatus ?? null,
       // ── ZIMRA-aligned receipt — ready to render ───────────────────────────
       receipt: {
         invoiceNo:               invoiceNumber,

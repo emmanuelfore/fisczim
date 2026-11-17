@@ -2,8 +2,12 @@
 import path from "path";
 import fs from "fs";
 import chokidar from "chokidar";
+import { spawn } from "child_process";
 import { loadConfig, projectRoot } from "./config.js";
 import { processJobSafe } from "./processJob.js";
+import { generateTrainingInvoice } from "./training.js";
+import { trainingStampPdf } from "./pdfStamp.js";
+import { parseInvoicePdf } from "./pdfInvoiceParser.js";
 
 const [command = "help", ...args] = process.argv.slice(2);
 const config = loadConfig();
@@ -49,15 +53,70 @@ async function watchSpool() {
   });
 }
 
+function parseFlags(args) {
+  const flags = {};
+  const rest = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--pdf") flags.pdf = true;
+    else if (arg === "--print") flags.print = true;
+    else if (arg === "--open") flags.open = true;
+    else if (arg === "--out") flags.out = args[++i];
+    else if (arg === "--printer") flags.printer = args[++i];
+    else rest.push(arg);
+  }
+  return { flags, rest };
+}
+
+async function runTraining(args) {
+  const { flags, rest } = parseFlags(args);
+  const filePath = rest[0];
+  if (!filePath) {
+    console.error("Usage: npm run training -- <file.json> [--pdf] [--print] [--printer <name>] [--out <dir>] [--open]");
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = await generateTrainingInvoice({
+    inputPath: path.resolve(filePath),
+    config,
+    outputFolder: flags.out ? path.resolve(flags.out) : undefined,
+    pdf: Boolean(flags.pdf),
+    print: Boolean(flags.print),
+    printerName: flags.printer || "",
+  });
+
+  console.log("[TRAINING] sample document generated (no fiscalization, no invoice changed)");
+  console.log(`     HTML: ${result.htmlPath}`);
+  if (result.pdfPath) console.log(`     PDF:  ${result.pdfPath}`);
+  if (result.printed) console.log("     sent to local printer");
+
+  if (flags.open) {
+    const opener =
+      process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+    const target = result.pdfPath || result.htmlPath;
+    const openerArgs = process.platform === "win32" ? ["/c", "start", "", target] : [target];
+    spawn(opener, openerArgs, { detached: true, stdio: "ignore" }).unref();
+  }
+}
+
 function help() {
   console.log(`
 FiscalPrinter — locally installed app
 
-  npm start                 Electron app (watch spool + silent print to local printer)
-  npm run watch             Headless CLI watcher (dev on Linux)
-  npm run process -- <file> Process one job
-  npm run test:pos          Sample POS text (Interface markers)
-  npm run build:win         Windows installer (run on Windows / CI)
+  npm start                     Electron app (watch spool + silent print to local printer)
+  npm run watch                 Headless CLI watcher (dev on Linux)
+  npm run process -- <file>     Process one job (fiscalize + print)
+  npm run test:pos              Sample POS text (Interface markers)
+  npm run build:win             Windows installer (run on Windows / CI)
+
+  Training mode (offline — never calls the API, never changes an invoice):
+  npm run training:invoice      Print-style A4 sample invoice + QR
+  npm run training:credit       Sample credit note + QR
+  npm run training -- <file> --pdf --open
+                                Generate any training JSON, optionally to PDF
+  npm run training -- <file> --print --printer "Printer name"
+                                Send the training sample to a printer
 
 HTML is only the internal receipt layout for the printer API.
 The installed app prints to your local printer — users do not open HTML files.
@@ -76,6 +135,41 @@ switch (command) {
     }
     await processOne(args[0]);
     break;
+  case "training":
+    await runTraining(args);
+    break;
+  case "training-stamp": {
+    const { flags, rest } = parseFlags(args);
+    if (!rest.length) {
+      console.error("Usage: npm run training:stamp -- <invoice.pdf> [more.pdf] [--out <dir>]");
+      process.exit(1);
+    }
+    for (const file of rest) {
+      const { outputPath, fiscal, parsed } = await trainingStampPdf({
+        inputPath: path.resolve(file),
+        outputFolder: flags.out ? path.resolve(flags.out) : undefined,
+        config,
+      });
+      console.log(`[TRAINING] ${parsed.documentType} ${fiscal.invoiceNumber} stamped (original untouched)`);
+      console.log(`     Total: ${parsed.currency} ${parsed.totals.invoiceTotal}  lines: ${parsed.items.length}`);
+      console.log(`     PDF:  ${outputPath}`);
+      console.log(`     Code: ${fiscal.verificationCode}`);
+      for (const w of parsed.warnings) console.log(`     ! ${w}`);
+    }
+    break;
+  }
+  case "parse": {
+    if (!args.length) {
+      console.error("Usage: npm run parse -- <invoice.pdf> [...]");
+      process.exit(1);
+    }
+    for (const file of args) {
+      const parsed = await parseInvoicePdf(path.resolve(file));
+      console.log(JSON.stringify(parsed, null, 2));
+      if (parsed.errors.length) process.exitCode = 2;
+    }
+    break;
+  }
   default:
     help();
 }

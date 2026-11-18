@@ -100,7 +100,7 @@ export default function VehicleStatementsPage() {
     );
   }, [vehicleCustomers, search]);
 
-  const { data: stmt, isLoading } = useQuery<any>({
+  const { data: stmt, isLoading, isError, error } = useQuery<any>({
     queryKey: ["/api/customers", selectedCustomerId, "statement-view", dateFrom, dateTo, activeCompanyId],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -299,6 +299,15 @@ export default function VehicleStatementsPage() {
                 <p className="max-w-md text-center text-sm">
                   Statements include every invoice and payment for the customer, including vehicle sales invoices.
                 </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {isError && !isLoading && (
+            <Card className="border-red-200 bg-red-50 shadow-none">
+              <CardContent className="flex flex-col items-center justify-center gap-1 py-16 text-center">
+                <p className="font-semibold text-red-700">Could not load the statement</p>
+                <p className="text-sm text-red-600">{(error as any)?.message || "Please try again."}</p>
               </CardContent>
             </Card>
           )}

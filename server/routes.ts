@@ -16953,6 +16953,11 @@ export async function registerRoutes(
   app.use('/api/v1', v1Router);
   app.use("/api", createRolesPermissionsRouter(requireAuth));
   app.use("/api", createPartnershipsRouter(requireAuth));
+  // Sales orders, customer products, statements and related customer-flow
+  // endpoints are addressed by the client as /api/<resource> (e.g.
+  // /api/customers/:id/statement-view). Mount at /api so those paths resolve;
+  // keep the legacy /api/customer-flow prefix for any existing callers.
+  app.use("/api", createCustomerFlowRouter(requireAuth));
   app.use("/api/customer-flow", createCustomerFlowRouter(requireAuth));
   app.use("/api", createFreightRouter(requireAuth));
   // Tenant guard for routers whose paths carry :companyId — requireAuth alone

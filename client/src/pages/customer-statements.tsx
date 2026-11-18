@@ -59,7 +59,7 @@ export default function CustomerStatements() {
 
   const { data: customers } = useCustomers(activeCompanyId);
 
-  const { data: stmt, isLoading } = useQuery<any>({
+  const { data: stmt, isLoading, isError, error } = useQuery<any>({
     queryKey: ["/api/customers", selectedCustomerId, "statement-view", dateFrom, dateTo, activeCompanyId],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -183,6 +183,16 @@ export default function CustomerStatements() {
         <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
           <span className="text-5xl">📋</span>
           <p className="text-base font-medium">Select a customer to generate their statement</p>
+        </div>
+      )}
+
+      {/* Error */}
+      {isError && !isLoading && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-6 py-8 text-center">
+          <p className="font-semibold text-red-700">Could not load the statement</p>
+          <p className="mt-1 text-sm text-red-600">
+            {(error as any)?.message || "Please try again."}
+          </p>
         </div>
       )}
 

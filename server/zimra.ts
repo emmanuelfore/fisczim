@@ -1106,10 +1106,42 @@ export class ZimraDevice {
                 if (match) return match.taxID;
             }
 
-            // Final fallback when getConfig unavailable: standard heuristic
+            // Final fallback when getConfig unavailable: use the company's
+            // configured tax type for this rate, never a guessed tax ID.
+            const localTax = (taxTypes || []).find(t =>
+                Math.abs(parseFloat(t.rate) - taxRate) < 0.01 && t.zimraTaxId != null
+            );
+            if (localTax?.zimraTaxId != null) return Number(localTax.zimraTaxId);
+
             if (taxRate === 0) return 2; // Zero Rated
-            if (Math.abs(taxRate - 15.5) < 0.1 || Math.abs(taxRate - 15) < 0.1) return 3; // Standard
             return 3;
+        };
+
+        // Final safety net: a rate the device does not recognise must never be
+        // submitted. Inclusive invoices store a rate derived from printed cents
+        // (e.g. 13.42%) which ZIMRA rejects with RCPT025 "Invalid tax is used".
+        // Snap any unconfigured positive rate to the configured standard rate.
+        const normaliseTaxRate = (rawRate: number): number => {
+            if (!Number.isFinite(rawRate) || rawRate <= 0) return 0;
+            const configured = zimraConfig?.applicableTaxes || [];
+            if (configured.length === 0) return rawRate; // nothing authoritative to compare against
+
+            if (configured.some(t => Math.abs((t.taxPercent || 0) - rawRate) < 0.01)) return rawRate;
+
+            const standard = configured.find(t =>
+                (t.taxPercent || 0) > 0 && /standard/i.test(t.taxName || '')
+            ) || configured
+                .filter(t => (t.taxPercent || 0) > 0)
+                .sort((a, b) => (b.taxPercent || 0) - (a.taxPercent || 0))[0];
+
+            if (standard && (standard.taxPercent || 0) > 0) {
+                console.warn(
+                    `[ZIMRA-RevMax] Invoice ${invoice.invoiceNumber}: unconfigured tax ${rawRate}% ` +
+                    `is not in GetConfig; using standard ${standard.taxPercent}%`
+                );
+                return standard.taxPercent || 0;
+            }
+            return rawRate;
         };
 
         // Map Invoice to ReceiptData
@@ -1122,7 +1154,9 @@ export class ZimraDevice {
             invoiceNo: invoice.invoiceNumber,
             receiptDate: ZimraDevice.formatZimraDate(new Date()), // Docs: local time YYYY-MM-DDTHH:mm:ss
             receiptLines: invoice.items.map((item: any, index: number) => {
-                const taxRate = parseFloat(item.taxRate) || 0;
+                // Normalise against GetConfig before resolving the tax ID: the
+                // rate and the ID must describe the same configured tax.
+                const taxRate = normaliseTaxRate(parseFloat(item.taxRate) || 0);
                 // Resolve taxID exclusively from getConfig
                 const taxID = resolveTaxID(taxRate, item.taxCode, item.description);
 

@@ -5932,12 +5932,44 @@ export async function registerRoutes(
         ORIGINALINVOICENUMBER,
         INVOICECOMMENT,
         ITEMSXML,
-        CURRENCIES
+        CURRENCIES,
+        DATE,
+        TAXINCLUSIVE
       } = req.body;
 
       // Validate required fields
       if (!CURRENCY || !INVOICENUMBER || !INVOICEAMOUNT || !INVOICETAXAMOUNT || !INVOICEFLAG || !ITEMSXML || !CURRENCIES) {
         return res.status(400).json(formatRevMaxResponse("0", "Missing required fields", {}, company));
+      }
+
+      const requestedNumber = String(INVOICENUMBER).trim();
+
+      // Idempotency: reprinting a document resends the same INVOICENUMBER. The
+      // sale must only ever be fiscalised once, so hand back the receipt that
+      // already exists instead of creating a second one.
+      const existingInvoice = (await storage.getInvoices(companyId))
+        .find((inv: any) => inv.invoiceNumber === requestedNumber || inv.externalRef === requestedNumber);
+      if (existingInvoice) {
+        if (existingInvoice.fiscalCode || existingInvoice.qrCodeData) {
+          return res.json(formatRevMaxResponse("1", "Upload Success - Already Transacted", {
+            receipt: {
+              hash: existingInvoice.fiscalCode,
+              qrCode: existingInvoice.qrCodeData,
+              verificationCode: existingInvoice.verificationCode,
+              receiptGlobalNo: existingInvoice.receiptGlobalNo,
+              receiptCounter: existingInvoice.receiptCounter,
+            },
+            qrCode: existingInvoice.qrCodeData,
+            verificationCode: existingInvoice.verificationCode,
+            duplicate: true
+          }, company));
+        }
+        return res.status(409).json(formatRevMaxResponse(
+          "0",
+          `Duplicate invoice number '${requestedNumber}' — this document was already submitted but has no fiscal receipt yet.`,
+          {},
+          company
+        ));
       }
 
       // Parse XML
@@ -5947,9 +5979,16 @@ export async function registerRoutes(
       // Create invoice in database
       // Fetch tax types for resolution
       const taxTypes = await storage.getTaxTypes(companyId);
+      const standardTaxType = taxTypes.find(t => /standard/i.test(t.name || "") && parseFloat(t.rate) > 0)
+        || taxTypes.filter(t => parseFloat(t.rate) > 0).sort((a, b) => parseFloat(b.rate) - parseFloat(a.rate))[0];
 
       const parsedItems = items.map(item => {
-        const taxRate = parseFloat(item.TAXR || "0");
+        let taxRate = parseFloat(item.TAXR || "0");
+        // Never sign an unconfigured rate (e.g. 13.42 derived from inclusive
+        // cents). Fall back to the company's standard VAT tax type.
+        if (taxRate > 0 && !taxTypes.some(t => Math.abs(parseFloat(t.rate) - taxRate) < 0.01) && standardTaxType) {
+          taxRate = parseFloat(standardTaxType.rate);
+        }
         const xmlTaxCode = item.TAXCODE;
         const xmlTaxId = item.TAXID;
 
@@ -5978,6 +6017,19 @@ export async function registerRoutes(
         };
       });
 
+      // Prices on the document may be VAT-inclusive or VAT-exclusive. FiscalBridge
+      // sends the explicit flag; derive it from the printed arithmetic when an
+      // older client does not.
+      const lineAmountSum = parsedItems.reduce((sum, it) => sum + parseFloat(it.lineTotal || "0"), 0);
+      const requestedAmount = parseFloat(INVOICEAMOUNT);
+      const requestedTax = parseFloat(INVOICETAXAMOUNT);
+      const taxFlag = TAXINCLUSIVE ?? (req.body as any).TaxInclusive ?? (req.body as any).taxInclusive;
+      const taxFlagProvided = taxFlag !== undefined && taxFlag !== null && taxFlag !== "";
+      const taxInclusive = taxFlagProvided
+        ? (taxFlag === true || taxFlag === 1 || ["1", "true", "yes"].includes(String(taxFlag).toLowerCase()))
+        : Math.abs(requestedAmount - lineAmountSum) <= 0.02 &&
+          Math.abs(requestedAmount - (lineAmountSum + requestedTax)) > 0.02;
+
       // Fetch or create customer
       const targetCustomerName = CUSTOMERNAME || "Walk-in Customer";
       let customerId: number;
@@ -5999,29 +6051,43 @@ export async function registerRoutes(
         customerId = newCustomer.id;
       }
 
+      // The document date is the one printed on the customer's invoice; fall
+      // back to today only when the caller did not send one.
+      const parsedDate = DATE ? new Date(DATE) : null;
+      const issueDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
+
       const invoiceData: any = {
         companyId,
         customerId,
-        invoiceNumber: INVOICENUMBER,
+        invoiceNumber: requestedNumber,
         customerName: targetCustomerName,
         customerEmail: CUSTOMEREMAIL || null,
         customerVatNumber: CUSTOMERVATNUMBER || null,
         customerAddress: CUSTOMERADDRESS || null,
         customerPhone: CUSTOMERTELEPHONENUMBER || null,
-        issueDate: new Date(),
-        dueDate: new Date(),
+        issueDate,
+        dueDate: issueDate,
         currency: CURRENCY,
         total: parseFloat(INVOICEAMOUNT),
         subtotal: parseFloat(INVOICEAMOUNT) - parseFloat(INVOICETAXAMOUNT),
         taxAmount: parseFloat(INVOICETAXAMOUNT),
+        taxInclusive,
         status: INVOICEFLAG === "01" ? "draft" : "draft",
+        transactionType: INVOICEFLAG === "02" ? "CreditNote" : INVOICEFLAG === "03" ? "DebitNote" : "FiscalInvoice",
         notes: INVOICECOMMENT || null,
         originalInvoiceNumber: ORIGINALINVOICENUMBER || null,
-        externalRef: INVOICENUMBER,
+        externalRef: requestedNumber,
         items: parsedItems
       };
 
-      const invoice = await storage.createInvoice(invoiceData);
+      let invoice = await storage.createInvoice(invoiceData);
+
+      // storage.createInvoice always draws a number from the company sequence.
+      // The document must keep the number printed on the invoice (and used as
+      // the customer reference), so rename it before anything is signed.
+      if (invoice.invoiceNumber !== requestedNumber) {
+        invoice = await storage.updateInvoice(invoice.id, { invoiceNumber: requestedNumber } as any);
+      }
 
       // Fiscalize the invoice
       const device = new ZimraDevice({
@@ -6136,12 +6202,41 @@ export async function registerRoutes(
         buyerCity,
         refDeviceId,
         refReceiptGlobalnumber,
-        refFiscalDay
+        refFiscalDay,
+        TaxInclusive
       } = req.body;
 
       // Validate required fields
       if (!Currency || !InvoiceNumber || !InvoiceAmount || !InvoiceTaxAmount || !InvoiceFlag || !ItemsXML || !Currencies) {
         return res.status(400).json(formatRevMaxResponse("0", "Missing required fields", {}, company));
+      }
+
+      const requestedNumber = String(InvoiceNumber).trim();
+
+      // Idempotency: the same document must never be fiscalised twice.
+      const existingExtInvoice = (await storage.getInvoices(companyId))
+        .find((inv: any) => inv.invoiceNumber === requestedNumber || inv.externalRef === requestedNumber);
+      if (existingExtInvoice) {
+        if (existingExtInvoice.fiscalCode || existingExtInvoice.qrCodeData) {
+          return res.json(formatRevMaxResponse("1", "Upload Success - Already Transacted", {
+            receipt: {
+              hash: existingExtInvoice.fiscalCode,
+              qrCode: existingExtInvoice.qrCodeData,
+              verificationCode: existingExtInvoice.verificationCode,
+              receiptGlobalNo: existingExtInvoice.receiptGlobalNo,
+              receiptCounter: existingExtInvoice.receiptCounter,
+            },
+            qrCode: existingExtInvoice.qrCodeData,
+            verificationCode: existingExtInvoice.verificationCode,
+            duplicate: true
+          }, company));
+        }
+        return res.status(409).json(formatRevMaxResponse(
+          "0",
+          `Duplicate invoice number '${requestedNumber}' — this document was already submitted but has no fiscal receipt yet.`,
+          {},
+          company
+        ));
       }
 
       // Parse XML
@@ -6156,9 +6251,16 @@ export async function registerRoutes(
       // Create invoice with extended fields
       // Fetch tax types for resolution
       const taxTypes = await storage.getTaxTypes(companyId);
+      const standardTaxType = taxTypes.find(t => /standard/i.test(t.name || "") && parseFloat(t.rate) > 0)
+        || taxTypes.filter(t => parseFloat(t.rate) > 0).sort((a, b) => parseFloat(b.rate) - parseFloat(a.rate))[0];
 
       const parsedItems = items.map(item => {
-        const taxRate = parseFloat(item.TAXR || "0");
+        let taxRate = parseFloat(item.TAXR || "0");
+        // Never sign an unconfigured rate (e.g. 13.42 derived from inclusive
+        // cents). Fall back to the company's standard VAT tax type.
+        if (taxRate > 0 && !taxTypes.some(t => Math.abs(parseFloat(t.rate) - taxRate) < 0.01) && standardTaxType) {
+          taxRate = parseFloat(standardTaxType.rate);
+        }
         const xmlTaxCode = item.TAXCODE;
         const xmlTaxId = item.TAXID;
 
@@ -6187,6 +6289,18 @@ export async function registerRoutes(
         };
       });
 
+      // VAT-inclusive prices are explicit when supplied; otherwise infer from
+      // whether the invoice amount is the line sum or the line sum plus VAT.
+      const extLineAmountSum = parsedItems.reduce((sum, it) => sum + parseFloat(it.lineTotal || "0"), 0);
+      const extRequestedAmount = parseFloat(InvoiceAmount);
+      const extRequestedTax = parseFloat(InvoiceTaxAmount);
+      const extTaxFlag = TaxInclusive ?? (req.body as any).TAXINCLUSIVE ?? (req.body as any).taxInclusive;
+      const extTaxFlagProvided = extTaxFlag !== undefined && extTaxFlag !== null && extTaxFlag !== "";
+      const taxInclusive = extTaxFlagProvided
+        ? (extTaxFlag === true || extTaxFlag === 1 || ["1", "true", "yes"].includes(String(extTaxFlag).toLowerCase()))
+        : Math.abs(extRequestedAmount - extLineAmountSum) <= 0.02 &&
+          Math.abs(extRequestedAmount - (extLineAmountSum + extRequestedTax)) > 0.02;
+
       // Fetch or create customer
       const targetCustomerName = CustomerRegisteredName || CustomerTradeName || "Walk-in Customer";
       let customerId: number;
@@ -6211,7 +6325,7 @@ export async function registerRoutes(
       const invoiceData: any = {
         companyId,
         customerId,
-        invoiceNumber: InvoiceNumber,
+        invoiceNumber: requestedNumber,
         customerName: targetCustomerName,
         customerEmail: CustomerEmail || null,
         customerVatNumber: CustomerVATNumber || null,
@@ -6223,14 +6337,21 @@ export async function registerRoutes(
         total: parseFloat(InvoiceAmount),
         subtotal: parseFloat(InvoiceAmount) - parseFloat(InvoiceTaxAmount),
         taxAmount: parseFloat(InvoiceTaxAmount),
+        taxInclusive,
         status: InvoiceFlag === "01" ? "draft" : "draft",
+        transactionType: InvoiceFlag === "02" ? "CreditNote" : InvoiceFlag === "03" ? "DebitNote" : "FiscalInvoice",
         notes: InvoiceComment || null,
         originalInvoiceNumber: OriginalInvoiceNumber || null,
-        externalRef: InvoiceNumber,
+        externalRef: requestedNumber,
         items: parsedItems
       };
 
-      const invoice = await storage.createInvoice(invoiceData);
+      let invoice = await storage.createInvoice(invoiceData);
+
+      // Keep the caller's number — storage draws its own sequence by default.
+      if (invoice.invoiceNumber !== requestedNumber) {
+        invoice = await storage.updateInvoice(invoice.id, { invoiceNumber: requestedNumber } as any);
+      }
 
       // Fiscalize the invoice
       const device = new ZimraDevice({

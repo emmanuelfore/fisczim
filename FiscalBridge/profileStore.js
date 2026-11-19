@@ -15,6 +15,28 @@ const path = require('path');
 
 let _profileDir = null;
 
+// The two per-document-type Palladium profiles were merged into the single
+// `palladium-fiscal` profile. Remove the old auto-seeded copies so a machine
+// that already ran an earlier build does not keep duplicate fingerprints.
+const LEGACY_BUILTIN_IDS = new Set([
+  'palladium-fiscal-invoice',
+  'palladium-fiscal-credit-note',
+]);
+
+function _removeLegacyProfiles() {
+  try {
+    for (const file of fs.readdirSync(_profileDir)) {
+      const match = file.match(/^(.+)@(\d+)\.json$/);
+      if (!match || !LEGACY_BUILTIN_IDS.has(match[1])) continue;
+      const full = path.join(_profileDir, file);
+      let profile = null;
+      try { profile = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { /* unreadable */ }
+      // Only remove the bundled Palladium profiles, never a user's own profile.
+      if (profile && profile.system === 'Palladium') fs.unlinkSync(full);
+    }
+  } catch { /* best effort */ }
+}
+
 function init(userDataPath) {
   _profileDir = path.join(userDataPath, 'profiles');
   if (!fs.existsSync(_profileDir)) fs.mkdirSync(_profileDir, { recursive: true });
@@ -30,6 +52,8 @@ function init(userDataPath) {
       }
     }
   }
+
+  _removeLegacyProfiles();
 }
 
 function _dir() {

@@ -10,9 +10,13 @@ Cross-platform fiscal interface application for FiscalStack - A modern Electron-
 - **Z-Reports**: Generate and print Z-Reports
 - **License Management**: Secure license storage and validation
 - **Receipt Printing**: Thermal printer support with QR code generation
+- **PDF Invoice Stamping**: Print PDF invoices as-is with the fiscal QR/details stamped onto the original layout
+- **Non-Receipt Pass-Through**: Files that are not receipts are printed unchanged instead of being fiscalised
 - **Fiscal Day Management**: Open/close fiscal days, track receipt counters
 - **Receipt Hash Tracking**: Maintains fiscal day continuity with SHA-256 hashing
 - **Device Configuration**: Full config.ini equivalent with VAT rates, TIN, device settings
+- **Live ZIMRA VAT Rates**: Standard rates are read from the device's `GetConfig` response, so invoices are never signed with a stale or derived rate
+- **VAT-Inclusive/Exclusive Setting**: Prices are treated as VAT-inclusive by default; choose Auto to reconcile them against the invoice's printed totals, or Exclusive for net-priced invoices
 - **Cross-Platform**: Runs on Linux, Windows, and macOS
 
 ## Installation
@@ -45,6 +49,26 @@ FiscalBridge uses a setup wizard for initial configuration:
 4. **Printer Setup**: Select thermal printer and upload company logo
 5. **License Setup**: Enter FiscalStack license key and API credentials
 
+### PDF invoices and files that are not receipts
+
+Two settings in **Settings → Printing** control what happens to incoming PDFs and
+to files that are not receipts at all:
+
+| Setting | Value | Behaviour |
+| --- | --- | --- |
+| **PDF Invoice Output** | `fiscalCopy` (default) | A generated fiscal copy with QR, logo and counters is saved to the target folder and printed. |
+| | `stamp` | The fiscal QR + data block is stamped onto a copy of the original PDF (layout preserved). The untouched original is moved to the originals folder and the stamped PDF is printed. |
+| **Files That Are Not Receipts** | `print` (default) | If no profile matches and the legacy parser finds no line items, the file is printed unchanged, recorded with status `Printed` and left in place. |
+| | `review` | The file is recorded as `Needs Review` instead of being printed. |
+
+Stamp mode places the block in the bottom-left area of the last page; override the
+position with `pdfStampBox: { x, y, width, height }` (PDF points) in `config.json`
+or in the config file in the app's user-data folder. If stamping fails, FiscalBridge
+falls back to generating a normal fiscal copy so the document is never lost.
+
+Pass-through and stamped documents can be re-printed from the document drawer, and
+their statuses can be filtered in the document list (`Printed`, `Print Failed`).
+
 ## Architecture
 
 ### Main Process (`main.js`)
@@ -67,6 +91,13 @@ FiscalBridge uses a setup wizard for initial configuration:
 - Parses receipt text files
 - Extracts invoice data, line items, and customer information
 - Builds XML for API submission
+
+### Parser profiles (`profiles/`)
+- Profile-driven PDF/receipt parsing (`parserEngine.js`), used by Parser Lab and file monitoring
+- Starter profiles are seeded into the app's user-data folder on startup:
+  - MEMP / Sage tax invoices
+  - Palladium `Fiscal Tax Invoice` / `Fiscal Credit Note` (single `palladium-fiscal` profile that auto-detects the document type; see `paladium samples/`)
+- Append-only versions (`<id>@<version>.json`) with detection fingerprints, layout/field rules, tax mapping and validation checks
 
 ### Data Models (`dataModels.js`)
 - Receipt, ReceiptLine, ReceiptTax, ReceiptPayment
@@ -108,6 +139,10 @@ FiscalBridge/
 ├── preload.js        # Context bridge for IPC
 ├── renderer.js       # UI logic and API integration
 ├── receiptParser.js  # Receipt parsing logic
+├── parserEngine.js   # Profile-driven document parsing
+├── pdfStamp.js       # Stamps fiscal QR/data onto original PDF invoices
+├── profiles/         # Append-only parser profiles seeded on startup
+├── tests/            # Node test scripts (parser, Palladium, stamping)
 ├── dataModels.js     # Data structures (C# ports)
 ├── configManager.js  # Fiscal configuration management
 ├── index.html        # Main UI

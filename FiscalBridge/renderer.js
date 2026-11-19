@@ -23,6 +23,7 @@ let watcherPillInterval = null;
 const inFlightFiles = new Set();
 let reconcilingDocs = false;
 let parserProfiles = [];
+let liveTaxConfig = null;
 let activeProfileIdx = 0;
 let parserLines = [];
 let lineRoles = {};
@@ -146,6 +147,9 @@ function migrateConfigV2(c) {
     c.originalFolder = c.originalFolder || (c.folders && c.folders.original) || '';
     c.printFormat  = c.printFormat  || 'thermal';
     c.preferredPrinter = c.preferredPrinter || c.printerName || null;
+    c.pdfInvoiceAction = c.pdfInvoiceAction || 'fiscalCopy';
+    c.nonReceiptAction = c.nonReceiptAction || 'print';
+    c.priceBasis = c.priceBasis || 'inclusive';
     c.parserProfiles = c.parserProfiles || [{
       name: 'Default',
       productStartLine: c.productStartLine || '',
@@ -166,6 +170,11 @@ async function loadConfig() {
     const raw = await window.fiscalBridgeAPI.getConfig();
     config = migrateConfigV2(raw);
     parserProfiles = config.parserProfiles || [{ name: 'Default' }];
+    // Fetch the device's live VAT rates once; parsing/fiscalisation falls back
+    // to the local VAT setting only when the device is unreachable.
+    try {
+      liveTaxConfig = await window.fiscalBridgeAPI.getTaxConfig();
+    } catch { liveTaxConfig = null; }
     if (config.setupComplete) {
       document.getElementById('wizard-overlay').classList.remove('open');
       showPage('dashboard');
@@ -723,7 +732,8 @@ function openDrawer(id) {
         ${kv('File', doc.fileName)}
         ${kv('Amount', doc.amount ? parseFloat(doc.amount).toFixed(2)+' '+(doc.currency||'') : '—')}
         ${kv('Status', statusPill(doc.status, doc.offline))}
-        ${kv('Fiscal Code', doc.fiscalCode)}
+        ${kv('Fiscal Code', doc.fiscalCode || doc.duplicateFiscalCode)}
+        ${doc.duplicateOf ? kv('Duplicate of', esc((documents.find(x => String(x.id) === String(doc.duplicateOf)) || {}).fileName || doc.duplicateOf)) : ''}
         ${kv('Processed', doc.processedAt ? new Date(doc.processedAt).toLocaleString() : '—')}
       </dl>
     </div>
@@ -735,7 +745,17 @@ function openDrawer(id) {
   const footer = document.getElementById('drawerFooter');
   
   let buttons = '';
-  if (doc.status === 'fiscalised') {
+  if (doc.outputMode === 'unchanged' || doc.status === 'printed' || doc.status === 'print_failed') {
+    buttons = `
+      <button class="btn-primary" onclick="handlePrintDocument('${id}')">Print</button>
+      ${/\.pdf$/i.test(doc.fileName || doc.filePath || '') ? `<button class="btn-secondary" onclick="handlePreviewPdf('${id}')">Preview</button>` : ''}
+    `;
+  } else if (doc.status === 'duplicate') {
+    buttons = `
+      <button class="btn-primary" onclick="handlePrintOriginalDuplicate('${id}')">Print Original</button>
+      <button class="btn-secondary" onclick="handlePreviewPdf('${id}')">Preview</button>
+    `;
+  } else if (doc.status === 'fiscalised') {
     buttons = `
       <button class="btn-primary" onclick="handleReprint('${id}')">Reprint</button>
       <button class="btn-secondary" onclick="handlePrintDocument('${id}')">Print</button>
@@ -770,6 +790,12 @@ async function handleReSend(id) {
   const doc = documents.find(d => d.id == id);
   if (!doc) return;
   if (doc.fiscalCode) { if (!confirm('This receipt already has a fiscal code. Re-send anyway?')) return; }
+  const duplicate = _findFiscalisedDuplicate(doc.invoiceData || doc, doc.id);
+  if (duplicate) {
+    closeDrawer();
+    showToast('Already fiscalised as ' + (duplicate.receiptNo || duplicate.id) + ' — not re-sent', 'warning');
+    return;
+  }
   closeDrawer();
   await fiscalizeInvoice(doc.invoiceData || doc);
   showToast('Re-send queued', 'info');
@@ -818,9 +844,43 @@ async function handleReParse(id) {
   refreshDashboard();
 }
 
+async function handlePrintOriginalDuplicate(id) {
+  const doc = documents.find(d => d.id == id);
+  if (!doc) { showToast('Document not found', 'error'); return; }
+  const original = doc.duplicateOf
+    ? documents.find(d => String(d.id) === String(doc.duplicateOf))
+    : null;
+  closeDrawer();
+  if (!original) { showToast('The already-fiscalised receipt is not in history', 'error'); return; }
+  if (!_hasFiscalReceipt(original)) {
+    showToast('Original is still awaiting fiscalisation — it will print when complete', 'warning');
+    return;
+  }
+  showToast('Printing the already-fiscalised receipt…', 'info');
+  const ok = await _printExistingFiscalDocument(original);
+  if (!ok) showToast('Print failed', 'error');
+}
+
 async function handleReprint(id) {
   const doc = documents.find(d => d.id == id);
-  if (!doc || !doc.invoiceData) { showToast('No invoice data available', 'error'); return; }
+  if (!doc) { showToast('Document not found', 'error'); return; }
+
+  if (doc.status === 'duplicate') { await handlePrintOriginalDuplicate(id); return; }
+
+  // Pass-through documents and stamped originals are printed as their PDF/file,
+  // not rebuilt from invoice data.
+  if (doc.outputMode === 'stamp' && doc.filePath && /\.pdf$/i.test(doc.filePath)) {
+    closeDrawer();
+    await printPdfDocument(doc);
+    return;
+  }
+  if (doc.outputMode === 'unchanged' || doc.status === 'printed' || doc.status === 'print_failed') {
+    closeDrawer();
+    await _printUnchangedDocument(doc);
+    return;
+  }
+
+  if (!doc.invoiceData) { showToast('No invoice data available', 'error'); return; }
   if (!config.printerName) { showToast('No printer configured', 'error'); return; }
   
   closeDrawer();
@@ -896,6 +956,17 @@ async function togglePreviewSource() {
       }
       openPdfPagePreview(doc, rendered.pages);
     } else {
+      if (doc.outputMode === 'stamp' && doc.filePath && /\.pdf$/i.test(doc.filePath)) {
+        const rendered = await window.fiscalBridgeAPI.renderPdfPages(doc.filePath, { maxPages: 10, dpi: 150 });
+        if (!rendered || !rendered.success || !rendered.pages || !rendered.pages.length) {
+          showToast('Stamped PDF could not be rendered', 'error');
+          return;
+        }
+        openPdfPagePreview(doc, rendered.pages);
+        pdfPreviewShowingFiscal = true;
+        updatePreviewSourceToggle();
+        return;
+      }
       await _openFiscalPreview(doc);
     }
   } catch (err) {
@@ -910,6 +981,24 @@ async function handlePreviewPdf(id) {
 
   const isPdfSource = !!doc.filePath && /\.pdf$/i.test(doc.fileName || doc.filePath);
   const hasFiscal = !!(doc.invoiceData && _docHasFiscalData(doc));
+
+  // Stamped documents already contain the fiscal QR/data on the original
+  // layout, so preview that file directly instead of rebuilding a fiscal copy.
+  if (hasFiscal && doc.outputMode === 'stamp' && doc.filePath && /\.pdf$/i.test(doc.filePath)) {
+    showToast('Loading stamped invoice…', 'info');
+    try {
+      const rendered = await window.fiscalBridgeAPI.renderPdfPages(doc.filePath, { maxPages: 10, dpi: 150 });
+      if (rendered && rendered.success && rendered.pages && rendered.pages.length) {
+        openPdfPagePreview(doc, rendered.pages);
+        pdfPreviewShowingFiscal = true;
+        updatePreviewSourceToggle();
+        return;
+      }
+      console.warn('[Preview] Stamped PDF render failed:', rendered && rendered.error);
+    } catch (err) {
+      console.warn('[Preview] Stamped PDF render failed:', err.message);
+    }
+  }
 
   // A fiscalised document is what the customer receives; the source PDF is the
   // pre-fiscalisation input and is only shown when no fiscal result exists.
@@ -1043,10 +1132,24 @@ async function handlePrintDocument(id) {
   const doc = documents.find(d => d.id == id);
   if (!doc) { showToast('Document not found', 'error'); return; }
 
+  if (doc.status === 'duplicate') { await handlePrintOriginalDuplicate(id); return; }
+
+  if (doc.outputMode === 'unchanged' || doc.status === 'printed' || doc.status === 'print_failed') {
+    await _printUnchangedDocument(doc);
+    return;
+  }
+
+  // Stamped originals are the fiscal output; print that PDF as-is.
+  if (doc.outputMode === 'stamp' && doc.filePath && /\.pdf$/i.test(doc.filePath)) {
+    await printPdfDocument(doc);
+    return;
+  }
+
   // Fiscalised documents print as the fiscalised document (QR, logo, counters),
   // never as the pre-fiscalisation source file.
   if (doc.invoiceData && _docHasFiscalData(doc)) { await printFiscalDocument(doc, _docTemplateKey(doc)); return; }
   if (doc.filePath && /\.pdf$/i.test(doc.fileName || doc.filePath)) { await printPdfDocument(doc); return; }
+  if (doc.filePath) { await _printUnchangedDocument(doc); return; }
   if (doc.invoiceData) { await printFiscalDocument(doc); return; }
   showToast('Nothing available to print', 'error');
 }
@@ -1054,6 +1157,18 @@ async function handlePrintDocument(id) {
 async function printPreviewedFile() {
   const doc = pdfPreviewDoc;
   if (!doc) return;
+
+  if (doc.status === 'duplicate') { await handlePrintOriginalDuplicate(doc.id); return; }
+
+  if (doc.outputMode === 'unchanged' || doc.status === 'printed' || doc.status === 'print_failed') {
+    await _printUnchangedDocument(doc);
+    return;
+  }
+
+  if (doc.outputMode === 'stamp' && doc.filePath && /\.pdf$/i.test(doc.filePath)) {
+    await printPdfDocument(doc);
+    return;
+  }
 
   // Always print the fiscalised document when one exists; the original PDF is
   // only printed for documents that have not been fiscalised.
@@ -1227,6 +1342,7 @@ async function completeOfflineFiscalisation({ invoiceData, docRecord, offline, s
   await window.fiscalBridgeAPI.addDocument({
     ...docRecord,
     filePath: archive.filePath,
+    outputMode: archive.outputMode,
     originalPath: archive.originalPath,
     originalPendingPath: archive.originalPendingPath,
     unlinkPending: archive.unlinkPending,
@@ -1251,9 +1367,7 @@ async function completeOfflineFiscalisation({ invoiceData, docRecord, offline, s
     `Invoice ${invoiceData.invoiceNumber || 'Unknown'} signed offline and queued for sync when the connection returns`,
     'warning'
   );
-  if (config.printerName) {
-    await printFiscalReceipt(invoiceData, offline.fiscal, _docTemplateKey(docRecord));
-  }
+  await _printCompletedDocument(archive, invoiceData, offline.fiscal, docRecord);
 }
 
 async function handleReceiptFile(data, existingDocId = null) {
@@ -1381,8 +1495,67 @@ async function handleReceiptFile(data, existingDocId = null) {
       console.log(`[${timestamp}] [PARSE] Legacy extracted ${invoiceData.items?.length || 0} items`);
       // Never fiscalise an empty invoice
       if (!invoiceData.items || invoiceData.items.length === 0) {
+        // Nothing about this file looks like a receipt. Print it unchanged and
+        // leave it in the inbox (the document record prevents reprocessing).
+        if ((config.nonReceiptAction || 'print') === 'print') {
+          console.log(`[${timestamp}] [PASSTHROUGH] No receipt data — printing unchanged`);
+          const printed = await _printUnchangedFile(data.filePath, {
+            fromPdf: fileResult.fromPdf,
+            text: fileResult.text,
+          });
+          const ok = !!(printed && printed.success);
+          const printError = ok ? null : ((printed && printed.error) || 'unknown error');
+
+          await window.fiscalBridgeAPI.addDocument({
+            ...docRecord,
+            filePath: data.filePath,
+            status: ok ? 'printed' : 'print_failed',
+            outputMode: 'unchanged',
+            currency: config.currency || 'USD',
+            parseError: ok ? undefined : ('Not a fiscal document; printing failed: ' + printError),
+          });
+          documents = await window.fiscalBridgeAPI.getDocuments() || [];
+          updateBadges();
+          refreshDashboard();
+
+          if (ok) {
+            console.log(`[${timestamp}] [PASSTHROUGH] Printed unchanged: ${fileName}`);
+            showToast('Printed unchanged: ' + fileName, 'success');
+            showSystemNotification(
+              'FiscalBridge - Printed Unchanged',
+              `${fileName} is not a fiscal document and was printed unchanged`,
+              'success'
+            );
+          } else {
+            console.error(`[${timestamp}] [PASSTHROUGH] Print failed: ${printError}`);
+            showToast('Not a fiscal document; print failed: ' + printError, 'error');
+            showSystemNotification(
+              'FiscalBridge - Print Error',
+              `Could not print ${fileName}: ${printError}`,
+              'error'
+            );
+          }
+          inFlightFiles.delete(data.filePath);
+          return;
+        }
         throw new Error('No matching parser profile and the legacy parser found no line items');
       }
+    }
+
+    // Reprint protection: Palladium emits a fresh PDF for every print, so the
+    // same invoice can arrive repeatedly. Fiscalise each invoice only once.
+    const duplicate = _findFiscalisedDuplicate(invoiceData, existingDoc?.id);
+    if (duplicate) {
+      await _handleDuplicateDocument({
+        data,
+        docRecord,
+        invoiceData,
+        duplicate,
+        sourceLabel: fileName,
+      });
+      await reloadDocuments();
+      inFlightFiles.delete(data.filePath);
+      return;
     }
 
     console.log(`[${timestamp}] [API] Fiscalizing: ${invoiceData.invoiceNumber}`);
@@ -1400,6 +1573,7 @@ async function handleReceiptFile(data, existingDocId = null) {
       await window.fiscalBridgeAPI.addDocument({
         ...docRecord,
         filePath: archive.filePath,
+        outputMode: archive.outputMode,
         originalPath: archive.originalPath,
         originalPendingPath: archive.originalPendingPath,
         unlinkPending: archive.unlinkPending,
@@ -1420,10 +1594,7 @@ async function handleReceiptFile(data, existingDocId = null) {
         `Invoice ${invoiceData.invoiceNumber || 'Unknown'} fiscalised successfully`,
         'success'
       );
-      if (config.printerName) {
-        console.log(`[${timestamp}] [PRINT] Printing to: ${config.printerName}`);
-        await printFiscalReceipt(invoiceData, result.data || {}, _docTemplateKey(docRecord));
-      }
+      await _printCompletedDocument(archive, invoiceData, result.data || {}, docRecord);
     } else {
       // Server unreachable: sign a real receipt locally so the customer gets a
       // compliant fiscal receipt now; the queue forwards it on reconnect.
@@ -1516,10 +1687,66 @@ function _fiscalPdfBaseName(invoiceData, fileName, sourcePath) {
   return `${base || 'document'}_fiscal`;
 }
 
+function _pdfStampDocumentType(invoiceData, fiscal) {
+  const tx = String((invoiceData && invoiceData.transactionType) || (fiscal && fiscal.transactionType) || '').toLowerCase();
+  if (tx.includes('credit')) return 'CreditNote';
+  if (tx.includes('debit')) return 'DebitNote';
+  const num = String((invoiceData && invoiceData.invoiceNumber) || '');
+  if (/^(CN|CR)/i.test(num)) return 'CreditNote';
+  if (/^(DN|DR)/i.test(num)) return 'DebitNote';
+  return 'FiscalInvoice';
+}
+
+function _pdfStampDate(value) {
+  if (!value) return new Date().toLocaleString('en-GB');
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('en-GB');
+}
+
+/** Map the API/offline fiscal response to the PDF stamp descriptor. */
+function _pdfStampFiscalDescriptor(invoiceData, fiscal) {
+  const f = fiscal || {};
+  const qrPayload = f.qrCode || f.qrCodeData || f.qrUrl || (invoiceData && invoiceData.qrCodeData) || '';
+  return {
+    training: false,
+    documentType: _pdfStampDocumentType(invoiceData, f),
+    invoiceNumber: (invoiceData && invoiceData.invoiceNumber) || '',
+    originalInvoiceNumber:
+      (invoiceData && (invoiceData.relatedInvoiceNumber || invoiceData.originalInvoiceNumber)) ||
+      f.originalInvoiceNumber || null,
+    verificationCode:
+      f.verificationCode || f.receiptVerificationCode || f.fiscalCode ||
+      (qrPayload ? String(qrPayload).slice(-16) : ''),
+    deviceId: String(config.fdmsDeviceId || config.deviceId || f.deviceId || ''),
+    fiscalDay: f.fiscalDayNo ?? config.fiscalDayNo ?? '',
+    receiptCounter: f.receiptCounter ?? '',
+    receiptGlobalNo: f.receiptGlobalNo ?? '',
+    fiscalDate: _pdfStampDate(f.fiscalDate || f.receiptDate || f.signedAt),
+    qrPayload,
+  };
+}
+
+async function _writeStampedFiscalPdf({ sourcePath, invoiceData, fiscal, fileName }) {
+  const descriptor = _pdfStampFiscalDescriptor(invoiceData, fiscal);
+  if (!descriptor.qrPayload) throw new Error('Fiscal response does not contain a QR code');
+  const base = _fiscalPdfBaseName(invoiceData, fileName, sourcePath);
+  const r = await window.fiscalBridgeAPI.stampFiscalPdf({
+    inputPath: sourcePath,
+    targetDir: config.targetFolder,
+    baseName: base,
+    fiscal: descriptor,
+    box: config.pdfStampBox || undefined,
+  });
+  if (!r || !r.success) throw new Error((r && r.error) || 'PDF stamping failed');
+  return r.path;
+}
+
 /**
- * Archive a fiscalised document: the rendered fiscal copy (QR, logo, counters)
- * goes to the target folder and the untouched source goes to the originals
- * backup folder.
+ * Archive a fiscalised document: the fiscal output goes to the target folder
+ * and the untouched source goes to the originals backup folder.
+ *
+ * `pdfInvoiceAction: 'stamp'` keeps the original invoice layout and overlays
+ * the fiscal QR/data on a copy. Otherwise a generated fiscal copy is written.
  */
 async function archiveFiscalisedDocument({ sourcePath, invoiceData, fiscal, fileName }) {
   const targetFolder = config.targetFolder;
@@ -1527,16 +1754,31 @@ async function archiveFiscalisedDocument({ sourcePath, invoiceData, fiscal, file
   const originalFolder = config.originalFolder || targetFolder;
 
   let fiscalPath = null;
-  try {
-    const tplKey = _docTemplateKey({ fileName, filePath: sourcePath });
-    const tpl = PRINT_TEMPLATES[tplKey] || PRINT_TEMPLATES.thermal80;
-    const html = await _buildDocHtml(invoiceData, fiscal || {}, tplKey);
-    const base = _fiscalPdfBaseName(invoiceData, fileName, sourcePath);
-    const r = await window.fiscalBridgeAPI.writeFiscalPdf(html, targetFolder, base, tpl.format);
-    if (r && r.success) fiscalPath = r.path;
-    else console.warn('[Archive] Fiscal PDF not written:', r && r.error);
-  } catch (err) {
-    console.warn('[Archive] Fiscal PDF failed:', err.message);
+  let outputMode = 'fiscalCopy';
+
+  if (/\.pdf$/i.test(sourcePath) && config.pdfInvoiceAction === 'stamp') {
+    try {
+      fiscalPath = await _writeStampedFiscalPdf({ sourcePath, invoiceData, fiscal, fileName });
+      outputMode = 'stamp';
+      console.log('[Archive] Stamped original PDF:', fiscalPath);
+    } catch (err) {
+      console.warn('[Archive] PDF stamp failed, using fiscal copy:', err.message);
+      showToast('PDF stamp failed — saved a fiscal copy instead', 'warning');
+    }
+  }
+
+  if (!fiscalPath) {
+    try {
+      const tplKey = _docTemplateKey({ fileName, filePath: sourcePath });
+      const tpl = PRINT_TEMPLATES[tplKey] || PRINT_TEMPLATES.thermal80;
+      const html = await _buildDocHtml(invoiceData, fiscal || {}, tplKey);
+      const base = _fiscalPdfBaseName(invoiceData, fileName, sourcePath);
+      const r = await window.fiscalBridgeAPI.writeFiscalPdf(html, targetFolder, base, tpl.format);
+      if (r && r.success) fiscalPath = r.path;
+      else console.warn('[Archive] Fiscal PDF not written:', r && r.error);
+    } catch (err) {
+      console.warn('[Archive] Fiscal PDF failed:', err.message);
+    }
   }
 
   if (!fiscalPath) {
@@ -1549,6 +1791,7 @@ async function archiveFiscalisedDocument({ sourcePath, invoiceData, fiscal, file
   const copiedOnly = !!(moved && !moved.success && moved.copied);
   return {
     filePath: fiscalPath,
+    outputMode,
     originalPath: (movedOk || copiedOnly) ? moved.targetPath : undefined,
     originalPendingPath: (movedOk || copiedOnly) ? undefined : sourcePath,
     unlinkPending: copiedOnly ? sourcePath : undefined,
@@ -1560,7 +1803,7 @@ async function archiveFiscalisedDocument({ sourcePath, invoiceData, fiscal, file
 // or a source move that failed at fiscalisation time.
 async function archiveStuckDocument(doc) {
   try {
-    if (!doc || doc.status !== 'fiscalised' || !doc.filePath) return false;
+    if (!doc || !['fiscalised', 'duplicate'].includes(doc.status) || !doc.filePath) return false;
 
     if (doc.unlinkPending) {
       if (await window.fiscalBridgeAPI.fileExists(doc.unlinkPending)) {
@@ -1592,6 +1835,7 @@ async function archiveStuckDocument(doc) {
     }
 
     // Records written before the fiscal copy existed: filePath is the original
+    if (doc.status !== 'fiscalised') return false;
     if (doc.originalPath) return false;
     if (!config.targetFolder) return false;
     if (!_isInFolder(doc.filePath, config.sourceFolder)) return false;
@@ -1618,6 +1862,17 @@ async function archiveStuckDocument(doc) {
 // invoice payload so the receipt is not re-read or re-parsed.
 async function retryDocument(doc) {
   if (!doc.invoiceData || !doc.filePath) return;
+  const duplicate = _findFiscalisedDuplicate(doc.invoiceData, doc.id);
+  if (duplicate) {
+    await _handleDuplicateDocument({
+      data: { filePath: _docOriginalPath(doc) || doc.filePath },
+      docRecord: doc,
+      invoiceData: doc.invoiceData,
+      duplicate,
+      sourceLabel: doc.fileName,
+    });
+    return;
+  }
   console.log('[Retry] Re-fiscalising', doc.invoiceData.invoiceNumber || doc.fileName);
   const result = await fiscalizeInvoice(doc.invoiceData);
   if (result.success) {
@@ -1630,6 +1885,7 @@ async function retryDocument(doc) {
     await window.fiscalBridgeAPI.addDocument({
       ...doc,
       filePath: archive.filePath,
+      outputMode: archive.outputMode || doc.outputMode,
       originalPath: archive.originalPath || doc.originalPath,
       originalPendingPath: archive.originalPendingPath,
       unlinkPending: archive.unlinkPending,
@@ -1643,7 +1899,7 @@ async function retryDocument(doc) {
       parseError: undefined,
     });
     showToast('Retried: ' + (doc.invoiceData.invoiceNumber || doc.fileName), 'success');
-    if (config.printerName) await printFiscalReceipt(doc.invoiceData, result.data || {}, _docTemplateKey(doc));
+    await _printCompletedDocument(archive, doc.invoiceData, result.data || {}, doc);
   } else {
     const offline = result.status === 0
       ? await tryOfflineFiscalise(doc.invoiceData, doc)
@@ -1704,9 +1960,9 @@ async function reconcileDocuments() {
         }
       }
     }
-    // Fiscalised receipts must not linger in the inbox
+    // Fiscalised receipts (and blocked duplicates) must not linger in the inbox
     for (const doc of documents) {
-      if (doc.status !== 'fiscalised' || !doc.filePath) continue;
+      if (!['fiscalised', 'duplicate'].includes(doc.status) || !doc.filePath) continue;
       const needsWork = doc.unlinkPending || doc.movePending ||
         (_isInFolder(doc.filePath, config.sourceFolder) && !_isInFolder(doc.filePath, config.targetFolder));
       if (!needsWork) continue;
@@ -1722,26 +1978,45 @@ async function reconcileDocuments() {
   }
 }
 
+/** Effective price basis for legacy POS output (no parser profile involved). */
+function _effectivePriceBasis() {
+  const configured = config.priceBasis || 'inclusive';
+  if (configured === 'inclusive' || configured === 'exclusive') return configured;
+  // Legacy config used vatFlag: '1' = prices include VAT, '0' = exclude.
+  return config.vatFlag === '0' ? 'exclusive' : 'inclusive';
+}
+
 /** Map legacy ReceiptParser output → /api/zimra/transact schema */
 function _legacyToFiscalSchema(d, cfg) {
-  const vatRate = parseFloat(cfg.vatA || '0.155');
+  const stdRate = _standardVatRate();
   const invoiceNumber = d.invoiceNumber || '';
+  const basis = _effectivePriceBasis();
+  const inclusive = basis === 'inclusive';
   
   // Detect credit note: invoice number contains CR or CN
   const isCreditNote = /CR|CN/i.test(invoiceNumber);
   const invoiceFlag = isCreditNote ? '02' : '01';
   
-  const items = (d.items || []).map(it => ({
-    name:      it.itemName1 || it.itemCode || 'Item',
-    quantity:  parseFloat(it.quantity) || 1,
-    unitPrice: parseFloat(it.price)    || 0,
-    taxType:   it.taxable === 'Exem' ? 'EXEMPT' : 'STANDARD',
-    taxInclusive: (cfg.vatFlag === '1'),
-    sku: it.itemCode !== '.' && it.itemCode !== '00000000' ? it.itemCode : undefined,
-  }));
+  const items = (d.items || []).map(it => {
+    const exempt = it.taxable === 'Exem';
+    return {
+      name:      it.itemName1 || it.itemCode || 'Item',
+      quantity:  parseFloat(it.quantity) || 1,
+      unitPrice: parseFloat(it.price)    || 0,
+      taxType:   exempt ? 'EXEMPT' : 'STANDARD',
+      // The legacy parser has no per-line rate; send the live standard rate so
+      // the server does not fall back to a guessed 15%.
+      vatPct:    exempt ? 0 : stdRate,
+      taxInclusive: inclusive,
+      sku: it.itemCode !== '.' && it.itemCode !== '00000000' ? it.itemCode : undefined,
+    };
+  });
   return {
     items,
     invoiceNumber,
+    priceBasis: basis,
+    taxInclusive: inclusive,
+    ...(d.date ? { date: d.date } : {}),
     currency: d.currency || 'USD',
     invoiceFlag,
     transactionType: isCreditNote ? 'CreditNote' : 'FiscalInvoice',
@@ -1754,15 +2029,164 @@ function _totalFromItems(items) {
   return (items || []).reduce((s, it) => s + (it.quantity || 1) * (it.unitPrice || 0), 0).toFixed(2);
 }
 
+// ─── Duplicate protection ─────────────────────────────────────────────────────
+// Re-printing a document in Palladium produces a brand-new PDF with the same
+// invoice number, so path-based dedup in the watcher cannot see it. Identical
+// invoice numbers must only ever reach ZIMRA once.
+
+/** Stable identity for a document: transaction type + invoice number. */
+function _invoiceIdentity(invoiceData) {
+  if (!invoiceData) return null;
+  const number = String(invoiceData.invoiceNumber || '').trim();
+  if (!number) return null;
+  const type = invoiceData.transactionType || 'FiscalInvoice';
+  return { number, type, key: `${type}::${number.toUpperCase()}` };
+}
+
+/** An existing record that already covers this invoice, if any. */
+function _findFiscalisedDuplicate(invoiceData, excludeDocId) {
+  const id = _invoiceIdentity(invoiceData);
+  if (!id) return null;
+  return documents.find(d =>
+    d && String(d.id) !== String(excludeDocId) &&
+    ['fiscalised', 'queued', 'retrying'].includes(d.status) &&
+    _invoiceIdentity(d.invoiceData)?.key === id.key
+  ) || null;
+}
+
+/** True when a record already holds a fiscal receipt that can be reprinted. */
+function _hasFiscalReceipt(doc) {
+  return !!(doc && (_docHasFiscalData(doc) || doc.outputMode === 'stamp'));
+}
+
+/** Print the fiscal receipt that already exists for a duplicate document. */
+async function _printExistingFiscalDocument(doc) {
+  if (!doc || !config.printerName || !_hasFiscalReceipt(doc)) return false;
+  try {
+    if (doc.filePath && /\.pdf$/i.test(doc.filePath)) {
+      const r = await window.fiscalBridgeAPI.printPdfFile(doc.filePath, config.printerName || undefined);
+      if (r && r.success) return true;
+      console.warn('[Duplicate] Existing fiscal PDF could not be printed:', (r && r.error) || 'unknown error');
+    }
+    // The archived PDF is gone or unprintable — rebuild the receipt from the
+    // stored fiscal data so the customer still gets the same fiscal code.
+    if (doc.invoiceData && _docHasFiscalData(doc)) {
+      const tplKey = _docTemplateKey(doc);
+      const tpl = PRINT_TEMPLATES[tplKey] || PRINT_TEMPLATES.thermal80;
+      const html = await _buildDocHtml(doc.invoiceData, doc.apiResponse || {}, tplKey);
+      const r = await window.fiscalBridgeAPI.printReceipt(html, config.printerName, tpl.format);
+      return !!(r && r.success !== false);
+    }
+    return false;
+  } catch (err) {
+    console.error('[Duplicate] Could not print existing fiscal document:', _printErrorText(err));
+    return false;
+  }
+}
+
+/**
+ * Record a document whose invoice was already fiscalised: archive the new
+ * source without submitting it, and print the receipt that already exists so
+ * the customer still gets a valid fiscal receipt.
+ */
+async function _handleDuplicateDocument({ data, docRecord, invoiceData, duplicate, sourceLabel }) {
+  const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const invoiceNo = invoiceData?.invoiceNumber || docRecord.fileName;
+
+  let archived = null;
+  const originalFolder = config.originalFolder || config.targetFolder;
+  if (data?.filePath && originalFolder) {
+    archived = await window.fiscalBridgeAPI.moveReceiptFile(data.filePath, originalFolder);
+  }
+  const movedOk = !!(archived && archived.success);
+  const copiedOnly = !!(archived && !archived.success && archived.copied);
+  const archivedPath = (movedOk || copiedOnly) ? archived.targetPath : undefined;
+
+  const hasFiscal = _hasFiscalReceipt(duplicate);
+  const printed = hasFiscal ? await _printExistingFiscalDocument(duplicate) : false;
+  const wantsPrint = !!config.printerName;
+  const stateWord = hasFiscal ? 'already fiscalised' : 'already queued for fiscalisation';
+
+  await window.fiscalBridgeAPI.addDocument({
+    ...docRecord,
+    filePath: archivedPath || data?.filePath || docRecord.filePath,
+    outputMode: 'duplicate',
+    originalPath: undefined,
+    originalPendingPath: archivedPath ? undefined : (data?.filePath || undefined),
+    unlinkPending: copiedOnly ? data.filePath : undefined,
+    movePending: (movedOk || copiedOnly) ? undefined : true,
+    receiptNo: invoiceData?.invoiceNumber,
+    amount: _totalFromItems(invoiceData?.items),
+    currency: invoiceData?.currency || 'USD',
+    status: 'duplicate',
+    duplicateOf: duplicate.id,
+    duplicateFiscalCode: duplicate.fiscalCode,
+    invoiceData,
+    apiResponse: {
+      duplicateOf: duplicate.id,
+      duplicateReceiptNo: duplicate.receiptNo,
+      fiscalCode: duplicate.fiscalCode,
+      message: hasFiscal ? 'Already fiscalised — not resubmitted' : 'Already queued — not resubmitted',
+    },
+    parseError: wantsPrint && hasFiscal && !printed
+      ? 'Already fiscalised, but the existing fiscal receipt could not be printed'
+      : undefined,
+  });
+
+  documents = await window.fiscalBridgeAPI.getDocuments() || [];
+  updateBadges();
+  refreshDashboard();
+
+  console.log(`[${timestamp}] [DUPLICATE] ${sourceLabel || invoiceNo} ${stateWord} as ${duplicate.receiptNo || duplicate.id} — not resubmitted`);
+  showToast('Duplicate blocked: ' + invoiceNo, 'warning');
+  showSystemNotification(
+    'FiscalBridge - Duplicate Blocked',
+    `Invoice ${invoiceNo} is ${stateWord}${printed ? '; existing receipt printed' : (hasFiscal ? '; could not print the existing receipt' : '; it will print when fiscalisation completes')}`,
+    'warning'
+  );
+  return printed;
+}
+
 
 // ─── Core API (preserved) ─────────────────────────────────────────────────────
+/**
+ * Standard VAT rate used when a line does not carry its own rate.
+ * The live ZIMRA GetConfig standard rate is authoritative; config.vatA is only
+ * an offline fallback and may be written as "15.5" or "0.155".
+ */
+function _standardVatRate() {
+  const live = liveTaxConfig && Number(liveTaxConfig.standardRate);
+  if (Number.isFinite(live) && live > 0) return live;
+  const raw = parseFloat(config.vatA);
+  if (!Number.isFinite(raw) || raw <= 0) return 15.5;
+  return raw < 1 ? Math.round(raw * 1000) / 10 : raw;
+}
+
+/** Per-line VAT rate as a percentage, honouring the rate parsed from the document. */
+function _itemVatRate(it) {
+  if (!it || it.taxType === 'EXEMPT') return 0;
+  const raw = it.vatPct;
+  if (raw === null || raw === undefined || raw === '') return _standardVatRate();
+  const rate = parseFloat(raw);
+  // Tolerate a fractional rate (0.155) as well as a percentage (15.5).
+  if (!Number.isFinite(rate)) return _standardVatRate();
+  const pct = rate > 0 && rate < 1 ? Math.round(rate * 1000) / 10 : rate;
+  // A rate derived from printed cents (e.g. 13.42%) is not a configured ZIMRA
+  // tax. Never sign an unknown rate — use the device's standard rate instead.
+  const known = liveTaxConfig && Array.isArray(liveTaxConfig.rates) && liveTaxConfig.rates.length > 0
+    ? liveTaxConfig.rates.some(r => Math.abs(Number(r) - pct) < 0.01)
+    : true;
+  if (pct > 0 && !known) return _standardVatRate();
+  return pct;
+}
+
 /** Build ITEMSXML for the RevMax transact endpoint from fiscalise-schema items. */
 function _buildItemsXML(items) {
   const rows = (items || []).map(it => {
     const name = _escXml(it.name || it.description || 'Item');
     const qty  = parseFloat(it.quantity || 1).toFixed(2);
     const price = parseFloat(it.unitPrice || 0).toFixed(2);
-    const taxRate = it.taxType === 'EXEMPT' ? 0 : (parseFloat(it.vatPct || 15));
+    const taxRate = _itemVatRate(it);
     const lineTotal = (parseFloat(qty) * parseFloat(price)).toFixed(2);
     return `<ITEM><ITEMNAME1>${name}</ITEMNAME1><QTY>${qty}</QTY><PRICE>${price}</PRICE><TAXR>${taxRate}</TAXR><AMT>${lineTotal}</AMT>${it.sku ? `<ITEMCODE>${_escXml(it.sku)}</ITEMCODE>` : ''}</ITEM>`;
   }).join('');
@@ -1778,6 +2202,28 @@ function _escXml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+/** Decide whether a stored document's line prices already include VAT. */
+function _inferTaxInclusive(invoiceData, items) {
+  if (invoiceData.taxInclusive === true) return true;
+  if (invoiceData.taxInclusive === false) return false;
+  if (invoiceData.priceBasis === 'inclusive') return true;
+  if (invoiceData.priceBasis === 'exclusive') return false;
+
+  // Older documents carry no flag. Reconcile the printed total with the line
+  // prices: total == sum(lines) means the prices are gross; total ==
+  // sum(lines) + VAT means they are net.
+  const printedTotal = parseFloat(invoiceData.total);
+  const printedTax = parseFloat(invoiceData.taxAmount);
+  const lineSum = (items || []).reduce((s, it) =>
+    s + (parseFloat(it.quantity || 1) * parseFloat(it.unitPrice || 0)), 0);
+  if (Number.isFinite(printedTotal) && (items || []).length > 0) {
+    if (Math.abs(printedTotal - lineSum) <= 0.02 &&
+        Math.abs(printedTotal - (lineSum + (printedTax || 0))) > 0.02) return true;
+    if (Math.abs(printedTotal - (lineSum + (printedTax || 0))) <= 0.02) return false;
+  }
+  return false;
+}
+
 async function fiscalizeInvoice(invoiceData) {
   const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
   try {
@@ -1789,18 +2235,34 @@ async function fiscalizeInvoice(invoiceData) {
     const isCreditNote = invoiceData.transactionType === 'CreditNote' || /CR|CN/i.test(invoiceData.invoiceNumber || '');
     const invoiceFlag = isCreditNote ? '02' : '01';
 
-    // Calculate totals from items (unitPrice is exclusive of tax)
-    let netTotal = 0, taxTotal = 0;
+    // Calculate totals from items. Lines are either VAT-inclusive (gross) or
+    // VAT-exclusive (net); the document setting/parsed profile says which.
+    let netTotal = 0, taxTotal = 0, grossTotal = 0;
+    const docInclusive = _inferTaxInclusive(invoiceData, items);
     items.forEach(it => {
       const qty   = parseFloat(it.quantity || 1);
       const price = parseFloat(it.unitPrice || 0);
-      const net   = qty * price;
-      const rate  = it.taxType === 'EXEMPT' ? 0 : (parseFloat(it.vatPct || 15) / 100);
-      netTotal  += net;
-      taxTotal  += net * rate;
+      const line  = qty * price;
+      const rate  = _itemVatRate(it) / 100;
+      const incl  = it.taxInclusive === true || (it.taxInclusive == null && docInclusive);
+      if (incl) {
+        const net = line / (1 + rate);
+        netTotal  += net;
+        taxTotal  += line - net;
+        grossTotal += line;
+      } else {
+        netTotal  += line;
+        taxTotal  += line * rate;
+        grossTotal += line * (1 + rate);
+      }
     });
-    const invoiceAmount = (netTotal + taxTotal).toFixed(2);
-    const invoiceTaxAmount = taxTotal.toFixed(2);
+
+    // The printed VAT / total are authoritative: the fiscal receipt has to
+    // match the invoice the customer holds.
+    const printedTax   = parseFloat(invoiceData.taxAmount);
+    const printedTotal = parseFloat(invoiceData.total);
+    const invoiceAmount    = Number.isFinite(printedTotal) ? printedTotal.toFixed(2) : grossTotal.toFixed(2);
+    const invoiceTaxAmount = Number.isFinite(printedTax)   ? printedTax.toFixed(2)   : taxTotal.toFixed(2);
 
     const body = {
       CURRENCY:         currency,
@@ -1808,9 +2270,10 @@ async function fiscalizeInvoice(invoiceData) {
       INVOICEAMOUNT:    invoiceAmount,
       INVOICETAXAMOUNT: invoiceTaxAmount,
       INVOICEFLAG:      invoiceFlag,
+      TAXINCLUSIVE:     docInclusive ? '1' : '0',
       ITEMSXML:         _buildItemsXML(items),
       CURRENCIES:       _buildCurrenciesXML(currency),
-      DATE:             new Date().toISOString(),
+      DATE:             invoiceData.date || new Date().toISOString(),
     };
     if (invoiceData.buyer?.name)     body.CUSTOMERNAME       = invoiceData.buyer.name;
     if (invoiceData.buyer?.vatNumber) body.CUSTOMERVATNUMBER  = invoiceData.buyer.vatNumber;
@@ -2106,7 +2569,7 @@ function _blankProfile() {
     parties: { supplier:{anchor:'',lines:4}, customer:{anchor:'',lines:4} },
     bank: { start_marker:'BANKING DETAILS' },
     line_items: { start_marker:'', start_line_offset:1, end_marker:'', item_dot_counter:2, multiline_products:'no', column_map:['description','qty','unit_price_excl','disc_pct','vat_pct','total_excl','total_incl'], code_split:{separator:' - ',position:'first'}, skip_patterns:[] },
-    tax: { vat_standard_pct:15, vat_exempt_pct:0, price_basis:'exclusive' },
+    tax: { vat_standard_pct:15.5, vat_exempt_pct:0, price_basis:'exclusive' },
     totals: { label_map:{} },
     validation: { tolerance:0.02, checks:[{id:'lines_excl_sum',severity:'fail'},{id:'excl_plus_vat',severity:'fail'}], required_fields:['invoice_number','date','grand_total'] },
     post_processing: [{field:'description',op:'trim'},{field:'description',op:'collapse_spaces'}],
@@ -2133,7 +2596,14 @@ function profileFromForm() {
     const label= row.querySelector('.hf-label')?.value.trim();
     const type = row.querySelector('.hf-type')?.value || 'string';
     const req  = row.querySelector('.hf-req')?.checked || false;
-    if (name) header_fields.push({ name, label, type, required: req });
+    if (!name) return;
+    const orig = row._origField || {};
+    const fld = { ...orig, name, type, required: req };
+    delete fld.label;
+    delete fld.label_regex;
+    if (label) { fld.label = label; delete fld.regex; }
+    else if (orig.label_regex) fld.label_regex = orig.label_regex;
+    header_fields.push(fld);
   });
 
   // Totals label map
@@ -2146,16 +2616,26 @@ function profileFromForm() {
 
   const colmap = v('pl-colmap').split(',').map(s=>s.trim()).filter(Boolean);
   const skip   = v('pl-skip').split(',').map(s=>s.trim()).filter(Boolean);
+  const startOffset = parseInt(v('pl-startOffset'), 10);
+  // Preserve profile options the form does not expose (e.g. row_regex,
+  // party label fields, bank fields, min_detection) so editing/saving a
+  // profile in Parser Lab does not silently drop them.
+  const base = _draftProfile ? JSON.parse(JSON.stringify(_draftProfile)) : {};
+  const baseParties = base.parties || {};
+  const baseSupplier = baseParties.supplier || {};
+  const baseCustomer = baseParties.customer || {};
 
   return {
-    id:       v('profileIdInput')   || _draftProfile?.id   || 'profile-' + Date.now(),
-    name:     v('profileNameInput') || _draftProfile?.name || 'Profile',
-    version:  _draftProfile?.version,
-    system:   '',
-    priority: 5,
+    ...base,
+    id:       v('profileIdInput')   || base.id || 'profile-' + Date.now(),
+    name:     v('profileNameInput') || base.name || 'Profile',
+    version:  base.version,
+    system:   base.system || '',
+    priority: base.priority ?? 5,
     detection,
-    extraction: { engine: v('pe-engine') || 'layout', page_range: v('pe-pageRange') || 'all' },
+    extraction: { ...(base.extraction || {}), engine: v('pe-engine') || 'layout', page_range: v('pe-pageRange') || 'all' },
     locale: {
+      ...(base.locale || {}),
       decimal_sep:     v('pl-decSep')      || '.',
       thousands_sep:   v('pl-thouSep')     || ',',
       currency_iso:    v('pl-currencyIso') || 'USD',
@@ -2164,38 +2644,49 @@ function profileFromForm() {
     },
     header_fields,
     parties: {
-      supplier: { anchor: v('pp-supAnchor'),    lines: parseInt(v('pp-supLines'))||4 },
-      customer: { anchor: v('pp-custAnchor'),   anchor_bottom: v('pp-custAnchorBot')||undefined, lines: parseInt(v('pp-custLines'))||4 },
+      supplier: {
+        ...baseSupplier,
+        anchor: v('pp-supAnchor'),
+        lines: parseInt(v('pp-supLines'))||4,
+      },
+      customer: {
+        ...baseCustomer,
+        anchor: v('pp-custAnchor'),
+        anchor_bottom: v('pp-custAnchorBot')||undefined,
+        lines: parseInt(v('pp-custLines'))||4,
+      },
     },
-    bank: { start_marker: v('pb-bankStart') || 'BANKING DETAILS' },
+    bank: { ...(base.bank || {}), start_marker: v('pb-bankStart') || 'BANKING DETAILS' },
     line_items: {
+      ...(base.line_items || {}),
       start_marker:       v('pl-start'),
-      start_line_offset:  parseInt(v('pl-startOffset'))||1,
+      start_line_offset:  Number.isInteger(startOffset) ? startOffset : 1,
       end_marker:         v('pl-end'),
       item_dot_counter:   parseInt(v('pl-dot'))||2,
       multiline_products: v('pl-multi') || 'no',
       column_map:         colmap.length ? colmap : ['description','qty','unit_price_excl','disc_pct','vat_pct','total_excl','total_incl'],
-      code_split: { separator: v('pl-codeSplit') || ' - ', position: 'first' },
+      code_split: { ...((base.line_items||{}).code_split || {}), separator: v('pl-codeSplit') || ' - ', position: 'first' },
       skip_patterns: skip,
     },
     tax: {
-      ...((typeof _draftProfile !== 'undefined' && _draftProfile && _draftProfile.tax) || {}),
-      vat_standard_pct: parseFloat(v('pl-vata'))||15,
+      ...(base.tax || {}),
+      vat_standard_pct: parseFloat(v('pl-vata'))||15.5,
       vat_exempt_pct:   parseFloat(v('pl-vate'))||0,
       price_basis:      v('pl-priceBasis') || 'exclusive',
     },
-    totals: { label_map },
+    totals: { ...(base.totals || {}), label_map },
     validation: {
+      ...(base.validation || {}),
       tolerance: parseFloat(v('pv-tol'))||0.02,
       checks: [
         { id:'lines_excl_sum', severity:'fail' },
         { id:'excl_plus_vat',  severity:'fail' },
         { id:'lines_incl_sum', severity:'warn' },
-        { id:'allowed_vat_rates', severity:'warn', rates:[0, parseFloat(v('pl-vata'))||15] },
+        { id:'allowed_vat_rates', severity:'warn', rates:[0, parseFloat(v('pl-vata'))||15.5] },
       ],
       required_fields: v('pv-required').split(',').map(s=>s.trim()).filter(Boolean),
     },
-    post_processing: [
+    post_processing: base.post_processing || [
       { field:'description', op:'trim' },
       { field:'description', op:'collapse_spaces' },
     ],
@@ -2246,7 +2737,7 @@ function applyProfileToForm(p) {
 
   // Line items
   s('pl-start',       items.start_marker       || '');
-  s('pl-startOffset', items.start_line_offset  || 1);
+  s('pl-startOffset', items.start_line_offset ?? 1);
   s('pl-end',         items.end_marker         || '');
   s('pl-dot',         items.item_dot_counter   ?? 2);
   s('pl-multi',       items.multiline_products || 'no');
@@ -2255,7 +2746,7 @@ function applyProfileToForm(p) {
   s('pl-skip',        (items.skip_patterns||[]).join(', '));
 
   // Tax
-  s('pl-vata',       tax.vat_standard_pct ?? 15);
+  s('pl-vata',       tax.vat_standard_pct ?? 15.5);
   s('pl-vate',       tax.vat_exempt_pct   ?? 0);
   s('pl-priceBasis', tax.price_basis      || 'exclusive');
 
@@ -2292,6 +2783,9 @@ function _addHeaderFieldRow(f) {
   const row = document.createElement('div');
   row.className = 'hf-row flex items-center gap-2';
   row.style.flexWrap = 'wrap';
+  // Keep the full original rule so Parser Lab saves preserve options the form
+  // does not expose (regex capture groups, value_map, defaults, terminators).
+  row._origField = f;
   row.innerHTML = `
     <input class="hf-name"  type="text" value="${esc(f.name||'')}"  placeholder="field_name"  style="width:130px;">
     <input class="hf-label" type="text" value="${esc(f.label||f.label_regex||'')}" placeholder="Label:"  style="width:130px;">
@@ -2981,6 +3475,7 @@ function setupSettings() {
     config.multiLineProduct = document.getElementById('cfg-multi').value;
     config.vatA = document.getElementById('cfg-vata').value;
     config.vatE = document.getElementById('cfg-vate').value;
+    config.priceBasis = document.getElementById('cfg-price-basis')?.value || 'inclusive';
     if (!config.parserProfiles || !config.parserProfiles.length) config.parserProfiles = [{}];
     Object.assign(config.parserProfiles[0], { productStartLine: config.productStartLine,
       productEndLine: config.productEndLine, itemDotCounter: config.itemDotCounter,
@@ -3089,6 +3584,13 @@ async function populateSettings() {
   s('cfg-multi').value = config.multiLineProduct || '0';
   s('cfg-vata').value  = config.vatA || '15.5';
   s('cfg-vate').value  = config.vatE || '0';
+  if (s('cfg-price-basis')) s('cfg-price-basis').value = config.priceBasis || 'inclusive';
+  if (s('cfg-vat-source')) {
+    const live = liveTaxConfig;
+    s('cfg-vat-source').textContent = live && live.source === 'getconfig'
+      ? `Live ZIMRA VAT: ${live.standardRate}% (from GetConfig)${Array.isArray(live.rates) && live.rates.length ? ' · rates ' + live.rates.join('%, ') + '%' : ''}`
+      : 'Live ZIMRA VAT unavailable — using the fallback rate until the device is reachable.';
+  }
   s('cfg-logo').value  = config.logoFile || '';
   if (s('cfg-notify-fail'))  s('cfg-notify-fail').checked  = config.notifyOnFail !== false;
   if (s('cfg-notify-close')) s('cfg-notify-close').checked = config.notifyOnClose !== false;
@@ -3098,6 +3600,8 @@ async function populateSettings() {
   if (s('cfg-print-format')) s('cfg-print-format').value = config.printFormat || 'thermal';
   if (s('cfg-show-logo'))    s('cfg-show-logo').value    = config.showLogo === false ? '0' : '1';
   if (s('cfg-show-qr'))      s('cfg-show-qr').value      = config.showQR   === false ? '0' : '1';
+  if (s('cfg-pdf-action'))   s('cfg-pdf-action').value   = config.pdfInvoiceAction || 'fiscalCopy';
+  if (s('cfg-non-receipt'))  s('cfg-non-receipt').value  = config.nonReceiptAction || 'print';
 
   // Printers
   try {
@@ -3190,6 +3694,7 @@ function openWizard() {
   s('wz-multiline').value    = config.multiLineProduct || 0;
   s('wz-vata').value         = config.vatA  || '15.5';
   s('wz-vate').value         = config.vatE  || '0';
+  if (s('wz-price-basis')) s('wz-price-basis').value = config.priceBasis || 'inclusive';
   if (config.printerName) s('wz-printer').value = config.printerName;
   if (config.logoFile)    s('wz-logo').value    = config.logoFile;
   renderCurrencyList('wz-currency-list', config.currencies||[]);
@@ -3267,6 +3772,7 @@ async function saveAndAdvanceWizard(fromStep) {
     config.multiLineProduct = s('wz-multiline').value;
     config.vatA = s('wz-vata').value;
     config.vatE = s('wz-vate').value;
+    config.priceBasis = s('wz-price-basis')?.value || 'inclusive';
   } else if (fromStep === 5) {
     config.printerName = s('wz-printer').value;
     config.logoFile    = s('wz-logo').value;
@@ -3911,6 +4417,80 @@ async function printFiscalReceipt(invoice, fiscal, templateKey) {
   }
 }
 
+/**
+ * Print a file exactly as it arrived. Used for documents that are not receipts
+ * and for re-printing a pass-through document from the history view.
+ */
+async function _printUnchangedFile(filePath, opts = {}) {
+  if (!filePath) return { success: false, error: 'No file path stored' };
+  const isPdf = opts.fromPdf || /\.pdf$/i.test(filePath);
+  try {
+    if (isPdf) {
+      return await window.fiscalBridgeAPI.printPdfFile(filePath, config.printerName || undefined);
+    }
+
+    let text = opts.text;
+    if (text == null) {
+      const r = await window.fiscalBridgeAPI.readReceiptFile(filePath);
+      if (!r || !r.success) return { success: false, error: (r && r.error) || 'Cannot read file' };
+      if (r.fromPdf) return await window.fiscalBridgeAPI.printPdfFile(filePath, config.printerName || undefined);
+      text = String(r.content == null ? '' : r.content);
+    }
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+             font-size: 11px; line-height: 1.35; margin: 12px;
+             white-space: pre-wrap; word-break: break-word; }
+    </style></head><body>${esc(text)}</body></html>`;
+    const format = config.printFormat === 'a4' ? 'a4' : 'thermal';
+    return await window.fiscalBridgeAPI.printReceipt(html, config.printerName, format);
+  } catch (err) {
+    return { success: false, error: _printErrorText(err) };
+  }
+}
+
+async function _printUnchangedDocument(doc) {
+  if (!doc || !doc.filePath) { showToast('No file path stored', 'error'); return; }
+  showToast('Printing unchanged…', 'info');
+  const r = await _printUnchangedFile(doc.filePath, {
+    fromPdf: /\.pdf$/i.test(doc.fileName || doc.filePath),
+  });
+  if (r && r.success) showToast('Document sent to printer', 'success');
+  else showToast('Print failed: ' + ((r && r.error) || 'unknown error'), 'error');
+}
+
+/**
+ * After fiscalisation: print the stamped original PDF in stamp mode, otherwise
+ * print the generated fiscal receipt.
+ */
+async function _printCompletedDocument(archive, invoiceData, fiscal, docRecord) {
+  if (!config.printerName) return;
+
+  if (archive && archive.outputMode === 'stamp' && archive.filePath && /\.pdf$/i.test(archive.filePath)) {
+    console.log(`[PRINT] Printing stamped PDF to: ${config.printerName}`);
+    const r = await window.fiscalBridgeAPI.printPdfFile(archive.filePath, config.printerName || undefined);
+    if (r && r.success) {
+      showSystemNotification(
+        'FiscalBridge - Stamped Invoice Printed',
+        `Invoice ${invoiceData.invoiceNumber || 'Unknown'} printed successfully`,
+        'success'
+      );
+    } else {
+      const message = (r && r.error) || 'unknown error';
+      console.error('[PRINT] Stamped PDF print failed:', message);
+      showToast('Stamped PDF print failed: ' + message, 'error');
+      showSystemNotification(
+        'FiscalBridge - Print Error',
+        `Failed to print stamped invoice ${invoiceData.invoiceNumber || 'Unknown'}: ${message}`,
+        'error'
+      );
+    }
+    return;
+  }
+
+  await printFiscalReceipt(invoiceData, fiscal || {}, _docTemplateKey(docRecord));
+}
+
 
 // ─── Confirm Dialog ────────────────────────────────────────────────────────────
 let _confirmCallback = null;
@@ -4052,6 +4632,9 @@ function statusPill(status, offline) {
   if (offline) return '<span class="pill pill-queued">Offline — queued</span>';
   const map = {
     fiscalised:   ['pill-ok',     'Fiscalised'],
+    duplicate:    ['pill-queued', 'Duplicate'],
+    printed:      ['pill-ok',     'Printed'],
+    print_failed: ['pill-fail',   'Print Failed'],
     queued:       ['pill-queued', 'Queued'],
     retrying:     ['pill-queued', 'Retrying'],
     needs_review: ['pill-fail',   'Needs Review'],
@@ -4098,6 +4681,8 @@ document.addEventListener('DOMContentLoaded', () => {
       config.printFormat   = (document.getElementById('cfg-print-format')?.value)  || 'thermal';
       config.showLogo      = (document.getElementById('cfg-show-logo')?.value)      !== '0';
       config.showQR        = (document.getElementById('cfg-show-qr')?.value)        !== '0';
+      config.pdfInvoiceAction = (document.getElementById('cfg-pdf-action')?.value)  || 'fiscalCopy';
+      config.nonReceiptAction = (document.getElementById('cfg-non-receipt')?.value) || 'print';
       // printTemplate is set by selectTemplate()
       await saveConfig();
       showToast('Template settings saved', 'success');

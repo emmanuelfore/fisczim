@@ -83,11 +83,14 @@ function splitLines(text) {
 }
 
 function matchLabel(line, labelCfg) {
-  // labelCfg: { label?, label_regex?, skip_labels? }
+  // labelCfg: { label?, label_regex?, regex?, skip_labels? }
   if (labelCfg.skip_labels) {
     for (const sl of labelCfg.skip_labels) {
       if (line.toUpperCase().includes(sl.toUpperCase())) return false;
     }
+  }
+  if (labelCfg.regex) {
+    return new RegExp(labelCfg.regex, 'i').test(line);
   }
   if (labelCfg.label_regex) {
     return new RegExp(labelCfg.label_regex, 'i').test(line);
@@ -100,7 +103,12 @@ function matchLabel(line, labelCfg) {
 
 function extractValue(line, labelCfg, terminator = 'eol') {
   let rest = line;
-  if (labelCfg.label_regex) {
+  if (labelCfg.regex) {
+    // A capture group lets a profile read the matched value itself, e.g.
+    // "Fiscal (Tax Invoice|Credit Note)" → "Credit Note".
+    const m = line.match(new RegExp(labelCfg.regex, 'i'));
+    rest = m ? (m[1] != null ? m[1] : m[0]) : line;
+  } else if (labelCfg.label_regex) {
     rest = line.replace(new RegExp(labelCfg.label_regex, 'i'), '').trim();
   } else if (labelCfg.label) {
     const idx = line.toUpperCase().indexOf(labelCfg.label.toUpperCase());
@@ -169,7 +177,12 @@ function runFields(lines, profile) {
       if (fld.type === 'date')    result[fld.name] = parseDate(raw, locale.date_format || 'DD/MM/YYYY');
       else if (fld.type === 'money')   result[fld.name] = parseMoney(raw, locale);
       else if (fld.type === 'percent') result[fld.name] = parseFloat(raw.replace('%','')) || null;
-      else result[fld.name] = raw || null;
+      else {
+        // `value_map` translates a captured label into a canonical value, e.g.
+        // { "Tax Invoice": "FiscalInvoice", "Credit Note": "CreditNote" }.
+        const mapped = fld.value_map ? (fld.value_map[raw] ?? fld.value_map[String(raw).trim()]) : undefined;
+        result[fld.name] = mapped !== undefined ? mapped : (raw || null);
+      }
     }
   }
   return result;
@@ -183,25 +196,119 @@ function runParties(lines, profile) {
   return { supplier, customer };
 }
 
+function _markerIndex(lines, marker, from = 0) {
+  if (!marker) return -1;
+  let re;
+  try {
+    re = marker instanceof RegExp ? marker : new RegExp(marker, 'i');
+  } catch {
+    re = new RegExp(_escRe(marker), 'i');
+  }
+  for (let i = from; i < lines.length; i++) if (re.test(lines[i])) return i;
+  return -1;
+}
+
+function _cleanPartyValue(value) {
+  if (value == null) return null;
+  const s = String(value).replace(/^[\s:,]+/, '').replace(/\s+/g, ' ').trim();
+  if (!s || /^cell\s*:\s*$/i.test(s)) return null;
+  return s;
+}
+
+function _isLabelOnly(line) {
+  return /^[A-Za-z][A-Za-z ./-]*:\s*$/.test(line);
+}
+
+/**
+ * Keep the left-hand portion of a layout line.
+ *
+ * Text extraction joins same-row columns with runs of spaces (e.g. the buyer
+ * block on the left and banking details on the right). Splitting on 2+ spaces
+ * would also split labels from their values ("Customer Name      :Sample Inv"),
+ * so rejoin that specific shape.
+ */
+function _leftColumn(line) {
+  const parts = line.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
+  if (parts.length <= 1) return line.trim();
+  const first = parts[0];
+  const second = parts[1] || '';
+  if (!first.includes(':') && second.startsWith(':')) return `${first}${second}`;
+  if (/:$/.test(first)) return first;
+  if (first.includes(':') && second && !/^[A-Za-z][A-Za-z .-]*\s*:/.test(second)) {
+    return `${first} ${second}`;
+  }
+  return first;
+}
+
+/**
+ * Label/regex based party extraction.
+ *
+ * `fields` can be:
+ *   { name: "Customer Name" }                         → label followed by ":"
+ *   { vat_no: { label: "VAT No" } }                   → same, explicit form
+ *   { tin: { regex: "TIN:\\s*([0-9]+)" } }            → custom capture group
+ *
+ * `start_marker` / `end_marker` scope the search so the same label (e.g. VAT)
+ * can be read from different sections of the document.
+ */
+function _extractLabelFields(lines, cfg) {
+  if (!cfg.fields) return null;
+  const start = _markerIndex(lines, cfg.start_marker);
+  const from = start < 0 ? 0 : start + 1;
+  const end = _markerIndex(lines, cfg.end_marker, from);
+  const scopeEnd = end < 0 ? lines.length : end;
+  const out = {};
+
+  for (const [name, def] of Object.entries(cfg.fields)) {
+    const label = typeof def === 'string' ? def : def && def.label;
+    const custom = typeof def === 'object' && def && def.regex;
+    if (!label && !custom) continue;
+
+    for (let i = from; i < scopeEnd; i++) {
+      const line = _leftColumn(lines[i]);
+      const m = custom
+        ? line.match(new RegExp(def.regex, 'i'))
+        : line.match(new RegExp(`(?:^|\\s)${_escRe(label)}\\s*:\\s*(.*)$`, 'i'));
+      if (!m) continue;
+      let value = _cleanPartyValue(m[1] != null ? m[1] : m[0]);
+      if (!value && def && def.value_next_line && lines[i + 1]) {
+        value = _cleanPartyValue(lines[i + 1]);
+      }
+      if (value) out[name] = value;
+      else if (!(name in out)) out[name] = null;
+      break;
+    }
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
 function _extractParty(lines, cfg) {
   if (!cfg) return null;
   const anchor = cfg.anchor || '';
   const numLines = cfg.lines || 4;
+  const skip = (cfg.skip_patterns || []).map(p => new RegExp(p, 'i'));
+  const labelled = _extractLabelFields(lines, cfg);
 
   // Try explicit top anchor first
   for (let i = 0; anchor && i < lines.length; i++) {
     if (lines[i].toUpperCase().includes(anchor.toUpperCase())) {
       const block = [];
       for (let j = i + 1; j < i + 1 + numLines && j < lines.length; j++) {
-        const l = lines[j].trim();
-        if (l) block.push(l);
+        const l = _leftColumn(lines[j]);
+        if (!l || skip.some(r => r.test(l))) continue;
+        block.push(l);
       }
-      return {
-        name:    block[0] || null,
-        vat_no:  _extractVAT(block),
-        address: block.filter((l, idx) => idx > 0 && !_looksLikeVAT(l)).join(', ') || null,
-        _raw:    block,
-      };
+      const result = labelled || {};
+      if (!result.name && block[0]) result.name = block[0].split(/\s{2,}/)[0].trim();
+      if (!result.address) {
+        const address = block.filter((l, idx) =>
+          idx > 0 && !_looksLikeVAT(l) && !_isLabelOnly(l)
+        );
+        result.address = address.join(', ') || null;
+      }
+      result._raw = block;
+      return result;
     }
   }
 
@@ -212,13 +319,13 @@ function _extractParty(lines, cfg) {
         const block = [];
         for (let j = Math.max(0, i - numLines); j < i; j++) {
           const l = lines[j].trim();
-          if (l && !_looksLikeVAT(l)) block.push(l);
+          if (l && !_looksLikeVAT(l) && !skip.some(r => r.test(l))) block.push(l);
         }
-        return {
-          name:   block[block.length - 1] || null,
-          vat_no: _extractVAT([lines[i]]),
-          _raw:   block,
-        };
+        const result = labelled || {};
+        if (!result.name) result.name = block[block.length - 1] || null;
+        if (!result.vat_no) result.vat_no = _extractVAT([lines[i]]);
+        result._raw = block;
+        return result;
       }
     }
   }
@@ -236,14 +343,14 @@ function _extractParty(lines, cfg) {
           if (/^Tax Invoice|^COPY TAX INVOICE/i.test(l)) break;
           // Skip address-like lines (contain digits + street words) and email/phone lines
           if (/\d.*\d|@|www\.|Tel:|Fax:|Along|Road|Street|Avenue|P\.?O\.|Lesotho/i.test(l)) continue;
-          return { name: l, vat_no: m[1], _raw: [l] };
+          return { ...(labelled || {}), name: l, vat_no: (labelled && labelled.vat_no) || m[1], _raw: [l] };
         }
-        return { name: null, vat_no: m[1], _raw: [] };
+        return { ...(labelled || {}), name: null, vat_no: (labelled && labelled.vat_no) || m[1], _raw: [] };
       }
     }
   }
 
-  return null;
+  return labelled;
 }
 
 function _extractVAT(lines) {
@@ -291,7 +398,7 @@ function runBank(lines, profile) {
 }
 
 // ─── 5. Line items ────────────────────────────────────────────────────────────
-function runItems(lines, profile) {
+function runItems(lines, profile, options) {
   const cfg    = profile.line_items || {};
   const locale = profile.locale     || {};
   const colMap = cfg.column_map     || ['description','qty','unit_price_excl','disc_pct','vat_pct','total_excl','total_incl'];
@@ -358,7 +465,8 @@ function runItems(lines, profile) {
   }
   if (current) items.push(current);
 
-  return items.map(item => _postProcessItem(item, profile));
+  if (options && options.raw) return items;
+  return items.map(item => _postProcessItem(item, profile, options && options.priceBasis));
 }
 
 function _isItemRow(line, dotN, rowRegex) {
@@ -371,22 +479,33 @@ function _isItemRow(line, dotN, rowRegex) {
 }
 
 function _parseItemRow(line, colMap, locale, cfg) {
-  // Split on 2+ spaces (layout-mode column delimiter)
-  const cols = line.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
+  let cols;
   const item = {};
 
-  // Detach item code from the description column when a separator is configured
-  // (e.g. "WID001 - Widget"). Only splits when the first part looks like a code (no spaces).
-  if (cols.length && cfg.code_split && cfg.code_split.separator) {
-    const sep = cfg.code_split.separator;
-    const pos = cfg.code_split.position || 'first';
-    if (cols[0].includes(sep)) {
-      const parts = cols[0].split(sep);
-      const code = (pos === 'first' ? parts[0] : parts[parts.length - 1]).trim();
-      if (code && !/\s/.test(code)) {
-        if (pos === 'first') parts.shift(); else parts.pop();
-        item.code = code;
-        cols[0] = parts.join(sep).trim();
+  // Regex rows are useful for tightly-packed tables where the PDF text has
+  // single spaces between columns and multi-word descriptions. Capture groups
+  // map positionally to column_map.
+  if (cfg.row_regex) {
+    const m = line.match(new RegExp(cfg.row_regex, 'i'));
+    if (!m) return item;
+    cols = m.slice(1).map(s => (s == null ? '' : s.trim()));
+  } else {
+    // Split on 2+ spaces (layout-mode column delimiter)
+    cols = line.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
+
+    // Detach item code from the description column when a separator is configured
+    // (e.g. "WID001 - Widget"). Only splits when the first part looks like a code (no spaces).
+    if (cols.length && cfg.code_split && cfg.code_split.separator) {
+      const sep = cfg.code_split.separator;
+      const pos = cfg.code_split.position || 'first';
+      if (cols[0].includes(sep)) {
+        const parts = cols[0].split(sep);
+        const code = (pos === 'first' ? parts[0] : parts[parts.length - 1]).trim();
+        if (code && !/\s/.test(code)) {
+          if (pos === 'first') parts.shift(); else parts.pop();
+          item.code = code;
+          cols[0] = parts.join(sep).trim();
+        }
       }
     }
   }
@@ -396,11 +515,13 @@ function _parseItemRow(line, colMap, locale, cfg) {
     const raw = cols[i];
     if (!raw) return;
     if (name === 'hs_code') { item.hs_code = raw.replace(/[^0-9]/g, '') || null; return; }
-    const money = ['unit_price_excl','unit_price_incl','total_excl','total_incl','disc_amount'].includes(name);
+    const money = ['unit_price_excl','unit_price_incl','total_excl','total_incl','disc_amount','vat_amount'].includes(name);
     const pct   = ['disc_pct','vat_pct'].includes(name);
-    const num   = ['qty'].includes(name);
+    const num   = ['qty','line_no'].includes(name);
     if (money || num || pct) {
       item[name] = parseMoney(raw, locale);
+    } else if (name === 'description') {
+      item[name] = raw.replace(/\s+/g, ' ').trim() || null;
     } else {
       item[name] = raw || null;
     }
@@ -409,11 +530,88 @@ function _parseItemRow(line, colMap, locale, cfg) {
   return item;
 }
 
-function _postProcessItem(item, profile) {
+/**
+ * A line's printed amount, regardless of which column the profile mapped it to.
+ * `preferInclusive` selects the column that carries the printed value when the
+ * profile exposes both.
+ */
+function _printedAmounts(item, preferInclusive) {
+  const unit = preferInclusive
+    ? (item.unit_price_incl != null ? item.unit_price_incl : item.unit_price_excl)
+    : (item.unit_price_excl != null ? item.unit_price_excl : item.unit_price_incl);
+  const total = preferInclusive
+    ? (item.total_incl != null ? item.total_incl : item.total_excl)
+    : (item.total_excl != null ? item.total_excl : item.total_incl);
+  return { unit, total };
+}
+
+/**
+ * Decide whether the printed line amounts are VAT-inclusive or VAT-exclusive.
+ *
+ * The invoice's own arithmetic is the authority: when the printed grand total
+ * equals the sum of the line amounts the prices are inclusive; when it equals
+ * the line sum *plus* the printed VAT the prices are exclusive. Profiles only
+ * provide the default for ambiguous documents.
+ */
+function resolvePriceBasis(profile, items, totals) {
+  const declared = (profile.tax || {}).price_basis || 'exclusive';
+  const grand = totals.grand_total != null ? totals.grand_total : totals.sub_total;
+  if (grand == null || !items.length) return declared;
+
+  const tol = (profile.validation || {}).tolerance || 0.02;
+  const vat = Number(totals.vat || 0);
+  const near = (a, b) => Math.abs((a || 0) - (b || 0)) <= tol;
+
+  const sumPrinted = round2(items.reduce((s, it) => {
+    const { total } = _printedAmounts(it, it.total_incl != null);
+    return s + (total != null ? total : 0);
+  }, 0));
+
+  if (near(grand, sumPrinted)) return 'inclusive';
+  if (near(grand, sumPrinted + vat)) return 'exclusive';
+
+  // Some layouts print only a net line total even when the price column says
+  // "Inc" (or vice versa). Fall back to quantity × printed unit price.
+  const sumUnits = round2(items.reduce((s, it) => {
+    const { unit, total } = _printedAmounts(it, it.unit_price_incl != null);
+    return s + (total != null ? total : (unit || 0) * (it.qty || 1));
+  }, 0));
+  if (near(grand, sumUnits)) return 'inclusive';
+  if (near(grand, sumUnits + vat)) return 'exclusive';
+
+  return declared;
+}
+
+function _postProcessItem(item, profile, basisOverride) {
   const tax    = profile.tax     || {};
-  const locale = profile.locale  || {};
-  const std    = tax.vat_standard_pct || 15;
+  // Zimbabwe's standard VAT rate moved to 15.5% on 1 January 2026. Profiles can
+  // override this, and a rate read from the document (VAT amount column) wins.
+  const std    = tax.vat_standard_pct || 15.5;
   const exempt = tax.vat_exempt_pct   || 0;
+  const basis  = basisOverride || tax.price_basis || 'exclusive';
+  const qty    = item.qty        || 1;
+  const disc   = (item.disc_pct || 0) / 100;
+  const printed = _printedAmounts(item, basis === 'inclusive');
+
+  // Some layouts (e.g. Palladium) print a VAT *amount* column rather than a
+  // percentage. Derive the effective rate from the net amount so an inclusive
+  // price of 8.35 with 0.84 VAT reads as 15.5%, not 13.42% of the gross.
+  if (item.vat_pct == null && item.vat_amount != null) {
+    if (item.vat_amount === 0) {
+      item.vat_pct = 0;
+    } else {
+      const netBase = basis === 'inclusive'
+        ? (printed.total != null ? printed.total - item.vat_amount : null)
+        : (printed.total != null ? printed.total : null);
+      if (netBase != null && netBase !== 0) {
+        item.vat_pct = Math.round((item.vat_amount / netBase) * 10000) / 100;
+        // VAT amounts are printed to the cent, so a small line implies a rate
+        // slightly off the configured one (0.16 / 1.00 reads as 16% on a 15.5%
+        // invoice). Snap to the standard rate when the difference is rounding.
+        if (std > 0 && Math.abs(item.vat_pct - std) <= 0.75) item.vat_pct = std;
+      }
+    }
+  }
 
   // Derive vat_class
   const vp = item.vat_pct;
@@ -426,17 +624,34 @@ function _postProcessItem(item, profile) {
     if (map) { item.tax_id = map.tax_id ?? null; item.tax_code = map.tax_code ?? null; }
   }
 
-  // Derive missing totals
-  const qty   = item.qty        || 1;
-  const price = item.unit_price_excl;
-  const disc  = (item.disc_pct || 0) / 100;
-  const vatR  = (item.vat_pct  || std) / 100;
+  const vatR = (item.vat_pct != null ? item.vat_pct : std) / 100;
 
-  if (price != null && item.total_excl == null) {
-    item.total_excl = round2(qty * price * (1 - disc));
-  }
-  if (item.total_excl != null && item.total_incl == null) {
-    item.total_incl = round2(item.total_excl * (1 + vatR));
+  if (basis === 'inclusive') {
+    // `printed.total` is the gross line total printed on the document.
+    if (printed.unit != null) item.unit_price_incl = printed.unit;
+    if (printed.total != null) item.total_incl = printed.total;
+    if (item.total_incl == null && item.unit_price_incl != null) {
+      item.total_incl = round2(qty * item.unit_price_incl * (1 - disc));
+    }
+    if (item.total_incl != null) {
+      item.total_excl = item.vat_amount != null
+        ? round2(item.total_incl - item.vat_amount)
+        : round2(item.total_incl / (1 + vatR));
+      item.unit_price_excl = round2(item.total_excl / qty);
+    }
+  } else {
+    // `printed.total` is the net line total printed on the document.
+    if (printed.unit != null) item.unit_price_excl = printed.unit;
+    if (printed.total != null) item.total_excl = printed.total;
+    if (item.total_excl == null && item.unit_price_excl != null) {
+      item.total_excl = round2(qty * item.unit_price_excl * (1 - disc));
+    }
+    if (item.total_excl != null) {
+      item.total_incl = item.vat_amount != null
+        ? round2(item.total_excl + item.vat_amount)
+        : round2(item.total_excl * (1 + vatR));
+      item.unit_price_incl = round2(item.total_incl / qty);
+    }
   }
 
   // Post-processing rules
@@ -477,7 +692,8 @@ function runTotals(lines, profile) {
     const lUp = l.toUpperCase();
 
     for (const [normLabel, fieldName] of normEntries) {
-      if (totals[fieldName] != null) continue;
+      const targets = Array.isArray(fieldName) ? fieldName : [fieldName];
+      if (targets.every(name => totals[name] != null)) continue;
 
       // Match label anywhere on the line but with word-boundary semantics:
       // The label must NOT be immediately followed by a letter (prevents "Total" matching "Total Discount").
@@ -512,7 +728,11 @@ function runTotals(lines, profile) {
 
       const money = parseMoney(raw, locale);
       // Guard against zero being returned for empty/no-match lines
-      if (money !== null && (money !== 0 || /[M$£€]?0\.00/.test(raw))) totals[fieldName] = money;
+      if (money !== null && (money !== 0 || /[M$£€]?0\.00/.test(raw))) {
+        for (const name of targets) {
+          if (totals[name] == null) totals[name] = money;
+        }
+      }
     }
   }
   return totals;
@@ -587,7 +807,7 @@ function validate(output, profile) {
  * @param {string} sourceFile Optional filename for metadata
  * @returns {object}          Output JSON
  */
-function parseWithProfile(text, profile, sourceFile = null) {
+function parseWithProfile(text, profile, sourceFile = null, options = {}) {
   const lines = splitLines(text);
 
   // 1. Header fields
@@ -600,29 +820,41 @@ function parseWithProfile(text, profile, sourceFile = null) {
   const bank    = runBank(lines, profile);
   if (parties.supplier && bank) parties.supplier.bank = bank;
 
-  // 4. Line items
-  const lineItems = runItems(lines, profile);
+  // 4. Line items (raw first — the price basis is resolved against the totals)
+  const rawItems = runItems(lines, profile, { raw: true });
 
   // 5. Totals
   const totals = runTotals(lines, profile);
 
-  // 6. Build output
+  // 6. Price basis: the caller's explicit setting wins; otherwise reconcile the
+  // printed line amounts with the printed grand total.
+  const basis = options.priceBasis && options.priceBasis !== 'auto'
+    ? options.priceBasis
+    : resolvePriceBasis(profile, rawItems, totals);
+  const lineItems = rawItems.map(item => _postProcessItem(item, profile, basis));
+
+  // 7. Build output
   const output = {
     source_file:            sourceFile,
     profile:                `${profile.id}@${profile.version || 1}`,
     document_type:          fields.document_type || profile.name || null,
+    transaction_type:       fields.transaction_type || null,
     is_copy:                _isCopy(text, profile),
     invoice_number:         fields.invoice_number   || null,
     date:                   fields.date             || null,
     due_date:               fields.due_date         || null,
     reference:              fields.reference        || null,
     sales_rep:              fields.sales_rep        || null,
+    account:                fields.account          || null,
+    reason:                 fields.reason           || null,
     overall_discount_pct:   fields.overall_discount_pct || null,
     currency:               (profile.locale || {}).currency_iso || null,
     supplier:               parties.supplier        || null,
     customer:               parties.customer        || null,
     line_items:             lineItems,
     totals,
+    price_basis:            basis,
+    profile_tax:            profile.tax || null,
   };
 
   // 7. Validate
@@ -639,7 +871,7 @@ function parseWithProfile(text, profile, sourceFile = null) {
  * @param {object[]} profiles Array of all available profiles
  * @param {string} sourceFile
  */
-function parseAutoDetect(text, profiles, sourceFile = null) {
+function parseAutoDetect(text, profiles, sourceFile = null, options = {}) {
   const { profile, confidence: detConf } = detect(text, profiles);
   if (!profile) {
     return {
@@ -648,7 +880,7 @@ function parseAutoDetect(text, profiles, sourceFile = null) {
       confidence: 0, validation_warnings: [],
     };
   }
-  const result = parseWithProfile(text, profile, sourceFile);
+  const result = parseWithProfile(text, profile, sourceFile, options);
   // Blend detection confidence
   result.confidence = Math.round(result.confidence * detConf * 100) / 100;
   if (result.confidence < 0.4 || result.validation_warnings.some(w => w.severity === 'fail')) {
@@ -675,10 +907,31 @@ function _isCopy(text, profile) {
  *   buyer.name, buyer.vatNumber (9 digits), buyer.tin (10 digits)
  *   invoiceNumber, date (YYYY-MM-DD), currency
  */
-function toFiscalInvoice(out) {
+function toFiscalInvoice(out, options = {}) {
   if (!out || !out.profile) return null;
   const t = out.totals || {};
   const locale = out.currency || 'USD';
+  const profileTax = out.profile_tax || {};
+  const profileBasis = out.price_basis || profileTax.price_basis || 'exclusive';
+  const profileStd = profileTax.vat_standard_pct;
+
+  // The caller's setting wins over the document/profile default.
+  const basis = options.priceBasis && options.priceBasis !== 'auto'
+    ? options.priceBasis
+    : profileBasis;
+  const inclusive = basis === 'inclusive';
+
+  // Live ZIMRA rates (from GetConfig) are the authority for standard-rated
+  // lines. Only rates the device actually knows are sent; anything derived
+  // from a printed VAT cent (e.g. 13.42%) is corrected to the configured rate.
+  const liveRates = Array.isArray(options.taxRates)
+    ? options.taxRates.map(Number).filter(r => Number.isFinite(r))
+    : [];
+  const standardRate = Number.isFinite(Number(options.standardRate)) && Number(options.standardRate) > 0
+    ? Number(options.standardRate)
+    : (Number.isFinite(profileStd) ? profileStd : null);
+  const rateIsConfigured = (rate) => liveRates.length === 0
+    || liveRates.some(r => Math.abs(r - rate) < 0.01);
 
   // Map vat_pct → taxType string
   function taxType(vat_pct) {
@@ -699,27 +952,53 @@ function toFiscalInvoice(out) {
   const hasBuyerData = buyer.name || buyer.vatNumber || buyer.tin || buyer.email || buyer.phone;
 
   const items = (out.line_items || []).map(it => {
-    // The API computes totals server-side; we send unit price (excl VAT) + qty
-    const qty    = it.qty != null ? it.qty : 1;
-    const price  = it.unit_price_excl != null
-      ? it.unit_price_excl
-      : (it.total_excl != null ? it.total_excl / qty : 0);
+    const qty = it.qty != null ? it.qty : 1;
+    const printed = _printedAmounts(it, inclusive);
+    // The fiscal schema carries the printed unit price. When prices are
+    // inclusive the server must be told so, otherwise it adds tax on top of an
+    // already-taxed amount and the receipt total is overstated.
+    const price = printed.unit != null
+      ? printed.unit
+      : (printed.total != null ? printed.total / qty : 0);
 
+    let rate = Number.isFinite(it.vat_pct) ? it.vat_pct
+             : (Number.isFinite(profileStd) ? profileStd
+             : null);
+    // Zero/exempt lines stay at zero; everything else must use a rate the
+    // device's GetConfig actually defines.
+    if (rate != null && rate > 0 && standardRate != null && !rateIsConfigured(rate)) {
+      rate = standardRate;
+    }
+    if (rate == null) rate = standardRate;
+
+    const taxIncl = inclusive || it.taxInclusive === true;
     return {
       name:      (it.description || 'Item').slice(0, 100),
       quantity:  qty,
-      unitPrice: parseFloat(price.toFixed(4)),
-      taxType:   taxType(it.vat_pct),
-      taxInclusive: false,
+      unitPrice: parseFloat(Number(price || 0).toFixed(4)),
+      taxType:   taxType(rate),
+      taxInclusive: taxIncl,
+      ...(rate != null ? { vatPct: rate } : {}),
       ...(it.code ? { sku: it.code } : {}),
     };
   });
 
+  // The printed VAT / total are what the customer's invoice shows; sending them
+  // keeps the fiscal receipt aligned with the document instead of re-rounding
+  // each line.
+  const printedTax   = Number(t.vat);
+  const printedTotal = Number(t.grand_total);
+
   return {
     items,
+    priceBasis:    basis,
+    taxInclusive:  items.some(it => it.taxInclusive === true),
     invoiceNumber: out.invoice_number || undefined,
     date:          out.date           || undefined,   // already YYYY-MM-DD from parseDate
     currency:      locale === 'LSL' ? 'USD' : (locale || 'USD'), // FiscalStack uses USD/ZWG
+    ...(Number.isFinite(printedTax)   ? { taxAmount: round2(printedTax) }   : {}),
+    ...(Number.isFinite(printedTotal) ? { total:     round2(printedTotal) } : {}),
+    ...(out.transaction_type ? { transactionType: out.transaction_type } : {}),
     ...(hasBuyerData ? { buyer } : {}),
   };
 }

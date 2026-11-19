@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('fiscalBridgeAPI', {
 
   // Configuration
   getConfig: () => ipcRenderer.invoke('get-config'),
+  getTaxConfig: (force) => ipcRenderer.invoke('get-tax-config', force),
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
 
   // Folder Monitoring
@@ -89,6 +90,7 @@ contextBridge.exposeInMainWorld('fiscalBridgeAPI', {
     ipcRenderer.invoke('print-pdf-file', filePath, printerName),
   writeFiscalPdf: (html, targetDir, baseName, format) =>
     ipcRenderer.invoke('write-fiscal-pdf', html, targetDir, baseName, format),
+  stampFiscalPdf: (opts) => ipcRenderer.invoke('stamp-fiscal-pdf', opts),
   readImageDataUrl: (filePath) => ipcRenderer.invoke('read-image-data-url', filePath),
 
   // Enterprise Queue / Observability

@@ -1,6 +1,6 @@
 {
   "name": "fiscalbridge",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "FiscalBridge - Cross-platform Fiscal Interface for FiscalStack",
   "author": "Fiscal Stack",
   "main": "main.js",
@@ -8,16 +8,27 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "build:win": "electron-builder --win",
+    "build:win": "electron-builder --win nsis --x64 --publish never --config.directories.output=dist-win",
     "build:linux": "electron-builder --linux",
-    "test:parser": "node tests/parserEngine.test.js"
+    "test:parser": "node tests/parserEngine.test.js",
+    "test:palladium": "node tests/palladium.test.js",
+    "test:payload": "node tests/fiscalPayload.test.js",
+    "test:stamp": "node tests/pdfStamp.test.js"
   },
   "build": {
     "appId": "com.fiscalstack.fiscalbridge",
     "productName": "FiscalBridge",
+    "artifactName": "FiscalBridge-Setup-${version}.${ext}",
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "**/*",
+      "!paladium samples{,/**/*}",
+      "!tests{,/**/*}",
+      "!dist-win*{,/**/*}",
+      "!build-archive-*{,/**/*}"
+    ],
     "win": {
       "target": [
         {
@@ -54,6 +65,7 @@
     "chokidar": "^3.5.3",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.11",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
     "qrcode": "^1.5.3"
   },

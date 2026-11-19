@@ -163,8 +163,16 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="wz-vata">VAT Standard Rate (%)</label>
+            <label for="wz-vata">VAT Standard Rate (%) — offline fallback</label>
             <input type="text" id="wz-vata" value="15.5">
+          </div>
+          <div class="form-group">
+            <label for="wz-price-basis">Invoice Price Basis</label>
+            <select id="wz-price-basis">
+              <option value="inclusive" selected>Prices include VAT (gross) — default</option>
+              <option value="auto">Auto — use the parser profile and invoice totals</option>
+              <option value="exclusive">Prices exclude VAT (net)</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="wz-vate">VAT Exempt Rate (%)</label>
@@ -417,6 +425,9 @@
             <select id="docStatusFilter">
               <option value="">All statuses</option>
               <option value="fiscalised">Fiscalised</option>
+              <option value="printed">Printed (not fiscalised)</option>
+              <option value="duplicate">Duplicate (blocked)</option>
+              <option value="print_failed">Print Failed</option>
               <option value="queued">Queued</option>
               <option value="retrying">Retrying</option>
               <option value="needs_review">Needs Review</option>
@@ -681,7 +692,7 @@
                   </button>
                   <div class="rs-acc-body">
                     <div class="rs-field-grid rs-grid-3">
-                      <div class="form-group"><label>VAT Standard (%)</label><input type="text" id="pl-vata" value="15"></div>
+                      <div class="form-group"><label>VAT Standard (%)</label><input type="text" id="pl-vata" value="15.5"></div>
                       <div class="form-group"><label>VAT Exempt (%)</label><input type="text" id="pl-vate" value="0"></div>
                       <div class="form-group">
                         <label>Price Basis</label>
@@ -1001,8 +1012,22 @@
               <div class="form-group"><label for="cfg-end">Product End Marker</label><input type="text" id="cfg-end"></div>
               <div class="form-group"><label for="cfg-dot">Item Dot Counter</label><input type="number" id="cfg-dot" min="1"></div>
               <div class="form-group"><label for="cfg-multi">Multi-line Products</label><select id="cfg-multi"><option value="0">No</option><option value="1">Yes</option></select></div>
-              <div class="form-group"><label for="cfg-vata">VAT Standard (%)</label><input type="text" id="cfg-vata"></div>
+              <div class="form-group"><label for="cfg-vata">VAT Standard (%) — offline fallback</label><input type="text" id="cfg-vata"></div>
               <div class="form-group"><label for="cfg-vate">VAT Exempt (%)</label><input type="text" id="cfg-vate"></div>
+              <div class="form-group">
+                <label for="cfg-price-basis">Invoice Price Basis</label>
+                <select id="cfg-price-basis">
+                  <option value="inclusive" selected>Prices include VAT (gross) — default</option>
+                  <option value="auto">Auto — use the parser profile and the invoice totals</option>
+                  <option value="exclusive">Prices exclude VAT (net)</option>
+                </select>
+                <p style="font-size:.75rem;color:var(--ink-muted);margin:4px 0 0;">
+                  Choose <strong>Prices include VAT</strong> when line prices already contain VAT
+                  (e.g. Palladium “Price Inc”). The live ZIMRA VAT rates are fetched automatically;
+                  the fallback rate above is only used when the device is offline.
+                </p>
+                <p id="cfg-vat-source" style="font-size:.75rem;color:var(--ink-muted);margin:4px 0 0;"></p>
+              </div>
               <div class="btn-group">
                 <button class="btn-secondary" id="cfg-export-profile">Export Profile JSON</button>
                 <button class="btn-secondary" id="cfg-import-profile">Import Profile JSON</button>
@@ -1020,6 +1045,26 @@
                 <select id="cfg-print-format">
                   <option value="thermal">Thermal (auto)</option>
                   <option value="a4">A4</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="cfg-pdf-action">PDF Invoice Output</label>
+                <select id="cfg-pdf-action">
+                  <option value="fiscalCopy">Generate a fiscal copy (default)</option>
+                  <option value="stamp">Stamp fiscal details + QR onto the original PDF</option>
+                </select>
+                <p style="font-size:.75rem;color:var(--ink-muted);margin:4px 0 0;">
+                  Stamp mode leaves the original file unchanged, saves a stamped copy in the fiscalised folder,
+                  and prints that PDF instead of the generated fiscal receipt.
+                </p>
+              </div>
+
+              <div class="form-group">
+                <label for="cfg-non-receipt">Files That Are Not Receipts</label>
+                <select id="cfg-non-receipt">
+                  <option value="print">Print unchanged (no fiscalisation)</option>
+                  <option value="review">Mark for review</option>
                 </select>
               </div>
 

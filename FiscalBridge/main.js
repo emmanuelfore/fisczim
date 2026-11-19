@@ -80,7 +80,13 @@ function migrateConfig(config) {
     c.errorFolder  = c.errorFolder  || (c.folders && c.folders.error)  || '';
     c.printFormat  = c.printFormat  || 'thermal';
     c.preferredPrinter = c.preferredPrinter || c.printerName || null;
+    c.pdfInvoiceAction = c.pdfInvoiceAction || 'fiscalCopy';
+    c.nonReceiptAction = c.nonReceiptAction || 'print';
   }
+  // Applies to both new and existing configs: how printed line prices are read.
+  // Inclusive is the default because Zimbabwe retail/POS invoices normally print
+  // gross prices with the VAT already inside the line total.
+  c.priceBasis = c.priceBasis || 'inclusive';
   
   // Set default folders if not configured
   const homeDir = app.getPath('home');
@@ -149,6 +155,76 @@ function writeConfig(config) {
     console.error('[writeConfig] Failed to write config.json:', err.message);
     throw err;
   }
+}
+
+// ─── Live VAT configuration ──────────────────────────────────────────────────
+// The device's ZIMRA GetConfig response is the authority for tax rates. Cache
+// it so parsing a folder of invoices does not hammer the API.
+let taxConfigCache = { at: 0, data: null };
+const TAX_CONFIG_TTL_MS = 5 * 60 * 1000;
+
+function normalizeVatRate(raw) {
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n > 0 && n < 1 ? Math.round(n * 1000) / 10 : n;
+}
+
+async function getLiveTaxConfig(force = false) {
+  const cfg = readConfig();
+  if (!force && taxConfigCache.data && Date.now() - taxConfigCache.at < TAX_CONFIG_TTL_MS) {
+    return taxConfigCache.data;
+  }
+
+  let taxes = [];
+  let source = 'config';
+  if (cfg.apiEndpoint && cfg.apiKey) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const base = String(cfg.apiEndpoint).replace(/\/+$/, '').replace(/\/api$/, '');
+      const response = await fetch(`${base}/api/zimra/applicable-taxes`, {
+        headers: { 'x-api-key': cfg.apiKey, 'Accept': 'application/json' },
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const body = await response.json();
+        taxes = (body.applicableTaxes || body.taxes || [])
+          .map(t => ({ ...t, taxPercent: Number(t.taxPercent) }))
+          .filter(t => Number.isFinite(t.taxPercent));
+        if (taxes.length) source = 'getconfig';
+      }
+    } catch (e) {
+      log.warn('[TaxConfig] GetConfig lookup failed:', e.message);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const fallback = normalizeVatRate(cfg.vatA);
+  const standard = taxes.find(t => t.taxPercent > 0 && /standard/i.test(t.taxName || ''))
+    || taxes.find(t => t.taxPercent > 0 && fallback != null && Math.abs(t.taxPercent - fallback) < 0.01)
+    || taxes.filter(t => t.taxPercent > 0).sort((a, b) => b.taxPercent - a.taxPercent)[0]
+    || null;
+
+  const data = {
+    source,
+    standardRate: standard ? standard.taxPercent : fallback,
+    rates: [...new Set(taxes.map(t => t.taxPercent))],
+    taxes: taxes.map(t => ({ taxID: t.taxID, taxName: t.taxName, taxPercent: t.taxPercent })),
+  };
+  taxConfigCache = { at: Date.now(), data };
+  return data;
+}
+
+async function getParseOptions() {
+  const cfg = readConfig();
+  const tax = await getLiveTaxConfig();
+  return {
+    priceBasis: cfg.priceBasis || 'inclusive',
+    standardRate: tax.standardRate,
+    taxRates: tax.rates,
+    taxConfig: tax,
+  };
 }
 
 /**
@@ -279,6 +355,15 @@ function registerIpcHandlers() {
   // Configuration management
   ipcMain.handle('get-config', () => {
     return readConfig();
+  });
+
+  ipcMain.handle('get-tax-config', async (_ev, force) => {
+    try {
+      return await getLiveTaxConfig(!!force);
+    } catch (e) {
+      const fallback = normalizeVatRate(readConfig().vatA);
+      return { source: 'config', standardRate: fallback, rates: [], taxes: [] };
+    }
   });
 
   ipcMain.handle('get-fiscal-config', () => {
@@ -548,6 +633,44 @@ function registerIpcHandlers() {
       return { success: true, path: finalPath };
     } catch (e) {
       log.error('[FiscalPdf] Failed:', e.message);
+      return { success: false, error: e.message };
+    }
+  });
+
+  // Stamp a real fiscal QR + data block onto a copy of the original invoice PDF.
+  // The source file is never written to.
+  ipcMain.handle('stamp-fiscal-pdf', async (_event, opts = {}) => {
+    try {
+      const inputPath = opts.inputPath;
+      const targetDir = opts.targetDir;
+      if (!inputPath || !fs.existsSync(inputPath)) {
+        return { success: false, error: 'Original PDF not found' };
+      }
+      if (!targetDir) return { success: false, error: 'Missing target folder' };
+
+      const safe = String(opts.baseName || 'fiscal-document')
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120) || 'fiscal-document';
+
+      let fileName = `${safe}.pdf`;
+      let counter = 1;
+      while (fs.existsSync(path.join(targetDir, fileName))) {
+        fileName = `${safe} (${counter++}).pdf`;
+      }
+
+      const { stampPdf } = require('./pdfStamp');
+      const finalPath = await stampPdf({
+        inputPath,
+        outputPath: path.join(targetDir, fileName),
+        fiscal: opts.fiscal || {},
+        box: opts.box,
+      });
+      log.info('[PdfStamp] Saved:', finalPath);
+      return { success: true, path: finalPath };
+    } catch (e) {
+      log.error('[PdfStamp] Failed:', e.message);
       return { success: false, error: e.message };
     }
   });
@@ -1012,7 +1135,7 @@ function registerIpcHandlers() {
 
   // parse-text: run the parser engine on extracted text.
   // `profileRef` may be a saved profile id (string), an inline draft profile object, or null (auto-detect).
-  ipcMain.handle('parse-text', (_ev, text, profileRef, profileVersion) => {
+  ipcMain.handle('parse-text', async (_ev, text, profileRef, profileVersion) => {
     try {
       let profile = null;
       if (profileRef && typeof profileRef === 'object') {
@@ -1021,10 +1144,11 @@ function registerIpcHandlers() {
         profile = profileStore.getProfile(profileRef, profileVersion || null);
         if (!profile) return { success: false, error: `Profile ${profileRef} not found` };
       }
+      const options = await getParseOptions();
       const result = profile
-        ? parserEngine.parseWithProfile(text, profile)
-        : parserEngine.parseAutoDetect(text, profileStore.listProfiles());
-      return { success: true, result, fiscal: parserEngine.toFiscalInvoice(result) };
+        ? parserEngine.parseWithProfile(text, profile, null, options)
+        : parserEngine.parseAutoDetect(text, profileStore.listProfiles(), null, options);
+      return { success: true, result, fiscal: parserEngine.toFiscalInvoice(result, options), taxConfig: options.taxConfig };
     } catch (e) { return { success: false, error: e.message }; }
   });
 
@@ -1034,10 +1158,11 @@ function registerIpcHandlers() {
       const text = await require('./a4InvoiceParser').extractTextFromPdfAsync(filePath);
       const profile = profileId ? profileStore.getProfile(profileId) : null;
       if (profileId && !profile) return { success: false, error: `Profile ${profileId} not found` };
+      const options = await getParseOptions();
       const result = profile
-        ? parserEngine.parseWithProfile(text, profile, filePath)
-        : parserEngine.parseAutoDetect(text, profileStore.listProfiles(), filePath);
-      return { success: true, text, result, fiscal: parserEngine.toFiscalInvoice(result) };
+        ? parserEngine.parseWithProfile(text, profile, filePath, options)
+        : parserEngine.parseAutoDetect(text, profileStore.listProfiles(), filePath, options);
+      return { success: true, text, result, fiscal: parserEngine.toFiscalInvoice(result, options), taxConfig: options.taxConfig };
     } catch (e) { return { success: false, error: e.message }; }
   });
 

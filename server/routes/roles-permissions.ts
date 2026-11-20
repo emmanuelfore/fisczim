@@ -205,7 +205,7 @@ export function createRolesPermissionsRouter(
     try {
       const companyId = Number(req.params.companyId);
       const body = z.object({
-        type: z.enum(["stock_adjustment", "grn_confirm", "journal_post", "invoice_issue"]),
+        type: z.enum(["stock_adjustment", "grn_confirm", "journal_post", "invoice_issue", "sales_commission"]),
         title: z.string().min(3),
         description: z.string().optional(),
         payload: z.record(z.unknown()),

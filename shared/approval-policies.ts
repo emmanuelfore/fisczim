@@ -43,6 +43,7 @@ export const DEFAULT_APPROVAL_POLICIES: CompanyApprovalPolicies = {
   [APPROVAL_TYPES.GRN_CONFIRM]: { mode: "disabled", ownerBypass: true },
   [APPROVAL_TYPES.JOURNAL_POST]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
   [APPROVAL_TYPES.INVOICE_ISSUE]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.SALES_COMMISSION]: { mode: "by_permission", ownerBypass: true },
 };
 
 export const APPROVAL_POLICY_DESCRIPTIONS: Record<ApprovalType, string> = {
@@ -50,6 +51,7 @@ export const APPROVAL_POLICY_DESCRIPTIONS: Record<ApprovalType, string> = {
   grn_confirm: "Confirming goods delivery notes and direct goods receipt postings.",
   journal_post: "Posting journal vouchers and manual ledger entries.",
   invoice_issue: "Issuing customer invoices (non-POS).",
+  sales_commission: "Salesperson commission statements submitted for admin approval.",
 };
 
 export function normalizeApprovalPolicies(raw: unknown): CompanyApprovalPolicies {

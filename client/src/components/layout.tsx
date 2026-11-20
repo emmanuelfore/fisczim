@@ -340,6 +340,7 @@ export function Layout({
       label: "CRM",
       children: [
         { icon: CalendarClock, label: "Enquiries & Follow-ups", href: "/crm" },
+        { icon: Wallet, label: "Commissions & Penalties", href: "/crm/commissions" },
       ],
     }] : []),
     ...(featureSettings.vehicles !== false ? [{

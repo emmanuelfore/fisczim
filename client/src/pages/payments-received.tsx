@@ -27,12 +27,15 @@ import {
   Printer,
   ArrowLeft,
   FileText,
+  MessageCircle,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { format, startOfMonth, endOfMonth, subMonths, isValid } from "date-fns";
 import { PaymentReceiptPDF } from "@/components/invoices/payment-receipt-pdf";
 import { useInvoice } from "@/hooks/use-invoices";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { usePaymentThankYou, useLogPaymentThankYou } from "@/hooks/use-payment-thankyou";
+import { useToast } from "@/hooks/use-toast";
 import {
   Popover,
   PopoverContent,
@@ -791,6 +794,36 @@ function PaymentDetailView({
   const taxConfig = useTaxConfig(company?.id || 0);
   const taxTypesData = taxConfig.taxTypes.data;
 
+  const { toast } = useToast();
+  const tyInvoiceId = invoice?.id ?? null;
+  const tyAmount = Number(payment?.amount || 0);
+  const tyCurrency = payment?.currency || invoice?.currency || "USD";
+  const thankyou = usePaymentThankYou(company?.id || 0, tyInvoiceId, tyAmount, tyCurrency, !!payment);
+  const logThankYou = useLogPaymentThankYou(company?.id || 0);
+
+  const sendThankYou = () => {
+    const ctx = thankyou.data;
+    if (!ctx) return;
+    if (!ctx.waLink) {
+      toast({
+        title: ctx.hasPhone ? "WhatsApp not ready" : "No WhatsApp number",
+        description: ctx.hasPhone ? "Try again in a moment." : "This customer has no phone number on file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    window.open(ctx.waLink, "_blank", "noopener");
+    if (tyInvoiceId) {
+      logThankYou.mutate(
+        { invoiceId: tyInvoiceId, amount: tyAmount, currency: tyCurrency, message: ctx.message },
+        {
+          onError: (e: any) =>
+            toast({ title: "Could not log thank-you", description: e.message, variant: "destructive" }),
+        },
+      );
+    }
+  };
+
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
 
@@ -960,6 +993,27 @@ function PaymentDetailView({
           >
             <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
           </Button>
+          {invoice?.id && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 rounded-xl font-bold border-emerald-200 text-xs text-emerald-700 shadow-sm hover:bg-emerald-50"
+              disabled={thankyou.isLoading || !thankyou.data?.hasPhone}
+              onClick={sendThankYou}
+              title={
+                thankyou.data?.hasPhone === false
+                  ? "Customer has no phone number on file"
+                  : "Thank the customer on WhatsApp"
+              }
+            >
+              {thankyou.isLoading ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              WhatsApp
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex-1 flex justify-center py-12 px-4 shadow-inner min-h-screen">

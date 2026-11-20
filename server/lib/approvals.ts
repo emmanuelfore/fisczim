@@ -79,7 +79,7 @@ export async function approveRequest(
   const canApprove = isSuperAdmin || await userHasPermission(reviewerId, companyId, approvePerm, false);
   if (!canApprove) throw new Error("You do not have permission to approve this request");
 
-  const resultData = await executeApprovalAction(request.type as ApprovalType, companyId, request.payload as Record<string, unknown>, reviewerId);
+  const resultData = await executeApprovalAction(request.type as ApprovalType, companyId, request.payload as Record<string, unknown>, reviewerId, reviewNotes);
 
   return storage.updateApprovalRequest(requestId, companyId, {
     status: "approved",
@@ -105,19 +105,27 @@ export async function rejectRequest(
   const canApprove = isSuperAdmin || await userHasPermission(reviewerId, companyId, approvePerm, false);
   if (!canApprove) throw new Error("You do not have permission to reject this request");
 
-  return storage.updateApprovalRequest(requestId, companyId, {
+  const updated = await storage.updateApprovalRequest(requestId, companyId, {
     status: "rejected",
     reviewedBy: reviewerId,
     reviewedAt: new Date(),
     reviewNotes: reviewNotes || null,
   });
+
+  if (request.referenceType === "crm_commission" && request.referenceId) {
+    const { applyCommissionDecision } = await import("./commissions.js");
+    await applyCommissionDecision(companyId, Number(request.referenceId), "reject", reviewerId, reviewNotes);
+  }
+
+  return updated;
 }
 
 async function executeApprovalAction(
   type: ApprovalType,
   companyId: number,
   payload: Record<string, unknown>,
-  userId: string
+  userId: string,
+  reviewNotes?: string,
 ): Promise<Record<string, unknown>> {
   switch (type) {
     case "stock_adjustment": {
@@ -257,6 +265,18 @@ async function executeApprovalAction(
         items,
       } as any);
       return { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, message: "Invoice issued" };
+    }
+    case "sales_commission": {
+      const commissionId = Number(payload.commissionId);
+      if (!commissionId) throw new Error("The approval request has no commission attached");
+      const { applyCommissionDecision } = await import("./commissions.js");
+      const commission = await applyCommissionDecision(companyId, commissionId, "approve", userId, reviewNotes);
+      return {
+        commissionId,
+        netAmount: commission.netAmount,
+        status: commission.status,
+        message: "Commission approved",
+      };
     }
     default:
       throw new Error(`Unknown approval type: ${type}`);

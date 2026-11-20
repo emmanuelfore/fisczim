@@ -83,6 +83,13 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "crm.social.view", label: "View Social Inbox", description: "See linked pages and the inbound lead and comment queue", group: "CRM" },
   { key: "crm.social.capture", label: "Capture Social Leads", description: "Turn an inbound lead or comment into an enquiry, or discard it", group: "CRM" },
   { key: "crm.social.manage", label: "Manage Social Connections", description: "Connect and disconnect pages, test tokens and run a manual sync", group: "CRM" },
+  { key: "crm.commission.view", label: "View Commissions", description: "See commission statements, penalties and payout status", group: "CRM" },
+  { key: "crm.commission.manage", label: "Manage Commission Rules", description: "Configure commission rates and generate commission from sales", group: "CRM" },
+  { key: "crm.commission.request", label: "Request Commission Payout", description: "Submit a commission statement for admin approval", group: "CRM" },
+  { key: "crm.commission.approve", label: "Approve Commissions", description: "Approve or reject commission payouts and mark them paid", group: "CRM" },
+  { key: "crm.tasks.view", label: "View Team Tasks", description: "See tasks and messages given to team members, including SLA status", group: "CRM" },
+  { key: "crm.tasks.manage", label: "Assign Team Tasks", description: "Create, reassign and close tasks for team members", group: "CRM" },
+  { key: "crm.tasks.respond", label: "Respond To Tasks", description: "Answer tasks assigned to you within the response window", group: "CRM" },
 
   // Vehicle imports
   { key: "nav.vehicles", label: "Vehicles", description: "Access the vehicle import module", group: "Navigation" },
@@ -190,6 +197,8 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
     "crm.duplicates.merge", "crm.stages.manage", "crm.reports.view",
     "crm.social.view", "crm.social.capture", "crm.social.manage",
+    "crm.commission.view", "crm.commission.manage", "crm.commission.request", "crm.commission.approve",
+    "crm.tasks.view", "crm.tasks.manage", "crm.tasks.respond",
     "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.costs", "vehicles.payments", "vehicles.delete",
     // Inventory
     "stock.view", "stock.adjust.request", "stock.adjust.approve",
@@ -228,6 +237,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "invoices.view", "invoices.create", "invoices.issue",
     "crm.pipeline.view", "crm.pipeline.manage",
     "crm.social.view", "crm.social.capture",
+    "crm.commission.view", "crm.tasks.view", "crm.tasks.respond",
     "nav.vehicles", "vehicles.view",
     "stock.view", "stock.adjust.request",
     "grn.create", "grn.view",
@@ -266,6 +276,8 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "invoices.view", "invoices.create", "invoices.issue",
     "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create", "crm.reports.view",
     "crm.social.view", "crm.social.capture",
+    "crm.commission.view", "crm.commission.request",
+    "crm.tasks.view", "crm.tasks.respond",
     "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.payments",
     "reports.sales",
   ],
@@ -311,6 +323,8 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
     "crm.duplicates.merge", "crm.stages.manage", "crm.reports.view",
     "crm.social.view", "crm.social.capture", "crm.social.manage",
+    "crm.commission.view", "crm.commission.manage", "crm.commission.request",
+    "crm.tasks.view", "crm.tasks.manage", "crm.tasks.respond",
     "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.costs", "vehicles.payments",
     "stock.view", "stock.adjust.request", "stock.adjust.approve", "stock.count", "stock.transfer",
     "grn.create", "grn.view", "grn.confirm",
@@ -339,6 +353,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.accounting", "nav.expenses", "nav.reports", "nav.payroll", "nav.compliance", "nav.crm",
     "invoices.view", "stock.view", "grn.view", "accounting.view",
     "crm.pipeline.view", "crm.reports.view", "crm.social.view",
+    "crm.commission.view", "crm.tasks.view",
     "nav.vehicles", "vehicles.view", "vehicles.costs",
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     "payroll.view", "users.view", "compliance.logs",
@@ -370,6 +385,7 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/customers": "nav.customers",
   "/crm": "nav.crm",
   "/crm/enquiries": "nav.crm",
+  "/crm/commissions": "nav.crm",
   "/vehicles": "nav.vehicles",
   "/vehicles/costing": "nav.vehicles",
   "/vehicles/profitability": "nav.vehicles",
@@ -529,6 +545,7 @@ export const APPROVAL_TYPES = {
   GRN_CONFIRM: "grn_confirm",
   JOURNAL_POST: "journal_post",
   INVOICE_ISSUE: "invoice_issue",
+  SALES_COMMISSION: "sales_commission",
 } as const;
 
 export type ApprovalType = (typeof APPROVAL_TYPES)[keyof typeof APPROVAL_TYPES];
@@ -538,6 +555,7 @@ export const APPROVAL_TYPE_LABELS: Record<ApprovalType, string> = {
   grn_confirm: "Goods Received",
   journal_post: "Journal Posting",
   invoice_issue: "Invoice Issuance",
+  sales_commission: "Sales Commission",
 };
 
 /** Permission required to approve each approval type */
@@ -546,6 +564,7 @@ export const APPROVAL_TYPE_PERMISSION: Record<ApprovalType, PermissionKey> = {
   grn_confirm: "grn.confirm",
   journal_post: "accounting.journal.approve",
   invoice_issue: "invoices.approve",
+  sales_commission: "crm.commission.approve",
 };
 
 /** Permission for direct action (bypass approval) */
@@ -554,6 +573,7 @@ export const DIRECT_ACTION_PERMISSION: Record<ApprovalType, PermissionKey> = {
   grn_confirm: "grn.confirm.direct",
   journal_post: "accounting.journal.post.direct",
   invoice_issue: "invoices.issue.direct",
+  sales_commission: "crm.commission.approve",
 };
 
 /** Permission to request (submit for approval) */
@@ -562,4 +582,5 @@ export const REQUEST_ACTION_PERMISSION: Record<ApprovalType, PermissionKey> = {
   grn_confirm: "grn.create",
   journal_post: "accounting.journal.create",
   invoice_issue: "invoices.issue",
+  sales_commission: "crm.commission.request",
 };

@@ -6,7 +6,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, X, Loader2, Download } from "lucide-react";
+import { Printer, X, Loader2, Download, MessageCircle } from "lucide-react";
 import { format } from "date-fns";
 import { formatCurrencyAmount } from "@shared/currency";
 import { useRef } from "react";
@@ -14,6 +14,8 @@ import { PDFDownloadLink } from "@react-pdf/renderer";
 import { PaymentReceiptPDF } from "./payment-receipt-pdf";
 
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { usePaymentThankYou, useLogPaymentThankYou } from "@/hooks/use-payment-thankyou";
+import { useToast } from "@/hooks/use-toast";
 
 interface PaymentReceiptProps {
   open: boolean;
@@ -50,6 +52,38 @@ export function PaymentReceipt({
 }: PaymentReceiptProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
   const { taxTypes } = useTaxConfig(company?.id || 0);
+
+  const { toast } = useToast();
+  const tyCompanyId = company?.id || 0;
+  const tyInvoiceId = invoice?.id ?? null;
+  const tyAmount = Number(payment.amount || 0);
+  const tyCurrency = payment.currency || invoice?.currency || "USD";
+  const thankyou = usePaymentThankYou(tyCompanyId, tyInvoiceId, tyAmount, tyCurrency, open);
+  const logThankYou = useLogPaymentThankYou(tyCompanyId);
+
+  const sendThankYou = () => {
+    const ctx = thankyou.data;
+    if (!ctx) return;
+    if (!ctx.waLink) {
+      toast({
+        title: ctx.hasPhone ? "WhatsApp not ready" : "No WhatsApp number",
+        description: ctx.hasPhone ? "Try again in a moment." : "This customer has no phone number on file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Open inside the click handler so popup blockers don't swallow it.
+    window.open(ctx.waLink, "_blank", "noopener");
+    if (tyInvoiceId) {
+      logThankYou.mutate(
+        { invoiceId: tyInvoiceId, amount: tyAmount, currency: tyCurrency, message: ctx.message },
+        {
+          onError: (e: any) =>
+            toast({ title: "Could not log thank-you", description: e.message, variant: "destructive" }),
+        },
+      );
+    }
+  };
 
   const handlePrint = () => {
     const content = receiptRef.current;
@@ -144,6 +178,25 @@ export function PaymentReceipt({
             </PDFDownloadLink>
             <Button size="sm" variant="outline" onClick={handlePrint}>
               <Printer className="w-4 h-4 mr-1" /> Print
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+              disabled={thankyou.isLoading || !thankyou.data?.hasPhone}
+              onClick={sendThankYou}
+              title={
+                thankyou.data?.hasPhone === false
+                  ? "Customer has no phone number on file"
+                  : "Thank the customer on WhatsApp"
+              }
+            >
+              {thankyou.isLoading ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <MessageCircle className="w-4 h-4 mr-1" />
+              )}
+              WhatsApp
             </Button>
           </div>
         </div>

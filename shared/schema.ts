@@ -579,10 +579,193 @@ export const enquiryActivitiesRelations = relations(enquiryActivities, ({ one })
   user: one(users, { fields: [enquiryActivities.userId], references: [users.id] }),
 }));
 
+// ── Commission & response discipline ───────────────────────────────────────
+// Sales commission is derived from the deals the CRM already records: a sold
+// vehicle (or a manually entered deal) becomes one `crm_commissions` row. The
+// row carries its own arithmetic - basis, rate, gross, penalties, net - so an
+// approved payout never changes when a rule is edited later.
+//
+// Admin approval reuses `approval_requests` (type `sales_commission`) rather
+// than inventing a second inbox.
+//
+// Tasks are the "message to a team member" side: each one carries a deadline
+// calculated on the company's working clock. A task not answered inside that
+// window raises a `crm_task_penalties` row, which is deducted from the
+// salesperson's next open commission (or carried until one exists).
+
+export const crmCommissionSettings = pgTable("crm_commission_settings", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  /** gross_profit | revenue | fixed */
+  defaultBasis: text("default_basis").default("gross_profit").notNull(),
+  defaultRatePercent: decimal("default_rate_percent", { precision: 7, scale: 3 }).default("5.000").notNull(),
+  defaultFixedAmount: decimal("default_fixed_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  /** Working hours a team member has to answer a task (SLA). */
+  responseWindowHours: integer("response_window_hours").default(2).notNull(),
+  penaltyPerLateTask: decimal("penalty_per_late_task", { precision: 15, scale: 2 }).default("25.00").notNull(),
+  /** Ceiling on total penalties as a percentage of gross commission. */
+  penaltyCapPercent: integer("penalty_cap_percent").default(100).notNull(),
+  /** ISO weekdays (1 = Mon … 7 = Sun), comma separated. */
+  workingDays: text("working_days").default("1,2,3,4,5").notNull(),
+  workdayStart: text("workday_start").default("08:00").notNull(),
+  workdayEnd: text("workday_end").default("17:00").notNull(),
+  /** Minutes the business clock is ahead of UTC (CAT = 120). */
+  utcOffsetMinutes: integer("utc_offset_minutes").default(120).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyUnique: unique("crm_commission_settings_company_unique").on(table.companyId),
+}));
+
+/** Per-salesperson override of the company default rate/basis. */
+export const crmCommissionRules = pgTable("crm_commission_rules", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  salespersonId: uuid("salesperson_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  /** gross_profit | revenue | fixed */
+  basis: text("basis").default("gross_profit").notNull(),
+  ratePercent: decimal("rate_percent", { precision: 7, scale: 3 }).default("5.000").notNull(),
+  fixedAmount: decimal("fixed_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  salespersonUnique: unique("crm_commission_rules_company_salesperson_unique").on(table.companyId, table.salespersonId),
+  companyIdx: index("crm_commission_rules_company_idx").on(table.companyId),
+}));
+
+export const crmCommissions = pgTable("crm_commissions", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  salespersonId: uuid("salesperson_id").references(() => users.id).notNull(),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "set null" }),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
+  invoiceId: integer("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  /** Human label: stock number, deal description, etc. */
+  reference: text("reference"),
+  /** Snapshot of the rule used, so later edits do not rewrite history. */
+  basis: text("basis").notNull(), // gross_profit | revenue | fixed
+  saleAmount: decimal("sale_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  costAmount: decimal("cost_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  basisAmount: decimal("basis_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  ratePercent: decimal("rate_percent", { precision: 7, scale: 3 }).default("0.000").notNull(),
+  fixedAmount: decimal("fixed_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  grossAmount: decimal("gross_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  penaltyAmount: decimal("penalty_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  netAmount: decimal("net_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  /** draft, pending_approval, approved, rejected, paid */
+  status: text("status").default("draft").notNull(),
+  /** YYYY-MM, used to group a payout run. */
+  periodMonth: text("period_month"),
+  notes: text("notes"),
+  approvalRequestId: integer("approval_request_id").references(() => approvalRequests.id, { onDelete: "set null" }),
+  requestedBy: uuid("requested_by").references(() => users.id),
+  requestedAt: timestamp("requested_at"),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  paidAt: timestamp("paid_at"),
+  paidBy: uuid("paid_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("crm_commissions_company_idx").on(table.companyId),
+  salespersonIdx: index("crm_commissions_salesperson_idx").on(table.companyId, table.salespersonId),
+  statusIdx: index("crm_commissions_status_idx").on(table.companyId, table.status),
+  vehicleUnique: uniqueIndex("crm_commissions_company_vehicle_unique")
+    .on(table.companyId, table.vehicleId)
+    .where(sql`${table.vehicleId} IS NOT NULL`),
+}));
+
+export const crmTasks = pgTable("crm_tasks", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  enquiryId: integer("enquiry_id").references(() => enquiries.id, { onDelete: "cascade" }),
+  assignedTo: uuid("assigned_to").references(() => users.id).notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  title: text("title").notNull(),
+  body: text("body"),
+  /** low | normal | high | urgent */
+  priority: text("priority").default("normal").notNull(),
+  /** pending, responded, completed, cancelled */
+  status: text("status").default("pending").notNull(),
+  /** Calculated on the working clock when the task is created. */
+  dueAt: timestamp("due_at").notNull(),
+  respondedAt: timestamp("responded_at"),
+  responseNote: text("response_note"),
+  penaltyApplied: boolean("penalty_applied").default(false).notNull(),
+  penaltyAmount: decimal("penalty_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("crm_tasks_company_idx").on(table.companyId),
+  assigneeIdx: index("crm_tasks_assignee_idx").on(table.companyId, table.assignedTo),
+  statusIdx: index("crm_tasks_status_idx").on(table.companyId, table.status),
+  dueIdx: index("crm_tasks_due_idx").on(table.companyId, table.dueAt),
+}));
+
+/** Immutable ledger of deductions; `commission_id` is null until applied. */
+export const crmTaskPenalties = pgTable("crm_task_penalties", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  taskId: integer("task_id").references(() => crmTasks.id, { onDelete: "cascade" }),
+  salespersonId: uuid("salesperson_id").references(() => users.id).notNull(),
+  commissionId: integer("commission_id").references(() => crmCommissions.id, { onDelete: "set null" }),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  lateHours: decimal("late_hours", { precision: 8, scale: 2 }).default("0.00").notNull(),
+  reason: text("reason"),
+  appliedAt: timestamp("applied_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("crm_task_penalties_company_idx").on(table.companyId),
+  taskIdx: index("crm_task_penalties_task_idx").on(table.taskId),
+  pendingIdx: index("crm_task_penalties_pending_idx").on(table.companyId, table.salespersonId, table.commissionId),
+}));
+
+export const crmCommissionSettingsRelations = relations(crmCommissionSettings, ({ one }) => ({
+  company: one(companies, { fields: [crmCommissionSettings.companyId], references: [companies.id] }),
+}));
+
+export const crmCommissionRulesRelations = relations(crmCommissionRules, ({ one }) => ({
+  company: one(companies, { fields: [crmCommissionRules.companyId], references: [companies.id] }),
+  salesperson: one(users, { fields: [crmCommissionRules.salespersonId], references: [users.id] }),
+}));
+
+export const crmCommissionsRelations = relations(crmCommissions, ({ one, many }) => ({
+  company: one(companies, { fields: [crmCommissions.companyId], references: [companies.id] }),
+  salesperson: one(users, { fields: [crmCommissions.salespersonId], references: [users.id] }),
+  enquiry: one(enquiries, { fields: [crmCommissions.enquiryId], references: [enquiries.id] }),
+  vehicle: one(vehicles, { fields: [crmCommissions.vehicleId], references: [vehicles.id] }),
+  penalties: many(crmTaskPenalties),
+}));
+
+export const crmTasksRelations = relations(crmTasks, ({ one, many }) => ({
+  company: one(companies, { fields: [crmTasks.companyId], references: [companies.id] }),
+  enquiry: one(enquiries, { fields: [crmTasks.enquiryId], references: [enquiries.id] }),
+  assignee: one(users, { fields: [crmTasks.assignedTo], references: [users.id] }),
+  creator: one(users, { fields: [crmTasks.createdBy], references: [users.id] }),
+  penalties: many(crmTaskPenalties),
+}));
+
+export const crmTaskPenaltiesRelations = relations(crmTaskPenalties, ({ one }) => ({
+  company: one(companies, { fields: [crmTaskPenalties.companyId], references: [companies.id] }),
+  task: one(crmTasks, { fields: [crmTaskPenalties.taskId], references: [crmTasks.id] }),
+  salesperson: one(users, { fields: [crmTaskPenalties.salespersonId], references: [users.id] }),
+  commission: one(crmCommissions, { fields: [crmTaskPenalties.commissionId], references: [crmCommissions.id] }),
+}));
+
 export const insertCrmStageSchema = createInsertSchema(crmStages).omit({ id: true, createdAt: true });
 export const insertEnquirySchema = createInsertSchema(enquiries).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertEnquiryFollowUpSchema = createInsertSchema(enquiryFollowUps).omit({ id: true, createdAt: true });
 export const insertEnquiryActivitySchema = createInsertSchema(enquiryActivities).omit({ id: true, createdAt: true });
+export const insertCrmCommissionSettingsSchema = createInsertSchema(crmCommissionSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCrmCommissionRuleSchema = createInsertSchema(crmCommissionRules).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCrmCommissionSchema = createInsertSchema(crmCommissions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCrmTaskSchema = createInsertSchema(crmTasks).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCrmTaskPenaltySchema = createInsertSchema(crmTaskPenalties).omit({ id: true, createdAt: true });
 export type CrmStage = typeof crmStages.$inferSelect;
 export type InsertCrmStage = z.infer<typeof insertCrmStageSchema>;
 export type Enquiry = typeof enquiries.$inferSelect;
@@ -591,6 +774,16 @@ export type EnquiryFollowUp = typeof enquiryFollowUps.$inferSelect;
 export type InsertEnquiryFollowUp = z.infer<typeof insertEnquiryFollowUpSchema>;
 export type EnquiryActivity = typeof enquiryActivities.$inferSelect;
 export type InsertEnquiryActivity = z.infer<typeof insertEnquiryActivitySchema>;
+export type CrmCommissionSettings = typeof crmCommissionSettings.$inferSelect;
+export type InsertCrmCommissionSettings = z.infer<typeof insertCrmCommissionSettingsSchema>;
+export type CrmCommissionRule = typeof crmCommissionRules.$inferSelect;
+export type InsertCrmCommissionRule = z.infer<typeof insertCrmCommissionRuleSchema>;
+export type CrmCommission = typeof crmCommissions.$inferSelect;
+export type InsertCrmCommission = z.infer<typeof insertCrmCommissionSchema>;
+export type CrmTask = typeof crmTasks.$inferSelect;
+export type InsertCrmTask = z.infer<typeof insertCrmTaskSchema>;
+export type CrmTaskPenalty = typeof crmTaskPenalties.$inferSelect;
+export type InsertCrmTaskPenalty = z.infer<typeof insertCrmTaskPenaltySchema>;
 
 // ── Social capture ──────────────────────────────────────────────────────────
 // Meta lead forms, page/Instagram comments and TikTok lead ads all arrive as

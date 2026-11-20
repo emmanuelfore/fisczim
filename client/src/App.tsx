@@ -40,6 +40,7 @@ const FreightDashboardPage = lazy(() => import("@/pages/freight/dashboard"));
 const FreightReceivingPage = lazy(() => import("@/pages/freight/receiving"));
 const FreightReportsPage = lazy(() => import("@/pages/freight/reports"));
 const CrmEnquiriesPage = lazy(() => import("@/pages/crm"));
+const CrmCommissionsPage = lazy(() => import("@/pages/crm/commissions"));
 const VehiclesPage = lazy(() => import("@/pages/vehicles"));
 const VehicleDetailPage = lazy(() => import("@/pages/vehicles/detail"));
 const VehicleProfitabilityPage = lazy(() => import("@/pages/vehicles/profitability"));
@@ -651,6 +652,9 @@ function Router() {
       </Route>
       <Route path="/crm/enquiries">
         {() => <ProtectedRoute component={CrmEnquiriesPage} />}
+      </Route>
+      <Route path="/crm/commissions">
+        {() => <ProtectedRoute component={CrmCommissionsPage} />}
       </Route>
       <Route path="/vehicles">
         {() => <ProtectedRoute component={VehiclesPage} />}

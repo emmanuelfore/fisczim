@@ -21,8 +21,13 @@ import {
   socialComments,
   crmPublicLeadTokens,
   crmPublicLeadRateLimits,
+  crmCommissionSettings,
+  crmCommissionRules,
+  crmCommissions,
+  crmTasks,
+  crmTaskPenalties,
 } from "../../shared/schema.js";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   captureLead,
@@ -31,6 +36,23 @@ import {
   linkCustomer,
 } from "../lib/lead-capture.js";
 import { userHasPermission } from "../lib/permissions.js";
+import { approveRequest, createApprovalRequest, rejectRequest } from "../lib/approvals.js";
+import {
+  accrueVehicleCommission,
+  applyCommissionDecision,
+  computeCommissionAmounts,
+  consumePendingPenalties,
+  getCommissionSettings,
+  netOf,
+  penaliseLateTask,
+  pendingPenaltyTotal,
+  resolveCommissionRule,
+  settingsForClient,
+  sweepOverdueTaskPenalties,
+  taskResponseDeadline,
+  workingPolicyOf,
+} from "../lib/commissions.js";
+import { serializeWorkingDays, workingHoursBetween } from "../../shared/working-hours.js";
 
 /**
  * CRM: configurable lead pipeline, chatter trail and the sale loop.
@@ -1226,6 +1248,855 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to revoke lead token" });
+    }
+  });
+
+  // ── commission settings & rules ────────────────────────────────────────────
+
+  const BASIS = z.enum(["gross_profit", "revenue", "fixed"]);
+
+  async function userNameMap(companyId: number) {
+    const rows = await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(companyUsers)
+      .innerJoin(users, eq(companyUsers.userId, users.id))
+      .where(eq(companyUsers.companyId, companyId));
+    const map = new Map<string, string>();
+    for (const row of rows) map.set(row.id, row.name || row.email || "User");
+    return map;
+  }
+
+  async function isCompanyMember(companyId: number, userId: string) {
+    const [member] = await db
+      .select({ id: companyUsers.id })
+      .from(companyUsers)
+      .where(and(eq(companyUsers.companyId, companyId), eq(companyUsers.userId, userId)))
+      .limit(1);
+    return !!member;
+  }
+
+  router.get("/companies/:companyId/crm/commission-settings", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.view"))) {
+        return res.status(403).json({ error: "Commission view permission required" });
+      }
+      const settings = await getCommissionSettings(companyId);
+      res.json({
+        settings: settingsForClient(settings),
+        pendingPenalties: await pendingPenaltyTotal(companyId),
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch commission settings" });
+    }
+  });
+
+  router.patch("/companies/:companyId/crm/commission-settings", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.manage"))) {
+        return res.status(403).json({ error: "Commission manage permission required" });
+      }
+      const body = z
+        .object({
+          defaultBasis: BASIS.optional(),
+          defaultRatePercent: z.coerce.number().min(0).max(100).optional(),
+          defaultFixedAmount: z.coerce.number().min(0).optional(),
+          responseWindowHours: z.coerce.number().int().min(1).max(168).optional(),
+          penaltyPerLateTask: z.coerce.number().min(0).optional(),
+          penaltyCapPercent: z.coerce.number().int().min(0).max(100).optional(),
+          workingDays: z.array(z.coerce.number().int().min(1).max(7)).min(1).optional(),
+          workdayStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          workdayEnd: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          utcOffsetMinutes: z.coerce.number().int().min(-720).max(840).optional(),
+        })
+        .parse(req.body ?? {});
+
+      await getCommissionSettings(companyId); // ensures the row exists
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.defaultBasis !== undefined) updates.defaultBasis = body.defaultBasis;
+      if (body.defaultRatePercent !== undefined) updates.defaultRatePercent = String(body.defaultRatePercent);
+      if (body.defaultFixedAmount !== undefined) updates.defaultFixedAmount = body.defaultFixedAmount.toFixed(2);
+      if (body.responseWindowHours !== undefined) updates.responseWindowHours = body.responseWindowHours;
+      if (body.penaltyPerLateTask !== undefined) updates.penaltyPerLateTask = body.penaltyPerLateTask.toFixed(2);
+      if (body.penaltyCapPercent !== undefined) updates.penaltyCapPercent = body.penaltyCapPercent;
+      if (body.workingDays !== undefined) updates.workingDays = serializeWorkingDays(body.workingDays);
+      if (body.workdayStart !== undefined) updates.workdayStart = body.workdayStart;
+      if (body.workdayEnd !== undefined) updates.workdayEnd = body.workdayEnd;
+      if (body.utcOffsetMinutes !== undefined) updates.utcOffsetMinutes = body.utcOffsetMinutes;
+
+      const [updated] = await db
+        .update(crmCommissionSettings)
+        .set(updates)
+        .where(eq(crmCommissionSettings.companyId, companyId))
+        .returning();
+
+      res.json({ settings: settingsForClient(await getCommissionSettings(companyId)), row: updated });
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to update commission settings" });
+    }
+  });
+
+  router.get("/companies/:companyId/crm/commission-rules", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.view"))) {
+        return res.status(403).json({ error: "Commission view permission required" });
+      }
+      const rows = await db
+        .select()
+        .from(crmCommissionRules)
+        .where(eq(crmCommissionRules.companyId, companyId))
+        .orderBy(desc(crmCommissionRules.createdAt));
+      const names = await userNameMap(companyId);
+      res.json(rows.map((row) => ({ ...row, salespersonName: names.get(row.salespersonId) ?? "User" })));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch commission rules" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/commission-rules", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.manage"))) {
+        return res.status(403).json({ error: "Commission manage permission required" });
+      }
+      const body = z
+        .object({
+          salespersonId: z.string().uuid(),
+          basis: BASIS.default("gross_profit"),
+          ratePercent: z.coerce.number().min(0).max(100).default(5),
+          fixedAmount: z.coerce.number().min(0).default(0),
+          isActive: z.boolean().default(true),
+          notes: z.string().max(1000).nullish(),
+        })
+        .parse(req.body ?? {});
+
+      if (!(await isCompanyMember(companyId, body.salespersonId))) {
+        return res.status(400).json({ error: "User does not belong to this company" });
+      }
+
+      const [row] = await db
+        .insert(crmCommissionRules)
+        .values({
+          companyId,
+          salespersonId: body.salespersonId,
+          basis: body.basis,
+          ratePercent: body.ratePercent.toFixed(3),
+          fixedAmount: body.fixedAmount.toFixed(2),
+          isActive: body.isActive,
+          notes: body.notes ?? null,
+          createdBy: req.user?.id ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [crmCommissionRules.companyId, crmCommissionRules.salespersonId],
+          set: {
+            basis: body.basis,
+            ratePercent: body.ratePercent.toFixed(3),
+            fixedAmount: body.fixedAmount.toFixed(2),
+            isActive: body.isActive,
+            notes: body.notes ?? null,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+
+      res.status(201).json(row);
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to save commission rule" });
+    }
+  });
+
+  router.patch("/companies/:companyId/crm/commission-rules/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.manage"))) {
+        return res.status(403).json({ error: "Commission manage permission required" });
+      }
+      const body = z
+        .object({
+          basis: BASIS.optional(),
+          ratePercent: z.coerce.number().min(0).max(100).optional(),
+          fixedAmount: z.coerce.number().min(0).optional(),
+          isActive: z.boolean().optional(),
+          notes: z.string().max(1000).nullish(),
+        })
+        .parse(req.body ?? {});
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.basis !== undefined) updates.basis = body.basis;
+      if (body.ratePercent !== undefined) updates.ratePercent = body.ratePercent.toFixed(3);
+      if (body.fixedAmount !== undefined) updates.fixedAmount = body.fixedAmount.toFixed(2);
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.notes !== undefined) updates.notes = body.notes ?? null;
+
+      const [row] = await db
+        .update(crmCommissionRules)
+        .set(updates)
+        .where(and(
+          eq(crmCommissionRules.id, parseInt(req.params.id)),
+          eq(crmCommissionRules.companyId, companyId),
+        ))
+        .returning();
+      if (!row) return res.status(404).json({ error: "Commission rule not found" });
+      res.json(row);
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to update commission rule" });
+    }
+  });
+
+  router.delete("/companies/:companyId/crm/commission-rules/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.manage"))) {
+        return res.status(403).json({ error: "Commission manage permission required" });
+      }
+      const [row] = await db
+        .delete(crmCommissionRules)
+        .where(and(
+          eq(crmCommissionRules.id, parseInt(req.params.id)),
+          eq(crmCommissionRules.companyId, companyId),
+        ))
+        .returning({ id: crmCommissionRules.id });
+      if (!row) return res.status(404).json({ error: "Commission rule not found" });
+      res.json({ deleted: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to delete commission rule" });
+    }
+  });
+
+  // ── commissions ────────────────────────────────────────────────────────────
+
+  router.get("/companies/:companyId/crm/commissions", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.view"))) {
+        return res.status(403).json({ error: "Commission view permission required" });
+      }
+      const seeAll = (await can(req, companyId, "crm.commission.approve")) || (await can(req, companyId, "crm.commission.manage"));
+      const status = String(req.query.status ?? "").trim();
+      const periodMonth = String(req.query.periodMonth ?? "").trim();
+      const requestedSalesperson = String(req.query.salespersonId ?? "").trim();
+
+      const conditions = [eq(crmCommissions.companyId, companyId)];
+      if (status) conditions.push(eq(crmCommissions.status, status));
+      if (periodMonth) conditions.push(eq(crmCommissions.periodMonth, periodMonth));
+      if (seeAll) {
+        if (requestedSalesperson) conditions.push(eq(crmCommissions.salespersonId, requestedSalesperson));
+      } else {
+        conditions.push(eq(crmCommissions.salespersonId, req.user.id));
+      }
+
+      const rows = await db
+        .select()
+        .from(crmCommissions)
+        .where(and(...conditions))
+        .orderBy(desc(crmCommissions.createdAt), desc(crmCommissions.id))
+        .limit(500);
+
+      const ids = rows.map((row) => row.id);
+      const penalties = ids.length
+        ? await db
+            .select()
+            .from(crmTaskPenalties)
+            .where(inArray(crmTaskPenalties.commissionId, ids))
+            .orderBy(desc(crmTaskPenalties.createdAt))
+        : [];
+      const penaltiesByCommission = new Map<number, typeof penalties>();
+      for (const penalty of penalties) {
+        if (!penalty.commissionId) continue;
+        const list = penaltiesByCommission.get(penalty.commissionId) ?? [];
+        list.push(penalty);
+        penaltiesByCommission.set(penalty.commissionId, list);
+      }
+
+      const names = await userNameMap(companyId);
+      const withNames = rows.map((row) => ({
+        ...row,
+        salespersonName: names.get(row.salespersonId) ?? "User",
+        penalties: penaltiesByCommission.get(row.id) ?? [],
+      }));
+
+      const summary = withNames.reduce(
+        (acc, row) => {
+          const gross = Number(row.grossAmount ?? 0);
+          const penalty = Number(row.penaltyAmount ?? 0);
+          const net = Number(row.netAmount ?? 0);
+          acc.gross += gross;
+          acc.penalties += penalty;
+          acc.net += net;
+          if (row.status === "pending_approval") {
+            acc.pendingCount += 1;
+            acc.pendingNet += net;
+          }
+          if (row.status === "approved") acc.approvedNet += net;
+          if (row.status === "paid") acc.paidNet += net;
+          if (row.status === "draft") acc.draftCount += 1;
+          return acc;
+        },
+        {
+          gross: 0,
+          penalties: 0,
+          net: 0,
+          pendingCount: 0,
+          pendingNet: 0,
+          approvedNet: 0,
+          paidNet: 0,
+          draftCount: 0,
+        },
+      );
+
+      res.json({
+        rows: withNames,
+        summary,
+        seeAll,
+        canApprove: await can(req, companyId, "crm.commission.approve"),
+        pendingPenalties: await pendingPenaltyTotal(companyId),
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch commissions" });
+    }
+  });
+
+  // Create a statement by hand (a deal the vehicle module did not record).
+  router.post("/companies/:companyId/crm/commissions", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const canManage = await can(req, companyId, "crm.commission.manage");
+      if (!canManage && !(await can(req, companyId, "crm.commission.request"))) {
+        return res.status(403).json({ error: "Commission permission required" });
+      }
+      const body = z
+        .object({
+          salespersonId: z.string().uuid().optional(),
+          enquiryId: z.coerce.number().int().positive().nullable().optional(),
+          vehicleId: z.coerce.number().int().positive().nullable().optional(),
+          reference: z.string().max(200).nullish(),
+          saleAmount: z.coerce.number().min(0),
+          costAmount: z.coerce.number().min(0).default(0),
+          basis: BASIS.optional(),
+          ratePercent: z.coerce.number().min(0).max(100).optional(),
+          fixedAmount: z.coerce.number().min(0).optional(),
+          periodMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+          notes: z.string().max(2000).nullish(),
+        })
+        .parse(req.body ?? {});
+
+      const salespersonId = canManage && body.salespersonId ? body.salespersonId : req.user.id;
+      if (!(await isCompanyMember(companyId, salespersonId))) {
+        return res.status(400).json({ error: "User does not belong to this company" });
+      }
+
+      if (body.vehicleId) {
+        const [vehicle] = await db
+          .select({ id: vehicles.id })
+          .from(vehicles)
+          .where(and(eq(vehicles.id, body.vehicleId), eq(vehicles.companyId, companyId)));
+        if (!vehicle) return res.status(400).json({ error: "Vehicle does not belong to this company" });
+        const [existing] = await db
+          .select({ id: crmCommissions.id })
+          .from(crmCommissions)
+          .where(and(eq(crmCommissions.companyId, companyId), eq(crmCommissions.vehicleId, body.vehicleId)));
+        if (existing) return res.status(409).json({ error: "This vehicle already has a commission statement" });
+      }
+      if (body.enquiryId) {
+        const [enquiry] = await db
+          .select({ id: enquiries.id })
+          .from(enquiries)
+          .where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)));
+        if (!enquiry) return res.status(400).json({ error: "Enquiry does not belong to this company" });
+      }
+
+      const resolved = await resolveCommissionRule(companyId, salespersonId);
+      const rule = {
+        basis: body.basis ?? resolved.basis,
+        ratePercent: body.ratePercent ?? resolved.ratePercent,
+        fixedAmount: body.fixedAmount ?? resolved.fixedAmount,
+      };
+      const amounts = computeCommissionAmounts({
+        saleAmount: body.saleAmount,
+        costAmount: body.costAmount,
+        rule,
+      });
+
+      const [created] = await db
+        .insert(crmCommissions)
+        .values({
+          companyId,
+          salespersonId,
+          enquiryId: body.enquiryId ?? null,
+          vehicleId: body.vehicleId ?? null,
+          reference: body.reference ?? null,
+          basis: rule.basis,
+          saleAmount: amounts.saleAmount.toFixed(2),
+          costAmount: amounts.costAmount.toFixed(2),
+          basisAmount: amounts.basisAmount.toFixed(2),
+          ratePercent: rule.ratePercent.toFixed(3),
+          fixedAmount: rule.fixedAmount.toFixed(2),
+          grossAmount: amounts.grossAmount.toFixed(2),
+          penaltyAmount: "0.00",
+          netAmount: amounts.grossAmount.toFixed(2),
+          status: "draft",
+          periodMonth: body.periodMonth ?? new Date().toISOString().slice(0, 7),
+          notes: body.notes ?? null,
+          requestedBy: req.user.id,
+        })
+        .returning();
+
+      const carried = await consumePendingPenalties(db, companyId, salespersonId, created.id, amounts.grossAmount);
+      const [saved] = carried > 0
+        ? await db.select().from(crmCommissions).where(eq(crmCommissions.id, created.id))
+        : [created];
+      res.status(201).json(saved);
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to create commission" });
+    }
+  });
+
+  // Scan invoiced vehicles and accrue any statement that is missing.
+  router.post("/companies/:companyId/crm/commissions/generate", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.manage"))) {
+        return res.status(403).json({ error: "Commission manage permission required" });
+      }
+      const sold = await db
+        .select({ id: vehicles.id })
+        .from(vehicles)
+        .where(and(
+          eq(vehicles.companyId, companyId),
+          isNotNull(vehicles.invoiceId),
+          isNotNull(vehicles.salespersonId),
+        ));
+
+      let accrued = 0;
+      for (const vehicle of sold) {
+        try {
+          const commission = await accrueVehicleCommission(db, { companyId, vehicleId: vehicle.id, userId: req.user?.id });
+          if (commission) accrued += 1;
+        } catch (error) {
+          console.error(`[CRM] Commission accrual failed for vehicle ${vehicle.id}`, error);
+        }
+      }
+
+      res.json({ scanned: sold.length, accrued });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to generate commissions" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/commissions/:id/submit", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.request"))) {
+        return res.status(403).json({ error: "Commission request permission required" });
+      }
+      const id = parseInt(req.params.id);
+      const [commission] = await db
+        .select()
+        .from(crmCommissions)
+        .where(and(eq(crmCommissions.id, id), eq(crmCommissions.companyId, companyId)));
+      if (!commission) return res.status(404).json({ error: "Commission not found" });
+      if (commission.salespersonId !== req.user.id && !(await can(req, companyId, "crm.commission.manage"))) {
+        return res.status(403).json({ error: "You can only submit your own commission" });
+      }
+      if (commission.status === "pending_approval") {
+        return res.status(409).json({ error: "This statement is already awaiting approval" });
+      }
+      if (!["draft", "rejected"].includes(commission.status)) {
+        return res.status(409).json({ error: `A ${commission.status} statement cannot be resubmitted` });
+      }
+
+      const names = await userNameMap(companyId);
+      const salespersonName = names.get(commission.salespersonId) ?? "Salesperson";
+      const request = await createApprovalRequest({
+        companyId,
+        type: "sales_commission",
+        title: `Sales commission — ${salespersonName} — ${commission.periodMonth ?? new Date().toISOString().slice(0, 7)}`,
+        description: `Gross ${Number(commission.grossAmount).toFixed(2)}, penalties ${Number(commission.penaltyAmount).toFixed(2)}, net ${Number(commission.netAmount).toFixed(2)}. ${commission.reference ?? ""}`.trim(),
+        payload: {
+          commissionId: commission.id,
+          salespersonId: commission.salespersonId,
+          grossAmount: Number(commission.grossAmount),
+          penaltyAmount: Number(commission.penaltyAmount),
+          netAmount: Number(commission.netAmount),
+        },
+        referenceType: "crm_commission",
+        referenceId: String(commission.id),
+        requestedBy: req.user.id,
+      });
+
+      const [updated] = await db
+        .update(crmCommissions)
+        .set({
+          status: "pending_approval",
+          approvalRequestId: request.id,
+          requestedBy: req.user.id,
+          requestedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(crmCommissions.id, commission.id))
+        .returning();
+
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to submit commission for approval" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/commissions/:id/approve", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.approve"))) {
+        return res.status(403).json({ error: "Commission approval permission required" });
+      }
+      const notes = req.body?.reviewNotes ? String(req.body.reviewNotes) : undefined;
+      const id = parseInt(req.params.id);
+      const [commission] = await db
+        .select()
+        .from(crmCommissions)
+        .where(and(eq(crmCommissions.id, id), eq(crmCommissions.companyId, companyId)));
+      if (!commission) return res.status(404).json({ error: "Commission not found" });
+
+      if (commission.approvalRequestId) {
+        await approveRequest(commission.approvalRequestId, companyId, req.user.id, Boolean(req.user?.isSuperAdmin), notes);
+      } else {
+        await applyCommissionDecision(companyId, id, "approve", req.user.id, notes);
+      }
+
+      const [updated] = await db.select().from(crmCommissions).where(eq(crmCommissions.id, id));
+      res.json(updated);
+    } catch (error: any) {
+      console.error(error);
+      res.status(400).json({ error: error.message || "Failed to approve commission" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/commissions/:id/reject", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.approve"))) {
+        return res.status(403).json({ error: "Commission approval permission required" });
+      }
+      const notes = req.body?.reviewNotes ? String(req.body.reviewNotes) : undefined;
+      const id = parseInt(req.params.id);
+      const [commission] = await db
+        .select()
+        .from(crmCommissions)
+        .where(and(eq(crmCommissions.id, id), eq(crmCommissions.companyId, companyId)));
+      if (!commission) return res.status(404).json({ error: "Commission not found" });
+
+      if (commission.approvalRequestId) {
+        await rejectRequest(commission.approvalRequestId, companyId, req.user.id, Boolean(req.user?.isSuperAdmin), notes);
+      } else {
+        await applyCommissionDecision(companyId, id, "reject", req.user.id, notes);
+      }
+
+      const [updated] = await db.select().from(crmCommissions).where(eq(crmCommissions.id, id));
+      res.json(updated);
+    } catch (error: any) {
+      console.error(error);
+      res.status(400).json({ error: error.message || "Failed to reject commission" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/commissions/:id/pay", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.commission.approve"))) {
+        return res.status(403).json({ error: "Commission approval permission required" });
+      }
+      const id = parseInt(req.params.id);
+      const [commission] = await db
+        .select()
+        .from(crmCommissions)
+        .where(and(eq(crmCommissions.id, id), eq(crmCommissions.companyId, companyId)));
+      if (!commission) return res.status(404).json({ error: "Commission not found" });
+      if (commission.status !== "approved") {
+        return res.status(409).json({ error: "Only an approved commission can be marked paid" });
+      }
+      const [updated] = await db
+        .update(crmCommissions)
+        .set({ status: "paid", paidAt: new Date(), paidBy: req.user.id, updatedAt: new Date() })
+        .where(eq(crmCommissions.id, id))
+        .returning();
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to mark commission paid" });
+    }
+  });
+
+  // ── team tasks & response penalties ────────────────────────────────────────
+
+  router.get("/companies/:companyId/crm/tasks", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.tasks.view"))) {
+        return res.status(403).json({ error: "Task view permission required" });
+      }
+      // A late task should never wait for the scheduler to be reflected in the
+      // list the sales manager is looking at.
+      await sweepOverdueTaskPenalties(companyId).catch((error) => console.error("[CRM] task sweep failed", error));
+
+      const seeAll = await can(req, companyId, "crm.tasks.manage");
+      const scope = String(req.query.scope ?? "").trim();
+      const status = String(req.query.status ?? "").trim();
+
+      const conditions = [eq(crmTasks.companyId, companyId)];
+      if (!seeAll || scope === "mine") conditions.push(eq(crmTasks.assignedTo, req.user.id));
+      if (status) conditions.push(eq(crmTasks.status, status));
+
+      const rows = await db
+        .select()
+        .from(crmTasks)
+        .where(and(...conditions))
+        .orderBy(asc(crmTasks.dueAt), desc(crmTasks.id))
+        .limit(300);
+
+      const settings = await getCommissionSettings(companyId);
+      const policy = workingPolicyOf(settings);
+      const now = new Date();
+
+      const names = await userNameMap(companyId);
+      const enriched = rows.map((task) => {
+        const dueAt = new Date(task.dueAt);
+        const finishedAt = task.respondedAt ? new Date(task.respondedAt) : now;
+        const overdue = task.status === "pending" && dueAt.getTime() < now.getTime();
+        const lateHours = dueAt.getTime() < finishedAt.getTime()
+          ? workingHoursBetween(dueAt, finishedAt, policy)
+          : 0;
+        const remainingHours = task.status === "pending" && dueAt.getTime() > now.getTime()
+          ? workingHoursBetween(now, dueAt, policy)
+          : 0;
+        return {
+          ...task,
+          assigneeName: names.get(task.assignedTo) ?? "User",
+          creatorName: task.createdBy ? names.get(task.createdBy) ?? "User" : null,
+          overdue,
+          lateHours: Math.round(lateHours * 100) / 100,
+          remainingHours: Math.round(remainingHours * 100) / 100,
+        };
+      });
+
+      res.json({ tasks: enriched, settings: settingsForClient(settings) });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch tasks" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/tasks", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.tasks.manage"))) {
+        return res.status(403).json({ error: "Task manage permission required" });
+      }
+      const body = z
+        .object({
+          assignedTo: z.string().uuid(),
+          title: z.string().min(2).max(200),
+          body: z.string().max(4000).nullish(),
+          priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+          enquiryId: z.coerce.number().int().positive().nullable().optional(),
+        })
+        .parse(req.body ?? {});
+
+      if (!(await isCompanyMember(companyId, body.assignedTo))) {
+        return res.status(400).json({ error: "User does not belong to this company" });
+      }
+      if (body.enquiryId) {
+        const [enquiry] = await db
+          .select({ id: enquiries.id })
+          .from(enquiries)
+          .where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)));
+        if (!enquiry) return res.status(400).json({ error: "Enquiry does not belong to this company" });
+      }
+
+      const deadline = await taskResponseDeadline(companyId);
+      const [created] = await db
+        .insert(crmTasks)
+        .values({
+          companyId,
+          enquiryId: body.enquiryId ?? null,
+          assignedTo: body.assignedTo,
+          createdBy: req.user.id,
+          title: body.title,
+          body: body.body ?? null,
+          priority: body.priority,
+          status: "pending",
+          dueAt: deadline.dueAt,
+        })
+        .returning();
+
+      if (body.enquiryId) {
+        await logActivity(
+          body.enquiryId,
+          "task",
+          `Task assigned: ${body.title}. Respond within ${deadline.windowHours} working hours.`,
+          { taskId: created.id, assignedTo: body.assignedTo, dueAt: deadline.dueAt },
+          req.user?.id,
+        );
+      }
+
+      res.status(201).json({ ...created, windowHours: deadline.windowHours, penaltyPerLateTask: deadline.penaltyPerLateTask });
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to assign task" });
+    }
+  });
+
+  router.patch("/companies/:companyId/crm/tasks/:id", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.tasks.manage"))) {
+        return res.status(403).json({ error: "Task manage permission required" });
+      }
+      const id = parseInt(req.params.id);
+      const body = z
+        .object({
+          assignedTo: z.string().uuid().optional(),
+          title: z.string().min(2).max(200).optional(),
+          body: z.string().max(4000).nullish(),
+          priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+          status: z.enum(["pending", "responded", "completed", "cancelled"]).optional(),
+        })
+        .parse(req.body ?? {});
+
+      if (body.assignedTo && !(await isCompanyMember(companyId, body.assignedTo))) {
+        return res.status(400).json({ error: "User does not belong to this company" });
+      }
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.assignedTo !== undefined) updates.assignedTo = body.assignedTo;
+      if (body.title !== undefined) updates.title = body.title;
+      if (body.body !== undefined) updates.body = body.body ?? null;
+      if (body.priority !== undefined) updates.priority = body.priority;
+      if (body.status !== undefined) {
+        updates.status = body.status;
+        if (body.status === "completed") updates.completedAt = new Date();
+        if (body.status === "pending") updates.completedAt = null;
+      }
+
+      const [updated] = await db
+        .update(crmTasks)
+        .set(updates)
+        .where(and(eq(crmTasks.id, id), eq(crmTasks.companyId, companyId)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Task not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to update task" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/tasks/:id/respond", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.tasks.respond"))) {
+        return res.status(403).json({ error: "Task response permission required" });
+      }
+      const id = parseInt(req.params.id);
+      const responseNote = req.body?.responseNote ? String(req.body.responseNote).slice(0, 4000) : null;
+      const [task] = await db
+        .select()
+        .from(crmTasks)
+        .where(and(eq(crmTasks.id, id), eq(crmTasks.companyId, companyId)));
+      if (!task) return res.status(404).json({ error: "Task not found" });
+
+      const canManage = await can(req, companyId, "crm.tasks.manage");
+      if (task.assignedTo !== req.user.id && !canManage) {
+        return res.status(403).json({ error: "This task is assigned to someone else" });
+      }
+      if (task.status === "cancelled") return res.status(409).json({ error: "A cancelled task cannot be answered" });
+
+      // Crossing the deadline costs money, even if the answer arrives later.
+      let penaltyAmount = Number(task.penaltyAmount ?? 0);
+      if (!task.penaltyApplied && new Date(task.dueAt).getTime() < Date.now()) {
+        const result = await penaliseLateTask(task);
+        penaltyAmount = result.penaltyAmount;
+      }
+
+      const [updated] = await db
+        .update(crmTasks)
+        .set({
+          status: "responded",
+          respondedAt: new Date(),
+          responseNote,
+          updatedAt: new Date(),
+        })
+        .where(eq(crmTasks.id, id))
+        .returning();
+
+      if (task.enquiryId) {
+        await logActivity(
+          task.enquiryId,
+          "task",
+          `${req.user?.name || req.user?.email || "A team member"} responded to "${task.title}"${penaltyAmount > 0 ? ` (late - ${penaltyAmount.toFixed(2)} penalty applied)` : ""}.`,
+          { taskId: id, penaltyAmount },
+          req.user?.id,
+        );
+      }
+
+      res.json({ ...updated, penaltyAmount: penaltyAmount.toFixed(2), penaltyApplied: task.penaltyApplied || penaltyAmount > 0 });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to respond to task" });
+    }
+  });
+
+  router.post("/companies/:companyId/crm/tasks/sweep", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.tasks.manage"))) {
+        return res.status(403).json({ error: "Task manage permission required" });
+      }
+      const applied = await sweepOverdueTaskPenalties(companyId);
+      res.json({ applied });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to run the penalty sweep" });
+    }
+  });
+
+  router.get("/companies/:companyId/crm/task-penalties", requireAuth, requireCompanyAccess, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (!(await can(req, companyId, "crm.tasks.view"))) {
+        return res.status(403).json({ error: "Task view permission required" });
+      }
+      const seeAll = await can(req, companyId, "crm.tasks.manage");
+      const conditions = [eq(crmTaskPenalties.companyId, companyId)];
+      if (!seeAll) conditions.push(eq(crmTaskPenalties.salespersonId, req.user.id));
+
+      const rows = await db
+        .select()
+        .from(crmTaskPenalties)
+        .where(and(...conditions))
+        .orderBy(desc(crmTaskPenalties.createdAt))
+        .limit(300);
+
+      const names = await userNameMap(companyId);
+      res.json(rows.map((row) => ({ ...row, salespersonName: names.get(row.salespersonId) ?? "User" })));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch penalties" });
     }
   });
 

@@ -753,3 +753,452 @@ export function useRefetchSocialLead(companyId: number) {
     onSuccess: () => invalidateSocial(queryClient, companyId),
   });
 }
+
+// ── commissions, settings, rules, tasks & penalties ─────────────────────────
+
+export type CommissionBasisName = "gross_profit" | "revenue" | "fixed";
+
+export type CommissionSettingsClient = {
+  responseWindowHours: number;
+  penaltyPerLateTask: number;
+  penaltyCapPercent: number;
+  workingDays: number[];
+  workdayStart: string;
+  workdayEnd: string;
+  utcOffsetMinutes: number;
+  defaultBasis: CommissionBasisName;
+  defaultRatePercent: number;
+  defaultFixedAmount: number;
+};
+
+export type CommissionRule = {
+  id: number;
+  companyId: number;
+  salespersonId: string;
+  salespersonName?: string;
+  basis: CommissionBasisName;
+  ratePercent: string;
+  fixedAmount: string;
+  isActive: boolean;
+  notes: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type CommissionPenalty = {
+  id: number;
+  companyId: number;
+  taskId: number | null;
+  salespersonId: string;
+  salespersonName?: string;
+  commissionId: number | null;
+  amount: string;
+  lateHours: string;
+  reason: string | null;
+  appliedAt: string | null;
+  createdAt: string | null;
+};
+
+export type Commission = {
+  id: number;
+  companyId: number;
+  salespersonId: string;
+  salespersonName?: string;
+  enquiryId: number | null;
+  vehicleId: number | null;
+  invoiceId: number | null;
+  reference: string | null;
+  basis: string;
+  saleAmount: string;
+  costAmount: string;
+  basisAmount: string;
+  ratePercent: string;
+  fixedAmount: string;
+  grossAmount: string;
+  penaltyAmount: string;
+  netAmount: string;
+  status: string;
+  periodMonth: string | null;
+  notes: string | null;
+  requestedBy: string | null;
+  requestedAt: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNotes: string | null;
+  paidAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  penalties: CommissionPenalty[];
+};
+
+export type CommissionSummary = {
+  gross: number;
+  penalties: number;
+  net: number;
+  pendingCount: number;
+  pendingNet: number;
+  approvedNet: number;
+  paidNet: number;
+  draftCount: number;
+};
+
+export type CommissionsResponse = {
+  commissions: Commission[];
+  summary: CommissionSummary;
+  seeAll: boolean;
+  canApprove: boolean;
+  pendingPenalties: number;
+};
+
+export type CrmTask = {
+  id: number;
+  companyId: number;
+  enquiryId: number | null;
+  assignedTo: string;
+  assigneeName?: string;
+  createdBy: string | null;
+  creatorName?: string | null;
+  title: string;
+  body: string | null;
+  priority: string;
+  status: string;
+  dueAt: string;
+  respondedAt: string | null;
+  responseNote: string | null;
+  penaltyApplied: boolean;
+  penaltyAmount: string;
+  completedAt: string | null;
+  createdAt: string | null;
+  overdue: boolean;
+  lateHours: number;
+  remainingHours: number;
+};
+
+export type CrmTasksResponse = {
+  tasks: CrmTask[];
+  settings: CommissionSettingsClient;
+};
+
+function invalidateCommissions(queryClient: ReturnType<typeof useQueryClient>, companyId: number) {
+  queryClient.invalidateQueries({ queryKey: key(companyId, "commissions") });
+  queryClient.invalidateQueries({ queryKey: key(companyId, "commission-settings") });
+  queryClient.invalidateQueries({ queryKey: key(companyId, "tasks") });
+  queryClient.invalidateQueries({ queryKey: key(companyId, "task-penalties") });
+}
+
+// ── settings ─────────────────────────────────────────────────────────────────
+
+export function useCommissionSettings(companyId: number) {
+  return useQuery({
+    queryKey: key(companyId, "commission-settings"),
+    queryFn: async () => {
+      if (!companyId) return null;
+      const res = await apiFetch(`${crmBase(companyId)}/commission-settings`);
+      return readJson(res, "Failed to fetch commission settings") as Promise<{
+        settings: CommissionSettingsClient;
+        pendingPenalties: number;
+      }>;
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useUpdateCommissionSettings(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<{
+      defaultBasis: CommissionBasisName;
+      defaultRatePercent: number;
+      defaultFixedAmount: number;
+      responseWindowHours: number;
+      penaltyPerLateTask: number;
+      penaltyCapPercent: number;
+      workingDays: number[];
+      workdayStart: string;
+      workdayEnd: string;
+      utcOffsetMinutes: number;
+    }>) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commission-settings`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to update commission settings");
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+// ── rules (per-salesperson overrides) ────────────────────────────────────────
+
+export function useCommissionRules(companyId: number) {
+  return useQuery({
+    queryKey: key(companyId, "commission-rules"),
+    queryFn: async () => {
+      if (!companyId) return [] as CommissionRule[];
+      const res = await apiFetch(`${crmBase(companyId)}/commission-rules`);
+      return readJson(res, "Failed to fetch commission rules") as Promise<CommissionRule[]>;
+    },
+    enabled: !!companyId,
+  });
+}
+
+export type CommissionRuleDraft = {
+  salespersonId: string;
+  basis: CommissionBasisName;
+  ratePercent: number;
+  fixedAmount: number;
+  isActive?: boolean;
+  notes?: string | null;
+};
+
+export function useSaveCommissionRule(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CommissionRuleDraft) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commission-rules`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to save commission rule") as Promise<CommissionRule>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useUpdateCommissionRule(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number } & Partial<CommissionRuleDraft>) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commission-rules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to update commission rule") as Promise<CommissionRule>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useDeleteCommissionRule(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commission-rules/${id}`, { method: "DELETE" });
+      return readJson(res, "Failed to delete commission rule");
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+// ── commissions ──────────────────────────────────────────────────────────────
+
+export type CommissionFilters = {
+  status?: string;
+  periodMonth?: string;
+  salespersonId?: string;
+};
+
+export function useCommissions(companyId: number, filters: CommissionFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.periodMonth) params.set("periodMonth", filters.periodMonth);
+  if (filters.salespersonId) params.set("salespersonId", filters.salespersonId);
+  const qs = params.toString();
+
+  return useQuery({
+    queryKey: [...key(companyId, "commissions"), filters],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const res = await apiFetch(`${crmBase(companyId)}/commissions${qs ? `?${qs}` : ""}`);
+      return readJson(res, "Failed to fetch commissions") as Promise<CommissionsResponse>;
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useCreateCommission(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      salespersonId?: string;
+      enquiryId?: number | null;
+      vehicleId?: number | null;
+      reference?: string | null;
+      saleAmount: number;
+      costAmount?: number;
+      basis?: CommissionBasisName;
+      ratePercent?: number;
+      fixedAmount?: number;
+      periodMonth?: string;
+      notes?: string | null;
+    }) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commissions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to create commission") as Promise<Commission>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useGenerateCommissions(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(`${crmBase(companyId)}/commissions/generate`, { method: "POST" });
+      return readJson(res, "Failed to generate commissions");
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useSubmitCommission(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commissions/${id}/submit`, { method: "POST" });
+      return readJson(res, "Failed to submit commission") as Promise<Commission>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useApproveCommission(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reviewNotes }: { id: number; reviewNotes?: string }) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commissions/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ reviewNotes }),
+      });
+      return readJson(res, "Failed to approve commission") as Promise<Commission>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useRejectCommission(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reviewNotes }: { id: number; reviewNotes?: string }) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commissions/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reviewNotes }),
+      });
+      return readJson(res, "Failed to reject commission") as Promise<Commission>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function usePayCommission(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch(`${crmBase(companyId)}/commissions/${id}/pay`, { method: "POST" });
+      return readJson(res, "Failed to mark commission paid") as Promise<Commission>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+// ── team tasks & response penalties ──────────────────────────────────────────
+
+export type CrmTaskFilters = { scope?: "mine" | "all"; status?: string };
+
+export function useCrmTasks(companyId: number, filters: CrmTaskFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.scope) params.set("scope", filters.scope);
+  if (filters.status) params.set("status", filters.status);
+  const qs = params.toString();
+
+  return useQuery({
+    queryKey: [...key(companyId, "tasks"), filters],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const res = await apiFetch(`${crmBase(companyId)}/tasks${qs ? `?${qs}` : ""}`);
+      return readJson(res, "Failed to fetch tasks") as Promise<CrmTasksResponse>;
+    },
+    enabled: !!companyId,
+  });
+}
+
+export type CrmTaskDraft = {
+  assignedTo: string;
+  title: string;
+  body?: string | null;
+  priority?: "low" | "normal" | "high" | "urgent";
+  enquiryId?: number | null;
+};
+
+export function useCreateCrmTask(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CrmTaskDraft) => {
+      const res = await apiFetch(`${crmBase(companyId)}/tasks`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to assign task");
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useUpdateCrmTask(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: number } & Partial<{
+      assignedTo: string;
+      title: string;
+      body: string | null;
+      priority: "low" | "normal" | "high" | "urgent";
+      status: "pending" | "responded" | "completed" | "cancelled";
+    }>) => {
+      const res = await apiFetch(`${crmBase(companyId)}/tasks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+      return readJson(res, "Failed to update task");
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useRespondCrmTask(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, responseNote }: { id: number; responseNote?: string | null }) => {
+      const res = await apiFetch(`${crmBase(companyId)}/tasks/${id}/respond`, {
+        method: "POST",
+        body: JSON.stringify({ responseNote: responseNote ?? null }),
+      });
+      return readJson(res, "Failed to respond to task");
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useSweepTasks(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(`${crmBase(companyId)}/tasks/sweep`, { method: "POST" });
+      return readJson(res, "Failed to run the penalty sweep") as Promise<{ applied: number }>;
+    },
+    onSuccess: () => invalidateCommissions(queryClient, companyId),
+  });
+}
+
+export function useTaskPenalties(companyId: number) {
+  return useQuery({
+    queryKey: key(companyId, "task-penalties"),
+    queryFn: async () => {
+      if (!companyId) return [] as CommissionPenalty[];
+      const res = await apiFetch(`${crmBase(companyId)}/task-penalties`);
+      return readJson(res, "Failed to fetch penalties") as Promise<CommissionPenalty[]>;
+    },
+    enabled: !!companyId,
+  });
+}

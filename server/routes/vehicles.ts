@@ -2088,6 +2088,108 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   });
 
   /**
+   * Resolve the WhatsApp "thank you for your payment" context for a customer
+   * receipt. Works for any invoice: when the invoice is a vehicle's sale
+   * invoice the message names the vehicle ref (stock number), otherwise it
+   * names the invoice number. The prefilled wa.me link is returned so the
+   * client can open it synchronously inside the click handler — opening it
+   * after an await is eaten by popup blockers.
+   */
+  router.get("/companies/:companyId/invoices/:invoiceId/payment-thankyou", ...base, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const invoiceId = parseInt(req.params.invoiceId);
+      const amount = Math.max(0, Number(req.query.amount ?? 0));
+      const currency = String(req.query.currency || "USD");
+
+      const [invoice] = await db.select().from(invoices)
+        .where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId)));
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+      const customer = invoice.customerId
+        ? (await db.select().from(customers).where(eq(customers.id, invoice.customerId)))[0] ?? null
+        : null;
+
+      // A vehicle is linked when this invoice is the vehicle's sale invoice.
+      const vehicle = (await db.select().from(vehicles)
+        .where(and(eq(vehicles.invoiceId, invoice.id), eq(vehicles.companyId, companyId)))
+        .limit(1))[0] ?? null;
+
+      const stockNumber = vehicle?.stockNumber ?? null;
+      const moneyLabel = currency === "USD" ? `$${amount.toFixed(2)}` : `${currency} ${amount.toFixed(2)}`;
+      const message = stockNumber
+        ? `Thank you for your payment of ${moneyLabel} on your vehicle ref ${stockNumber}.`
+        : `Thank you for your payment of ${moneyLabel} on invoice ${invoice.invoiceNumber}.`;
+
+      const phone = customer?.phone || customer?.mobile || null;
+      const digits = phone ? String(phone).replace(/\D/g, "").replace(/^0/, "263") : null;
+      const waLink = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(message)}` : null;
+
+      res.json({
+        message,
+        phone: phone ?? null,
+        waLink,
+        vehicleRef: stockNumber,
+        stockNumber,
+        vehicleId: vehicle?.id ?? null,
+        customerName: customer?.name ?? null,
+        hasPhone: Boolean(digits),
+      });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message || "Failed to build payment thank-you" });
+    }
+  });
+
+  /**
+   * Record that a payment thank-you was sent on WhatsApp, so it appears in the
+   * vehicle's reminder history alongside payment reminders. Only logs when the
+   * invoice is linked to a vehicle; generic invoices have nothing to attach to.
+   */
+  router.post("/companies/:companyId/invoices/:invoiceId/payment-thankyou", ...base, async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const invoiceId = parseInt(req.params.invoiceId);
+      const body = z.object({
+        amount: z.coerce.number().min(0).optional(),
+        currency: z.string().max(8).optional(),
+        message: z.string().trim().max(2000).optional(),
+      }).parse(req.body ?? {});
+
+      const [invoice] = await db.select().from(invoices)
+        .where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId)));
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+      const [vehicle] = await db.select().from(vehicles)
+        .where(and(eq(vehicles.invoiceId, invoice.id), eq(vehicles.companyId, companyId)))
+        .limit(1);
+      if (!vehicle) return res.status(200).json({ logged: false, reason: "Invoice is not linked to a vehicle" });
+
+      const amount = Math.max(0, Number(body.amount ?? 0));
+      const currency = String(body.currency || invoice.currency || "USD");
+      const moneyLabel = currency === "USD" ? `$${amount.toFixed(2)}` : `${currency} ${amount.toFixed(2)}`;
+      const message = body.message
+        || `Thank you for your payment of ${moneyLabel} on your vehicle ref ${vehicle.stockNumber}.`;
+
+      const [created] = await db.insert(vehicleReminders).values({
+        companyId,
+        vehicleId: vehicle.id,
+        channel: "whatsapp",
+        status: "thankyou",
+        amount: amount > 0 ? amount.toFixed(2) : null,
+        message,
+        createdBy: req.user?.id,
+      }).returning();
+
+      res.status(201).json({ logged: true, reminder: created });
+    } catch (error: any) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: error.message || "Failed to log payment thank-you" });
+    }
+  });
+
+  /**
    * Build a deposit-plus-instalments payment plan automatically.
    * A deposit is mandatory; 1–4 monthly instalments cover the remainder.
    */

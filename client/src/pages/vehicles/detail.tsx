@@ -1348,8 +1348,11 @@ function TrackingTab({ v, companyId, editable }: { v: any; companyId: number; ed
 
 // ── Payments & schedule ──────────────────────────────────────────────────────
 
+const PLAN_MONTH_OPTIONS = [2, 4, 6, 12, 18, 24, 30, 36];
+
 function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
   const { run, pending } = useSubmit(companyId);
+  const { toast } = useToast();
   const { data: bankAccounts = [] } = useBankAccounts(companyId);
   const [pay, setPay] = useState({ amount: "", currency: "USD", exchangeRate: "1", paymentMethod: "Transfer", bankAccountId: "none", reference: "", paymentDate: format(new Date(), "yyyy-MM-dd") });
   const [lines, setLines] = useState<{ type: string; dueDate: string; amount: string }[]>([]);
@@ -1375,24 +1378,42 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
   const planMonths = Number(plan.months || 0);
   const planOutstanding = Math.max(planTotal - planDeposit, 0);
   const planMonthly = planMonths > 0 ? planOutstanding / planMonths : 0;
+  // Schedule generation now auto-creates the invoice, so salePrice is required
+  // (targetPrice is a planning figure only and cannot anchor a binding invoice).
   const planValid =
-    !!v.customerId && planTotal > 0 && planDeposit > 0 && planDeposit < planTotal && planMonths >= 1 && planMonths <= 4;
+    !!v.customerId &&
+    v.salePrice != null &&
+    planTotal > 0 &&
+    planDeposit > 0 &&
+    planDeposit < planTotal &&
+    PLAN_MONTH_OPTIONS.includes(planMonths);
 
   const generatePlan = async () => {
     if (!planValid) return;
     try {
-      await run(
+      const result = await run(
         {
           path: `/${v.id}/schedule/generate`,
           body: { months: planMonths, deposit: planDeposit, startDate: plan.startDate },
         },
-        "Payment plan created",
+        // Pass undefined so useSubmit doesn't auto-toast; we toast below with
+        // richer info once we have the result.
+        undefined,
       );
       setPlan({ ...plan, deposit: "" });
+      toast({
+        title: result?.invoiceCreated
+          ? `Invoice ${result?.invoice?.invoiceNumber ?? ""} raised & payment plan created`
+          : "Payment schedule updated",
+        description: result?.invoiceCreated
+          ? "The sales invoice has been created automatically. You can add tax on the invoice page."
+          : undefined,
+      });
     } catch {
       // useSubmit has already shown the failure toast.
     }
   };
+
 
   const planMonthsOnFile = lines.filter((l) => l.type !== "deposit").length;
 
@@ -1472,7 +1493,7 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
               <div>
                 <p className="text-sm font-semibold text-slate-800">Automatic payment plan</p>
                 <p className="text-[11px] text-slate-500">
-                  A deposit is required. The balance is split into 1–4 equal monthly instalments.
+                  A deposit is required. The balance is split into 2–36 equal monthly instalments.
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -1493,7 +1514,7 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
                   <Select value={plan.months} onValueChange={(x) => setPlan({ ...plan, months: x })}>
                     <SelectTrigger id="plan-months"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {[1, 2, 3, 4].map((m) => (
+                      {PLAN_MONTH_OPTIONS.map((m) => (
                         <SelectItem key={m} value={String(m)}>{m} month{m === 1 ? "" : "s"}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1526,8 +1547,18 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
               {!v.customerId && (
                 <p className="text-[11px] text-amber-700">Assign a customer on the Details tab first.</p>
               )}
+              {!v.customerId && null /* handled above */}
               {v.salePrice == null && (
-                <p className="text-[11px] text-amber-700">Set the agreed sale price on the Details tab first.</p>
+                <p className="text-[11px] text-amber-700">Set the agreed sale price on the Details tab first — the schedule will raise the invoice automatically.</p>
+              )}
+              {v.salePrice != null && !v.invoiceId && (
+                <p className="text-[11px] text-sky-700">
+                  Generating the schedule will automatically create the sales invoice for {fmtMoney(v.salePrice, v.saleCurrency || "USD")}.
+                  {v.saleCurrency && v.saleCurrency !== "USD" && ` (USD ${fmtMoney(planTotal)})`}
+                </p>
+              )}
+              {v.invoiceId && (
+                <p className="text-[11px] text-emerald-700">Invoice already raised — regenerating will update the schedule only.</p>
               )}
               {v.customerId && v.salePrice != null && planDeposit <= 0 && (
                 <p className="text-[11px] text-amber-700">Enter a deposit greater than zero.</p>
@@ -1536,7 +1567,7 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
                 <p className="text-[11px] text-rose-600">The deposit must be less than the sale price.</p>
               )}
               <Button id="plan-generate" size="sm" className="w-full" onClick={generatePlan} disabled={pending || !planValid}>
-                Generate {planMonths}-month payment plan
+                {v.invoiceId ? `Regenerate ${planMonths}-month schedule` : `Generate ${planMonths}-month plan & raise invoice`}
               </Button>
             </div>
           )}

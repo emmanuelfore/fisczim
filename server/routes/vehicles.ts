@@ -41,6 +41,7 @@ import {
   logEnquiryVehicleActivity,
   markEnquiryWon,
 } from "../lib/crm-vehicles.js";
+import { accrueVehicleCommission, cancelVehicleCommission } from "../lib/commissions.js";
 
 /**
  * Vehicle imports: per-unit landed costing, profitability, import tracking
@@ -1698,7 +1699,14 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
               req.user?.id,
             )
           : null;
-        return { invoice: created, ...paymentResult, cogs, enquiry };
+        // Auto-accrue the salesperson's commission statement when AR is posted.
+        let commission: any = null;
+        try {
+          commission = await accrueVehicleCommission(tx, { companyId, vehicleId: v.id, userId: req.user?.id });
+        } catch (error) {
+          console.error(`[CRM] Failed to accrue commission for vehicle ${v.id}`, error);
+        }
+        return { invoice: created, ...paymentResult, cogs, enquiry, commission };
       });
 
       // Runs after commit: fiscalization talks to the device and re-reads the
@@ -2191,7 +2199,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
   /**
    * Build a deposit-plus-instalments payment plan automatically.
-   * A deposit is mandatory; 1–4 monthly instalments cover the remainder.
+   * A deposit is mandatory; 2–36 monthly instalments (2, 4, 6, 12, 18, 24,
+   * 30 or 36) cover the remainder.
    */
   router.post("/companies/:companyId/vehicles/:id/schedule/generate", ...need("vehicles.payments"), async (req: any, res) => {
     try {
@@ -2199,85 +2208,213 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const v = await loadVehicle(companyId, parseInt(req.params.id));
       if (!v) return res.status(404).json({ error: "Vehicle not found" });
       if (!v.customerId) return res.status(400).json({ error: "Assign a customer to this vehicle first" });
-      if (v.salePrice == null) return res.status(400).json({ error: "Set the agreed sale price first" });
+      // Invoice creation requires the agreed sale price — the target retail
+      // price is a planning figure only and cannot anchor a binding invoice.
+      if (v.salePrice == null) return res.status(400).json({ error: "Set the agreed sale price on the Details tab before generating a payment schedule" });
 
       const body = z
         .object({
-          months: z.coerce.number().int().min(1).max(4),
+          months: z.coerce
+            .number()
+            .int()
+            .refine((m) => [2, 4, 6, 12, 18, 24, 30, 36].includes(m), {
+              message: "Months must be one of 2, 4, 6, 12, 18, 24, 30 or 36",
+            }),
           deposit: z.coerce.number().positive(),
           startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").optional(),
         })
         .parse(req.body ?? {});
 
       const rate = Number(v.saleExchangeRate || 1) || 1;
-      // Once invoiced, the customer owes the invoice total including tax, so the
-      // plan must cover that - not the pre-tax agreed sale.
-      let total = round2(Number(v.salePrice) * rate);
-      if (v.invoiceId) {
-        const [invoice] = await db
-          .select()
-          .from(invoices)
-          .where(and(eq(invoices.id, v.invoiceId), eq(invoices.companyId, companyId)));
-        if (invoice) {
-          total = round2(Number(invoice.total) * (Number(invoice.exchangeRate) || 1));
-        }
-      }
-      if (total <= 0) return res.status(400).json({ error: "The agreed sale price must be greater than zero" });
-
-      const deposit = round2(body.deposit);
-      if (deposit >= total) {
-        return res.status(400).json({ error: "The deposit must be less than the sale price" });
-      }
+      const subtotal = round2(Number(v.salePrice));
+      if (subtotal <= 0) return res.status(400).json({ error: "The agreed sale price must be greater than zero" });
 
       const startDate = body.startDate || new Date().toISOString().slice(0, 10);
-      const totalCents = Math.round(total * 100);
-      const depositCents = Math.round(deposit * 100);
-      const remainingCents = totalCents - depositCents;
-      if (remainingCents < body.months) {
-        return res.status(400).json({ error: "The deposit leaves too little outstanding for this many instalments" });
-      }
 
-      const baseCents = Math.floor(remainingCents / body.months);
-      const planLines: { type: "deposit" | "instalment" | "balance"; dueDate: string; amount: number }[] = [
-        { type: "deposit", dueDate: startDate, amount: depositCents / 100 },
-      ];
-      let allocated = 0;
-      for (let i = 1; i <= body.months; i += 1) {
-        const cents = i === body.months ? remainingCents - allocated : baseCents;
-        allocated += cents;
-        planLines.push({
-          type: i === body.months ? "balance" : "instalment",
-          dueDate: addMonthsIso(startDate, i),
-          amount: cents / 100,
-        });
-      }
+      // Build the schedule line dates first so we can use the last one as
+      // the invoice due date.
+      const baseCentsEstimate = Math.floor(Math.round((subtotal - body.deposit) * 100) / body.months);
+      const lastInstalmentDate = addMonthsIso(startDate, body.months);
 
-      const rows = await db.transaction(async (tx: any) => {
+      // ── Run everything in one transaction ──────────────────────────────
+      const result = await db.transaction(async (tx: any) => {
+        // Lock the vehicle row so a concurrent request cannot double-invoice.
+        const locked = await lockedVehicle(tx, companyId, v.id);
+        if (!locked) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+
+        // ── 1. Auto-create invoice if not already present ────────────────
+        let invoice: any = null;
+        let invoiceCreated = false;
+
+        if (locked.invoiceId) {
+          // Vehicle already has an invoice — use it as the schedule basis.
+          const [existing] = await tx
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.id, locked.invoiceId), eq(invoices.companyId, companyId)));
+          invoice = existing ?? null;
+        } else {
+          // No invoice yet — create one now (zero-tax; user edits on invoice page).
+          const currency = locked.saleCurrency || "USD";
+          const exchangeRate = Number(locked.saleExchangeRate || 1) || 1;
+          const taxAmount = 0;
+          const total = round2(subtotal + taxAmount);
+
+          const description = [
+            `${locked.year ?? ""} ${locked.make} ${locked.model}`.replace(/\s+/g, " ").trim(),
+            `Stock ${locked.stockNumber}`,
+            locked.vin ? `VIN ${locked.vin}` : null,
+          ].filter(Boolean).join(" — ");
+
+          invoice = await storage.createInvoice({
+            companyId,
+            customerId: locked.customerId!,
+            branchId: null,
+            issueDate: new Date(),
+            // Due date is the last instalment — that's when the full balance is owed.
+            dueDate: new Date(lastInstalmentDate),
+            subtotal: subtotal.toFixed(2),
+            taxAmount: taxAmount.toFixed(2),
+            total: total.toFixed(2),
+            status: "issued",
+            paidAmount: "0.00",
+            currency,
+            exchangeRate: exchangeRate.toFixed(6),
+            isFiscalized: false,
+            notes: description,
+            createdBy: req.user?.id,
+            items: [{
+              description,
+              quantity: "1",
+              unitPrice: subtotal.toFixed(2),
+              discountAmount: "0.00",
+              taxRate: "0.00",
+              taxTypeId: null,
+              lineTotal: subtotal.toFixed(2),
+            }],
+          } as any, tx);
+
+          await tx.update(vehicles).set({
+            invoiceId: invoice.id,
+            status: ["available", "reserved"].includes(locked.status) ? "sold" : locked.status,
+            updatedAt: new Date(),
+          }).where(eq(vehicles.id, locked.id));
+
+          invoiceCreated = true;
+
+          // Apply any pre-existing deposits / part-payments to the new invoice.
+          await applyVehiclePaymentsToInvoice(tx, companyId, locked.id, invoice, req.user?.id);
+
+          // Post COGS (Dr COGS / Cr Inventory) for all capitalised cost lines.
+          await postVehicleCogs(tx, companyId, locked.id, req.user?.id);
+
+          // Mark the linked CRM enquiry as won.
+          if (locked.enquiryId) {
+            await markEnquiryWon(
+              tx,
+              companyId,
+              locked.enquiryId,
+              `Invoice ${invoice.invoiceNumber} raised for ${description}.`,
+              { vehicleId: locked.id, invoiceId: invoice.id },
+              req.user?.id,
+            );
+          }
+
+          // Accrue salesperson commission.
+          try {
+            await accrueVehicleCommission(tx, { companyId, vehicleId: locked.id, userId: req.user?.id });
+          } catch (err) {
+            console.error(`[CRM] Failed to accrue commission for vehicle ${locked.id}`, err);
+          }
+        }
+
+        // ── 2. Use the invoice total (tax-inclusive) as the schedule basis ─
+        const total = invoice
+          ? round2(Number(invoice.total) * (Number(invoice.exchangeRate) || 1))
+          : round2(subtotal * rate);
+
+        if (total <= 0) throw Object.assign(new Error("The agreed sale price must be greater than zero"), { status: 400 });
+
+        const deposit = round2(body.deposit);
+        if (deposit >= total) throw Object.assign(new Error("The deposit must be less than the sale price"), { status: 400 });
+
+        const totalCents = Math.round(total * 100);
+        const depositCents = Math.round(deposit * 100);
+        const remainingCents = totalCents - depositCents;
+        if (remainingCents < body.months) {
+          throw Object.assign(new Error("The deposit leaves too little outstanding for this many instalments"), { status: 400 });
+        }
+
+        const baseCents = Math.floor(remainingCents / body.months);
+        const planLines: { type: "deposit" | "instalment" | "balance"; dueDate: string; amount: number }[] = [
+          { type: "deposit", dueDate: startDate, amount: depositCents / 100 },
+        ];
+        let allocated = 0;
+        for (let i = 1; i <= body.months; i += 1) {
+          const cents = i === body.months ? remainingCents - allocated : baseCents;
+          allocated += cents;
+          planLines.push({
+            type: i === body.months ? "balance" : "instalment",
+            dueDate: addMonthsIso(startDate, i),
+            amount: cents / 100,
+          });
+        }
+
+        // ── 3. Replace schedule lines ────────────────────────────────────
         await tx.delete(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, v.id));
-        return tx
+        const rows = await tx
           .insert(vehiclePaymentSchedules)
           .values(planLines.map((l) => ({ vehicleId: v.id, type: l.type, dueDate: l.dueDate, amount: l.amount.toFixed(2) })))
           .returning();
+
+        return {
+          rows,
+          total,
+          deposit,
+          baseCents,
+          remainingCents,
+          invoice,
+          invoiceCreated,
+        };
       });
+
+      // ── Fiscalise invoice after the transaction (talks to external device) ─
+      let finalInvoice = result.invoice;
+      if (result.invoiceCreated && result.invoice) {
+        try {
+          finalInvoice = await ensureVehicleInvoiceFiscalized(
+            result.invoice.id,
+            companyId,
+            req.user?.id,
+            req.user?.isSuperAdmin,
+          );
+        } catch (err) {
+          console.error("[FDMS] Fiscalization failed for auto-created vehicle invoice", err);
+          // Non-fatal — the invoice and schedule are already committed.
+        }
+      }
 
       res.status(201).json({
         plan: {
-          total,
-          deposit,
+          total: result.total,
+          deposit: result.deposit,
           months: body.months,
-          monthly: baseCents / 100,
-          finalAmount: (remainingCents - baseCents * (body.months - 1)) / 100,
+          monthly: result.baseCents / 100,
+          finalAmount: (result.remainingCents - result.baseCents * (body.months - 1)) / 100,
           startDate,
           currency: "USD",
         },
-        lines: rows,
+        lines: result.rows,
+        invoice: finalInvoice ?? null,
+        invoiceCreated: result.invoiceCreated,
       });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-      res.status(500).json({ error: error.message || "Failed to generate payment plan" });
+      res.status(error.status || 500).json({ error: error.message || "Failed to generate payment plan" });
     }
   });
+
 
   router.put("/companies/:companyId/vehicles/:id/schedule", ...need("vehicles.payments"), async (req: any, res) => {
     try {

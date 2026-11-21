@@ -10481,7 +10481,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
-      const data = await storage.getAbcAnalysis(companyId, ownerGroupScope);
+      const data = await storage.getAbcAnalysis(companyId, ownerGroupScope, getBranchId(req));
       res.json(data);
     } catch (err: any) {
       console.error("ABC Analysis Error:", err);
@@ -13805,7 +13805,7 @@ export async function registerRoutes(
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
 
-      const data = await storage.getRevenueChart(companyId, startDate, endDate);
+      const data = await storage.getRevenueChart(companyId, startDate, endDate, getBranchId(req));
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -13833,7 +13833,7 @@ export async function registerRoutes(
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
 
-      const data = await storage.getSalesByPaymentMethod(companyId, startDate, endDate);
+      const data = await storage.getSalesByPaymentMethod(companyId, startDate, endDate, getBranchId(req));
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -13983,7 +13983,7 @@ export async function registerRoutes(
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
 
-      const data = await storage.getOperationalMetrics(companyId, startDate, endDate);
+      const data = await storage.getOperationalMetrics(companyId, startDate, endDate, getBranchId(req));
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -13994,7 +13994,7 @@ export async function registerRoutes(
   app.get("/api/reports/stock-alerts/:id", requireAuth, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
-      const data = await storage.getLowStockItems(companyId);
+      const data = await storage.getLowStockItems(companyId, getBranchId(req));
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });

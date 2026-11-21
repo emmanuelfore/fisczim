@@ -10,6 +10,12 @@
   "companyName": "Your Company",
   "printerName": "",
   "saveDebugHtml": false,
+  "stampBox": { "x": 26, "y": 100, "width": 360, "height": 98 },
+  "training": {
+    "qrUrl": "https://fdmstest.zimra.co.zw/",
+    "deviceId": "0000000000",
+    "fiscalDay": 1
+  },
   "parse": {
     "productStartLine": "Order No.",
     "productEndLine": "Items count",

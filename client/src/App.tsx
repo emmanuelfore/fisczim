@@ -46,6 +46,7 @@ const VehicleDetailPage = lazy(() => import("@/pages/vehicles/detail"));
 const VehicleProfitabilityPage = lazy(() => import("@/pages/vehicles/profitability"));
 const VehicleCostingPage = lazy(() => import("@/pages/vehicles/costing"));
 const VehicleStatementsPage = lazy(() => import("@/pages/vehicles/statements"));
+const VehicleAgreementsPage = lazy(() => import("@/pages/vehicles/agreements-list"));
 const ExpensesPage = lazy(() => import("@/pages/expenses"));
 const InventoryTransactionsPage = lazy(() => import("@/pages/inventory-transactions"));
 const InventoryAdjustmentsPage = lazy(() => import("@/pages/inventory-adjustments"));
@@ -667,6 +668,9 @@ function Router() {
       </Route>
       <Route path="/vehicles/statements">
         {() => <ProtectedRoute component={VehicleStatementsPage} />}
+      </Route>
+      <Route path="/vehicles/agreements">
+        {() => <ProtectedRoute component={VehicleAgreementsPage} />}
       </Route>
       <Route path="/vehicles/:id">
         {() => <ProtectedRoute component={VehicleDetailPage} />}

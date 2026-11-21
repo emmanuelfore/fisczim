@@ -8,8 +8,11 @@ import {
   crmTaskPenalties,
   crmTasks,
   invoices,
+  journalEntries,
+  ledgerEntries,
   vehicles,
 } from "../../shared/schema.js";
+import { storage } from "../storage.js";
 import {
   addWorkingHours,
   workingHoursBetween,
@@ -54,6 +57,8 @@ export type CommissionSettings = {
   defaultBasis: CommissionBasis;
   defaultRatePercent: number;
   defaultFixedAmount: number;
+  /** Recognise each commission in the GL (Dr expense / Cr payable) when it accrues. */
+  accrueToLedger: boolean;
 };
 
 function asBasis(value: unknown): CommissionBasis {
@@ -91,6 +96,7 @@ export async function getCommissionSettings(companyId: number, executor: Executo
     defaultBasis: asBasis(row?.defaultBasis),
     defaultRatePercent: Number(row?.defaultRatePercent ?? 5),
     defaultFixedAmount: Number(row?.defaultFixedAmount ?? 0),
+    accrueToLedger: Boolean(row?.accrueToLedger),
   };
 }
 
@@ -361,6 +367,84 @@ export async function sweepOverdueTaskPenalties(companyId?: number): Promise<num
 }
 
 /**
+ * Post the commission as an accrued liability: Dr commission expense / Cr
+ * commission payable. Only runs when the company opted in via the setting, so
+ * the GL stays untouched for companies that treat commission as payroll only.
+ */
+async function postCommissionAccrualJournal(
+  tx: Executor,
+  companyId: number,
+  commissionId: number,
+  grossAmount: number,
+  userId?: string | null,
+) {
+  const expenseCode = await storage.getSystemAccountCode(companyId, "commissionExpenseAccountCode", tx);
+  const payableCode = await storage.getSystemAccountCode(companyId, "commissionPayableAccountCode", tx);
+  const je = await storage.postToLedger(companyId, {
+    entryDate: new Date(),
+    description: `Accrued sales commission #${commissionId}`,
+    referenceType: "COMMISSION_ACCRUAL",
+    referenceId: String(commissionId),
+    createdBy: userId ?? undefined,
+    lines: [
+      { accountCode: expenseCode, type: "DEBIT", amount: grossAmount },
+      { accountCode: payableCode, type: "CREDIT", amount: grossAmount },
+    ],
+  }, tx);
+  await tx
+    .update(crmCommissions)
+    .set({ accrualJournalEntryId: je.id, updatedAt: new Date() })
+    .where(eq(crmCommissions.id, commissionId));
+  return je;
+}
+
+/** Reverse a commission's accrued-liability journal when the sale is reversed. */
+async function reverseCommissionAccrual(
+  tx: Executor,
+  companyId: number,
+  journalEntryId: number,
+  userId?: string | null,
+) {
+  const [entry] = await tx
+    .select({ status: journalEntries.status })
+    .from(journalEntries)
+    .where(eq(journalEntries.id, journalEntryId));
+  if (!entry || entry.status === "REVERSED") return null;
+
+  const lines = await tx
+    .select()
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.journalEntryId, journalEntryId));
+  if (!lines.length) return null;
+
+  const reversal = await storage.postToLedger(companyId, {
+    entryDate: new Date(),
+    description: `Reverse accrued commission journal ${journalEntryId}`,
+    referenceType: "REVERSAL",
+    referenceId: String(journalEntryId),
+    createdBy: userId ?? undefined,
+    lines: lines.map((line: any) => ({
+      accountId: line.accountId,
+      type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
+      amount: Number(line.amount),
+      memo: `Reversal of commission accrual ${journalEntryId}`,
+      vatTypeId: line.vatTypeId ?? undefined,
+      vatAmount: line.vatAmount != null ? Number(line.vatAmount) : undefined,
+    })),
+  }, tx);
+
+  await tx
+    .update(journalEntries)
+    .set({ reversalOfJournalEntryId: journalEntryId })
+    .where(eq(journalEntries.id, reversal.id));
+  await tx
+    .update(journalEntries)
+    .set({ status: "REVERSED" })
+    .where(eq(journalEntries.id, journalEntryId));
+  return reversal;
+}
+
+/**
  * Create (or return) the commission for an invoiced vehicle.
  *
  * Idempotent through the partial unique index on (company_id, vehicle_id); the
@@ -446,24 +530,33 @@ export async function accrueVehicleCommission(
     )[0];
   if (!commission || !created) return commission ?? null;
 
+  // Opt-in: recognise the commission as a liability on the balance sheet.
+  if (Number(commission.grossAmount ?? 0) > 0) {
+    const settings = await getCommissionSettings(input.companyId, tx);
+    if (settings.accrueToLedger) {
+      try {
+        await postCommissionAccrualJournal(tx, input.companyId, commission.id, Number(commission.grossAmount), input.userId ?? null);
+      } catch (error) {
+        console.error(`[CRM] Failed to accrue commission ${commission.id} to GL`, error);
+      }
+    }
+  }
+
   // Carried penalties from before this deal existed.
-  const carried = await consumePendingPenalties(
+  await consumePendingPenalties(
     tx,
     input.companyId,
     salespersonId,
     commission.id,
     Number(commission.grossAmount ?? 0),
   );
-  if (carried > 0) {
-    return (
-      await tx
-        .select()
-        .from(crmCommissions)
-        .where(eq(crmCommissions.id, commission.id))
-        .limit(1)
-    )[0];
-  }
-  return commission;
+  return (
+    await tx
+      .select()
+      .from(crmCommissions)
+      .where(eq(crmCommissions.id, commission.id))
+      .limit(1)
+  )[0] ?? commission;
 }
 
 /** Approve/reject decision coming from either the CRM screen or the inbox. */
@@ -517,11 +610,21 @@ export async function cancelVehicleCommission(
     .limit(1);
   if (!commission || commission.status === "paid") return commission ?? null;
 
+  // Reverse the accrued-liability journal first so the books reflect the unwind.
+  if (commission.accrualJournalEntryId) {
+    try {
+      await reverseCommissionAccrual(tx, companyId, commission.accrualJournalEntryId, null);
+    } catch (error) {
+      console.error(`[CRM] Failed to reverse commission accrual ${commission.accrualJournalEntryId}`, error);
+    }
+  }
+
   const [updated] = await tx
     .update(crmCommissions)
     .set({
       status: "rejected",
       reviewNotes: reason,
+      accrualJournalEntryId: null,
       updatedAt: new Date(),
     })
     .where(eq(crmCommissions.id, commission.id))
@@ -542,6 +645,7 @@ export function settingsForClient(settings: CommissionSettings) {
     defaultBasis: settings.defaultBasis,
     defaultRatePercent: settings.defaultRatePercent,
     defaultFixedAmount: settings.defaultFixedAmount,
+    accrueToLedger: settings.accrueToLedger,
   };
 }
 

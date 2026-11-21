@@ -1556,6 +1556,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
 
       res.json({
         rows: withNames,
+        commissions: withNames,
         summary,
         seeAll,
         canApprove: await can(req, companyId, "crm.commission.approve"),

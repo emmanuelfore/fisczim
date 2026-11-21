@@ -6,7 +6,15 @@
  * 3) Simple pipe text → fallback demo format
  */
 
+import fs from "fs";
+import path from "path";
 import { ReceiptParser, posInvoiceToParsed } from "./receiptParser.js";
+import {
+  extractTextFromPdfAsync,
+  isPalladiumInvoice,
+  parsePalladiumInvoice,
+  pdfInvoiceToParsed,
+} from "./pdfInvoiceParser.js";
 
 function taxTypeFromLabel(label = "") {
   const t = String(label).toLowerCase();
@@ -127,6 +135,51 @@ function parseSimpleTextJob(content) {
     buyer,
     items,
   };
+}
+
+/**
+ * Parse a job from disk. Handles PDF invoices (A4 Palladium layout + generic
+ * PDF text) in addition to the text/JSON formats supported by `parseJob`.
+ */
+export async function parseJobFromFile(filePath, config = {}) {
+  const fileName = path.basename(filePath);
+  const isPdf =
+    fileName.toLowerCase().endsWith(".pdf") || looksLikePdfFile(filePath);
+
+  if (!isPdf) {
+    return parseJob(fs.readFileSync(filePath, "utf8"), fileName, config);
+  }
+
+  const text = await extractTextFromPdfAsync(filePath);
+  if (!text.trim()) {
+    throw new Error(`No extractable text in PDF: ${fileName}`);
+  }
+
+  if (isPalladiumInvoice(text)) {
+    const document = parsePalladiumInvoice(text);
+    const parsed = pdfInvoiceToParsed(document);
+    // Keep the full document available for logging / preview / training.
+    parsed.sourceDocument = document;
+    parsed.sourceFormat = "pdf";
+    return parsed;
+  }
+
+  // Not the Palladium layout — try the normal POS marker parser on the PDF
+  // text, then the simple pipe/JSON fallbacks.
+  const posParsed = parseJob(text, fileName, config);
+  return { ...posParsed, sourceFormat: "pdf" };
+}
+
+function looksLikePdfFile(filePath) {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const buffer = Buffer.alloc(5);
+    fs.readSync(fd, buffer, 0, 5, 0);
+    fs.closeSync(fd);
+    return buffer.toString("latin1") === "%PDF-";
+  } catch {
+    return false;
+  }
 }
 
 export function parseJob(content, fileName = "", config = {}) {

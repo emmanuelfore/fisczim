@@ -32,7 +32,7 @@ import {
 } from "../../shared/schema.js";
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { enquiries, invoices } from "../../shared/schema.js";
+import { enquiries, invoices, vehicleSalesAgreements, vehicleAgreementCounters } from "../../shared/schema.js";
 import { userHasPermission } from "../lib/permissions.js";
 import { storage } from "../storage.js";
 import { processInvoiceFiscalization } from "../lib/fiscalization.js";
@@ -209,6 +209,36 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     const daysInMonth = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
     target.setUTCDate(Math.min(d, daysInMonth));
     return target.toISOString().slice(0, 10);
+  }
+
+  type AgreementTerms = { agreedPrice: number; depositAmount: number; months: number; interestType: string; interestRate: number; adminFee: number; startDate: string };
+  function agreementPlan(t: AgreementTerms) {
+    const principal = round2(t.agreedPrice - t.depositAmount);
+    if (principal < 0 || t.months < 1) throw Object.assign(new Error("Deposit and term are invalid"), { status: 400 });
+    let financed = principal + t.adminFee;
+    if (t.interestType === "fixed_amount") financed += t.interestRate;
+    else if (t.interestType === "flat_rate") financed += principal * (t.interestRate / 100) * (t.months / 12);
+    const monthlyRate = t.interestType === "percent_pa" ? t.interestRate / 100 / 12 : 0;
+    const total = monthlyRate > 0 ? financed * (monthlyRate * Math.pow(1 + monthlyRate, t.months)) / (Math.pow(1 + monthlyRate, t.months) - 1) * t.months : financed;
+    const totalCents = Math.round(total * 100), baseCents = Math.floor(totalCents / t.months);
+    const lines = [{ type: "deposit", dueDate: t.startDate, amount: round2(t.depositAmount) }];
+    let allocated = 0;
+    for (let i = 1; i <= t.months; i++) { const cents = i === t.months ? totalCents - allocated : baseCents; allocated += cents; lines.push({ type: i === t.months ? "balance" : "instalment", dueDate: addMonthsIso(t.startDate, i), amount: cents / 100 }); }
+    return { lines, financed: round2(total), balance: round2(total - t.depositAmount) };
+  }
+
+  async function refreshScheduleSettlement(tx: any, companyId: number, vehicleId: number) {
+    const [lines, paidRows] = await Promise.all([
+      tx.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicleId)).orderBy(asc(vehiclePaymentSchedules.dueDate), asc(vehiclePaymentSchedules.id)),
+      tx.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId))),
+    ]);
+    let remaining = round2(paidRows.reduce((sum: number, p: any) => sum + Number(p.amount) * Number(p.exchangeRate || 1), 0));
+    const today = new Date().toISOString().slice(0, 10);
+    for (const line of lines) {
+      const paid = round2(Math.min(remaining, Number(line.amount))); remaining = round2(remaining - paid);
+      const status = paid >= Number(line.amount) - .004 ? "paid" : paid > .004 ? "partial" : line.dueDate < today ? "overdue" : "scheduled";
+      await tx.update(vehiclePaymentSchedules).set({ paidAmount: paid.toFixed(2), paidAt: paid > 0 ? new Date().toISOString().slice(0, 10) : null, status }).where(eq(vehiclePaymentSchedules.id, line.id));
+    }
   }
 
   async function lockedVehicle(tx: any, companyId: number, id: number) {
@@ -651,7 +681,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         db.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, v.id)).orderBy(asc(vehiclePaymentSchedules.dueDate)),
         db.select().from(payments).where(and(eq(payments.vehicleId, v.id), eq(payments.companyId, companyId))).orderBy(asc(payments.paymentDate)),
         v.customerId ? db.select().from(customers).where(eq(customers.id, v.customerId)).then((r) => r[0] ?? null) : Promise.resolve(null),
-        v.invoiceId ? db.select().from(invoices).where(eq(invoices.id, v.invoiceId)).then((r) => r[0] ?? null) : Promise.resolve(null),
+        v.invoiceId ? db.select().from(invoices).where(eq(invoices.id, v.invoiceId)).then(async (r) => {
+          const invoice = r[0];
+          return invoice ? { ...invoice, items: await db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, invoice.id)) } : null;
+        }) : Promise.resolve(null),
         db.select().from(vehicleReminders).where(eq(vehicleReminders.vehicleId, v.id)).orderBy(desc(vehicleReminders.sentAt)).limit(25),
         v.supplierId ? db.select().from(suppliers).where(eq(suppliers.id, v.supplierId)).then((r) => r[0] ?? null) : Promise.resolve(null),
         v.salespersonId ? db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, v.salespersonId)).then((r) => r[0] ?? null) : Promise.resolve(null),
@@ -1591,6 +1624,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         if (v.status === "available") {
           await tx.update(vehicles).set({ status: "reserved", updatedAt: new Date() }).where(eq(vehicles.id, v.id));
         }
+        await refreshScheduleSettlement(tx, companyId, v.id);
         const [saved] = await tx.select().from(payments).where(eq(payments.id, created.id));
         return { ...saved, allocation };
       });
@@ -2195,6 +2229,76 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: error.message || "Failed to log payment thank-you" });
     }
+  });
+
+  // ── sales agreements ────────────────────────────────────────────────────
+  const agreementInput = z.object({
+    customerId: z.coerce.number().int().positive().optional(), salespersonId: z.string().uuid().nullable().optional(),
+    agreedPrice: z.coerce.number().positive(), currency: z.string().max(8).default("USD"), exchangeRate: z.coerce.number().positive().default(1),
+    priceType: z.enum(["fixed", "variable"]).default("fixed"), depositAmount: z.coerce.number().min(0).default(0), months: z.coerce.number().int().min(1).max(120),
+    interestType: z.enum(["none", "fixed_amount", "percent_pa", "flat_rate"]).default("none"), interestRate: z.coerce.number().min(0).default(0), adminFee: z.coerce.number().min(0).default(0), lateFee: z.coerce.number().min(0).default(0),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), estimatedDelivery: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), notes: z.string().max(4000).nullable().optional(), termsText: z.string().max(12000).nullable().optional(),
+  });
+  async function agreementPayload(companyId: number, vehicleId: number) {
+    const [agreement] = await db.select().from(vehicleSalesAgreements).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicleId)));
+    if (!agreement) return null;
+    const [schedule, history] = await Promise.all([
+      db.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicleId)).orderBy(asc(vehiclePaymentSchedules.dueDate), asc(vehiclePaymentSchedules.id)),
+      db.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId))).orderBy(asc(payments.paymentDate), asc(payments.id)),
+    ]);
+    return { agreement, schedule, payments: history, collected: round2(history.reduce((s, p) => s + Number(p.amount) * Number(p.exchangeRate || 1), 0)) };
+  }
+  router.get("/companies/:companyId/vehicles/:id/agreement", ...need("vehicles.view"), async (req: any, res) => {
+    const data = await agreementPayload(Number(req.params.companyId), Number(req.params.id));
+    if (!data) return res.status(404).json({ error: "Sales agreement not found" }); res.json(data);
+  });
+  router.post("/companies/:companyId/vehicles/:id/agreement", ...need("vehicles.manage"), async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id), body = agreementInput.parse(req.body ?? {});
+      const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, vehicleId); if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (v.customerId && body.customerId && v.customerId !== body.customerId) throw Object.assign(new Error("Agreement customer must match the vehicle customer"), { status: 400 });
+        const customerId = body.customerId || v.customerId; if (!customerId) throw Object.assign(new Error("Assign a customer first"), { status: 400 });
+        const terms = { ...body, depositAmount: body.depositAmount, agreedPrice: body.agreedPrice }; const plan = agreementPlan(terms);
+        let [existing] = await tx.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId)).for("update");
+        if (existing && existing.status !== "draft") throw Object.assign(new Error("Only draft agreements can be replaced"), { status: 409 });
+        if (!existing) {
+          const [counter] = await tx.insert(vehicleAgreementCounters).values({ companyId, nextNumber: 2, updatedAt: new Date() }).onConflictDoUpdate({ target: vehicleAgreementCounters.companyId, set: { nextNumber: sql`${vehicleAgreementCounters.nextNumber} + 1`, updatedAt: new Date() } }).returning({ nextNumber: vehicleAgreementCounters.nextNumber });
+          const number = `SA-${String(Number(counter.nextNumber) - 1).padStart(4, "0")}`;
+          [existing] = await tx.insert(vehicleSalesAgreements).values({ ...body, companyId, vehicleId, customerId, agreementNumber: number, agreedPrice: body.agreedPrice.toFixed(2), exchangeRate: body.exchangeRate.toFixed(6), depositAmount: body.depositAmount.toFixed(2), interestRate: body.interestRate.toFixed(4), adminFee: body.adminFee.toFixed(2), lateFee: body.lateFee.toFixed(2), createdBy: req.user?.id }).returning();
+        } else {
+          [existing] = await tx.update(vehicleSalesAgreements).set({ ...body, customerId, agreedPrice: body.agreedPrice.toFixed(2), exchangeRate: body.exchangeRate.toFixed(6), depositAmount: body.depositAmount.toFixed(2), interestRate: body.interestRate.toFixed(4), adminFee: body.adminFee.toFixed(2), lateFee: body.lateFee.toFixed(2), updatedAt: new Date() }).where(eq(vehicleSalesAgreements.id, existing.id)).returning();
+        }
+        await tx.update(vehicles).set({ customerId, salespersonId: body.salespersonId ?? v.salespersonId, salePrice: body.agreedPrice.toFixed(2), saleCurrency: body.currency, saleExchangeRate: body.exchangeRate.toFixed(6), status: v.status === "available" ? "reserved" : v.status, updatedAt: new Date() }).where(eq(vehicles.id, vehicleId));
+        await tx.delete(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicleId));
+        await tx.insert(vehiclePaymentSchedules).values(plan.lines.map(l => ({ vehicleId, type: l.type, dueDate: l.dueDate, amount: l.amount.toFixed(2) })));
+        await refreshScheduleSettlement(tx, companyId, vehicleId);
+        return existing;
+      });
+      res.status(201).json({ agreement: result, ...(await agreementPayload(companyId, vehicleId)) });
+    } catch (error: any) { if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors }); res.status(error.status || 500).json({ error: error.message || "Failed to save agreement" }); }
+  });
+  router.patch("/companies/:companyId/vehicles/:id/agreement", ...need("vehicles.manage"), async (req: any, res) => { req.method = "POST"; return (router as any).handle(req, res); });
+  router.post("/companies/:companyId/vehicles/:id/agreement/handover", ...need("vehicles.manage"), async (req: any, res) => {
+    const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id); const notes = z.object({ notes: z.string().max(4000).nullable().optional() }).parse(req.body ?? {});
+    const [agreement] = await db.update(vehicleSalesAgreements).set({ handoverAt: new Date(), handoverBy: req.user?.id, handoverNotes: notes.notes ?? null, status: "completed", updatedAt: new Date() }).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicleId))).returning();
+    if (!agreement) return res.status(404).json({ error: "Sales agreement not found" }); await db.update(vehicles).set({ status: "delivered", updatedAt: new Date() }).where(eq(vehicles.id, vehicleId)); res.json({ agreement });
+  });
+  router.get("/companies/:companyId/agreements", ...need("vehicles.view"), async (req: any, res) => {
+    const companyId = Number(req.params.companyId), status = req.query.status as string | undefined;
+    const rows = await db.select({ agreement: vehicleSalesAgreements, vehicle: vehicles, customer: customers }).from(vehicleSalesAgreements).innerJoin(vehicles, eq(vehicles.id, vehicleSalesAgreements.vehicleId)).leftJoin(customers, eq(customers.id, vehicleSalesAgreements.customerId)).where(and(eq(vehicleSalesAgreements.companyId, companyId), status ? eq(vehicleSalesAgreements.status, status) : undefined));
+    const ids = rows.map(r => r.vehicle.id); const paidRows = ids.length ? await db.select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} * COALESCE(${payments.exchangeRate}, 1)), 0)` }).from(payments).where(inArray(payments.vehicleId, ids)).groupBy(payments.vehicleId) : [];
+    const paid = new Map(paidRows.map(p => [p.vehicleId, Number(p.total)])); res.json(rows.map(r => ({ ...r, collected: paid.get(r.vehicle.id) || 0, balance: round2(Number(r.agreement.agreedPrice) - (paid.get(r.vehicle.id) || 0)) })));
+  });
+  router.get("/companies/:companyId/vehicles/overdue-schedule", ...need("vehicles.view"), async (req: any, res) => { const rows = await db.select({ count: sql<number>`count(*)` }).from(vehiclePaymentSchedules).innerJoin(vehicles, eq(vehicles.id, vehiclePaymentSchedules.vehicleId)).where(and(eq(vehicles.companyId, Number(req.params.companyId)), eq(vehiclePaymentSchedules.status, "overdue"))); res.json({ count: Number(rows[0]?.count || 0) }); });
+  router.get("/companies/:companyId/vehicles/:id/payments/:paymentId/receipt", ...need("vehicles.view"), async (req: any, res) => {
+    const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id), paymentId = Number(req.params.paymentId);
+    const [row] = await db.select({ payment: payments, vehicle: vehicles, customer: customers }).from(payments).innerJoin(vehicles, eq(vehicles.id, payments.vehicleId)).leftJoin(customers, eq(customers.id, payments.customerId)).where(and(eq(payments.id, paymentId), eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId)));
+    if (!row) return res.status(404).json({ error: "Payment not found" });
+    const history = await db.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId)));
+    const [agreement] = await db.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId));
+    const paid = history.reduce((sum, p) => sum + Number(p.amount) * Number(p.exchangeRate || 1), 0);
+    res.json({ receiptNumber: `VR-${row.payment.id}`, payment: row.payment, vehicle: row.vehicle, customer: row.customer, agreementNumber: agreement?.agreementNumber ?? null, remainingBalance: round2(Number(agreement?.agreedPrice ?? row.vehicle.salePrice ?? 0) - paid) });
   });
 
   /**

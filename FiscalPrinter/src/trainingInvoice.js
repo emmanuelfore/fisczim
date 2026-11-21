@@ -160,9 +160,11 @@ export async function buildTrainingInvoiceHtml({ data, config = {} }) {
   .page {
     position: relative;
     width: 190mm;
-    min-height: 277mm;
+    min-height: 270mm;
     margin: 0 auto;
     z-index: 1;
+    display: flex;
+    flex-direction: column;
   }
 
   /* ---------- training watermark ---------- */
@@ -171,10 +173,10 @@ export async function buildTrainingInvoiceHtml({ data, config = {} }) {
     top: 46%;
     left: 50%;
     transform: translate(-50%, -50%) rotate(-28deg);
-    font-size: 40px;
+    font-size: 30px;
     font-weight: 700;
-    letter-spacing: 2px;
-    color: rgba(190, 30, 45, 0.09);
+    letter-spacing: 1.5px;
+    color: rgba(190, 30, 45, 0.08);
     white-space: nowrap;
     pointer-events: none;
     z-index: 0;
@@ -235,8 +237,8 @@ export async function buildTrainingInvoiceHtml({ data, config = {} }) {
     margin-top: 7mm;
   }
 
-  .buyer { width: 100mm; }
-  .bank { width: 76mm; }
+  .buyer { width: 98mm; }
+  .bank { width: 78mm; }
 
   .section-title { font-weight: 700; margin: 0 0 2px; font-size: 10px; }
 
@@ -250,6 +252,9 @@ export async function buildTrainingInvoiceHtml({ data, config = {} }) {
   .dot-label { width: 30mm; font-weight: 700; white-space: nowrap; }
   .dot-label::before { content: "• "; font-weight: 400; }
   .dot-value { padding-left: 2px; white-space: nowrap; overflow: hidden; }
+
+  .bank .dot-label { width: 27mm; }
+  .bank .dot-value { white-space: normal; font-size: 8.5px; line-height: 1.15; padding-left: 4px; }
 
   .bank-box {
     border: 1.4px solid #000;
@@ -268,7 +273,7 @@ export async function buildTrainingInvoiceHtml({ data, config = {} }) {
     border-collapse: collapse;
     table-layout: fixed;
     margin-top: 2mm;
-    height: 145mm;
+    height: 126mm;
   }
 
   .items th,

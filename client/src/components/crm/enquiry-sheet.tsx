@@ -158,8 +158,8 @@ export function EnquirySheet({
 
   return (
     <Sheet open={!!enquiryId} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full sm:max-w-xl">
-        <SheetHeader className="border-b border-slate-100">
+      <SheetContent className="w-full sm:max-w-xl flex h-full flex-col overflow-hidden p-0">
+        <SheetHeader className="shrink-0 border-b border-slate-100 px-6 pt-6 pb-4">
           <SheetTitle className="truncate text-lg">{enquiry?.name || "Enquiry"}</SheetTitle>
           <SheetDescription className="truncate">
             {enquiry
@@ -173,7 +173,7 @@ export function EnquirySheet({
             <LoadingRows />
           </div>
         ) : (
-          <ScrollArea className="flex-1 px-6 pb-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-10">
             <div className="space-y-5 pt-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className={`${stageColor(enquiry.stage?.color).badge} hover:opacity-100`}>
@@ -403,7 +403,7 @@ export function EnquirySheet({
                 }
               />
             </div>
-          </ScrollArea>
+          </div>
         )}
 
         <QuotationFromEnquiryDialog

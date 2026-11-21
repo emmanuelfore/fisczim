@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { parseJob } from "./parseJob.js";
+import { parseJobFromFile } from "./parseJob.js";
 import { FiscalStackClient, toFiscalizePayload } from "./fiscalStackClient.js";
 import { buildFiscalReceiptHtml } from "./fiscalReceipt.js";
 import { maybeSaveDebugHtml, saveFiscalJson, printHtmlElectron, printHtmlCli } from "./printLocal.js";
@@ -20,14 +20,13 @@ function moveFile(src, destDir) {
  */
 export async function processJobFile(filePath, config, options = {}) {
   const fileName = path.basename(filePath);
-  const content = fs.readFileSync(filePath, "utf8");
   const baseName = `${path.basename(fileName, path.extname(fileName))}-${Date.now()}`;
 
   if (!config.apiKey) {
     throw new Error("apiKey is missing — set your FiscalStack X-API-Key in config");
   }
 
-  const parsed = parseJob(content, fileName, config);
+  const parsed = await parseJobFromFile(filePath, config);
   const client = new FiscalStackClient({
     apiEndpoint: config.apiEndpoint,
     apiKey: config.apiKey,

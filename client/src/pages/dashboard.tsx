@@ -110,7 +110,7 @@ function formatStatus(
 export default function Dashboard() {
   const { activeCompany } = useActiveCompany();
   const { t } = useI18n();
-  const { selectedBranchId } = useBranchContext();
+  const { selectedBranchId, selectedBranch, branches } = useBranchContext();
   const companyId = activeCompany?.id || 0;
 
   const { data: invoicesResult } = useInvoices(companyId, {
@@ -153,7 +153,7 @@ export default function Dashboard() {
   );
 
   const { data: operationalMetrics } = useQuery<any>({
-    queryKey: [api.reports.operationalMetrics.path, companyId],
+    queryKey: [api.reports.operationalMetrics.path, companyId, selectedBranchId],
     queryFn: async () => {
       const res = await apiFetch(
         buildUrl(api.reports.operationalMetrics.path, { companyId }),
@@ -165,7 +165,7 @@ export default function Dashboard() {
   });
 
   const { data: revenueData = [] } = useQuery<any[]>({
-    queryKey: [api.reports.revenueChart.path, companyId],
+    queryKey: [api.reports.revenueChart.path, companyId, selectedBranchId],
     queryFn: async () => {
       const res = await apiFetch(
         buildUrl(api.reports.revenueChart.path, { id: companyId }),
@@ -177,7 +177,7 @@ export default function Dashboard() {
   });
 
   const { data: paymentDataRaw = [] } = useQuery<any[]>({
-    queryKey: ["sales-by-payment-method-dashboard", companyId],
+    queryKey: ["sales-by-payment-method-dashboard", companyId, selectedBranchId],
     queryFn: async () => {
       const now = new Date();
       const start = new Date();
@@ -196,7 +196,7 @@ export default function Dashboard() {
   });
 
   const { data: abcAnalysis = [] } = useQuery<any[]>({
-    queryKey: ["abc-analysis-dashboard", companyId],
+    queryKey: ["abc-analysis-dashboard", companyId, selectedBranchId],
     queryFn: async () => {
       const res = await apiFetch(
         `/api/companies/${companyId}/reports/abc-analysis`,
@@ -208,7 +208,7 @@ export default function Dashboard() {
   });
 
   const { data: stockAlerts = [] } = useQuery<any[]>({
-    queryKey: [api.reports.stockAlerts.path, companyId],
+    queryKey: [api.reports.stockAlerts.path, companyId, selectedBranchId],
     queryFn: async () => {
       const res = await apiFetch(
         buildUrl(api.reports.stockAlerts.path, { companyId }),
@@ -302,6 +302,17 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="space-y-5">
+        {branches.length > 1 && (
+          <div className="flex items-center gap-2 text-sm text-[#475569]">
+            <span className="font-semibold text-[#0F172A]">{t("Dashboard")}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {selectedBranch
+                ? t("{branch} branch", { branch: selectedBranch.name })
+                : t("All branches")}
+            </span>
+          </div>
+        )}
         <div className="-mt-1 space-y-4">
           <section className="mt-0 mb-0 flex justify-end">
             <div className="flex flex-wrap justify-end gap-2">

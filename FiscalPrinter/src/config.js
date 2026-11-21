@@ -3,7 +3,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, "..");
+
+// In an installed Electron build the application code lives inside the
+// read-only app.asar, so config/spool/output must move to a writable folder.
+// electron/main.cjs sets FISCALPRINTER_ROOT to app.getPath("userData") before
+// this module is loaded. CLI runs keep the project folder.
+const root = process.env.FISCALPRINTER_ROOT
+  ? path.resolve(process.env.FISCALPRINTER_ROOT)
+  : path.resolve(__dirname, "..");
 
 const defaults = {
   apiEndpoint: "https://fiscalstack.co.zw/api/v1/",

@@ -12,6 +12,45 @@ import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
 
+/**
+ * Silent-print a PDF file from Electron.
+ * Uses a hidden BrowserWindow → loadURL(file://…) → webContents.print.
+ * On Windows the Chromium renderer honours the page size from the PDF.
+ */
+export async function printPdfElectron(pdfPath, printerName) {
+  const electron = await import("electron");
+  const { BrowserWindow } = electron;
+
+  return new Promise((resolve, reject) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { offscreen: true, plugins: true },
+    });
+
+    const finish = (err) => {
+      if (!win.isDestroyed()) win.destroy();
+      if (err) reject(err);
+      else resolve();
+    };
+
+    win.webContents.on("did-fail-load", (_e, code, desc) =>
+      finish(new Error(`Print window failed to load (${code}): ${desc}`))
+    );
+
+    win.webContents.on("did-finish-load", () => {
+      win.webContents.print(
+        { silent: true, printBackground: true, deviceName: printerName || undefined },
+        (success, failureReason) => {
+          if (!success) finish(new Error(failureReason || "Print cancelled/failed"));
+          else finish();
+        }
+      );
+    });
+
+    win.loadURL(`file://${pdfPath.replace(/\\/g, "/")}`);
+  });
+}
+
 export async function printHtmlElectron(html, printerName) {
   // Dynamic import so CLI mode works without Electron installed as runtime
   const electron = await import("electron");

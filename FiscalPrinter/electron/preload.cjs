@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("fiscalPrinter", {
   startWatch: () => ipcRenderer.invoke("start-watch"),
   processFile: (filePath) => ipcRenderer.invoke("process-file", filePath),
   runTraining: (options) => ipcRenderer.invoke("training-run", options),
+  pickPdf: () => ipcRenderer.invoke("training-pick-pdf"),
+  runTrainingStamp: (inputPath) => ipcRenderer.invoke("training-stamp", inputPath),
   onLog: (cb) => ipcRenderer.on("log", (_e, line) => cb(line)),
   onJobDone: (cb) => ipcRenderer.on("job-done", (_e, data) => cb(data)),
 });

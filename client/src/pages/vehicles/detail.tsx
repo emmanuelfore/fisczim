@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useCompany } from "@/hooks/use-companies";
 import { useCustomers } from "@/hooks/use-customers";
 import { useMatchingEnquiries } from "@/hooks/use-crm";
 import { useConsignments } from "@/hooks/use-freight";
@@ -22,7 +23,11 @@ import { useSuppliers } from "@/hooks/use-suppliers";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { PDFDownloadLink } from "@react-pdf/renderer";
+import { VehicleAgreementPDF } from "@/components/vehicles/agreement-pdf";
+import { VehiclePaymentReceiptPDF } from "@/components/vehicles/payment-receipt-pdf";
+import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { addDays, format } from "date-fns";
 import { ArrowLeft, Bell, Check, CircleDot, Download, Eye, FileText, Landmark, Lock, Mail, MessageCircle, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
 import {
@@ -87,11 +92,13 @@ export default function VehicleDetailPage() {
         <Tabs defaultValue="details">
           <TabsList>
             <TabsTrigger value="details">Details & sale</TabsTrigger>
+            <TabsTrigger value="agreement">Sales Agreement</TabsTrigger>
             {showCosts && <TabsTrigger value="costs">Costs ({v.costs.length})</TabsTrigger>}
             <TabsTrigger value="tracking">Import tracking</TabsTrigger>
             <TabsTrigger value="payments">Payments ({v.payments.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="details"><DetailsTab v={v} companyId={companyId} editable={can("vehicles.manage")} /></TabsContent>
+          <TabsContent value="agreement"><AgreementTab v={v} companyId={companyId} editable={can("vehicles.manage")} /></TabsContent>
           {showCosts && <TabsContent value="costs"><CostsTab v={v} companyId={companyId} /></TabsContent>}
           <TabsContent value="tracking"><TrackingTab v={v} companyId={companyId} editable={can("vehicles.manage")} /></TabsContent>
           <TabsContent value="payments"><PaymentsTab v={v} companyId={companyId} editable={can("vehicles.payments")} /></TabsContent>
@@ -100,6 +107,28 @@ export default function VehicleDetailPage() {
     </Layout>
   );
 }
+
+function AgreementTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
+  const { toast } = useToast(); const queryClient = useQueryClient(); const [saving, setSaving] = useState(false);
+  const { data: company } = useCompany(companyId);
+  const { data, isLoading } = useQuery<any>({ queryKey: ["vehicle-agreement", companyId, v.id], queryFn: async () => { const r = await apiFetch(`/api/companies/${companyId}/vehicles/${v.id}/agreement`); if (r.status === 404) return null; if (!r.ok) throw new Error("Failed to load agreement"); return r.json(); } });
+  const [form, setForm] = useState({ agreedPrice: String(v.salePrice || ""), depositAmount: "0", months: "24", startDate: format(new Date(), "yyyy-MM-dd"), interestType: "none", interestRate: "0", adminFee: "0", lateFee: "0" });
+  useEffect(() => { if (data?.agreement) setForm({ agreedPrice: String(data.agreement.agreedPrice), depositAmount: String(data.agreement.depositAmount), months: String(data.agreement.months), startDate: data.agreement.startDate, interestType: data.agreement.interestType, interestRate: String(data.agreement.interestRate), adminFee: String(data.agreement.adminFee), lateFee: String(data.agreement.lateFee) }); }, [data]);
+  const save = async () => { if (!v.customerId) return toast({ title: "Assign a customer before creating an agreement", variant: "destructive" }); setSaving(true); try { const r = await apiFetch(`/api/companies/${companyId}/vehicles/${v.id}/agreement`, { method: "POST", body: JSON.stringify({ ...form, customerId: v.customerId, currency: v.saleCurrency || "USD", exchangeRate: Number(v.saleExchangeRate || 1) }) }); if (!r.ok) throw new Error((await r.json()).error || "Could not save agreement"); await queryClient.invalidateQueries({ queryKey: ["vehicle-agreement", companyId, v.id] }); await queryClient.invalidateQueries({ queryKey: ["vehicle", companyId, v.id] }); toast({ title: "Sales agreement saved" }); } catch (e: any) { toast({ title: "Agreement failed", description: e.message, variant: "destructive" }); } finally { setSaving(false); } };
+  if (isLoading) return <div className="p-4 text-sm text-slate-500">Loading agreement…</div>;
+  return <div className="space-y-4">
+    <Card><CardHeader><CardTitle>{data?.agreement ? `${data.agreement.agreementNumber} · ${data.agreement.status}` : "Create Sales Agreement"}</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-4">
+      <Field label="Agreed price" value={form.agreedPrice} onChange={value => setForm({ ...form, agreedPrice: value })} /><Field label="Deposit" value={form.depositAmount} onChange={value => setForm({ ...form, depositAmount: value })} /><Field label="Months" value={form.months} onChange={value => setForm({ ...form, months: value })} /><Field label="First payment due" type="date" value={form.startDate} onChange={value => setForm({ ...form, startDate: value })} />
+      <div><Label>Interest method</Label><Select value={form.interestType} onValueChange={value => setForm({ ...form, interestType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No interest</SelectItem><SelectItem value="percent_pa">Reducing balance (% p.a.)</SelectItem><SelectItem value="flat_rate">Flat rate (% p.a.)</SelectItem><SelectItem value="fixed_amount">Fixed amount</SelectItem></SelectContent></Select></div>
+      <Field label="Interest rate / amount" value={form.interestRate} onChange={value => setForm({ ...form, interestRate: value })} /><Field label="Admin fee" value={form.adminFee} onChange={value => setForm({ ...form, adminFee: value })} /><Field label="Late fee per instalment" value={form.lateFee} onChange={value => setForm({ ...form, lateFee: value })} />
+      <div className="md:col-span-4 flex flex-wrap gap-2">{editable && <Button onClick={save} disabled={saving || (data?.agreement?.status !== undefined && data.agreement.status !== "draft")}>{saving ? "Saving…" : data?.agreement ? "Update draft terms" : "Create agreement"}</Button>}{data && company && <PDFDownloadLink document={<VehicleAgreementPDF agreement={data.agreement} vehicle={v} customer={v.customer} company={company} schedule={data.schedule} />} fileName={`Sales-Agreement-${data.agreement.agreementNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : "Print agreement"}</Button>}</PDFDownloadLink>}{v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicleCosts: v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : "Print invoice with costing"}</Button>}</PDFDownloadLink>}</div>
+    </CardContent></Card>
+    {data && <Card><CardHeader><CardTitle>Payment schedule</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Due date</TableHead><TableHead>Amount</TableHead><TableHead>Paid</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{data.schedule.map((line: any) => <TableRow key={line.id}><TableCell className="capitalize">{line.type}</TableCell><TableCell>{line.dueDate}</TableCell><TableCell>{fmtMoney(Number(line.amount))}</TableCell><TableCell>{fmtMoney(Number(line.paidAmount))}</TableCell><TableCell className="capitalize">{line.status}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>}
+    {data?.payments?.length ? <Card><CardHeader><CardTitle>Receipts</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{data.payments.map((payment: any) => <VehicleReceiptLink key={payment.id} companyId={companyId} vehicleId={v.id} paymentId={payment.id} company={company} />)}</CardContent></Card> : null}
+  </div>;
+}
+function VehicleReceiptLink({ companyId, vehicleId, paymentId, company }: any) { const { data } = useQuery<any>({ queryKey: ["vehicle-payment-receipt", companyId, vehicleId, paymentId], queryFn: async () => { const r = await apiFetch(`/api/companies/${companyId}/vehicles/${vehicleId}/payments/${paymentId}/receipt`); if (!r.ok) throw new Error("Failed to prepare receipt"); return r.json(); } }); if (!data || !company) return <Button variant="outline" size="sm" disabled>Preparing receipt…</Button>; return <PDFDownloadLink document={<VehiclePaymentReceiptPDF receipt={data} company={company} />} fileName={`${data.receiptNumber}.pdf`}>{({ loading }) => <Button variant="outline" size="sm" disabled={loading}>{loading ? "Preparing…" : `Receipt ${data.receiptNumber}`}</Button>}</PDFDownloadLink>; }
+function Field({ label, value, onChange, type = "number" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { return <div><Label>{label}</Label><Input type={type} value={value} onChange={e => onChange(e.target.value)} /></div>; }
 
 function Kpi({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: string; tone?: string }) {
   return (

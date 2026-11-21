@@ -605,6 +605,8 @@ export const crmCommissionSettings = pgTable("crm_commission_settings", {
   penaltyPerLateTask: decimal("penalty_per_late_task", { precision: 15, scale: 2 }).default("25.00").notNull(),
   /** Ceiling on total penalties as a percentage of gross commission. */
   penaltyCapPercent: integer("penalty_cap_percent").default(100).notNull(),
+  /** When true, accrue each commission to the GL (Dr commission expense / Cr commission payable) at sale time. */
+  accrueToLedger: boolean("accrue_to_ledger").default(false).notNull(),
   /** ISO weekdays (1 = Mon … 7 = Sun), comma separated. */
   workingDays: text("working_days").default("1,2,3,4,5").notNull(),
   workdayStart: text("workday_start").default("08:00").notNull(),
@@ -668,6 +670,8 @@ export const crmCommissions = pgTable("crm_commissions", {
   reviewNotes: text("review_notes"),
   paidAt: timestamp("paid_at"),
   paidBy: uuid("paid_by").references(() => users.id),
+  /** GL journal that accrued this commission to the payable (null when off-ledger). */
+  accrualJournalEntryId: integer("accrual_journal_entry_id").references(() => journalEntries.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -1056,11 +1060,59 @@ export const vehiclePaymentSchedules = pgTable("vehicle_payment_schedules", {
   type: text("type").default("instalment").notNull(), // deposit, instalment, balance
   dueDate: date("due_date").notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  paidAmount: decimal("paid_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  status: text("status").default("scheduled").notNull(), // scheduled, partial, paid, overdue, waived
+  paidAt: date("paid_at"),
   lastReminderAt: timestamp("last_reminder_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   vehicleIdx: index("vehicle_payment_schedules_vehicle_idx").on(table.vehicleId),
 }));
+
+// ── Sales Agreements ─────────────────────────────────────────────────────────
+// Central record for every vehicle sale. Created when the customer commits;
+// tracks terms, schedule, interest, and handover. Invoice is generated
+// separately at the billing point (Step 5).
+export const vehicleSalesAgreements = pgTable("vehicle_sales_agreements", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull().unique(),
+  agreementNumber: text("agreement_number").notNull(),
+  customerId: integer("customer_id").references(() => customers.id),
+  salespersonId: uuid("salesperson_id").references(() => users.id),
+  agreedPrice: decimal("agreed_price", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 14, scale: 6 }).default("1.000000").notNull(),
+  priceType: text("price_type").default("fixed").notNull(), // fixed | variable
+  depositAmount: decimal("deposit_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  months: integer("months").default(1).notNull(),
+  interestType: text("interest_type").default("none").notNull(), // none | flat_rate | percent_pa | fixed_amount
+  interestRate: decimal("interest_rate", { precision: 8, scale: 4 }).default("0.0000").notNull(),
+  adminFee: decimal("admin_fee", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  lateFee: decimal("late_fee", { precision: 15, scale: 2 }).default("0.00").notNull(), // per missed instalment
+  startDate: date("start_date").notNull(),
+  estimatedDelivery: date("estimated_delivery"),
+  handoverAt: timestamp("handover_at"),
+  handoverBy: uuid("handover_by").references(() => users.id),
+  handoverNotes: text("handover_notes"),
+  status: text("status").default("draft").notNull(), // draft | active | completed | cancelled
+  notes: text("notes"),
+  termsText: text("terms_text"), // printable T&C override
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("vsa_company_idx").on(table.companyId),
+  vehicleUnique: unique("vsa_vehicle_unique").on(table.vehicleId),
+  agreementNumberUnique: unique("vsa_number_unique").on(table.companyId, table.agreementNumber),
+  statusIdx: index("vsa_status_idx").on(table.companyId, table.status),
+}));
+
+export const vehicleAgreementCounters = pgTable("vehicle_agreement_counters", {
+  companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  nextNumber: integer("next_number").notNull().default(1),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 export const vehicleStockCounters = pgTable("vehicle_stock_counters", {
   companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
@@ -1074,6 +1126,41 @@ export type Vehicle = typeof vehicles.$inferSelect;
 export type VehicleCost = typeof vehicleCosts.$inferSelect;
 export type VehicleStageEvent = typeof vehicleStageEvents.$inferSelect;
 export type VehiclePaymentSchedule = typeof vehiclePaymentSchedules.$inferSelect;
+export type VehicleSalesAgreement = typeof vehicleSalesAgreements.$inferSelect;
+
+export const vehicleCustomsDocuments = pgTable("vehicle_customs_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  // A document may attach to a single vehicle or to a whole consignment.
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }),
+  consignmentId: integer("consignment_id").references(() => consignments.id, { onDelete: "cascade" }),
+  // bill_of_entry | cr14 | customs_clearance | vat_reclaim | storage_fee | other
+  documentType: text("document_type").notNull(),
+  documentNumber: text("document_number").notNull(),
+  documentDate: date("document_date"),
+  // The clearing agent / freight forwarder the document came through.
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  currency: text("currency").default("USD").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  vatAmount: decimal("vat_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  // not_submitted | submitted | reclaimed | rejected
+  vatReclaimStatus: text("vat_reclaim_status").default("not_submitted").notNull(),
+  reclaimReference: text("reclaim_reference"),
+  reclaimedAt: timestamp("reclaimed_at"),
+  // Optional link to the vehicle_costs line this document settled, and its journal.
+  costId: integer("cost_id").references(() => vehicleCosts.id, { onDelete: "set null" }),
+  journalEntryId: integer("journal_entry_id").references(() => journalEntries.id),
+  notes: text("notes"),
+  fileUrl: text("file_url"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  vehicleIdx: index("vehicle_customs_documents_vehicle_idx").on(table.vehicleId),
+  consignmentIdx: index("vehicle_customs_documents_consignment_idx").on(table.consignmentId),
+  companyIdx: index("vehicle_customs_documents_company_idx").on(table.companyId),
+  reclaimIdx: index("vehicle_customs_documents_reclaim_idx").on(table.companyId, table.vatReclaimStatus),
+}));
 
 export const vehicleReminders = pgTable("vehicle_reminders", {
   id: serial("id").primaryKey(),

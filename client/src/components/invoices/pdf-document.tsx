@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
 });
 
 interface InvoicePDFProps {
-    invoice: any & { expiryDate?: string | Date | null };
+    invoice: any & { expiryDate?: string | Date | null; vehicleCosts?: any[] };
     company: any;
     customer: any;
     qrCodeUrl?: string;
@@ -705,6 +705,19 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         </View>
                     </View>
                 </View>
+
+                {invoice.vehicleCosts?.length ? (() => {
+                    const costs = invoice.vehicleCosts.filter((c: any) => c.status !== "cancelled");
+                    const landed = costs.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
+                    const sale = Number(invoice.total || 0) * Number(invoice.exchangeRate || 1);
+                    const profit = sale - landed;
+                    return <View style={{ marginTop: 14, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 5, textTransform: "uppercase" }}>Vehicle costing summary</Text>
+                        {costs.map((cost: any) => <View key={cost.id} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}><Text style={{ color: "#475569" }}>{String(cost.category || "Other").replace(/_/g, " ")}</Text><Text>{formatCurrencyAmount(Number(cost.baseAmount ?? cost.amount ?? 0), invoice.currency || "USD")}</Text></View>)}
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: borderColor, marginTop: 3, paddingTop: 4, fontWeight: 700 }}><Text>Landed cost</Text><Text>{formatCurrencyAmount(landed, invoice.currency || "USD")}</Text></View>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 3, fontWeight: 700 }}><Text>Estimated margin</Text><Text>{formatCurrencyAmount(profit, invoice.currency || "USD")} ({sale ? ((profit / sale) * 100).toFixed(1) : "0.0"}%)</Text></View>
+                    </View>;
+                })() : null}
 
                 {/* Notes Section */}
                 {invoice.notes ? (

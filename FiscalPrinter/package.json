@@ -21,8 +21,9 @@
     "training:credit": "node src/cli.js training ./samples/training-credit-note.json --out ./spool/training",
     "training:pdf": "node src/cli.js training ./samples/training-invoice.json --pdf --open --out ./spool/training",
     "parse": "node src/cli.js parse",
+    "test:pdf": "node --test tests/pdf-parser.test.js",
     "training:stamp": "node src/cli.js training-stamp",
-    "training:stamp:samples": "node src/cli.js training-stamp \"./Eximium Premium Brands (Pvt) Ltd IN-000000027_20261016034644.pdf\" \"./Eximium Premium Brands (Pvt) Ltd CN-000000001_20261016034820.pdf\" --out ./spool/training",
+    "training:stamp:samples": "node src/cli.js training-stamp ./samples/sample-invoice-palladium.pdf ./samples/sample-credit-note-palladium.pdf --out ./spool/training",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux"
   },
@@ -35,6 +36,7 @@
     "files": [
       "electron/**/*",
       "src/**/*",
+      "samples/**/*",
       "config.example.json",
       "package.json"
     ],
@@ -57,7 +59,7 @@
   "dependencies": {
     "chokidar": "^3.6.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^4.10.38",
+    "pdfjs-dist": "^3.11.174",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

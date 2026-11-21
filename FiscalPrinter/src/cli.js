@@ -5,6 +5,7 @@ import chokidar from "chokidar";
 import { spawn } from "child_process";
 import { loadConfig, projectRoot } from "./config.js";
 import { processJobSafe } from "./processJob.js";
+import { processPdfSafe } from "./processJobPdf.js";
 import { generateTrainingInvoice } from "./training.js";
 import { trainingStampPdf } from "./pdfStamp.js";
 import { parseInvoicePdf } from "./pdfInvoiceParser.js";
@@ -18,12 +19,23 @@ function logResult(result) {
     return;
   }
   console.log(`[OK] fiscalized`);
-  console.log(`     verification: ${result.proof.fiscalCode}`);
+  console.log(`     verification: ${result.proof.fiscalCode || result.proof.verificationCode || ""}`);
   console.log(
     `     day=${result.proof.fiscalDayNo} counter=${result.proof.receiptCounter} global=${result.proof.receiptGlobalNo}`
   );
   console.log(`     printed to local printer: ${result.printed}${result.printError ? ` (${result.printError})` : ""}`);
   if (result.debugHtmlPath) console.log(`     debug HTML: ${result.debugHtmlPath}`);
+  if (result.stampedPath) console.log(`     stamped PDF: ${result.stampedPath}`);
+}
+
+function isPdf(filePath) {
+  return /\.pdf$/i.test(filePath);
+}
+
+function processFile(filePath) {
+  return isPdf(filePath)
+    ? processPdfSafe(filePath, config, { forcePrint: Boolean(config.printerName) })
+    : processJobSafe(filePath, config, { forcePrint: Boolean(config.printerName) });
 }
 
 async function processOne(filePath) {
@@ -33,7 +45,7 @@ async function processOne(filePath) {
     process.exitCode = 1;
     return;
   }
-  const result = await processJobSafe(abs, config, { forcePrint: Boolean(config.printerName) });
+  const result = await processFile(abs);
   logResult(result);
   if (!result.ok) process.exitCode = 1;
 }
@@ -47,9 +59,9 @@ async function watchSpool() {
     depth: 0,
   });
   watcher.on("add", async (filePath) => {
-    if (!/\.(txt|json|rcpt)$/i.test(filePath)) return;
+    if (!/\.(txt|json|rcpt|pdf)$/i.test(filePath)) return;
     console.log(`\nNew job: ${path.basename(filePath)}`);
-    logResult(await processJobSafe(filePath, config, { forcePrint: Boolean(config.printerName) }));
+    logResult(await processFile(filePath));
   });
 }
 
@@ -110,13 +122,24 @@ FiscalPrinter — locally installed app
   npm run test:pos              Sample POS text (Interface markers)
   npm run build:win             Windows installer (run on Windows / CI)
 
+  PDF invoices (Palladium "Fiscal Tax Invoice" / "Fiscal Credit Note"):
+  npm run parse -- <file.pdf>   Parse a PDF and print the extracted fields
+  npm run process -- <file.pdf>  Parse → fiscalize → stamp QR on a copy → print
+                                (original PDF is never modified)
+
   Training mode (offline — never calls the API, never changes an invoice):
   npm run training:invoice      Print-style A4 sample invoice + QR
   npm run training:credit       Sample credit note + QR
+  npm run training:pdf          Generate the sample invoice as a PDF
   npm run training -- <file> --pdf --open
                                 Generate any training JSON, optionally to PDF
   npm run training -- <file> --print --printer "Printer name"
                                 Send the training sample to a printer
+  npm run training:stamp -- <file.pdf> [--out <dir>]
+                                Stamp a training QR + fiscal block onto a copy
+                                of the original invoice (source untouched)
+  npm run training:stamp:samples
+                                Same, using the bundled Palladium samples
 
 HTML is only the internal receipt layout for the printer API.
 The installed app prints to your local printer — users do not open HTML files.

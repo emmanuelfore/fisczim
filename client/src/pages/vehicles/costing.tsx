@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link } from "wouter";
+import { QuickAddCostDialog } from "@/components/vehicles/quick-add-cost-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,8 +20,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   Banknote,
+  ChevronDown,
+  ChevronRight,
   Download,
   Package,
+  Plus,
   Ship,
   Sparkles,
   TrendingUp,
@@ -100,6 +104,9 @@ export default function VehicleCostingPage() {
   const [stage, setStage] = useState("all");
   const [search, setSearch] = useState("");
   const [weights, setWeights] = useState<"purchase" | "equal">("purchase");
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [addFor, setAddFor] = useState<{ id: number; label: string } | null>(null);
+  const canEditCosts = can("vehicles.costs");
 
   const filters = { from, to, supplierId, status, stage, search };
   const { data, isLoading } = useVehicleReport<{ totals: any; items: CostingRow[] }>(companyId, "costing", allowed, filters);
@@ -262,59 +269,118 @@ export default function VehicleCostingPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky left-0 bg-white">Vehicle</TableHead>
-                      {COST_CATEGORIES.map((c) => (
-                        <TableHead key={c.value} className="text-right whitespace-nowrap">{c.label}</TableHead>
-                      ))}
+                      <TableHead className="w-8" />
+                      <TableHead>Vehicle</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Purchase</TableHead>
+                      <TableHead className="whitespace-nowrap">Import costs</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Landed cost</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Pending</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Selling price</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Profit</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Margin</TableHead>
+                      <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoading ? (
-                      <TableRow><TableCell colSpan={COST_CATEGORIES.length + 6}><LoadingRows rows={5} /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10}><LoadingRows rows={5} /></TableCell></TableRow>
                     ) : items.length === 0 ? (
-                      <TableRow><TableCell colSpan={COST_CATEGORIES.length + 6} className="text-center py-12 text-slate-500">No vehicles match these filters.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="text-center py-12 text-slate-500">No vehicles match these filters.</TableCell></TableRow>
                     ) : (
                       <>
-                        {items.map((i) => (
-                          <TableRow key={i.id} className="hover:bg-slate-50">
-                            <TableCell className="sticky left-0 bg-white">
-                              <Link href={`/vehicles/${i.id}`} className="font-semibold hover:text-blue-700">{i.description}</Link>
-                              <div className="text-xs text-slate-500 flex items-center gap-2">
-                                <span className="font-mono">{i.stockNumber}</span>
-                                <Badge className={`${statusTone[i.status] ?? ""} border-0 capitalize text-[10px] py-0`}>{i.status}</Badge>
-                                {(i.negativeMargin || i.lowMargin) && <AlertTriangle className={`w-3.5 h-3.5 ${i.negativeMargin ? "text-rose-500" : "text-amber-500"}`} />}
-                              </div>
-                              <div className="text-[10px] text-slate-400">{stageLabel(i.stage)}</div>
-                            </TableCell>
-                            {COST_CATEGORIES.map((c) => (
-                              <TableCell key={c.value} className="text-right text-xs whitespace-nowrap">
-                                {i.costsByCategory?.[c.value] ? fmtMoney(i.costsByCategory[c.value]) : <span className="text-slate-300">—</span>}
-                              </TableCell>
-                            ))}
-                            <TableCell className="text-right font-semibold whitespace-nowrap">{fmtMoney(i.landedCost)}</TableCell>
-                            <TableCell className="text-right text-xs whitespace-nowrap text-amber-700">{i.pendingCosts ? fmtMoney(i.pendingCosts) : "—"}</TableCell>
-                            <TableCell className="text-right whitespace-nowrap">
-                              {fmtMoney(i.sellingPrice)}
-                              {i.isProjected && <span className="block text-[10px] text-slate-400">target</span>}
-                            </TableCell>
-                            <TableCell className={`text-right font-bold whitespace-nowrap ${i.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(i.profit)}</TableCell>
-                            <TableCell className={`text-right whitespace-nowrap ${i.marginPercent < 0 ? "text-rose-600" : ""}`}>{i.marginPercent}%</TableCell>
-                          </TableRow>
-                        ))}
+                        {items.map((i) => {
+                          const isOpen = expanded === i.id;
+                          const cats = COST_CATEGORIES
+                            .filter((c) => c.value !== "purchase" && Number(i.costsByCategory?.[c.value] || 0) > 0)
+                            .map((c) => ({ ...c, amount: Number(i.costsByCategory[c.value]) }))
+                            .sort((a, b) => b.amount - a.amount);
+                          const purchase = Number(i.costsByCategory?.purchase ?? i.purchasePrice ?? 0);
+                          return (
+                            <Fragment key={i.id}>
+                              <TableRow className="hover:bg-slate-50 cursor-pointer" onClick={() => setExpanded(isOpen ? null : i.id)}>
+                                <TableCell className="pr-0">
+                                  {isOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                                </TableCell>
+                                <TableCell className="min-w-[200px]">
+                                  <Link href={`/vehicles/${i.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold hover:text-blue-700">{i.description}</Link>
+                                  <div className="text-xs text-slate-500 flex items-center gap-2">
+                                    <span className="font-mono">{i.stockNumber}</span>
+                                    <Badge className={`${statusTone[i.status] ?? ""} border-0 capitalize text-[10px] py-0`}>{i.status}</Badge>
+                                    <span className="text-[10px] text-slate-400">{stageLabel(i.stage)}</span>
+                                    {(i.negativeMargin || i.lowMargin) && <AlertTriangle className={`w-3.5 h-3.5 ${i.negativeMargin ? "text-rose-500" : "text-amber-500"}`} />}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right text-sm whitespace-nowrap">{purchase ? fmtMoney(purchase) : <span className="text-slate-300">—</span>}</TableCell>
+                                <TableCell className="min-w-[220px]">
+                                  <div className="font-medium text-sm">{fmtMoney(i.importCosts)}</div>
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {cats.slice(0, 3).map((c) => (
+                                      <span key={c.value} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 whitespace-nowrap">
+                                        {c.label.split(" ")[0]} {fmtMoney(c.amount)}
+                                      </span>
+                                    ))}
+                                    {cats.length > 3 && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">+{cats.length - 3} more</span>}
+                                    {i.pendingCosts > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">{fmtMoney(i.pendingCosts)} unpaid</span>}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right font-semibold whitespace-nowrap">{fmtMoney(i.landedCost)}</TableCell>
+                                <TableCell className="text-right whitespace-nowrap">
+                                  {fmtMoney(i.sellingPrice)}
+                                  {i.isProjected && <span className="block text-[10px] text-slate-400">target</span>}
+                                </TableCell>
+                                <TableCell className={`text-right font-bold whitespace-nowrap ${i.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(i.profit)}</TableCell>
+                                <TableCell className={`text-right whitespace-nowrap ${i.marginPercent < 0 ? "text-rose-600" : ""}`}>{i.marginPercent}%</TableCell>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  {canEditCosts && (
+                                    <Button
+                                      id={`add-cost-${i.id}`}
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 whitespace-nowrap"
+                                      onClick={() => setAddFor({ id: i.id, label: `${i.stockNumber} · ${i.description}` })}
+                                    >
+                                      <Plus className="w-3.5 h-3.5 mr-1" />Cost
+                                    </Button>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                              {isOpen && (
+                                <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                                  <TableCell />
+                                  <TableCell colSpan={9} className="py-4">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                                      {COST_CATEGORIES.map((c) => {
+                                        const amt = Number(i.costsByCategory?.[c.value] || 0);
+                                        return (
+                                          <div key={c.value} className={`rounded-lg border px-3 py-2 ${amt ? "bg-white border-slate-200" : "bg-transparent border-dashed border-slate-200"}`}>
+                                            <div className="text-[11px] text-slate-500">{c.label}</div>
+                                            <div className={`text-sm font-semibold ${amt ? "text-slate-900" : "text-slate-300"}`}>{amt ? fmtMoney(amt) : "—"}</div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
+                                      <span>Paid: <strong className="text-emerald-700">{fmtMoney(i.paidCosts)}</strong></span>
+                                      <span>Pending: <strong className="text-amber-700">{fmtMoney(i.pendingCosts)}</strong></span>
+                                      {i.disputedCosts > 0 && <span>Disputed: <strong className="text-rose-700">{fmtMoney(i.disputedCosts)}</strong></span>}
+                                      <span>{i.costCount} cost line(s)</span>
+                                      {i.customerName && <span>Customer: <strong>{i.customerName}</strong></span>}
+                                      <Link href={`/vehicles/${i.id}`} className="ml-auto text-blue-700 hover:underline">Open vehicle →</Link>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
+                          );
+                        })}
                         <TableRow className="border-t-2 bg-slate-50 font-semibold">
-                          <TableCell className="sticky left-0 bg-slate-50">Totals ({items.length})</TableCell>
-                          {COST_CATEGORIES.map((c) => (
-                            <TableCell key={c.value} className="text-right text-xs whitespace-nowrap">{fmtMoney(totals?.byCategory?.[c.value] ?? 0)}</TableCell>
-                          ))}
+                          <TableCell />
+                          <TableCell>Totals ({items.length})</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.byCategory?.purchase ?? 0)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{fmtMoney(totals?.importCosts)}</TableCell>
                           <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.landedCost)}</TableCell>
-                          <TableCell className="text-right text-xs whitespace-nowrap text-amber-700">{fmtMoney(totals?.pendingCosts)}</TableCell>
                           <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.sellingPrice)}</TableCell>
                           <TableCell className={`text-right whitespace-nowrap ${(totals?.profit ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(totals?.profit)}</TableCell>
+                          <TableCell />
                           <TableCell />
                         </TableRow>
                       </>
@@ -323,6 +389,7 @@ export default function VehicleCostingPage() {
                 </Table>
               </div>
             </Card>
+            <QuickAddCostDialog companyId={companyId} vehicle={addFor} open={!!addFor} onOpenChange={(o) => !o && setAddFor(null)} />
           </TabsContent>
 
           <TabsContent value="consignments" className="space-y-4 pt-4">

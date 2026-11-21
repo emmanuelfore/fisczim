@@ -340,6 +340,7 @@ export function Layout({
       label: "CRM",
       children: [
         { icon: CalendarClock, label: "Enquiries & Follow-ups", href: "/crm" },
+        { icon: Users, label: "Customers", href: "/customers" },
         { icon: Wallet, label: "Commissions & Penalties", href: "/crm/commissions" },
       ],
     }] : []),
@@ -348,6 +349,7 @@ export function Layout({
       label: "Vehicle Imports",
       children: [
         { icon: Car, label: "Vehicles", href: "/vehicles" },
+        { icon: FileText, label: "Sales Agreements", href: "/vehicles/agreements" },
         { icon: Calculator, label: "Costing", href: "/vehicles/costing" },
         { icon: TrendingUp, label: "Profitability", href: "/vehicles/profitability" },
         { icon: FileText, label: "Customer Statements", href: "/vehicles/statements" },

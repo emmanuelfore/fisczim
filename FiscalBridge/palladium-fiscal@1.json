@@ -1,0 +1,196 @@
+{
+  "id": "palladium-fiscal",
+  "name": "Palladium Fiscal Document",
+  "version": 1,
+  "system": "Palladium",
+  "priority": 13,
+  "min_detection": 0.67,
+
+  "detection": [
+    { "type": "regex",           "pattern": "Fiscal\\s+(Tax Invoice|Credit Note)" },
+    { "type": "text_contains_ci", "value": "Palladium Software" },
+    { "type": "text_contains_ci", "value": "Buyer Details" }
+  ],
+
+  "extraction": {
+    "engine": "layout",
+    "page_range": "all"
+  },
+
+  "locale": {
+    "decimal_sep":     ".",
+    "thousands_sep":   ",",
+    "currency_symbol": "USD",
+    "currency_iso":    "USD",
+    "date_format":     "MM/DD/YYYY",
+    "negative_format": "-{amount}"
+  },
+
+  "header_fields": [
+    {
+      "name":  "document_type",
+      "regex": "Fiscal\\s+(Tax Invoice|Credit Note)",
+      "type":  "string"
+    },
+    {
+      "name":      "transaction_type",
+      "regex":     "Fiscal\\s+(Tax Invoice|Credit Note)",
+      "type":      "string",
+      "value_map": {
+        "Tax Invoice": "FiscalInvoice",
+        "Credit Note": "CreditNote"
+      }
+    },
+    {
+      "name":      "invoice_number",
+      "label":     "Number:",
+      "type":      "string",
+      "terminator": "eol",
+      "required":  true
+    },
+    {
+      "name":     "date",
+      "label":    "Date:",
+      "type":     "date",
+      "required": true
+    },
+    {
+      "name":     "due_date",
+      "label":    "Required:",
+      "type":     "date",
+      "required": false
+    },
+    {
+      "name":     "reference",
+      "label":    "Reference:",
+      "type":     "string",
+      "required": false,
+      "default":  null
+    },
+    {
+      "name":     "account",
+      "label":    "Account:",
+      "type":     "string",
+      "required": false,
+      "default":  null
+    },
+    {
+      "name":     "sales_rep",
+      "label":    "Sales Person:",
+      "type":     "string",
+      "required": false,
+      "default":  null
+    },
+    {
+      "name":     "reason",
+      "label":    "Reason",
+      "type":     "string",
+      "required": false,
+      "default":  null
+    }
+  ],
+
+  "parties": {
+    "supplier": {
+      "anchor": "Fiscal",
+      "lines":  8,
+      "skip_patterns": [
+        "^Number:",
+        "^Date:",
+        "^Page:",
+        "^Reference:",
+        "^Required:",
+        "^Account:",
+        "^Reason",
+        "^Buyer Details",
+        "^Bank Details"
+      ],
+      "fields": {
+        "tin":    { "regex": "TIN:\\s*([0-9A-Z]+)" },
+        "vat_no": { "regex": "VAT:\\s*([0-9A-Z]+)" }
+      },
+      "_comment": "Palladium prints the supplier block under the document title; TIN and VAT share one line."
+    },
+    "customer": {
+      "start_marker": "Buyer Details",
+      "end_marker":   "Sales Person",
+      "fields": {
+        "name":       "Customer Name",
+        "trade_name": "Trade Name",
+        "address":    "Customer Address",
+        "tin":        "Customer TIN",
+        "vat_no":     "Customer VAT",
+        "email":      "E-mail",
+        "phone":      "Telephone"
+      }
+    }
+  },
+
+  "bank": {
+    "start_marker": "Bank Details",
+    "fields": [
+      { "name": "account_name",   "label": "Account Name" },
+      { "name": "bank_name",      "label": "Bank" },
+      { "name": "account_number", "label": "Account Number" }
+    ]
+  },
+
+  "line_items": {
+    "start_marker":       "HS Code.*Total Inc",
+    "start_line_offset":  0,
+    "end_marker":         "^\\s*(Subtotal|Discount|Delivery|VAT Total|Invoice Total)\\s*:",
+    "item_dot_counter":   3,
+    "row_regex":          "^(\\d+)\\s+(\\d+)\\s+(\\S+)\\s+(.+?)\\s+(-?\\d+(?:\\.\\d+)?)\\s+(\\S+)\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})\\s*$",
+    "multiline_products": "no",
+    "column_map": [
+      "line_no",
+      "hs_code",
+      "code",
+      "description",
+      "qty",
+      "unit",
+      "unit_price_incl",
+      "vat_amount",
+      "total_incl"
+    ],
+    "skip_patterns": [
+      "^Line\\s+HS Code",
+      "^Subtotal",
+      "^Discount",
+      "^Delivery",
+      "^VAT Total",
+      "^Invoice Total"
+    ]
+  },
+
+  "tax": {
+    "vat_standard_pct": 15.5,
+    "vat_exempt_pct":   0,
+    "price_basis":      "inclusive"
+  },
+
+  "totals": {
+    "label_map": {
+      "Subtotal":      "total_excl",
+      "Discount":      "discount",
+      "Delivery":      "delivery",
+      "VAT Total":     "vat",
+      "Invoice Total": "grand_total"
+    }
+  },
+
+  "validation": {
+    "tolerance": 0.02,
+    "checks": [
+      { "id": "lines_excl_sum", "severity": "fail" },
+      { "id": "excl_plus_vat",  "severity": "fail" },
+      { "id": "lines_incl_sum", "severity": "fail" }
+    ],
+    "required_fields": ["invoice_number", "date", "grand_total"]
+  },
+
+  "post_processing": [
+    { "field": "description", "op": "trim" },
+    { "field": "description", "op": "collapse_spaces" }
+  ]
+}

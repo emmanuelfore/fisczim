@@ -111,6 +111,10 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   staffLoansReceivableAccountCode: "1320",
   // Vehicle module accounts
   customerDepositsAccountCode: "2010",
+  // Commission accrual (opt-in) and forfeited-deposit income
+  commissionPayableAccountCode: "2021",
+  commissionExpenseAccountCode: "5005",
+  otherIncomeAccountCode: "4900",
 } as const;
 
 // Codes the postings above resolve to that many live charts were seeded without.
@@ -118,6 +122,9 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
 const SUPPLEMENTAL_SYSTEM_ACCOUNTS = [
   { code: "1310", name: "Inventory In-Transit", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: true, isSystem: true },
   { code: "2010", name: "Customer Deposits", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "2021", name: "Commission Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "4900", name: "Other Income", type: "REVENUE", subType: "Other Income", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Other Income", isControlAccount: false, isSystem: true },
+  { code: "5005", name: "Sales Commission Expense", type: "EXPENSE", subType: "Cost of Sales", normalBalance: "DEBIT", ifrsMappingTag: "IAS-19", category: "Cost of Sales", isControlAccount: false, isSystem: true },
   { code: "2015", name: "Goods Received Not Invoiced", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2016", name: "Landed Cost Clearing", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2017", name: "Partner Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
@@ -5314,7 +5321,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getRevenueChart(companyId: number, startDate: Date, endDate: Date): Promise<{ name: string; total: number; byCurrency: Record<string, number> }[]> {
+  async getRevenueChart(companyId: number, startDate: Date, endDate: Date, branchId?: number): Promise<{ name: string; total: number; byCurrency: Record<string, number> }[]> {
     const result = await db
       .select({
         date: sql`date_trunc('day', ${invoices.issueDate})`,
@@ -5325,6 +5332,7 @@ export class DatabaseStorage implements IStorage {
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, startDate),
         lte(invoices.issueDate, endDate),
         ne(invoices.status, 'cancelled'),
@@ -5351,7 +5359,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getSalesByPaymentMethod(companyId: number, startDate: Date, endDate: Date): Promise<{ method: string; total: number; count: number; byCurrency: Record<string, number> }[]> {
+  async getSalesByPaymentMethod(companyId: number, startDate: Date, endDate: Date, branchId?: number): Promise<{ method: string; total: number; count: number; byCurrency: Record<string, number> }[]> {
     const result = await db
       .select({
         method: invoices.paymentMethod,
@@ -5362,6 +5370,7 @@ export class DatabaseStorage implements IStorage {
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, startDate),
         lte(invoices.issueDate, endDate),
         ne(invoices.status, 'cancelled'),
@@ -7338,11 +7347,12 @@ export class DatabaseStorage implements IStorage {
   }
 
 
-  async getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency: Record<string, number> }> {
+  async getOperationalMetrics(companyId: number, startDate: Date, endDate: Date, branchId?: number): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency: Record<string, number> }> {
     const periodInvoices = await db.select()
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, startDate),
         lte(invoices.issueDate, endDate),
         ne(invoices.status, "draft"),
@@ -7385,7 +7395,34 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getLowStockItems(companyId: number): Promise<(Product & { categoryName?: string })[]> {
+  async getLowStockItems(companyId: number, branchId?: number): Promise<(Product & { categoryName?: string })[]> {
+    if (branchId) {
+      const results = await db
+        .select({
+          product: products,
+          categoryName: productCategories.name,
+          branchStockLevel: sql<string>`COALESCE(${branchStocks.stockLevel}, 0)`,
+        })
+        .from(products)
+        .leftJoin(productCategories, eq(products.category, productCategories.name))
+        .leftJoin(branchStocks, and(
+          eq(branchStocks.productId, products.id),
+          eq(branchStocks.branchId, branchId),
+        ))
+        .where(and(
+          eq(products.companyId, companyId),
+          eq(products.isTracked, true),
+          sql`COALESCE(${branchStocks.stockLevel}, 0) <= ${products.lowStockThreshold}`,
+        ))
+        .orderBy(sql`COALESCE(${branchStocks.stockLevel}, 0)`);
+
+      return results.map(({ product, categoryName, branchStockLevel }) => ({
+        ...product,
+        stockLevel: branchStockLevel,
+        categoryName: categoryName || undefined,
+      }));
+    }
+
     const results = await db
       .select({
         product: products,
@@ -7422,7 +7459,7 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async getAbcAnalysis(companyId: number, ownerGroup?: string): Promise<{
+  async getAbcAnalysis(companyId: number, ownerGroup?: string, branchId?: number): Promise<{
     productId: number;
     name: string;
     sku: string | null;
@@ -7441,6 +7478,9 @@ export class DatabaseStorage implements IStorage {
       ne(invoices.status, 'cancelled'),
       ne(invoices.status, 'draft')
     ];
+    if (branchId) {
+      filters.push(eq(invoices.branchId, branchId));
+    }
     const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
     if (ownerGroupFilter) {
       filters.push(ownerGroupFilter);

@@ -477,7 +477,7 @@ function CommissionRow({
                 <Send className="h-3.5 w-3.5" />
               </Button>
             )}
-            {commission.status === "pending_approval" && canApprove && (
+            {(commission.status === "pending_approval" || commission.status === "draft") && canApprove && (
               <>
                 <Button size="sm" variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setReviewOpen("approve")} title="Approve">
                   <Check className="h-3.5 w-3.5" />

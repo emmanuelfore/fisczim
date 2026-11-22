@@ -23,8 +23,16 @@ type DuplicateEnquiry = {
  * activities and follow-ups onto the survivor and deletes the rest. The server
  * does that; this screen only picks which record wins.
  */
-export function DuplicatesTab({ companyId, onOpenEnquiry }: { companyId: number; onOpenEnquiry: (id: number) => void }) {
-  const { data: groups, isLoading } = useCrmDuplicates(companyId);
+export function DuplicatesTab({
+  companyId,
+  onOpenEnquiry,
+  enabled = true,
+}: {
+  companyId: number;
+  onOpenEnquiry: (id: number) => void;
+  enabled?: boolean;
+}) {
+  const { data: groups, isLoading } = useCrmDuplicates(companyId, enabled);
   const { can } = usePermissions();
   const { toast } = useToast();
   const merge = useMergeEnquiries(companyId);

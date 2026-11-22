@@ -515,7 +515,10 @@ export const enquiriesRelations = relations(enquiries, ({ one, many }) => ({
 export const crmPublicLeadTokens = pgTable("crm_public_lead_tokens", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  /** SHA-256 of the secret (legacy rows may still hold the raw token). */
   token: text("token").notNull(),
+  /** Non-secret prefix shown in the admin list so tokens can be identified. */
+  tokenPrefix: text("token_prefix"),
   isActive: boolean("is_active").default(true),
   expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -535,6 +538,8 @@ export const crmPublicLeadRateLimits = pgTable("crm_public_lead_rate_limits", {
   windowEnd: timestamp("window_end").notNull(),
 }, (table) => ({
   lookupIdx: index("crm_public_lead_rate_limits_lookup_idx").on(table.companyId, table.ipAddress, table.windowEnd),
+  windowUnique: unique("crm_public_lead_rate_limits_window_unique")
+    .on(table.companyId, table.ipAddress, table.windowStart),
 }));
 
 export const enquiryFollowUps = pgTable("enquiry_follow_ups", {

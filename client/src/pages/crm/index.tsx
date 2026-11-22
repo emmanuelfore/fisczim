@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { Layout } from "@/components/layout";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,8 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
+const CRM_TAB_IDS = ["pipeline", "activities", "reporting", "duplicates", "social"];
+
 /**
  * The CRM board. Columns are the company's own crm_stages rows, not a fixed
  * status list, so renaming or reordering a stage in configuration reshapes this
@@ -83,17 +86,36 @@ export default function CrmEnquiriesPage() {
   const [overStageId, setOverStageId] = useState<number | null>(null);
   const [lostPrompt, setLostPrompt] = useState<{ enquiryId: number; stage: CrmStage } | null>(null);
 
+  const editable = can("crm.pipeline.manage");
+  const canViewReports = can("crm.reports.view");
+  const canViewDuplicates = can("crm.pipeline.view");
+  const canViewSocial = can("crm.social.view");
+  const allowedTabs = useMemo(
+    () => CRM_TAB_IDS.filter((id) => {
+      if (id === "reporting") return canViewReports;
+      if (id === "duplicates") return canViewDuplicates;
+      if (id === "social") return canViewSocial;
+      return true;
+    }),
+    [canViewReports, canViewDuplicates, canViewSocial],
+  );
+
   // Deep links from the vehicle module: /crm?enquiryId=12 opens that lead,
-  // optionally selecting a tab first (e.g. tab=activities).
+  // optionally selecting a tab first (e.g. tab=activities). Only known tabs
+  // the user is allowed to see are honoured.
   useEffect(() => {
     const params = new URLSearchParams(searchString);
     const tabParam = params.get("tab");
-    if (tabParam) setTab(tabParam);
+    if (tabParam && allowedTabs.includes(tabParam)) setTab(tabParam);
     const enquiryParam = params.get("enquiryId");
     if (enquiryParam && /^\d+$/.test(enquiryParam)) setSelectedId(Number(enquiryParam));
-  }, [searchString]);
+  }, [searchString, allowedTabs]);
 
-  const editable = can("crm.pipeline.manage");
+  // Permissions can arrive after the first render; never leave a forbidden tab mounted.
+  useEffect(() => {
+    if (!allowedTabs.includes(tab)) setTab("pipeline");
+  }, [allowedTabs, tab]);
+
   const filters = {
     search,
     assignedTo: onlyMine && user?.id ? user.id : undefined,
@@ -101,11 +123,22 @@ export default function CrmEnquiriesPage() {
 
   const stagesQuery = useCrmStages(companyId);
   const { data: stages } = stagesQuery;
-  const { data: enquiries, isLoading } = useEnquiries(companyId, filters);
+  const {
+    data: enquiries,
+    isLoading,
+    isError: enquiriesIsError,
+    error: enquiriesError,
+    refetch: refetchEnquiries,
+  } = useEnquiries(companyId, filters);
   const { data: dueFollowUps } = useFollowUps(companyId, "due");
   const { data: dormant } = useDormantEnquiries(companyId, 30);
-  const { data: report } = usePipelineReport(companyId);
-  const { data: socialInbox } = useSocialInbox(companyId, can("crm.social.view"));
+  const {
+    data: report,
+    isError: reportIsError,
+    error: reportError,
+    refetch: refetchReport,
+  } = usePipelineReport(companyId, canViewReports);
+  const { data: socialInbox } = useSocialInbox(companyId, canViewSocial);
   const moveStage = useMoveEnquiryStage(companyId);
 
   const { data: companyUsers } = useQuery({
@@ -186,14 +219,28 @@ export default function CrmEnquiriesPage() {
         </div>
       </div>
 
-      {report ? (
-        <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <HeaderStat label="Open enquiries" value={String(report.totals.open)} hint={`${report.totals.total} captured all-time`} />
-          <HeaderStat label="Pipeline value" value={formatCurrencyAmount(report.totals.openValue || 0, currency)} hint="sum of expected revenue" />
-          <HeaderStat label="Forecast" value={formatCurrencyAmount(report.totals.weightedForecast || 0, currency)} hint="weighted by stage probability" />
-          <HeaderStat label="Win rate" value={`${Math.round(report.totals.winRate || 0)}%`} hint={`${report.totals.won} won, ${report.totals.lost} lost`} />
-        </div>
-      ) : null}
+      {canViewReports ? (
+        report ? (
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <HeaderStat label="Open enquiries" value={String(report.totals.open)} hint={`${report.totals.total} captured all-time`} />
+            <HeaderStat label="Pipeline value" value={formatCurrencyAmount(report.totals.openValue || 0, currency)} hint="sum of expected revenue" />
+            <HeaderStat label="Forecast" value={formatCurrencyAmount(report.totals.weightedForecast || 0, currency)} hint="weighted by stage probability" />
+            <HeaderStat label="Win rate" value={`${Math.round(report.totals.winRate || 0)}%`} hint={`${report.totals.won} won, ${report.totals.lost} lost`} />
+          </div>
+        ) : reportIsError ? (
+          <Alert variant="destructive" className="mb-5">
+            <AlertTitle>Could not load the pipeline report</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-3">
+              <span className="text-sm">{reportError?.message || "The report is unavailable."}</span>
+              <Button size="sm" variant="outline" onClick={() => refetchReport()}>
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null
+      ) : (
+        <p className="mb-5 text-xs text-slate-400">Pipeline reporting is not available for your role.</p>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
@@ -204,8 +251,8 @@ export default function CrmEnquiriesPage() {
               <Badge className="ml-2 bg-rose-500 text-white hover:bg-rose-500">{dueFollowUps.length}</Badge>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="duplicates">Duplicates</TabsTrigger>
-          {can("crm.social.view") ? (
+          {canViewDuplicates ? <TabsTrigger value="duplicates">Duplicates</TabsTrigger> : null}
+          {canViewSocial ? (
             <TabsTrigger value="social">
               Social
               {pendingSocial ? (
@@ -213,7 +260,7 @@ export default function CrmEnquiriesPage() {
               ) : null}
             </TabsTrigger>
           ) : null}
-          <TabsTrigger value="reporting">Reporting</TabsTrigger>
+          {canViewReports ? <TabsTrigger value="reporting">Reporting</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="pipeline" className="m-0 pt-4">
@@ -250,6 +297,16 @@ export default function CrmEnquiriesPage() {
                 Try again
               </Button>
             </div>
+          ) : enquiriesIsError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load the enquiry list</AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center gap-3">
+                <span className="text-sm">{enquiriesError?.message || "The pipeline could not be loaded."}</span>
+                <Button size="sm" variant="outline" onClick={() => refetchEnquiries()}>
+                  Try again
+                </Button>
+              </AlertDescription>
+            </Alert>
           ) : !activeStages.length ? (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 py-10 text-center">
               <p className="text-sm text-slate-600">No stages are configured for this company yet.</p>
@@ -326,17 +383,23 @@ export default function CrmEnquiriesPage() {
           <ActivitiesTab companyId={companyId} onOpenEnquiry={setSelectedId} />
         </TabsContent>
 
-        <TabsContent value="duplicates" className="m-0 pt-4">
-          <DuplicatesTab companyId={companyId} onOpenEnquiry={setSelectedId} />
-        </TabsContent>
+        {canViewDuplicates ? (
+          <TabsContent value="duplicates" className="m-0 pt-4">
+            <DuplicatesTab companyId={companyId} onOpenEnquiry={setSelectedId} enabled={canViewDuplicates} />
+          </TabsContent>
+        ) : null}
 
-        <TabsContent value="reporting" className="m-0 pt-4">
-          <ReportingTab companyId={companyId} currency={currency} />
-        </TabsContent>
+        {canViewReports ? (
+          <TabsContent value="reporting" className="m-0 pt-4">
+            <ReportingTab companyId={companyId} currency={currency} />
+          </TabsContent>
+        ) : null}
 
-        <TabsContent value="social" className="m-0 pt-4">
-          <SocialTab companyId={companyId} />
-        </TabsContent>
+        {canViewSocial ? (
+          <TabsContent value="social" className="m-0 pt-4">
+            <SocialTab companyId={companyId} />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       <EnquirySheet

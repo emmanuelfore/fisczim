@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,7 +88,7 @@ export function EnquirySheet({
 }) {
   const { toast } = useToast();
   const { can } = usePermissions();
-  const { data: enquiry, isLoading } = useEnquiryDetail(companyId, enquiryId);
+  const { data: enquiry, isLoading, isError, error, refetch } = useEnquiryDetail(companyId, enquiryId);
   const updateEnquiry = useUpdateEnquiry(companyId);
   const moveStage = useMoveEnquiryStage(companyId);
   const convertEnquiry = useConvertEnquiry(companyId);
@@ -168,7 +169,25 @@ export function EnquirySheet({
           </SheetDescription>
         </SheetHeader>
 
-        {isLoading || !enquiry ? (
+        {isError ? (
+          <div className="p-6">
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Could not load this enquiry</AlertTitle>
+              <AlertDescription className="text-sm">
+                {error?.message || "The enquiry could not be loaded."}
+              </AlertDescription>
+            </Alert>
+            <div className="mt-4 flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => refetch()}>
+                Retry
+              </Button>
+              <Button size="sm" variant="ghost" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : isLoading || !enquiry ? (
           <div className="p-6">
             <LoadingRows />
           </div>
@@ -406,43 +425,47 @@ export function EnquirySheet({
           </div>
         )}
 
-        <QuotationFromEnquiryDialog
-          companyId={companyId}
-          enquiry={enquiry ?? null}
-          currency={currency}
-          open={quotationOpen}
-          onOpenChange={setQuotationOpen}
-        />
+        {!isError ? (
+          <>
+            <QuotationFromEnquiryDialog
+              companyId={companyId}
+              enquiry={enquiry ?? null}
+              currency={currency}
+              open={quotationOpen}
+              onOpenChange={setQuotationOpen}
+            />
 
-        {canReserve ? (
-          <ReserveVehicleDialog
-            companyId={companyId}
-            enquiry={enquiry ?? null}
-            users={users}
-            currency={currency}
-            open={reserveOpen}
-            onOpenChange={setReserveOpen}
-          />
+            {canReserve ? (
+              <ReserveVehicleDialog
+                companyId={companyId}
+                enquiry={enquiry ?? null}
+                users={users}
+                currency={currency}
+                open={reserveOpen}
+                onOpenChange={setReserveOpen}
+              />
+            ) : null}
+
+            <LostReasonDialog
+              prompt={lostPrompt && enquiryId ? { enquiryId, stage: lostPrompt } : null}
+              onCancel={() => setLostPrompt(null)}
+              onConfirm={(reason) =>
+                moveStage.mutate(
+                  { id: enquiryId!, stageId: lostPrompt!.id, lostReason: reason },
+                  {
+                    onSuccess: () => {
+                      setLostPrompt(null);
+                      setLostReason(reason);
+                      toast({ title: `Marked lost - ${reason}` });
+                    },
+                    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+                  },
+                )
+              }
+              pending={moveStage.isPending}
+            />
+          </>
         ) : null}
-
-        <LostReasonDialog
-          prompt={lostPrompt && enquiryId ? { enquiryId, stage: lostPrompt } : null}
-          onCancel={() => setLostPrompt(null)}
-          onConfirm={(reason) =>
-            moveStage.mutate(
-              { id: enquiryId!, stageId: lostPrompt!.id, lostReason: reason },
-              {
-                onSuccess: () => {
-                  setLostPrompt(null);
-                  setLostReason(reason);
-                  toast({ title: `Marked lost - ${reason}` });
-                },
-                onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-              },
-            )
-          }
-          pending={moveStage.isPending}
-        />
       </SheetContent>
     </Sheet>
   );

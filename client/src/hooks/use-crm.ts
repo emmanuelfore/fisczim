@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 
 /**
  * CRM data layer. Mirrors server/routes/crm.ts endpoint for endpoint so the
@@ -8,12 +9,6 @@ import { apiFetch } from "@/lib/api";
  */
 
 const crmBase = (companyId: number) => `/api/companies/${companyId}/crm`;
-const key = (companyId: number, ...rest: (string | number)[]) => [
-  "/api/companies",
-  companyId,
-  "crm",
-  ...rest,
-];
 
 export type CrmStage = {
   id: number;
@@ -118,7 +113,7 @@ async function readJson(res: Response, fallback: string) {
 
 export function useCrmStages(companyId: number) {
   return useQuery({
-    queryKey: key(companyId, "stages"),
+    queryKey: queryKeys.crm.stages(companyId),
     queryFn: async () => {
       if (!companyId) return [] as CrmStage[];
       const res = await apiFetch(`${crmBase(companyId)}/stages`);
@@ -138,7 +133,10 @@ export function useCreateStage(companyId: number) {
       });
       return readJson(res, "Failed to create stage");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: key(companyId, "stages") }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.stages(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.reports.pipeline(companyId) });
+    },
   });
 }
 
@@ -154,9 +152,9 @@ export function useUpdateStage(companyId: number) {
     },
     onSuccess: () => {
       // A stage's won/lost flags re-derive the status of every enquiry in it.
-      queryClient.invalidateQueries({ queryKey: key(companyId, "stages") });
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries") });
-      queryClient.invalidateQueries({ queryKey: key(companyId, "reports") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.stages(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.all(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.reports.all(companyId) });
     },
   });
 }
@@ -169,8 +167,9 @@ export function useDeleteStage(companyId: number) {
       return readJson(res, "Failed to delete stage");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: key(companyId, "stages") });
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.stages(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.all(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.reports.pipeline(companyId) });
     },
   });
 }
@@ -193,7 +192,7 @@ export function useEnquiries(companyId: number, filters: EnquiryFilters = {}) {
   const qs = params.toString();
 
   return useQuery({
-    queryKey: [...key(companyId, "enquiries"), filters],
+    queryKey: queryKeys.crm.enquiries.list(companyId, filters),
     queryFn: async () => {
       if (!companyId) return [] as EnquiryRecord[];
       const res = await apiFetch(`${crmBase(companyId)}/enquiries${qs ? `?${qs}` : ""}`);
@@ -205,7 +204,7 @@ export function useEnquiries(companyId: number, filters: EnquiryFilters = {}) {
 
 export function useEnquiryDetail(companyId: number, id: number | null) {
   return useQuery({
-    queryKey: key(companyId, "enquiries", String(id ?? "")),
+    queryKey: queryKeys.crm.enquiries.detail(companyId, id),
     queryFn: async () => {
       if (!companyId || !id) return null;
       const res = await apiFetch(`${crmBase(companyId)}/enquiries/${id}`);
@@ -242,7 +241,7 @@ export function useUpdateEnquiry(companyId: number) {
     },
     onSuccess: (_result, { id }) => {
       invalidatePipeline(queryClient, companyId);
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries", String(id)) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.detail(companyId, id) });
     },
   });
 }
@@ -270,8 +269,8 @@ export function useConvertEnquiry(companyId: number) {
     },
     onSuccess: (_result, id) => {
       invalidatePipeline(queryClient, companyId);
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries", String(id)) });
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "customers"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.detail(companyId, id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.list(companyId) });
     },
   });
 }
@@ -288,8 +287,8 @@ export function useCreateEnquiryQuotation(companyId: number) {
     },
     onSuccess: (_result, { id }) => {
       invalidatePipeline(queryClient, companyId);
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries", String(id)) });
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "quotations"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.detail(companyId, id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.list(companyId) });
     },
   });
 }
@@ -315,8 +314,9 @@ export function useLogActivity(companyId: number) {
       return readJson(res, "Failed to log activity");
     },
     onSuccess: (_result, { enquiryId }) => {
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries", String(enquiryId)) });
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.detail(companyId, enquiryId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.all(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.reports.pipeline(companyId) });
     },
   });
 }
@@ -327,7 +327,7 @@ export type FollowUpScope = "due" | "upcoming" | "all";
 
 export function useFollowUps(companyId: number, scope: FollowUpScope = "due") {
   return useQuery({
-    queryKey: key(companyId, "follow-ups", scope),
+    queryKey: queryKeys.crm.followUps.scope(companyId, scope),
     queryFn: async () => {
       if (!companyId) return [] as EnquiryFollowUp[];
       const res = await apiFetch(`${crmBase(companyId)}/follow-ups?scope=${scope}`);
@@ -369,7 +369,7 @@ export function useUpdateFollowUp(companyId: number) {
 
 export function useCrmDuplicates(companyId: number, enabled = true) {
   return useQuery({
-    queryKey: key(companyId, "duplicates"),
+    queryKey: queryKeys.crm.duplicates(companyId),
     queryFn: async () => {
       if (!companyId) return [];
       const res = await apiFetch(`${crmBase(companyId)}/duplicates`);
@@ -395,7 +395,7 @@ export function useMergeEnquiries(companyId: number) {
 
 export function useDormantEnquiries(companyId: number, days = 30) {
   return useQuery({
-    queryKey: key(companyId, "dormant", String(days)),
+    queryKey: queryKeys.crm.dormant.days(companyId, days),
     queryFn: async () => {
       if (!companyId) return [];
       const res = await apiFetch(`${crmBase(companyId)}/dormant?days=${days}`);
@@ -405,15 +405,15 @@ export function useDormantEnquiries(companyId: number, days = 30) {
   });
 }
 
-export function usePipelineReport(companyId: number) {
+export function usePipelineReport(companyId: number, enabled = true) {
   return useQuery({
-    queryKey: key(companyId, "reports", "pipeline"),
+    queryKey: queryKeys.crm.reports.pipeline(companyId),
     queryFn: async () => {
       if (!companyId) return null;
       const res = await apiFetch(`${crmBase(companyId)}/reports/pipeline`);
       return readJson(res, "Failed to build pipeline report");
     },
-    enabled: !!companyId,
+    enabled: !!companyId && enabled,
   });
 }
 
@@ -435,7 +435,7 @@ export function useMatchingEnquiries(
   if (year) params.set("year", year);
 
   return useQuery({
-    queryKey: key(companyId, "matching-enquiries", make, model, year),
+    queryKey: queryKeys.crm.matchingEnquiries.search(companyId, make, model, year),
     enabled: !!companyId && enabled && (!!make || !!model),
     queryFn: async () => {
       const res = await apiFetch(`${crmBase(companyId)}/matching-enquiries?${params.toString()}`);
@@ -472,7 +472,7 @@ export function useReserveVehicle(companyId: number) {
     onSuccess: (_result, { enquiryId }) => {
       invalidatePipeline(queryClient, companyId);
       if (enquiryId) {
-        queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries", String(enquiryId)) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.detail(companyId, enquiryId) });
       }
       queryClient.invalidateQueries({ queryKey: ["vehicles", companyId] });
       queryClient.invalidateQueries({ queryKey: ["vehicle", companyId] });
@@ -481,12 +481,12 @@ export function useReserveVehicle(companyId: number) {
 }
 
 function invalidatePipeline(queryClient: ReturnType<typeof useQueryClient>, companyId: number) {
-  queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "follow-ups") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "reports") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "duplicates") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "dormant") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "matching-enquiries") });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.all(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.followUps.all(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.reports.all(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.duplicates(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.dormant.all(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.matchingEnquiries.all(companyId) });
 }
 
 // ── social capture ───────────────────────────────────────────────────────────
@@ -565,7 +565,7 @@ const social = (companyId: number) => `${crmBase(companyId)}/social`;
 
 export function useSocialConnections(companyId: number) {
   return useQuery({
-    queryKey: key(companyId, "social", "connections"),
+    queryKey: queryKeys.crm.social.connections(companyId),
     queryFn: async () => {
       if (!companyId) return [] as SocialConnection[];
       const res = await apiFetch(`${social(companyId)}/connections`);
@@ -577,7 +577,7 @@ export function useSocialConnections(companyId: number) {
 
 export function useSocialSetup(companyId: number) {
   return useQuery({
-    queryKey: key(companyId, "social", "setup"),
+    queryKey: queryKeys.crm.social.setup(companyId),
     queryFn: async () => {
       if (!companyId) return null;
       const res = await apiFetch(`${social(companyId)}/setup`);
@@ -589,7 +589,7 @@ export function useSocialSetup(companyId: number) {
 
 export function useSocialInbox(companyId: number, enabled = true, poll = false) {
   return useQuery({
-    queryKey: key(companyId, "social", "inbox"),
+    queryKey: queryKeys.crm.social.inbox(companyId),
     queryFn: async () => {
       if (!companyId) return { leads: [], comments: [] } as SocialInbox;
       const res = await apiFetch(`${social(companyId)}/inbox`);
@@ -620,7 +620,7 @@ export type SocialDelivery = {
 
 export function useSocialDeliveries(companyId: number, enabled = true, poll = false) {
   return useQuery({
-    queryKey: key(companyId, "social", "deliveries"),
+    queryKey: queryKeys.crm.social.deliveries(companyId),
     queryFn: async () => {
       if (!companyId) return [] as SocialDelivery[];
       const res = await apiFetch(`${social(companyId)}/deliveries?limit=25`);
@@ -633,7 +633,7 @@ export function useSocialDeliveries(companyId: number, enabled = true, poll = fa
 }
 
 function invalidateSocial(queryClient: ReturnType<typeof useQueryClient>, companyId: number) {
-  queryClient.invalidateQueries({ queryKey: key(companyId, "social") });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.social.all(companyId) });
 }
 
 export function useConnectSocial(companyId: number) {
@@ -722,8 +722,8 @@ export function useCaptureSocial(companyId: number) {
     onSuccess: () => {
       invalidateSocial(queryClient, companyId);
       // A captured submission is an enquiry the board has not seen yet.
-      queryClient.invalidateQueries({ queryKey: key(companyId, "enquiries") });
-      queryClient.invalidateQueries({ queryKey: key(companyId, "reports") });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.enquiries.all(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.crm.reports.all(companyId) });
     },
   });
 }
@@ -880,17 +880,17 @@ export type CrmTasksResponse = {
 };
 
 function invalidateCommissions(queryClient: ReturnType<typeof useQueryClient>, companyId: number) {
-  queryClient.invalidateQueries({ queryKey: key(companyId, "commissions") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "commission-settings") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "tasks") });
-  queryClient.invalidateQueries({ queryKey: key(companyId, "task-penalties") });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.commissions.all(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.commissions.settings(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.tasks.all(companyId) });
+  queryClient.invalidateQueries({ queryKey: queryKeys.crm.commissions.taskPenalties(companyId) });
 }
 
 // ── settings ─────────────────────────────────────────────────────────────────
 
 export function useCommissionSettings(companyId: number) {
   return useQuery({
-    queryKey: key(companyId, "commission-settings"),
+    queryKey: queryKeys.crm.commissions.settings(companyId),
     queryFn: async () => {
       if (!companyId) return null;
       const res = await apiFetch(`${crmBase(companyId)}/commission-settings`);
@@ -932,7 +932,7 @@ export function useUpdateCommissionSettings(companyId: number) {
 
 export function useCommissionRules(companyId: number) {
   return useQuery({
-    queryKey: key(companyId, "commission-rules"),
+    queryKey: queryKeys.crm.commissions.rules(companyId),
     queryFn: async () => {
       if (!companyId) return [] as CommissionRule[];
       const res = await apiFetch(`${crmBase(companyId)}/commission-rules`);
@@ -1006,7 +1006,7 @@ export function useCommissions(companyId: number, filters: CommissionFilters = {
   const qs = params.toString();
 
   return useQuery({
-    queryKey: [...key(companyId, "commissions"), filters],
+    queryKey: queryKeys.crm.commissions.list(companyId, filters),
     queryFn: async () => {
       if (!companyId) return null;
       const res = await apiFetch(`${crmBase(companyId)}/commissions${qs ? `?${qs}` : ""}`);
@@ -1114,7 +1114,7 @@ export function useCrmTasks(companyId: number, filters: CrmTaskFilters = {}) {
   const qs = params.toString();
 
   return useQuery({
-    queryKey: [...key(companyId, "tasks"), filters],
+    queryKey: queryKeys.crm.tasks.list(companyId, filters),
     queryFn: async () => {
       if (!companyId) return null;
       const res = await apiFetch(`${crmBase(companyId)}/tasks${qs ? `?${qs}` : ""}`);
@@ -1193,7 +1193,7 @@ export function useSweepTasks(companyId: number) {
 
 export function useTaskPenalties(companyId: number) {
   return useQuery({
-    queryKey: key(companyId, "task-penalties"),
+    queryKey: queryKeys.crm.commissions.taskPenalties(companyId),
     queryFn: async () => {
       if (!companyId) return [] as CommissionPenalty[];
       const res = await apiFetch(`${crmBase(companyId)}/task-penalties`);

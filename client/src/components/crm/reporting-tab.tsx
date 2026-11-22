@@ -1,4 +1,6 @@
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,9 +16,22 @@ import { CheckCircle2, Car, CircleDollarSign, Target, TrendingUp, Wallet } from 
  * rendering job rather than a second query layer.
  */
 export function ReportingTab({ companyId, currency }: { companyId: number; currency?: string | null }) {
-  const { data: report, isLoading } = usePipelineReport(companyId);
+  const { data: report, isLoading, isError, error, refetch } = usePipelineReport(companyId);
 
   if (isLoading) return <LoadingRows />;
+  if (isError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Could not load the pipeline report</AlertTitle>
+        <AlertDescription className="flex flex-wrap items-center gap-3">
+          <span className="text-sm">{error?.message || "The report is unavailable."}</span>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
   if (!report) return <p className="text-sm text-slate-500">No pipeline data yet.</p>;
 
   const { totals, byStage, bySource, byAssignee } = report;

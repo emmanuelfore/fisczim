@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../db.js";
 import {
   approvalRequests,
@@ -190,15 +190,17 @@ type TaskRow = typeof crmTasks.$inferSelect;
  * is always written; its commission link tells payroll which statement carried
  * the deduction, and a null link means it is waiting for the next commission.
  */
-export async function penaliseLateTask(task: TaskRow): Promise<{ penaltyAmount: number; commissionId: number | null }> {
+export async function penaliseLateTask(
+  task: TaskRow,
+  executor?: Executor,
+): Promise<{ penaltyAmount: number; commissionId: number | null }> {
   if (task.penaltyApplied) return { penaltyAmount: Number(task.penaltyAmount ?? 0), commissionId: null };
 
-  const settings = await getCommissionSettings(task.companyId);
-  const policy = workingPolicyOf(settings);
-  const lateHours = round2(workingHoursBetween(new Date(task.dueAt), new Date(), policy));
-  const requestedAmount = round2(Number(settings.penaltyPerLateTask));
-
-  return db.transaction(async (tx: any) => {
+  const apply = async (tx: Executor) => {
+    const settings = await getCommissionSettings(task.companyId, tx);
+    const policy = workingPolicyOf(settings);
+    const lateHours = round2(workingHoursBetween(new Date(task.dueAt), new Date(), policy));
+    const requestedAmount = round2(Number(settings.penaltyPerLateTask));
     // Lock the commission we are about to change and re-read the task, so two
     // sweepers (cron + an open tab) cannot double-deduct.
     const [fresh] = await tx
@@ -284,12 +286,17 @@ export async function penaliseLateTask(task: TaskRow): Promise<{ penaltyAmount: 
       .where(eq(crmTasks.id, task.id));
 
     return { penaltyAmount: appliedAmount, commissionId };
-  });
+  };
+
+  // The scheduler sweep passes its own transaction so a batch of tasks shares
+  // one transaction instead of opening one per task.
+  return executor ? apply(executor) : db.transaction(apply);
 }
 
 /**
  * Apply any penalties waiting for a commission. Called whenever a commission is
- * created so a carried deduction lands on the next statement.
+ * created so a carried deduction lands on the next statement. The commission's
+ * own penalty/net totals are updated in the same transaction as the ledger rows.
  */
 export async function consumePendingPenalties(
   tx: Executor,
@@ -298,6 +305,16 @@ export async function consumePendingPenalties(
   commissionId: number,
   grossAmount: number,
 ): Promise<number> {
+  const [commission] = await tx
+    .select({ grossAmount: crmCommissions.grossAmount, penaltyAmount: crmCommissions.penaltyAmount })
+    .from(crmCommissions)
+    .where(eq(crmCommissions.id, commissionId))
+    .limit(1);
+  if (!commission) return 0;
+
+  const gross = round2(Number(commission.grossAmount ?? grossAmount));
+  const currentPenalty = round2(Number(commission.penaltyAmount ?? 0));
+
   const pending = await tx
     .select()
     .from(crmTaskPenalties)
@@ -312,12 +329,13 @@ export async function consumePendingPenalties(
   if (!pending.length) return 0;
 
   const settings = await getCommissionSettings(companyId, tx);
-  const cap = round2(grossAmount * (settings.penaltyCapPercent / 100));
+  const cap = round2(Math.min(gross, gross * (settings.penaltyCapPercent / 100)));
 
   // Whole ledger rows only: a row is either carried by this statement or left
   // waiting for the next one. That keeps the ledger a truthful record of which
-  // statement absorbed each deduction.
-  let remaining = Math.min(grossAmount, cap);
+  // statement absorbed each deduction. Capacity already used by a penalty that
+  // landed directly on this statement (penaliseLateTask) is reserved first.
+  let remaining = round2(Math.max(0, cap - currentPenalty));
   const consume: number[] = [];
   let penalty = 0;
   for (const row of pending) {
@@ -335,35 +353,68 @@ export async function consumePendingPenalties(
     .set({ commissionId, appliedAt: new Date() })
     .where(inArray(crmTaskPenalties.id, consume));
 
+  // The ledger link alone is not a deduction: the statement it points at must
+  // carry the amount as well, otherwise paysheets still pay gross.
+  const nextPenalty = round2(currentPenalty + penalty);
+  await tx
+    .update(crmCommissions)
+    .set({
+      penaltyAmount: nextPenalty.toFixed(2),
+      netAmount: netOf(gross, nextPenalty).toFixed(2),
+      updatedAt: new Date(),
+    })
+    .where(eq(crmCommissions.id, commissionId));
+
   return penalty;
 }
 
 /**
  * Sweep tasks whose response window has closed.
  *
- * Runs from the scheduler and defensively before the task list is read, so a
- * deployment that restarts often still applies penalties promptly. Returns the
- * number of tasks penalised in this pass.
+ * Runs from the scheduler (and on demand from the CRM tasks screen). Rows are
+ * selected with SKIP LOCKED and processed in bounded batches inside a single
+ * transaction, so concurrent sweepers cannot double-penalise and an old overdue
+ * task is not starved forever by a fixed 500-row cut-off.
  */
 export async function sweepOverdueTaskPenalties(companyId?: number): Promise<number> {
-  const conditions = [
-    eq(crmTasks.penaltyApplied, false),
-    inArray(crmTasks.status, ["pending"]),
-    lte(crmTasks.dueAt, new Date()),
-  ];
-  if (companyId) conditions.push(eq(crmTasks.companyId, companyId));
+  const batchSize = 500;
+  const maxBatches = 20;
 
-  const overdue = await db.select().from(crmTasks).where(and(...conditions)).limit(500);
-  let applied = 0;
-  for (const task of overdue) {
-    try {
-      await penaliseLateTask(task);
-      applied += 1;
-    } catch (error) {
-      console.error(`[CRM] Failed to penalise late task ${task.id}`, error);
+  return db.transaction(async (tx: Executor) => {
+    let applied = 0;
+    for (let batch = 0; batch < maxBatches; batch += 1) {
+      const conditions = [
+        eq(crmTasks.penaltyApplied, false),
+        inArray(crmTasks.status, ["pending"]),
+        lte(crmTasks.dueAt, new Date()),
+      ];
+      if (companyId) conditions.push(eq(crmTasks.companyId, companyId));
+
+      const overdue = await tx
+        .select()
+        .from(crmTasks)
+        .where(and(...conditions))
+        .orderBy(asc(crmTasks.dueAt), asc(crmTasks.id))
+        .limit(batchSize)
+        .for("update", { skipLocked: true });
+
+      let succeeded = 0;
+      for (const task of overdue) {
+        try {
+          await penaliseLateTask(task, tx);
+          applied += 1;
+          succeeded += 1;
+        } catch (error) {
+          console.error(`[CRM] Failed to penalise late task ${task.id}`, error);
+        }
+      }
+
+      // A batch where every row was skipped means no progress is possible with
+      // the locks currently held; stop instead of spinning through the cap.
+      if (overdue.length < batchSize || succeeded === 0) break;
     }
-  }
-  return applied;
+    return applied;
+  });
 }
 
 /**

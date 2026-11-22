@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { db } from "../db.js";
 import {
   enquiries,
@@ -10,13 +10,12 @@ import {
   insertEnquiryFollowUpSchema,
   insertCrmStageSchema,
   customers,
+  products,
   quotations,
   quotationItems,
   users,
   companyUsers,
   vehicles,
-  vehicleCosts,
-  invoices,
   socialLeads,
   socialComments,
   crmPublicLeadTokens,
@@ -27,7 +26,7 @@ import {
   crmTasks,
   crmTaskPenalties,
 } from "../../shared/schema.js";
-import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   captureLead,
@@ -55,6 +54,88 @@ import {
 import { serializeWorkingDays, workingHoursBetween } from "../../shared/working-hours.js";
 
 /**
+ * Route-level write shapes. The generated insert schemas describe storage, not
+ * what a client may set: actor, timestamps, status and cross-module references
+ * are owned by the server and never taken from a request body.
+ */
+const createEnquiryInput = insertEnquirySchema
+  .omit({
+    companyId: true,
+    createdBy: true,
+    lastActivityAt: true,
+    quotationId: true,
+    status: true,
+  })
+  .extend({
+    name: z.string().trim().min(1).max(200),
+    phone: z.string().trim().max(50).nullish(),
+    email: z.union([z.string().trim().email().max(200), z.literal("")]).nullish(),
+    interest: z.string().trim().max(500).nullish(),
+    notes: z.string().max(5000).nullish(),
+    source: z.string().max(40).nullish(),
+  });
+
+const updateEnquiryInput = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  phone: z.string().trim().max(50).nullish(),
+  email: z.union([z.string().trim().email().max(200), z.literal("")]).nullish(),
+  source: z.string().trim().max(40).nullish(),
+  interest: z.string().trim().max(500).nullish(),
+  notes: z.string().max(5000).nullish(),
+  tags: z.array(z.string().max(50)).max(50).nullish(),
+  expectedRevenue: z.coerce.number().finite().min(0).max(100000000).nullish(),
+  expectedCloseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  utmSource: z.string().max(100).nullish(),
+  utmMedium: z.string().max(100).nullish(),
+  utmCampaign: z.string().max(200).nullish(),
+  lostReason: z.string().max(500).nullish(),
+  customerId: z.coerce.number().int().positive().nullable().optional(),
+  assignedTo: z.string().uuid().nullable().optional(),
+  stageId: z.coerce.number().int().positive().optional(),
+});
+
+const createFollowUpInput = insertEnquiryFollowUpSchema
+  .omit({ enquiryId: true, createdBy: true, completedAt: true })
+  .extend({
+    dueAt: z.coerce.date().nullish(),
+    channel: z.string().max(40).nullish(),
+    notes: z.string().max(2000).nullish(),
+    outcome: z.string().max(500).nullish(),
+  });
+
+const updateFollowUpInput = z.object({
+  dueAt: z.coerce.date().nullish(),
+  completedAt: z.coerce.date().nullish(),
+  channel: z.string().max(40).nullish(),
+  notes: z.string().max(2000).nullish(),
+  outcome: z.string().max(500).nullish(),
+});
+
+const createQuotationInput = z.object({
+  items: z.array(z.object({
+    productId: z.coerce.number().int().positive().nullish(),
+    description: z.string().trim().min(1).max(500),
+    quantity: z.coerce.number().finite().positive().max(100000),
+    unitPrice: z.coerce.number().finite().min(0).max(100000000),
+    taxRate: z.coerce.number().finite().min(0).max(100).default(0),
+  })).min(1).max(200),
+});
+
+const publicLeadInput = z.object({
+  name: z.string().trim().min(1).max(200),
+  phone: z.string().trim().max(50).nullish(),
+  email: z.union([z.string().trim().email().max(200), z.literal("")]).nullish(),
+  interest: z.string().trim().max(500).nullish(),
+  message: z.string().trim().max(5000).nullish(),
+  utmSource: z.string().trim().max(100).nullish(),
+  utmMedium: z.string().trim().max(100).nullish(),
+  utmCampaign: z.string().trim().max(200).nullish(),
+});
+
+/** Public lead tokens are stored as hashes; only the prefix is displayable. */
+const hashLeadToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+/**
  * CRM: configurable lead pipeline, chatter trail and the sale loop.
  *
  * Deliberately thin where the platform already has an answer:
@@ -80,7 +161,7 @@ function statusAfterStageMove(
   return "open";
 }
 
-export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_q: any, _s: any, n: any) => n()) {
+export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
   const router = Router();
 
   // ── helpers ────────────────────────────────────────────────────────────────
@@ -224,10 +305,20 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         return res.status(403).json({ error: "CRM stages manage permission required" });
       }
       const id = parseInt(req.params.id);
-      const updates: Record<string, unknown> = { ...req.body };
-      delete updates.id;
-      delete updates.companyId;
-      delete updates.createdAt;
+      // Only stage configuration is writable here. Spreading req.body previously
+      // let a caller rewrite sequence/probability arbitrarily and injected
+      // columns the route never intended to expose.
+      const updates = z
+        .object({
+          name: z.string().trim().min(1).max(80).optional(),
+          sequence: z.coerce.number().int().min(0).max(10000).optional(),
+          probability: z.coerce.number().int().min(0).max(100).optional(),
+          color: z.string().max(40).nullish(),
+          isActive: z.boolean().optional(),
+          isWon: z.boolean().optional(),
+          isLost: z.boolean().optional(),
+        })
+        .parse(req.body ?? {});
 
       const [updated] = await db
         .update(crmStages)
@@ -263,6 +354,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       res.json(updated);
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to update stage" });
     }
   });
@@ -494,7 +586,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
-      const data = insertEnquirySchema.parse({ ...req.body, companyId });
+      const data = createEnquiryInput.parse(req.body ?? {});
 
       const stages = await ensureStages(companyId);
       const openingStage = stages.find((s) => s.sequence === Math.min(...stages.map((x) => x.sequence))) ?? stages[0];
@@ -547,6 +639,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .insert(enquiries)
         .values({
           ...data,
+          companyId,
           stageId,
           customerId,
           tags: [...tags],
@@ -591,7 +684,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)));
       if (!existing) return res.status(404).json({ error: "Enquiry not found" });
 
-      const body = req.body ?? {};
+      const body = updateEnquiryInput.parse(req.body ?? {});
       const updates: Record<string, unknown> = {};
       const editable = [
         "name", "phone", "email", "source", "interest", "notes", "tags",
@@ -599,7 +692,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         // Editable on its own: the sheet lets you restate why an enquiry was lost
         // after the move that closed it.
         "lostReason",
-      ];
+      ] as const;
       for (const key of editable) if (key in body) updates[key] = body[key];
 
       // Validate that customerId belongs to the same company
@@ -669,6 +762,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       res.json(updated);
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to update enquiry" });
     }
   });
@@ -681,7 +775,11 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
       const id = parseInt(req.params.id);
-      const stageId = parseInt(req.body?.stageId);
+      const body = z.object({
+        stageId: z.coerce.number().int().positive(),
+        lostReason: z.string().trim().max(500).nullish(),
+      }).parse(req.body ?? {});
+      const stageId = body.stageId;
 
       const [existing] = await db
         .select()
@@ -691,7 +789,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
 
       const stage = await getStage(companyId, stageId);
       if (!stage) return res.status(400).json({ error: "Unknown stage" });
-      if (stage.isLost && !req.body?.lostReason) {
+      if (stage.isLost && !body.lostReason) {
         return res.status(400).json({ error: "A lost reason is required to close an enquiry as lost" });
       }
 
@@ -700,16 +798,16 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .set({
           stageId: stage.id,
           status: statusAfterStageMove(stage, existing.status),
-          lostReason: stage.isLost ? req.body.lostReason : null,
+          lostReason: stage.isLost ? body.lostReason : null,
           updatedAt: new Date(),
         })
-        .where(eq(enquiries.id, id))
+        .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)))
         .returning();
 
       await logActivity(
         id,
         "stage",
-        `Moved to ${stage.name}${stage.isLost ? ` - ${req.body.lostReason}` : ""}.`,
+        `Moved to ${stage.name}${stage.isLost ? ` - ${body.lostReason}` : ""}.`,
         { from: existing.stageId, to: stage.id },
         req.user?.id,
       );
@@ -717,6 +815,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       res.json(updated);
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to move enquiry" });
     }
   });
@@ -803,40 +902,64 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)));
       if (!enquiry) return res.status(404).json({ error: "Enquiry not found" });
 
-      const items: any[] = Array.isArray(req.body?.items) ? req.body.items : [];
-      if (!items.length) {
-        return res.status(400).json({ error: "At least one line item is required to raise a quotation" });
-      }
+      const { items } = createQuotationInput.parse(req.body ?? {});
 
-      let customerId = enquiry.customerId ?? (await linkCustomer(companyId, enquiry.phone, enquiry.email));
-      if (!customerId) {
-        const [customer] = await db
-          .insert(customers)
-          .values({ companyId, name: enquiry.name, phone: enquiry.phone, email: enquiry.email })
-          .returning();
-        customerId = customer.id;
+      // A product id from another tenant must never be copied into a quote.
+      const productIds = [...new Set(items.map((i) => i.productId).filter((p): p is number => !!p))];
+      if (productIds.length) {
+        const owned = await db
+          .select({ id: products.id })
+          .from(products)
+          .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+        if (owned.length !== productIds.length) {
+          return res.status(400).json({ error: "A product does not belong to this company" });
+        }
       }
 
       const computed = items.map((item) => {
-        const quantity = Number(item.quantity ?? 1);
-        const unitPrice = Number(item.unitPrice ?? 0);
-        const taxRate = Number(item.taxRate ?? 0);
-        const lineTotal = quantity * unitPrice;
+        const lineTotal = item.quantity * item.unitPrice;
         return {
           productId: item.productId ?? null,
-          description: String(item.description ?? "Item"),
-          quantity: String(quantity),
-          unitPrice: String(unitPrice),
-          taxRate: String(taxRate),
-          lineTotal: String(lineTotal),
-          taxTotal: lineTotal * (taxRate / 100),
+          description: item.description,
+          quantity: item.quantity.toFixed(2),
+          unitPrice: item.unitPrice.toFixed(2),
+          taxRate: item.taxRate.toFixed(2),
+          lineTotal: lineTotal.toFixed(2),
+          taxTotal: lineTotal * (item.taxRate / 100),
         };
       });
-
       const subtotal = computed.reduce((sum, i) => sum + Number(i.lineTotal), 0);
       const taxAmount = computed.reduce((sum, i) => sum + i.taxTotal, 0);
 
       const { quotation, updated } = await db.transaction(async (tx) => {
+        // Resolve or create the customer inside the same transaction so a
+        // failed quote cannot leave behind a half-created contact.
+        let customerId = enquiry.customerId;
+        if (!customerId && (enquiry.phone?.trim() || enquiry.email?.trim())) {
+          const [match] = await tx
+            .select({ id: customers.id })
+            .from(customers)
+            .where(
+              and(
+                eq(customers.companyId, companyId),
+                or(
+                  enquiry.phone?.trim() ? eq(customers.phone, enquiry.phone.trim()) : undefined,
+                  enquiry.phone?.trim() ? eq(customers.mobile, enquiry.phone.trim()) : undefined,
+                  enquiry.email?.trim() ? ilike(customers.email, enquiry.email.trim()) : undefined,
+                ),
+              ),
+            )
+            .limit(1);
+          customerId = match?.id ?? null;
+        }
+        if (!customerId) {
+          const [customer] = await tx
+            .insert(customers)
+            .values({ companyId, name: enquiry.name, phone: enquiry.phone, email: enquiry.email })
+            .returning();
+          customerId = customer.id;
+        }
+
         // Allocate and insert under the advisory lock so two concurrent quotes
         // cannot take the same number, and point the enquiry at the new quote
         // in the same transaction. Older quotes are kept.
@@ -866,14 +989,22 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)))
           .returning();
 
+        await logActivity(
+          id,
+          "quotation",
+          `Quotation ${quotationNumber} raised.`,
+          { quotationId: created.id },
+          req.user?.id,
+          tx,
+        );
+
         return { quotation: created, updated: enq };
       });
-
-      await logActivity(id, "quotation", `Quotation ${quotation.quotationNumber} raised.`, { quotationId: quotation.id }, req.user?.id);
 
       res.status(201).json({ enquiry: updated, quotation });
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to raise quotation" });
     }
   });
@@ -950,6 +1081,12 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         await tx.update(socialComments).set({ enquiryId: id }).where(inArray(socialComments.enquiryId, ids));
         await tx.update(enquiryActivities).set({ enquiryId: id }).where(inArray(enquiryActivities.enquiryId, ids));
         await tx.update(enquiryFollowUps).set({ enquiryId: id }).where(inArray(enquiryFollowUps.enquiryId, ids));
+        // Tasks and their penalty ledger rows cascade on enquiry delete, so they
+        // must move with everything else or a merge silently erases both open
+        // work and the authoritative deductions attached to it. Commission
+        // attribution uses SET NULL, which would otherwise lose the deal link.
+        await tx.update(crmTasks).set({ enquiryId: id }).where(inArray(crmTasks.enquiryId, ids));
+        await tx.update(crmCommissions).set({ enquiryId: id }).where(inArray(crmCommissions.enquiryId, ids));
 
         // Quotations are never deleted: the survivor points at the most recent
         // one raised across the merged leads, and older quotes stay on record.
@@ -1038,11 +1175,12 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)));
       if (!owned) return res.status(404).json({ error: "Enquiry not found" });
 
-      const type = String(req.body?.type ?? "note");
-      const body = req.body?.body ? String(req.body.body) : null;
-      if (!body) return res.status(400).json({ error: "A note is required" });
+      const data = z.object({
+        type: z.string().trim().min(1).max(40).default("note"),
+        body: z.string().trim().min(1).max(5000),
+      }).parse(req.body ?? {});
 
-      await logActivity(id, type, body, null, req.user?.id);
+      await logActivity(id, data.type, data.body, null, req.user?.id);
       const activities = await db
         .select()
         .from(enquiryActivities)
@@ -1051,6 +1189,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       res.status(201).json(activities);
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to log activity" });
     }
   });
@@ -1089,28 +1228,29 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
 
   router.post("/companies/:companyId/crm/enquiries/:id/follow-ups", requireAuth, requireCompanyAccess, async (req: any, res) => {
     try {
+      const companyId = parseInt(req.params.companyId);
       const id = parseInt(req.params.id);
+      // Scope the lookup to the company in the URL: checking the enquiry's own
+      // company allowed a member of A to write into B while being authorised in
+      // B, desynchronising the audit context from the route.
       const [owned] = await db
-        .select({ companyId: enquiries.companyId })
+        .select({ id: enquiries.id })
         .from(enquiries)
-        .where(eq(enquiries.id, id))
+        .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)))
         .limit(1);
       if (!owned) return res.status(404).json({ error: "Enquiry not found" });
-      if (!(await can(req, owned.companyId, "crm.pipeline.manage"))) {
+      if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
-      // The generated insert schema types `due_at` as z.date(), but a timestamp can
-      // only ever arrive over JSON as an ISO string, so every schedule request was
-      // rejected with "Expected date, received string" before the conversion below
-      // could run. Coerce it here instead of asking every caller to post a Date.
-      const data = insertEnquiryFollowUpSchema
-        .extend({ dueAt: z.coerce.date().nullish() })
-        .parse({ ...req.body, enquiryId: id });
+      // Timestamps arrive over JSON as ISO strings, so coerce them here instead
+      // of asking every caller to post a Date. The caller cannot set the actor.
+      const data = createFollowUpInput.parse(req.body ?? {});
 
       const [created] = await db
         .insert(enquiryFollowUps)
         .values({
           ...data,
+          enquiryId: id,
           dueAt: data.dueAt ? new Date(data.dueAt) : null,
           createdBy: req.user?.id ?? null,
         })
@@ -1140,15 +1280,9 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       }
       const id = parseInt(req.params.id);
 
-      const updates: Record<string, unknown> = { ...req.body };
-      delete updates.id;
-      delete updates.enquiryId;
-      // Drizzle's timestamp mapper calls .toISOString() on whatever it is given, so a
-      // value that arrived over JSON as a string has to become a Date first. Only dueAt
-      // was converted here, which made every "Done" click 500.
-      for (const ts of ["dueAt", "completedAt"] as const) {
-        if (typeof updates[ts] === "string") updates[ts] = new Date(updates[ts] as string);
-      }
+      // Whitelist mutable fields. The old spread let a caller rewrite createdBy,
+      // completedAt and the outcome without passing through the route's logic.
+      const updates = updateFollowUpInput.parse(req.body ?? {});
 
       const [existing] = await db.select().from(enquiryFollowUps).where(eq(enquiryFollowUps.id, id));
       if (!existing) return res.status(404).json({ error: "Follow-up not found" });
@@ -1172,6 +1306,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       res.json(updated);
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to update follow-up" });
     }
   });
@@ -1184,10 +1319,12 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       if (!(await can(req, companyId, "crm.pipeline.manage"))) {
         return res.status(403).json({ error: "CRM pipeline manage permission required" });
       }
+      // Only a prefix is listed. The raw secret is shown once at creation and
+      // is stored as a SHA-256 hash, so a listing cannot mint new submissions.
       const rows = await db
         .select({
           id: crmPublicLeadTokens.id,
-          token: crmPublicLeadTokens.token,
+          tokenPrefix: crmPublicLeadTokens.tokenPrefix,
           isActive: crmPublicLeadTokens.isActive,
           expiresAt: crmPublicLeadTokens.expiresAt,
           createdAt: crmPublicLeadTokens.createdAt,
@@ -1211,17 +1348,20 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       const body = z
         .object({ expiresAt: z.coerce.date().nullable().optional() })
         .parse(req.body ?? {});
+      const rawToken = randomBytes(24).toString("base64url");
       const [created] = await db
         .insert(crmPublicLeadTokens)
         .values({
           companyId,
-          token: randomBytes(24).toString("base64url"),
+          token: hashLeadToken(rawToken),
+          tokenPrefix: rawToken.slice(0, 8),
           isActive: true,
           expiresAt: body.expiresAt ?? null,
           createdBy: req.user?.id ?? null,
         })
         .returning();
-      res.status(201).json(created);
+      // The plaintext exists only in this response; the stored row holds a hash.
+      res.status(201).json({ ...created, token: rawToken });
     } catch (error) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
@@ -1282,9 +1422,10 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         return res.status(403).json({ error: "Commission view permission required" });
       }
       const settings = await getCommissionSettings(companyId);
+      const seeAll = await can(req, companyId, "crm.commission.manage");
       res.json({
         settings: settingsForClient(settings),
-        pendingPenalties: await pendingPenaltyTotal(companyId),
+        pendingPenalties: await pendingPenaltyTotal(companyId, seeAll ? undefined : req.user.id),
       });
     } catch (error) {
       console.error(error);
@@ -1560,7 +1701,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         summary,
         seeAll,
         canApprove: await can(req, companyId, "crm.commission.approve"),
-        pendingPenalties: await pendingPenaltyTotal(companyId),
+        pendingPenalties: await pendingPenaltyTotal(companyId, seeAll ? undefined : req.user.id),
       });
     } catch (error) {
       console.error(error);
@@ -1629,34 +1770,40 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
         rule,
       });
 
-      const [created] = await db
-        .insert(crmCommissions)
-        .values({
-          companyId,
-          salespersonId,
-          enquiryId: body.enquiryId ?? null,
-          vehicleId: body.vehicleId ?? null,
-          reference: body.reference ?? null,
-          basis: rule.basis,
-          saleAmount: amounts.saleAmount.toFixed(2),
-          costAmount: amounts.costAmount.toFixed(2),
-          basisAmount: amounts.basisAmount.toFixed(2),
-          ratePercent: rule.ratePercent.toFixed(3),
-          fixedAmount: rule.fixedAmount.toFixed(2),
-          grossAmount: amounts.grossAmount.toFixed(2),
-          penaltyAmount: "0.00",
-          netAmount: amounts.grossAmount.toFixed(2),
-          status: "draft",
-          periodMonth: body.periodMonth ?? new Date().toISOString().slice(0, 7),
-          notes: body.notes ?? null,
-          requestedBy: req.user.id,
-        })
-        .returning();
+      // Insert and carry-over deduction must succeed or fail together: a
+      // committed statement with unapplied penalties would still pay gross.
+      const saved = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(crmCommissions)
+          .values({
+            companyId,
+            salespersonId,
+            enquiryId: body.enquiryId ?? null,
+            vehicleId: body.vehicleId ?? null,
+            reference: body.reference ?? null,
+            basis: rule.basis,
+            saleAmount: amounts.saleAmount.toFixed(2),
+            costAmount: amounts.costAmount.toFixed(2),
+            basisAmount: amounts.basisAmount.toFixed(2),
+            ratePercent: rule.ratePercent.toFixed(3),
+            fixedAmount: rule.fixedAmount.toFixed(2),
+            grossAmount: amounts.grossAmount.toFixed(2),
+            penaltyAmount: "0.00",
+            netAmount: amounts.grossAmount.toFixed(2),
+            status: "draft",
+            periodMonth: body.periodMonth ?? new Date().toISOString().slice(0, 7),
+            notes: body.notes ?? null,
+            requestedBy: req.user.id,
+          })
+          .returning();
 
-      const carried = await consumePendingPenalties(db, companyId, salespersonId, created.id, amounts.grossAmount);
-      const [saved] = carried > 0
-        ? await db.select().from(crmCommissions).where(eq(crmCommissions.id, created.id))
-        : [created];
+        await consumePendingPenalties(tx, companyId, salespersonId, created.id, amounts.grossAmount);
+        const [row] = await tx
+          .select()
+          .from(crmCommissions)
+          .where(eq(crmCommissions.id, created.id));
+        return row ?? created;
+      });
       res.status(201).json(saved);
     } catch (error) {
       console.error(error);
@@ -1681,15 +1828,20 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
           isNotNull(vehicles.salespersonId),
         ));
 
-      let accrued = 0;
-      for (const vehicle of sold) {
-        try {
-          const commission = await accrueVehicleCommission(db, { companyId, vehicleId: vehicle.id, userId: req.user?.id });
-          if (commission) accrued += 1;
-        } catch (error) {
-          console.error(`[CRM] Commission accrual failed for vehicle ${vehicle.id}`, error);
+      // One transaction for the whole run: a statement whose carried penalties
+      // were relinked but not deducted must never be left committed.
+      const accrued = await db.transaction(async (tx) => {
+        let count = 0;
+        for (const vehicle of sold) {
+          const commission = await accrueVehicleCommission(tx, {
+            companyId,
+            vehicleId: vehicle.id,
+            userId: req.user?.id,
+          });
+          if (commission) count += 1;
         }
-      }
+        return count;
+      });
 
       res.json({ scanned: sold.length, accrued });
     } catch (error) {
@@ -1849,9 +2001,9 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       if (!(await can(req, companyId, "crm.tasks.view"))) {
         return res.status(403).json({ error: "Task view permission required" });
       }
-      // A late task should never wait for the scheduler to be reflected in the
-      // list the sales manager is looking at.
-      await sweepOverdueTaskPenalties(companyId).catch((error) => console.error("[CRM] task sweep failed", error));
+      // Penalties are applied by the scheduler (and by the explicit sweep
+      // endpoint), never by a read: this route used to open up to 500 locking
+      // transactions per page view.
 
       const seeAll = await can(req, companyId, "crm.tasks.manage");
       const scope = String(req.query.scope ?? "").trim();
@@ -2109,196 +2261,230 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any = (_
       if (!(await can(req, companyId, "crm.reports.view"))) {
         return res.status(403).json({ error: "CRM reports view permission required" });
       }
-      const stages = await ensureStages(companyId);
+      // Seed the default stages before aggregating, so a fresh company still
+      // gets a full stage breakdown rather than an empty report.
+      await ensureStages(companyId);
 
-      const rows = await db
-        .select({
-          id: enquiries.id,
-          stageId: enquiries.stageId,
-          status: enquiries.status,
-          source: enquiries.source,
-          assignedTo: enquiries.assignedTo,
-          expectedRevenue: enquiries.expectedRevenue,
-          customerId: enquiries.customerId,
-          quotationId: enquiries.quotationId,
-          createdAt: enquiries.createdAt,
-        })
-        .from(enquiries)
-        .where(eq(enquiries.companyId, companyId));
+      // Aggregation lives in SQL. The previous version fetched whole tables and
+      // filtered them once per stage/source/assignee, so cost grew quadratically
+      // with the size of the pipeline and every request transferred all rows.
+      const [totalRow] = (
+        await db.execute(sql`
+          SELECT
+            count(*)::int AS "total",
+            count(*) FILTER (WHERE e.status = 'open')::int AS "open",
+            count(*) FILTER (WHERE e.status = 'won')::int AS "won",
+            count(*) FILTER (WHERE e.status = 'lost')::int AS "lost",
+            coalesce(sum(e.expected_revenue) FILTER (WHERE e.status = 'open'), 0)::float8 AS "openValue",
+            coalesce(sum(e.expected_revenue) FILTER (WHERE e.status = 'won'), 0)::float8 AS "wonValue",
+            coalesce(sum(e.expected_revenue * (coalesce(s.probability, 0) / 100.0)) FILTER (WHERE e.status = 'open'), 0)::float8 AS "weightedForecast",
+            count(*) FILTER (WHERE e.customer_id IS NOT NULL)::int AS "linkedCustomers",
+            count(*) FILTER (WHERE e.quotation_id IS NOT NULL)::int AS "quotations"
+          FROM enquiries e
+          LEFT JOIN crm_stages s ON s.id = e.stage_id
+          WHERE e.company_id = ${companyId}
+        `)
+      ).rows as Record<string, number>[];
+      const t = totalRow ?? ({} as Record<string, number>);
 
-      const assigneeRows = await db
-        .select({ id: users.id, name: users.name, email: users.email })
-        .from(users);
-      const assigneeName = (id: string | null) => {
-        const u = assigneeRows.find((a) => a.id === id);
-        return u ? u.name || u.email : "Unassigned";
+      const stageRows = (
+        await db.execute(sql`
+          SELECT s.id AS "stageId", s.name, s.probability,
+                 s.is_won AS "isWon", s.is_lost AS "isLost",
+                 count(e.id)::int AS "count",
+                 coalesce(sum(e.expected_revenue), 0)::float8 AS "value"
+          FROM crm_stages s
+          LEFT JOIN enquiries e ON e.stage_id = s.id AND e.company_id = ${companyId}
+          WHERE s.company_id = ${companyId}
+          GROUP BY s.id, s.name, s.probability, s.is_won, s.is_lost, s.sequence
+          ORDER BY s.sequence
+        `)
+      ).rows as Record<string, any>[];
+      const byStage = stageRows.map((s) => ({
+        stageId: Number(s.stageId),
+        name: String(s.name),
+        probability: Number(s.probability),
+        isWon: Boolean(s.isWon),
+        isLost: Boolean(s.isLost),
+        count: Number(s.count),
+        value: Number(s.value),
+        weightedValue: Number(s.value) * (Number(s.probability) / 100),
+      }));
+
+      // Delivered vehicles give the pipeline a real outcome. Revenue is the
+      // invoice total when one exists, otherwise the sale price in base currency;
+      // COGS prefers the posted amount and falls back to active landed costs.
+      const deliveredRows = (
+        await db.execute(sql`
+          WITH delivered AS (
+            SELECT
+              coalesce(nullif(e.source, ''), 'unknown') AS source,
+              coalesce(e.assigned_to, v.salesperson_id) AS assignee,
+              coalesce(
+                i.total::float8,
+                v.sale_price::float8 * coalesce(v.sale_exchange_rate, 1)::float8,
+                0
+              ) AS revenue,
+              coalesce(
+                v.cogs_amount::float8,
+                (SELECT coalesce(sum(vc.base_amount), 0)::float8
+                   FROM vehicle_costs vc
+                  WHERE vc.vehicle_id = v.id AND vc.status <> 'cancelled'),
+                0
+              ) AS cogs
+            FROM vehicles v
+            LEFT JOIN invoices i ON i.id = v.invoice_id
+            LEFT JOIN enquiries e ON e.id = v.enquiry_id
+            WHERE v.company_id = ${companyId}
+              AND (v.invoice_id IS NOT NULL OR v.status IN ('sold', 'delivered'))
+          )
+          SELECT source, assignee,
+                 count(*)::int AS units,
+                 coalesce(sum(revenue), 0)::float8 AS "vehicleRevenue",
+                 coalesce(sum(revenue - cogs), 0)::float8 AS "vehicleGrossProfit"
+          FROM delivered
+          GROUP BY source, assignee
+        `)
+      ).rows as Record<string, any>[];
+
+      const [linkedRow] = (
+        await db.execute(sql`
+          SELECT
+            count(*)::int AS "vehiclesLinked",
+            count(*) FILTER (
+              WHERE v.invoice_id IS NOT NULL OR v.status IN ('sold', 'delivered')
+            )::int AS "linkedVehiclesSold"
+          FROM vehicles v
+          WHERE v.company_id = ${companyId} AND v.enquiry_id IS NOT NULL
+        `)
+      ).rows as Record<string, number>[];
+      const linked = linkedRow ?? ({} as Record<string, number>);
+
+      const breakdownRows = (
+        await db.execute(sql`
+          SELECT coalesce(nullif(source, ''), 'unknown') AS source,
+                 assigned_to AS assignee,
+                 status,
+                 count(*)::int AS "count",
+                 coalesce(sum(expected_revenue), 0)::float8 AS "value"
+          FROM enquiries
+          WHERE company_id = ${companyId}
+          GROUP BY source, assigned_to, status
+        `)
+      ).rows as Record<string, any>[];
+
+      // Names are resolved only for this company's members; the old code
+      // selected every user in the deployment to label report rows.
+      const nameRows = (
+        await db.execute(sql`
+          SELECT u.id, u.name, u.email
+          FROM users u
+          INNER JOIN company_users cu ON cu.user_id = u.id
+          WHERE cu.company_id = ${companyId}
+        `)
+      ).rows as Record<string, any>[];
+
+      type Breakdown = {
+        count: number;
+        won: number;
+        value: number;
+        units: number;
+        vehicleRevenue: number;
+        vehicleGrossProfit: number;
+      };
+      const emptyBreakdown = (): Breakdown => ({
+        count: 0, won: 0, value: 0, units: 0, vehicleRevenue: 0, vehicleGrossProfit: 0,
+      });
+      const sources = new Map<string, Breakdown>();
+      const assignees = new Map<string, Breakdown>();
+      const bucket = (map: Map<string, Breakdown>, key: string) => {
+        let entry = map.get(key);
+        if (!entry) {
+          entry = emptyBreakdown();
+          map.set(key, entry);
+        }
+        return entry;
       };
 
-      const value = (v: unknown) => Number(v ?? 0);
-
-      const byStage = stages
-        .sort((a, b) => a.sequence - b.sequence)
-        .map((s) => {
-          const items = rows.filter((r) => r.stageId === s.id);
-          const total = items.reduce((sum, r) => sum + value(r.expectedRevenue), 0);
-          return {
-            stageId: s.id,
-            name: s.name,
-            probability: s.probability,
-            isWon: s.isWon,
-            isLost: s.isLost,
-            count: items.length,
-            value: total,
-            weightedValue: total * (s.probability / 100),
-          };
-        });
-
-      const open = rows.filter((r) => r.status === "open");
-      const won = rows.filter((r) => r.status === "won");
-      const lost = rows.filter((r) => r.status === "lost");
-      const closed = won.length + lost.length;
-
-      // Vehicle deliveries give the pipeline a real outcome instead of only an
-      // expected value. Revenue is the invoice total when one exists, otherwise
-      // the agreed sale price converted to base. COGS prefers the posted amount
-      // and falls back to active landed costs for vehicles invoiced before the
-      // COGS posting was introduced.
-      const vehicleRows = await db
-        .select({
-          id: vehicles.id,
-          enquiryId: vehicles.enquiryId,
-          salespersonId: vehicles.salespersonId,
-          status: vehicles.status,
-          invoiceId: vehicles.invoiceId,
-          salePrice: vehicles.salePrice,
-          saleExchangeRate: vehicles.saleExchangeRate,
-          cogsAmount: vehicles.cogsAmount,
-          invoiceTotal: invoices.total,
-        })
-        .from(vehicles)
-        .leftJoin(invoices, eq(vehicles.invoiceId, invoices.id))
-        .where(eq(vehicles.companyId, companyId));
-
-      const costRows = await db
-        .select({
-          vehicleId: vehicleCosts.vehicleId,
-          total: sql<string>`coalesce(sum(${vehicleCosts.baseAmount}), 0)`,
-        })
-        .from(vehicleCosts)
-        .innerJoin(vehicles, eq(vehicleCosts.vehicleId, vehicles.id))
-        .where(and(eq(vehicles.companyId, companyId), sql`${vehicleCosts.status} <> 'cancelled'`))
-        .groupBy(vehicleCosts.vehicleId);
-
-      const enquiryById = new Map(rows.map((r) => [r.id, r]));
-      const costByVehicle = new Map(costRows.map((r) => [r.vehicleId, Number(r.total)]));
-      const isDelivered = (v: (typeof vehicleRows)[number]) =>
-        !!v.invoiceId || v.status === "sold" || v.status === "delivered";
-      const revenueOf = (v: (typeof vehicleRows)[number]) =>
-        value(v.invoiceTotal ?? value(v.salePrice) * value(v.saleExchangeRate ?? 1));
-      const cogsOf = (v: (typeof vehicleRows)[number]) =>
-        v.cogsAmount != null ? value(v.cogsAmount) : costByVehicle.get(v.id) ?? 0;
-
-      const linkedVehicles = vehicleRows.filter((v) => v.enquiryId);
-      const deliveredVehicles = vehicleRows.filter(isDelivered);
-      const linkedDeliveredVehicles = linkedVehicles.filter(isDelivered);
-      const vehicleRevenue = deliveredVehicles.reduce((sum, v) => sum + revenueOf(v), 0);
-      const vehicleCogs = deliveredVehicles.reduce((sum, v) => sum + cogsOf(v), 0);
-
-      const bySource = [...new Set(rows.map((r) => r.source ?? "unknown"))].map((source) => {
-        const items = rows.filter((r) => (r.source ?? "unknown") === source);
-        const units = linkedDeliveredVehicles.filter(
-          (v) => (enquiryById.get(v.enquiryId!)?.source ?? "unknown") === source,
-        );
-        const revenue = units.reduce((sum, v) => sum + revenueOf(v), 0);
-        const cogs = units.reduce((sum, v) => sum + cogsOf(v), 0);
-        return {
-          source,
-          count: items.length,
-          won: items.filter((r) => r.status === "won").length,
-          value: items.reduce((sum, r) => sum + value(r.expectedRevenue), 0),
-          units: units.length,
-          vehicleRevenue: revenue,
-          vehicleGrossProfit: revenue - cogs,
-        };
-      });
-
-      const assigneeIds = [
-        ...new Set(
-          [
-            ...rows.map((r) => r.assignedTo),
-            ...deliveredVehicles.map(
-              (v) => enquiryById.get(v.enquiryId!)?.assignedTo ?? v.salespersonId,
-            ),
-          ].filter(Boolean),
-        ),
-      ] as string[];
-      const byAssignee = assigneeIds.map((uid) => {
-        const items = rows.filter((r) => r.assignedTo === uid);
-        const units = deliveredVehicles.filter(
-          (v) => (enquiryById.get(v.enquiryId!)?.assignedTo ?? v.salespersonId) === uid,
-        );
-        const revenue = units.reduce((sum, v) => sum + revenueOf(v), 0);
-        const cogs = units.reduce((sum, v) => sum + cogsOf(v), 0);
-        return {
-          userId: uid,
-          name: assigneeName(uid),
-          count: items.length,
-          won: items.filter((r) => r.status === "won").length,
-          value: items.reduce((sum, r) => sum + value(r.expectedRevenue), 0),
-          units: units.length,
-          vehicleRevenue: revenue,
-          vehicleGrossProfit: revenue - cogs,
-        };
-      });
-
-      const unassignedUnits = deliveredVehicles.filter(
-        (v) => !(enquiryById.get(v.enquiryId!)?.assignedTo ?? v.salespersonId),
-      );
-      if (unassignedUnits.length) {
-        const revenue = unassignedUnits.reduce((sum, v) => sum + revenueOf(v), 0);
-        const cogs = unassignedUnits.reduce((sum, v) => sum + cogsOf(v), 0);
-        byAssignee.push({
-          userId: "unassigned",
-          name: "Unassigned",
-          count: 0,
-          won: 0,
-          value: 0,
-          units: unassignedUnits.length,
-          vehicleRevenue: revenue,
-          vehicleGrossProfit: revenue - cogs,
-        });
+      for (const row of breakdownRows) {
+        const source = bucket(sources, String(row.source));
+        const assignee = bucket(assignees, String(row.assignee ?? "unassigned"));
+        source.count += Number(row.count);
+        source.value += Number(row.value);
+        assignee.count += Number(row.count);
+        assignee.value += Number(row.value);
+        if (row.status === "won") {
+          source.won += Number(row.count);
+          assignee.won += Number(row.count);
+        }
+      }
+      for (const row of deliveredRows) {
+        const units = Number(row.units);
+        const revenue = Number(row.vehicleRevenue);
+        const grossProfit = Number(row.vehicleGrossProfit);
+        const source = bucket(sources, String(row.source));
+        const assignee = bucket(assignees, String(row.assignee ?? "unassigned"));
+        source.units += units;
+        source.vehicleRevenue += revenue;
+        source.vehicleGrossProfit += grossProfit;
+        assignee.units += units;
+        assignee.vehicleRevenue += revenue;
+        assignee.vehicleGrossProfit += grossProfit;
       }
 
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const [{ activityCount }] = await db
-        .select({ activityCount: sql<number>`count(*)::int` })
-        .from(enquiryActivities)
-        .innerJoin(enquiries, eq(enquiryActivities.enquiryId, enquiries.id))
-        .where(and(eq(enquiries.companyId, companyId), gte(enquiryActivities.createdAt, since)));
+      const bySource = [...sources.entries()].map(([source, s]) => ({ source, ...s }));
+      const byAssignee = [...assignees.entries()].map(([userId, a]) => ({
+        userId,
+        name: userId === "unassigned"
+          ? "Unassigned"
+          : nameRows.find((u) => String(u.id) === userId)?.name ||
+            nameRows.find((u) => String(u.id) === userId)?.email ||
+            "Unassigned",
+        ...a,
+      }));
+
+      const vehicleRevenue = deliveredRows.reduce((sum, r) => sum + Number(r.vehicleRevenue), 0);
+      const vehicleCogs = deliveredRows.reduce(
+        (sum, r) => sum + Number(r.vehicleRevenue) - Number(r.vehicleGrossProfit), 0,
+      );
+      const vehiclesSold = deliveredRows.reduce((sum, r) => sum + Number(r.units), 0);
+
+      const [activityRow] = (
+        await db.execute(sql`
+          SELECT count(*)::int AS "activityCount"
+          FROM enquiry_activities a
+          INNER JOIN enquiries e ON e.id = a.enquiry_id
+          WHERE e.company_id = ${companyId} AND a.created_at >= ${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)}
+        `)
+      ).rows as Record<string, number>[];
+
+      const total = Number(t.total ?? 0);
+      const open = Number(t.open ?? 0);
+      const won = Number(t.won ?? 0);
+      const lost = Number(t.lost ?? 0);
+      const closed = won + lost;
+      const vehiclesLinked = Number(linked.vehiclesLinked ?? 0);
 
       res.json({
         totals: {
-          total: rows.length,
-          open: open.length,
-          won: won.length,
-          lost: lost.length,
-          openValue: open.reduce((sum, r) => sum + value(r.expectedRevenue), 0),
-          wonValue: won.reduce((sum, r) => sum + value(r.expectedRevenue), 0),
-          weightedForecast: open.reduce((sum, r) => {
-            const stage = stages.find((s) => s.id === r.stageId);
-            return sum + value(r.expectedRevenue) * ((stage?.probability ?? 0) / 100);
-          }, 0),
-          winRate: closed ? (won.length / closed) * 100 : 0,
-          linkedCustomers: rows.filter((r) => r.customerId).length,
-          quotations: rows.filter((r) => r.quotationId).length,
-          activitiesLast30Days: activityCount ?? 0,
-          vehiclesLinked: linkedVehicles.length,
-          vehiclesSold: deliveredVehicles.length,
+          total,
+          open,
+          won,
+          lost,
+          openValue: Number(t.openValue ?? 0),
+          wonValue: Number(t.wonValue ?? 0),
+          weightedForecast: Number(t.weightedForecast ?? 0),
+          winRate: closed ? (won / closed) * 100 : 0,
+          linkedCustomers: Number(t.linkedCustomers ?? 0),
+          quotations: Number(t.quotations ?? 0),
+          activitiesLast30Days: Number(activityRow?.activityCount ?? 0),
+          vehiclesLinked,
+          vehiclesSold,
           vehicleRevenue,
           vehicleCogs,
           vehicleGrossProfit: vehicleRevenue - vehicleCogs,
-          leadToDeliveryRate: linkedVehicles.length
-            ? (linkedDeliveredVehicles.length / linkedVehicles.length) * 100
+          leadToDeliveryRate: vehiclesLinked
+            ? (Number(linked.linkedVehiclesSold ?? 0) / vehiclesLinked) * 100
             : 0,
         },
         byStage,
@@ -2326,24 +2512,32 @@ export function createPublicLeadRouter() {
       const companyId = parseInt(req.params.companyId);
       if (!companyId) return res.status(400).json({ error: "Unknown company" });
 
-      // A per-company token (issued from CRM settings) is the normal credential.
-      // A deployment-wide shared secret is accepted as a fallback so the public
-      // form can be wired before an admin issues tokens.
+      // A per-company token is the only credential. The optional deployment
+      // fallback must be bound to one company, otherwise a leaked secret could
+      // submit leads into every tenant.
       const token = (req.headers["x-lead-token"] as string | undefined)?.trim();
-      const sharedSecret = process.env.CRM_LEAD_SHARED_SECRET?.trim();
-      const isSharedSecret = Boolean(sharedSecret && token && token === sharedSecret);
-
       if (!token) return res.status(401).json({ error: "Missing lead token" });
 
+      const sharedSecret = process.env.CRM_LEAD_SHARED_SECRET?.trim();
+      const sharedSecretCompanyId = Number(process.env.CRM_LEAD_SHARED_SECRET_COMPANY_ID);
+      const isSharedSecret = Boolean(
+        sharedSecret &&
+        Number.isInteger(sharedSecretCompanyId) &&
+        sharedSecretCompanyId === companyId &&
+        token === sharedSecret,
+      );
+
       if (!isSharedSecret) {
+        const hash = hashLeadToken(token);
         const [validToken] = await db
           .select()
           .from(crmPublicLeadTokens)
           .where(
             and(
               eq(crmPublicLeadTokens.companyId, companyId),
-              eq(crmPublicLeadTokens.token, token),
               eq(crmPublicLeadTokens.isActive, true),
+              // The raw-token comparison verifies rows issued before hashing.
+              or(eq(crmPublicLeadTokens.token, hash), eq(crmPublicLeadTokens.token, token)),
             ),
           )
           .limit(1);
@@ -2352,53 +2546,47 @@ export function createPublicLeadRouter() {
         if (validToken.expiresAt && new Date(validToken.expiresAt) < new Date()) {
           return res.status(401).json({ error: "Lead token has expired" });
         }
+        if (validToken.token === token) {
+          // Upgrade a legacy plaintext row now that the secret has been seen.
+          await db
+            .update(crmPublicLeadTokens)
+            .set({ token: hash, tokenPrefix: token.slice(0, 8) })
+            .where(eq(crmPublicLeadTokens.id, validToken.id));
+        }
       }
 
-      // Rate limiting by IP address (max 5 submissions per hour). `ip_address`
-      // is INET, so a missing remote address must fall back to a valid address
-      // rather than the string "unknown".
-      const ipAddress =
-        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        "0.0.0.0";
-      const now = new Date();
-      const windowStart = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
-      const windowEnd = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+      // Trust X-Forwarded-For only behind an explicitly configured proxy;
+      // otherwise callers can rotate the header to evade the limit.
+      const trustProxy = /^(1|true|yes)$/i.test(process.env.CRM_TRUST_PROXY ?? "");
+      const forwarded = req.headers["x-forwarded-for"];
+      const clientIp = trustProxy && typeof forwarded === "string"
+        ? forwarded.split(",")[0]?.trim()
+        : req.socket.remoteAddress;
+      const ipAddress = (clientIp || "0.0.0.0").slice(0, 64);
 
-      const [existingRateLimit] = await db
-        .select()
-        .from(crmPublicLeadRateLimits)
-        .where(
-          and(
-            eq(crmPublicLeadRateLimits.companyId, companyId),
-            eq(crmPublicLeadRateLimits.ipAddress, ipAddress),
-            gte(crmPublicLeadRateLimits.windowEnd, windowStart),
-          ),
-        )
-        .orderBy(desc(crmPublicLeadRateLimits.windowEnd))
-        .limit(1);
+      // Fixed hourly windows make the counter safe to increment atomically.
+      const hourMs = 60 * 60 * 1000;
+      const windowStart = new Date(Math.floor(Date.now() / hourMs) * hourMs);
+      const windowEnd = new Date(windowStart.getTime() + hourMs);
 
-      if (existingRateLimit && existingRateLimit.submissionCount >= 5) {
+      const [rateLimit] = await db
+        .insert(crmPublicLeadRateLimits)
+        .values({ companyId, ipAddress, submissionCount: 1, windowStart, windowEnd })
+        .onConflictDoUpdate({
+          target: [
+            crmPublicLeadRateLimits.companyId,
+            crmPublicLeadRateLimits.ipAddress,
+            crmPublicLeadRateLimits.windowStart,
+          ],
+          set: { submissionCount: sql`${crmPublicLeadRateLimits.submissionCount} + 1` },
+        })
+        .returning({ submissionCount: crmPublicLeadRateLimits.submissionCount });
+
+      if (!rateLimit || rateLimit.submissionCount > 5) {
         return res.status(429).json({ error: "Rate limit exceeded. Please try again later." });
       }
 
-      // Update or create rate limit record
-      if (existingRateLimit) {
-        await db
-          .update(crmPublicLeadRateLimits)
-          .set({ submissionCount: existingRateLimit.submissionCount + 1 })
-          .where(eq(crmPublicLeadRateLimits.id, existingRateLimit.id));
-      } else {
-        await db.insert(crmPublicLeadRateLimits).values({
-          companyId,
-          ipAddress,
-          submissionCount: 1,
-          windowStart,
-          windowEnd,
-        });
-      }
-
-      const body = req.body ?? {};
+      const body = publicLeadInput.parse(req.body ?? {});
       const result = await captureLead({
         companyId,
         name: body.name,
@@ -2420,6 +2608,7 @@ export function createPublicLeadRouter() {
       });
     } catch (error) {
       console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       res.status(500).json({ error: "Failed to capture lead" });
     }
   });

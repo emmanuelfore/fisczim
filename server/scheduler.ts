@@ -1,6 +1,10 @@
 import cron from 'node-cron';
+import { lte } from 'drizzle-orm';
+import { db } from './db.js';
 import { reportService } from './services/reportService.js';
+import { sweepOverdueTaskPenalties } from './lib/commissions.js';
 import { storage } from './storage.js';
+import { crmPublicLeadRateLimits } from '../shared/schema.js';
 import { format, subMonths } from 'date-fns';
 import fs from 'fs/promises';
 import path from 'path';
@@ -32,6 +36,26 @@ export function initializeScheduler() {
       }
     } catch (err) {
       console.error('[Scheduler] Global error in monthly reporting job:', err);
+    }
+  });
+
+  // CRM response-SLA penalties are applied on the hour, not on every task-list
+  // read: a GET should never open hundreds of row-locking transactions.
+  cron.schedule('7 * * * *', async () => {
+    try {
+      const applied = await sweepOverdueTaskPenalties();
+      if (applied > 0) console.log(`[Scheduler] Applied ${applied} late-task penalty(ies)`);
+    } catch (err: any) {
+      console.error('[Scheduler] CRM late-task penalty sweep failed:', err?.message ?? err);
+    }
+
+    try {
+      // Expired public-lead rate-limit windows are never read again; keep the
+      // table from growing without bound between migrations.
+      await db.delete(crmPublicLeadRateLimits)
+        .where(lte(crmPublicLeadRateLimits.windowEnd, new Date(Date.now() - 24 * 60 * 60 * 1000)));
+    } catch (err: any) {
+      console.error('[Scheduler] Public lead rate-limit cleanup failed:', err?.message ?? err);
     }
   });
 

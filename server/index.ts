@@ -314,6 +314,7 @@ async function initializeApp() {
   if (runBackgroundWorkers) {
     startFiscalDayClosingWorker();
     startFiscalizationWorker();
+    initializeScheduler();
   } else {
     log("background fiscal workers are disabled in development");
   }

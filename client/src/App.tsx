@@ -98,6 +98,9 @@ const OrderStatusPage = lazy(() => import("@/pages/order-status"));
 const SubscriptionPage = lazy(() => import("@/pages/subscription"));
 import PosLoginPage from "@/pages/pos-login";
 const ReportsPage = lazy(() => import("@/pages/reports"));
+const SalesReportsDashboardPage = lazy(
+  () => import("@/pages/sales-reports-dashboard"),
+);
 const StockTakePage = lazy(() => import("@/pages/stock-take"));
 const PaymentsReceivedPage = lazy(() => import("@/pages/payments-received"));
 const PaymentPreviewPage = lazy(() => import("@/pages/payment-preview"));
@@ -609,6 +612,9 @@ function Router() {
       <Route path="/inventory/grvs/:id">
         {() => <ProtectedRoute component={GrvDetailsPage} />}
       </Route>
+      <Route path="/sales-reports/:reportKey?">
+        {() => <ProtectedRoute component={SalesReportsDashboardPage} />}
+      </Route>
       <Route path="/reports/inventory">
         {() => <ProtectedRoute component={InventoryReportsPage} />}
       </Route>
@@ -721,6 +727,15 @@ function Router() {
         {() => <ProtectedRoute component={PartnershipSalesReportPage} />}
       </Route>
       <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
+      <Route path="/reports/sales">
+        {() => <Redirect to="/sales-reports" />}
+      </Route>
+      <Route path="/reports/sales-by-customer">
+        {() => <Redirect to="/sales-reports/customers" />}
+      </Route>
+      <Route path="/reports/sales-by-item">
+        {() => <Redirect to="/sales-reports/items" />}
+      </Route>
       <Route path="/reports/:reportKey?">
         {() => <ProtectedRoute component={ReportsPage} />}
       </Route>

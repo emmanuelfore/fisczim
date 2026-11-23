@@ -399,6 +399,7 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/sales-orders": "nav.invoices",
   "/compound-products": "nav.invoices",
   "/sales-order-reports": "nav.invoices",
+  "/sales-reports": ["nav.reports", "reports.sales"],
 
   // ─── Procurement / Inventory ──────────────────────────────────────────────────
   "/products": "nav.inventory",

@@ -1,7 +1,6 @@
 import { Layout } from "@/components/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
-import { SalesReport, SalesByCustomerReport, SalesByItemReport } from "@/components/reports/sales-reports";
 import { InventoryHealthReport, StockOnHandReport, InventoryMovementsReport, PurchaseHistoryReport } from "@/components/reports/retail-reports";
 import { DailyOperationalReport, WeeklyOperationalReport, MonthlyOperationalReport, StockMovementReport, ProductProfitMarginsReport } from "@/components/reports/operational-reports";
 import { ArAgingSummaryReport, InvoiceDetailsReport, CustomerBalanceSummaryReport, ReceivableDetailsReport, BadDebtsReport } from "@/components/reports/receivables-reports";
@@ -68,19 +67,6 @@ function getReportCategories(fa: ReturnType<typeof useFiscalAuthority>): {
       { key: "trial-balance", label: "Trial Balance", category: "financials", description: "Review closing balances for all accounts to verify double-entry bookkeeping accuracy.", externalHref: "/accounting/reports/trial-balance" },
       { key: "general-ledger", label: "General Ledger", category: "financials", description: "Extract detailed transaction listings for all accounts for deep dive audits.", externalHref: "/accounting/reports/ledger" },
       { key: "cost-centers", label: "Cost Centers", category: "financials", description: "Track performance, income, and expenses across specific branches or cost centers.", externalHref: "/accounting/reports/cost-centers" },
-    ],
-  },
-  {
-    key: "sales",
-    label: "Sales",
-    icon: BarChart3,
-    reports: [
-      { key: "sales", label: "Sales Summary", category: "sales", description: "Analyze total sales volume, discounts, taxes, cost, and net margins.", endpoint: "sales-summary" },
-      { key: "sales-by-customer", label: "Sales by Customer", category: "sales", description: "View breakdown of total sales and collection statuses per customer.", endpoint: "sales-by-customer" },
-      { key: "sales-by-item", label: "Sales by Item", category: "sales", description: "Track product performance by quantity sold, gross revenue, and margin.", endpoint: "sales-by-item" },
-      { key: "daily-sales", label: "Daily Sales Ledger", category: "sales", description: "A granular, date-by-date list of invoice transactions and payment types.", externalHref: "/reports/daily" },
-      { key: "pos-reports", label: "POS Reports", category: "sales", description: "Audit register closures, Z-Reports, cashier shifts, and terminal sales.", externalHref: "/reports/pos" },
-      { key: "partnership-sales", label: "Partnership Sales", category: "sales", description: "Track sales commissions, revenue sharing, and partner transactions.", externalHref: "/reports/partnership-sales" },
     ],
   },
   {
@@ -228,8 +214,15 @@ function ReportsOverview({ onSelectReport }: ReportsOverviewProps) {
               Reports &amp; Analytics
             </h1>
             <p className="text-sm text-slate-500 font-medium">
-              Access comprehensive financial statements, transaction histories, inventory audits, and localized {fa.authorityShortName} compliance reports from one single dashboard.
+              Access financial statements, receivables, payments, inventory audits, and localized {fa.authorityShortName} compliance reports. Sales analytics now live in the dedicated Sales Reports dashboard.
             </p>
+            <Link href="/sales-reports">
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-lg border-slate-200 text-sm font-semibold">
+                <BarChart3 className="w-3.5 h-3.5" />
+                Open Sales Reports
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
           </div>
 
           <div className="relative w-full md:w-80 shrink-0">
@@ -591,9 +584,6 @@ function ActiveReportComponent({ reportKey, companyId, dateRange, search, hideZe
 }) {
   const props = { companyId, dateRange, search, hideZeroActivity };
   switch (reportKey) {
-    case "sales": return <SalesReport {...props} />;
-    case "sales-by-customer": return <SalesByCustomerReport {...props} />;
-    case "sales-by-item": return <SalesByItemReport {...props} />;
     case "ar-aging-summary": return <ArAgingSummaryReport {...props} />;
     case "invoice-details": return <InvoiceDetailsReport {...props} />;
     case "customer-balance-summary": return <CustomerBalanceSummaryReport {...props} />;
@@ -636,7 +626,7 @@ export default function ReportsPage() {
   const activeReport = reportKeyFromRoute;
 
   const [openCategories, setOpenCategories] = useState<Set<string>>(
-    new Set(["operational", "financials", "sales", "receivables", "payments-received", "stock-management"])
+    new Set(["operational", "financials", "receivables", "payments-received", "stock-management"])
   );
   const [dateRange, setDateRange] = useState<DateRangeState>({
     from: startOfMonth(new Date()),

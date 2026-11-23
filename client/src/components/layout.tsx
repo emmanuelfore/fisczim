@@ -268,7 +268,6 @@ export function Layout({
         { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
         { icon: FileText, label: "Sales Orders", href: "/sales-orders" },
         { icon: Package, label: "Compound Products", href: "/compound-products" },
-        { icon: BarChart3, label: "Order Reports", href: "/sales-order-reports" },
         { icon: FileText, label: "Invoices", href: "/invoices" },
         {
           icon: Palette,
@@ -286,9 +285,12 @@ export function Layout({
           icon: BarChart3,
           label: "Sales Reports",
           children: [
-            { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
+            { icon: LayoutDashboard, label: "Sales Dashboard", href: "/sales-reports" },
+            { icon: BarChart3, label: "Daily Sales Ledger", href: "/reports/daily" },
+            { icon: ClipboardList, label: "Order Reports", href: "/sales-order-reports" },
             { icon: MonitorCheck, label: "POS Reports", href: "/reports/pos" },
             { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
+            { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
           ]
         },
       ],
@@ -598,6 +600,7 @@ export function Layout({
       icon: BarChart3,
       label: "Reports",
       children: [
+        { icon: LayoutDashboard, label: "Sales Dashboard", href: "/sales-reports" },
         { icon: LayoutDashboard, label: "Reports Dashboard", href: "/reports" },
         { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
         { icon: ShieldCheck, label: `Tax & ${fa.authorityShortName} Report`, href: "/reports/tax" },
@@ -1211,6 +1214,11 @@ export function Layout({
       return {
         title: "Profit & Loss",
         subtitle: "Review revenue, expenses, and profitability.",
+      };
+    if (location.startsWith("/sales-reports"))
+      return {
+        title: "Sales Reports",
+        subtitle: "Analyse sales performance, customers, items and order activity.",
       };
     if (location.startsWith("/reports/daily"))
       return {

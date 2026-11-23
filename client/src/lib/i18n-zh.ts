@@ -30,6 +30,7 @@ export const zh = {
   "Payments Received": "已收付款",
   "Customer List": "客户列表",
   "Sales Reports": "销售报表",
+  "Sales Dashboard": "销售仪表板",
   "Reports Hub": "报表中心",
   "Sales Summary": "销售汇总",
   "Sales by Customer": "按客户销售",

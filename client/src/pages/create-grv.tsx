@@ -300,9 +300,9 @@ export default function CreateGrv() {
                   </div>
                 </div>
                 {sourceType === "supplier" ? (
-                  <div className="flex items-center gap-2">
+                  <div className="space-y-2">
                     <Select value={supplierId} onValueChange={supplierChangeHandler}>
-                      <SelectTrigger className="flex-1 bg-slate-50">
+                      <SelectTrigger className="w-full bg-slate-50">
                         <SelectValue placeholder="Select Supplier" />
                       </SelectTrigger>
                       <SelectContent>
@@ -314,7 +314,7 @@ export default function CreateGrv() {
                       </SelectContent>
                     </Select>
                     <CreateSupplierDialog companyId={companyId} onSuccess={(supplier) => supplierChangeHandler(String(supplier.id))}>
-                      <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-full justify-center gap-1 px-2 text-xs">
                         <Plus className="h-3.5 w-3.5" /> New supplier
                       </Button>
                     </CreateSupplierDialog>

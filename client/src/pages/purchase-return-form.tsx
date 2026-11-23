@@ -426,21 +426,19 @@ export default function PurchaseReturnFormPage({
             <CardContent className="p-6 space-y-4">
               <div className="space-y-2">
                 <Label>Supplier <span className="text-red-500">*</span></Label>
-                <div className="flex items-center gap-2">
-                  <Select value={supplierId} onValueChange={supplierChangeHandler}>
-                    <SelectTrigger className="h-10 flex-1"><SelectValue placeholder="Select supplier" /></SelectTrigger>
-                    <SelectContent>
-                      {(suppliers as any[]).map((s) => (
-                        <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <CreateSupplierDialog companyId={companyId} onSuccess={(supplier) => supplierChangeHandler(String(supplier.id))}>
-                    <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
-                      <Plus className="h-3.5 w-3.5" /> New supplier
-                    </Button>
-                  </CreateSupplierDialog>
-                </div>
+                <Select value={supplierId} onValueChange={supplierChangeHandler}>
+                  <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                  <SelectContent>
+                    {(suppliers as any[]).map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <CreateSupplierDialog companyId={companyId} onSuccess={(supplier) => supplierChangeHandler(String(supplier.id))}>
+                  <Button type="button" variant="ghost" size="sm" className="h-8 w-full justify-center gap-1 px-2 text-xs">
+                    <Plus className="h-3.5 w-3.5" /> New supplier
+                  </Button>
+                </CreateSupplierDialog>
               </div>
 
               <div className="space-y-2">

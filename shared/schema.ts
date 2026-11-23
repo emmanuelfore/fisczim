@@ -2443,6 +2443,7 @@ export const goodsDeliveryNotes = pgTable("goods_delivery_notes", {
     companyIdIdx: index("goods_delivery_notes_company_id_idx").on(table.companyId),
     statusIdx: index("goods_delivery_notes_status_idx").on(table.status),
     companyGdnUnique: unique("goods_delivery_notes_company_gdn_number_idx").on(table.companyId, table.gdnNumber),
+    companyConfirmedGrvUnique: unique("goods_delivery_notes_company_confirmed_grv_number_idx").on(table.companyId, table.confirmedGrvNumber),
   };
 });
 
@@ -3437,6 +3438,52 @@ export const supplierInvoiceItemsRelations = relations(supplierInvoiceItems, ({ 
   product: one(products, { fields: [supplierInvoiceItems.productId], references: [products.id] }),
 }));
 
+/** Persisted result of a PO / GRV / supplier-bill match. One row per bill. */
+export const supplierBillMatches = pgTable("supplier_bill_matches", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierInvoiceId: integer("supplier_invoice_id").references(() => supplierInvoices.id).notNull(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id),
+  goodsDeliveryNoteId: integer("goods_delivery_note_id").references(() => goodsDeliveryNotes.id),
+  status: text("status").notNull(), // MATCHED, QTY_MISMATCH, PRICE_VARIANCE, PENDING_INVOICE, NO_PO, WAIVED
+  approvalStatus: text("approval_status").notNull().default("NOT_REQUIRED"), // NOT_REQUIRED, PENDING, APPROVED, REJECTED
+  currency: text("currency"),
+  poQuantity: decimal("po_quantity", { precision: 15, scale: 4 }).default("0").notNull(),
+  grvQuantity: decimal("grv_quantity", { precision: 15, scale: 4 }).default("0").notNull(),
+  invoiceQuantity: decimal("invoice_quantity", { precision: 15, scale: 4 }).default("0").notNull(),
+  quantityVariance: decimal("quantity_variance", { precision: 15, scale: 4 }).default("0").notNull(),
+  poNetTotal: decimal("po_net_total", { precision: 15, scale: 2 }).default("0").notNull(),
+  grvNetTotal: decimal("grv_net_total", { precision: 15, scale: 2 }).default("0").notNull(),
+  invoiceNetTotal: decimal("invoice_net_total", { precision: 15, scale: 2 }).default("0").notNull(),
+  priceVariance: decimal("price_variance", { precision: 15, scale: 2 }).default("0").notNull(),
+  quantityTolerance: decimal("quantity_tolerance", { precision: 15, scale: 4 }).default("0.0100").notNull(),
+  priceToleranceRate: decimal("price_tolerance_rate", { precision: 8, scale: 4 }).default("0.0500").notNull(),
+  waiverReason: text("waiver_reason"),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().default({}),
+  matchedBy: uuid("matched_by").references(() => users.id),
+  matchedAt: timestamp("matched_at").defaultNow().notNull(),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyInvoiceUnique: unique("supplier_bill_matches_company_invoice_unique").on(table.companyId, table.supplierInvoiceId),
+  companyStatusIdx: index("supplier_bill_matches_company_status_idx").on(table.companyId, table.status),
+  poIdx: index("supplier_bill_matches_po_idx").on(table.purchaseOrderId),
+  gdnIdx: index("supplier_bill_matches_gdn_idx").on(table.goodsDeliveryNoteId),
+  statusCheck: check("supplier_bill_matches_status_check", sql`${table.status} IN ('MATCHED','QTY_MISMATCH','PRICE_VARIANCE','PENDING_INVOICE','NO_PO','WAIVED')`),
+  approvalStatusCheck: check("supplier_bill_matches_approval_status_check", sql`${table.approvalStatus} IN ('NOT_REQUIRED','PENDING','APPROVED','REJECTED')`),
+}));
+
+export const supplierBillMatchesRelations = relations(supplierBillMatches, ({ one }) => ({
+  company: one(companies, { fields: [supplierBillMatches.companyId], references: [companies.id] }),
+  invoice: one(supplierInvoices, { fields: [supplierBillMatches.supplierInvoiceId], references: [supplierInvoices.id] }),
+  purchaseOrder: one(purchaseOrders, { fields: [supplierBillMatches.purchaseOrderId], references: [purchaseOrders.id] }),
+  gdn: one(goodsDeliveryNotes, { fields: [supplierBillMatches.goodsDeliveryNoteId], references: [goodsDeliveryNotes.id] }),
+  matcher: one(users, { fields: [supplierBillMatches.matchedBy], references: [users.id] }),
+  approver: one(users, { fields: [supplierBillMatches.approvedBy], references: [users.id] }),
+}));
+
 export const supplierPaymentsRelations = relations(supplierPayments, ({ one }) => ({
   company: one(companies, { fields: [supplierPayments.companyId], references: [companies.id] }),
   supplier: one(suppliers, { fields: [supplierPayments.supplierId], references: [suppliers.id] }),
@@ -3765,6 +3812,15 @@ export type InsertJournalEntryDraftLine = z.infer<typeof insertJournalEntryDraft
 export const insertSupplierInvoiceSchema = createInsertSchema(supplierInvoices).omit({ id: true, createdAt: true });
 export type SupplierInvoice = typeof supplierInvoices.$inferSelect;
 export type InsertSupplierInvoice = z.infer<typeof insertSupplierInvoiceSchema>;
+
+export const insertSupplierBillMatchSchema = createInsertSchema(supplierBillMatches).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  matchedAt: true,
+});
+export type SupplierBillMatch = typeof supplierBillMatches.$inferSelect;
+export type InsertSupplierBillMatch = z.infer<typeof insertSupplierBillMatchSchema>;
 
 export const insertSupplierInvoiceItemSchema = createInsertSchema(supplierInvoiceItems).omit({ id: true });
 export type SupplierInvoiceItem = typeof supplierInvoiceItems.$inferSelect;
@@ -4554,10 +4610,38 @@ export const payrollCompanySettings = pgTable("payroll_company_settings", {
   requiredDocumentTypes: jsonb("required_document_types").$type<string[]>().default([]).notNull(),
   // How far ahead of a document's expiry date the staff file starts warning.
   expiryWarningDays: integer("expiry_warning_days").default(30).notNull(),
+  // Payroll calendar: drives the period/dates prefilled on a new run and the
+  // "pending run" reminders shown in the header and HR dashboard.
+  defaultPayFrequency: text("default_pay_frequency").default("MONTHLY").notNull(),
+  payDay: integer("pay_day").default(25).notNull(),
+  periodCutoffDay: integer("period_cutoff_day").default(20).notNull(),
+  reminderDaysBefore: integer("reminder_days_before").default(7).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   companySettingsUnique: unique("payroll_company_settings_company_key").on(table.companyId),
+}));
+
+// Pending-run notifications are generated when a run is created, submitted for
+// approval or approved. Rows for a run are removed when it is locked/reversed,
+// so the table only ever holds work that still needs someone's attention.
+export const payrollRunNotifications = pgTable("payroll_run_notifications", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  userId: uuid("user_id").references(() => users.id).notNull(),
+  runId: integer("run_id").references(() => payrollRuns.id).notNull(),
+  kind: text("kind").notNull(), // CREATED, SUBMITTED, APPROVED
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  href: text("href").notNull().default("/hr/payroll"),
+  isRead: boolean("is_read").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  readAt: timestamp("read_at"),
+}, (table) => ({
+  // One alert per event per person; retried requests must not duplicate alerts.
+  runNotificationUnique: unique("payroll_run_notifications_unique").on(table.companyId, table.userId, table.runId, table.kind),
+  runNotificationUserIdx: index("payroll_run_notifications_user_idx").on(table.companyId, table.userId, table.isRead),
+  runNotificationRunIdx: index("payroll_run_notifications_run_idx").on(table.runId),
 }));
 
 export const employeeDocuments = pgTable("employee_documents", {
@@ -5432,6 +5516,10 @@ export type InsertPayrollReportValidationIssue = z.infer<typeof insertPayrollRep
 export const insertPayrollStatutoryDeadlineSchema = createInsertSchema(payrollStatutoryDeadlines).omit({ id: true, createdAt: true });
 export type PayrollStatutoryDeadline = typeof payrollStatutoryDeadlines.$inferSelect;
 export type InsertPayrollStatutoryDeadline = z.infer<typeof insertPayrollStatutoryDeadlineSchema>;
+
+export const insertPayrollRunNotificationSchema = createInsertSchema(payrollRunNotifications).omit({ id: true, createdAt: true });
+export type PayrollRunNotification = typeof payrollRunNotifications.$inferSelect;
+export type InsertPayrollRunNotification = z.infer<typeof insertPayrollRunNotificationSchema>;
 
 export const insertPayrollImportBatchSchema = createInsertSchema(payrollImportBatches).omit({ id: true, createdAt: true, completedAt: true });
 export type PayrollImportBatch = typeof payrollImportBatches.$inferSelect;

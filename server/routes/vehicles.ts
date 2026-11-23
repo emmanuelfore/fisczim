@@ -130,9 +130,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   /** Strip cost and margin data for users without vehicles.costs. */
   function redact<T extends Record<string, any>>(row: T, showCosts: boolean): T {
     if (showCosts) return row;
-    const { summary, costs, cogsAmount, ...rest } = row as any;
+    const { summary, costs, cogsAmount, invoice, ...rest } = row as any;
     const s = summary ? { sellingPrice: summary.sellingPrice, isProjected: summary.isProjected, paid: summary.paid, balance: summary.balance } : undefined;
-    return { ...rest, ...(s ? { summary: s } : {}), ...(costs ? { costs: [] } : {}) } as T;
+    const redInv = invoice ? { ...invoice, vehicleCosts: [] } : undefined;
+    return { ...rest, ...(s ? { summary: s } : {}), ...(costs ? { costs: [] } : {}), ...(redInv !== undefined ? { invoice: redInv } : {}) } as T;
   }
 
   /** Reject customer/enquiry ids that belong to another company. */
@@ -772,6 +773,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       ]);
       const paid = paymentRows.reduce((s, p) => s + baseAmountOf(p), 0);
       const invoiceBase = invoice ? toBase(invoice.total, invoice.exchangeRate) : null;
+      const enrichedInvoice = invoice
+        ? {
+            ...invoice,
+            vehicleCosts: costs.filter((c: any) => c.status !== "cancelled"),
+            vehicle: v,
+          }
+        : null;
       res.json(redact({
         ...v,
         customer,
@@ -784,7 +792,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         // Schedule amounts are in saleCurrency; convert base receipts before comparison.
         openSchedule: openScheduleLines(schedule, schedulePaid(v, paid)),
         payments: paymentRows,
-        invoice,
+        invoice: enrichedInvoice,
         reminders,
         summary: summariseVehicle(v, costs, paid, invoiceBase),
       }, await can(req, "vehicles.costs")));
@@ -1821,7 +1829,24 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         req.user?.isSuperAdmin,
       );
 
-      res.status(201).json({ ...result, invoice });
+      const vehicleCostsRows = await db
+        .select()
+        .from(vehicleCosts)
+        .where(and(eq(vehicleCosts.vehicleId, vehicleId), ne(vehicleCosts.status, "cancelled")))
+        .orderBy(asc(vehicleCosts.costDate), asc(vehicleCosts.id));
+
+      const [vehicleRow] = await db
+        .select()
+        .from(vehicles)
+        .where(and(eq(vehicles.id, vehicleId), eq(vehicles.companyId, companyId)));
+
+      const fullInvoice = {
+        ...invoice,
+        vehicle: vehicleRow ?? null,
+        vehicleCosts: vehicleCostsRows,
+      };
+
+      res.status(201).json({ ...result, invoice: fullInvoice });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
@@ -1917,7 +1942,24 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         req.user?.isSuperAdmin,
       );
 
-      res.json({ ...result, invoice });
+      const vehicleCostsRows = await db
+        .select()
+        .from(vehicleCosts)
+        .where(and(eq(vehicleCosts.vehicleId, vehicleId), ne(vehicleCosts.status, "cancelled")))
+        .orderBy(asc(vehicleCosts.costDate), asc(vehicleCosts.id));
+
+      const [vehicleRow] = await db
+        .select()
+        .from(vehicles)
+        .where(and(eq(vehicles.id, vehicleId), eq(vehicles.companyId, companyId)));
+
+      const fullInvoice = {
+        ...invoice,
+        vehicle: vehicleRow ?? null,
+        vehicleCosts: vehicleCostsRows,
+      };
+
+      res.json({ ...result, invoice: fullInvoice });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
@@ -2598,6 +2640,19 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           console.error("[FDMS] Fiscalization failed for auto-created vehicle invoice", err);
           // Non-fatal — the invoice and schedule are already committed.
         }
+      }
+
+      if (finalInvoice) {
+        const vehicleCostsRows = await db
+          .select()
+          .from(vehicleCosts)
+          .where(and(eq(vehicleCosts.vehicleId, parseInt(req.params.id)), ne(vehicleCosts.status, "cancelled")))
+          .orderBy(asc(vehicleCosts.costDate), asc(vehicleCosts.id));
+        finalInvoice = {
+          ...finalInvoice,
+          vehicle: v,
+          vehicleCosts: vehicleCostsRows,
+        };
       }
 
       res.status(201).json({

@@ -54,6 +54,20 @@ import {
 } from "../../lib/payroll-journal.js";
 import { logAction } from "../../audit.js";
 import { sendPayslipEmail } from "../../email.js";
+import {
+  currentPayPeriod,
+  frequencyOf,
+  PAY_FREQUENCIES,
+  type PayrollCalendarSettings,
+} from "../../../shared/payroll-calendar.js";
+import {
+  clearPayrollRunNotifications,
+  listPayrollNotifications,
+  listPendingPayrollRuns,
+  markAllPayrollNotificationsRead,
+  markPayrollNotificationRead,
+  notifyPayrollRunChange,
+} from "../../lib/payroll-notifications.js";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
@@ -62,6 +76,19 @@ import { userHasPermission } from "../../lib/permissions.js";
 import sopRouter from "./payroll-sop.js";
 
 const router = Router({ mergeParams: true });
+
+// A notification failure must never fail the payroll state change itself.
+async function safeNotifyRun(
+  companyId: number,
+  run: { id: number; periodStart: string; periodEnd: string; payFrequency: string; currency: string; status: string },
+  kind: "CREATED" | "SUBMITTED" | "APPROVED",
+) {
+  try {
+    await notifyPayrollRunChange(companyId, run, kind);
+  } catch (err: any) {
+    console.error("[PayrollNotifications] Failed to record pending-run alert:", err?.message || err);
+  }
+}
 
 /** Durable keys so a retried GL approval cannot create a second payroll journal. */
 function payrollLockPostingKey(runId: number) {
@@ -3025,7 +3052,7 @@ router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => 
       await applySalaryHistoryChange(tx, companyId, id, {
         salaryAmount: parsed.data.baseSalary,
         currency: parsed.data.currency,
-        payFrequency: "MONTHLY",
+        payFrequency: parsed.data.payFrequency || "MONTHLY",
         usdPercentage: parsed.data.usdPercentage,
         zigPercentage: parsed.data.zigPercentage,
         effectiveFrom: parsed.data.startDate,
@@ -5338,6 +5365,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
       currency: run.currency,
       totalNet: run.totalNet,
     });
+    await safeNotifyRun(companyId, run, "CREATED");
     res.status(201).json(run);
   } catch (err: any) {
     respondPayrollError(res, err);
@@ -5765,6 +5793,7 @@ router.post("/runs/:id/submit-for-approval", requirePayrollWrite, async (req, re
       periodStart: updated.periodStart,
       periodEnd: updated.periodEnd,
     });
+    await safeNotifyRun(companyId, updated, "SUBMITTED");
     res.json(updated);
   } catch (err: any) {
     respondPayrollError(res, err);
@@ -5807,6 +5836,7 @@ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
       periodEnd: updated.periodEnd,
       totalNet: updated.totalNet,
     });
+    await safeNotifyRun(companyId, updated, "APPROVED");
 
     res.json(updated);
   } catch (err: any) {
@@ -5980,6 +6010,11 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
       totalNet: run.totalNet,
       journal: journal.totals,
     });
+    try {
+      await clearPayrollRunNotifications(companyId, runId);
+    } catch (err: any) {
+      console.error("[PayrollNotifications] Failed to clear alerts for locked run:", err?.message || err);
+    }
     res.json({ success: true, status: "PENDING_GL", message: "Payroll journal is a draft awaiting GL approval.", journal: journal.totals });
   } catch (err: any) {
     respondPayrollError(res, err);
@@ -6150,6 +6185,11 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
       reversalJournalEntryId: reversalDraftId,
       journal: journal?.totals ?? null,
     });
+    try {
+      await clearPayrollRunNotifications(companyId, runId);
+    } catch (err: any) {
+      console.error("[PayrollNotifications] Failed to clear alerts for reversed run:", err?.message || err);
+    }
     res.json({ success: true, status: "PENDING_GL_REVERSAL", message: `Run #${runId} reversed. A reversing journal entry is waiting for GL approval.` });
   } catch (err: any) {
     respondPayrollError(res, err);
@@ -6208,6 +6248,10 @@ const PAYROLL_SETTINGS_FALLBACK = {
   staffNumberNext: 1,
   requiredDocumentTypes: ["CONTRACT", "ID_COPY", "NSSA"] as string[],
   expiryWarningDays: 30,
+  defaultPayFrequency: "MONTHLY",
+  payDay: 25,
+  periodCutoffDay: 20,
+  reminderDaysBefore: 7,
 };
 
 async function loadPayrollSettings(companyId: number) {
@@ -6223,6 +6267,10 @@ async function loadPayrollSettings(companyId: number) {
       ? row.requiredDocumentTypes.map((type) => String(type).toUpperCase())
       : PAYROLL_SETTINGS_FALLBACK.requiredDocumentTypes,
     expiryWarningDays: Number(row.expiryWarningDays ?? 30),
+    defaultPayFrequency: frequencyOf(row.defaultPayFrequency),
+    payDay: Number(row.payDay ?? 25),
+    periodCutoffDay: Number(row.periodCutoffDay ?? 20),
+    reminderDaysBefore: Number(row.reminderDaysBefore ?? 7),
   };
 }
 
@@ -6230,7 +6278,12 @@ router.get("/settings", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
     const settings = await loadPayrollSettings(companyId);
-    res.json({ ...settings, documentTypes: EMPLOYEE_DOCUMENT_TYPES });
+    res.json({
+      ...settings,
+      documentTypes: EMPLOYEE_DOCUMENT_TYPES,
+      payFrequencies: PAY_FREQUENCIES,
+      currentPeriod: currentPayPeriod(settings),
+    });
   } catch (err: any) {
     respondPayrollError(res, err);
   }
@@ -6245,6 +6298,10 @@ router.patch("/settings", requirePayrollApproval, async (req, res) => {
     staffNumberNext: z.coerce.number().int().min(1).max(999_999_999).optional(),
     requiredDocumentTypes: z.array(z.string().trim().min(1)).max(EMPLOYEE_DOCUMENT_TYPES.length).optional(),
     expiryWarningDays: z.coerce.number().int().min(0).max(365).optional(),
+    defaultPayFrequency: z.enum(PAY_FREQUENCIES).optional(),
+    payDay: z.coerce.number().int().min(1).max(31).optional(),
+    periodCutoffDay: z.coerce.number().int().min(1).max(31).optional(),
+    reminderDaysBefore: z.coerce.number().int().min(0).max(60).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
@@ -6270,6 +6327,10 @@ router.patch("/settings", requirePayrollApproval, async (req, res) => {
         ?? current.requiredDocumentTypes.map((t: string) => String(t))
       ).map((t: string) => t.toUpperCase()),
       expiryWarningDays: parsed.data.expiryWarningDays ?? current.expiryWarningDays,
+      defaultPayFrequency: parsed.data.defaultPayFrequency ?? current.defaultPayFrequency,
+      payDay: parsed.data.payDay ?? current.payDay,
+      periodCutoffDay: parsed.data.periodCutoffDay ?? current.periodCutoffDay,
+      reminderDaysBefore: parsed.data.reminderDaysBefore ?? current.reminderDaysBefore,
       updatedAt: new Date(),
     };
 
@@ -6284,8 +6345,64 @@ router.patch("/settings", requirePayrollApproval, async (req, res) => {
       staffNumberNext: row.staffNumberNext,
       requiredDocumentTypes: row.requiredDocumentTypes,
       expiryWarningDays: row.expiryWarningDays,
+      defaultPayFrequency: row.defaultPayFrequency,
+      payDay: row.payDay,
+      periodCutoffDay: row.periodCutoffDay,
+      reminderDaysBefore: row.reminderDaysBefore,
     });
     res.json(row);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+// GET /pending-runs - unfinished runs for the header bell and HR dashboard.
+// Due dates come from the company's payroll calendar, not from a hardcoded rule.
+router.get("/pending-runs", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const settings = await loadPayrollSettings(companyId);
+    const runs = await listPendingPayrollRuns(companyId, settings);
+    res.json({ runs, count: runs.length, currentPeriod: currentPayPeriod(settings) });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+// GET /notifications - the signed-in user's pending-run alerts.
+router.get("/notifications", async (req, res) => {
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+  try {
+    const companyId = getTargetCompanyId(req);
+    res.json(await listPayrollNotifications(companyId, userId));
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/notifications/read-all", async (req, res) => {
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+  try {
+    const companyId = getTargetCompanyId(req);
+    const updated = await markAllPayrollNotificationsRead(companyId, userId);
+    res.json({ updated });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/notifications/:id/read", async (req, res) => {
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid notification id" });
+  try {
+    const companyId = getTargetCompanyId(req);
+    const found = await markPayrollNotificationRead(companyId, userId, id);
+    if (!found) return res.status(404).json({ error: "NOT_FOUND", message: "Notification not found" });
+    res.json({ id, isRead: true });
   } catch (err: any) {
     respondPayrollError(res, err);
   }

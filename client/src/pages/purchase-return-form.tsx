@@ -29,6 +29,8 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
+import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
+import { QuickCreateProductDialog } from "@/components/products/quick-create-product-dialog";
 
 type DraftLine = {
   productId: string;
@@ -138,6 +140,24 @@ export default function PurchaseReturnFormPage({
     setLines((prev) => prev.filter((_, i) => i !== index));
   const updateLine = (index: number, patch: Partial<DraftLine>) =>
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+
+  const supplierChangeHandler = (value: string) => {
+    setSupplierId(value);
+    setGoodsDeliveryNoteId("");
+    setLines([{ productId: "", quantity: "1", unitCost: "0", reason: "", notes: "" }]);
+  };
+
+  const handleProductChange = (index: number, value: string, createdProduct?: any) => {
+    const product = createdProduct ?? (products as any[]).find((p) => String(p.id) === value);
+    let unitCost = String(product?.costPrice || lines[index].unitCost || "0");
+    if (goodsDeliveryNoteId && selectedGdn) {
+      const gdnItem = selectedGdn.items.find((gi: any) => String(gi.productId) === value);
+      if (gdnItem) {
+        unitCost = String(gdnItem.costPrice || "0");
+      }
+    }
+    updateLine(index, { productId: value, unitCost });
+  };
 
   const submit = () => {
     const items = lines
@@ -298,21 +318,23 @@ export default function PurchaseReturnFormPage({
                       return (
                         <div key={index} className="grid grid-cols-12 gap-2 items-start border-t border-slate-50 px-3 py-3">
                           <div className="col-span-5 space-y-2">
-                            <ProductCombobox
-                              value={line.productId}
-                              products={filteredProducts}
-                              onChange={(value) => {
-                                const product = (products as any[]).find((p) => String(p.id) === value);
-                                let unitCost = String(product?.costPrice || line.unitCost || "0");
-                                if (goodsDeliveryNoteId && selectedGdn) {
-                                  const gdnItem = selectedGdn.items.find((gi: any) => String(gi.productId) === value);
-                                  if (gdnItem) {
-                                    unitCost = String(gdnItem.costPrice || "0");
-                                  }
-                                }
-                                updateLine(index, { productId: value, unitCost });
-                              }}
-                            />
+                            <div className="flex flex-wrap items-center gap-1">
+                              <ProductCombobox
+                                value={line.productId}
+                                products={filteredProducts}
+                                onChange={(value) => handleProductChange(index, value)}
+                              />
+                              {!goodsDeliveryNoteId && (
+                                <QuickCreateProductDialog
+                                  companyId={companyId}
+                                  onCreated={(product) => handleProductChange(index, String(product.id), product)}
+                                >
+                                  <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                                    <Plus className="h-3.5 w-3.5" /> New item
+                                  </Button>
+                                </QuickCreateProductDialog>
+                              )}
+                            </div>
                             {goodsDeliveryNoteId && line.productId && (
                               <p className="text-[10px] text-slate-500 font-medium leading-none">
                                 Max returnable: <span className="font-bold text-slate-700">{remaining}</span> (Received {received}, Returned {returned})
@@ -404,21 +426,21 @@ export default function PurchaseReturnFormPage({
             <CardContent className="p-6 space-y-4">
               <div className="space-y-2">
                 <Label>Supplier <span className="text-red-500">*</span></Label>
-                <Select
-                  value={supplierId}
-                  onValueChange={(val) => {
-                    setSupplierId(val);
-                    setGoodsDeliveryNoteId("");
-                    setLines([{ productId: "", quantity: "1", unitCost: "0", reason: "", notes: "" }]);
-                  }}
-                >
-                  <SelectTrigger className="h-10"><SelectValue placeholder="Select supplier" /></SelectTrigger>
-                  <SelectContent>
-                    {(suppliers as any[]).map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select value={supplierId} onValueChange={supplierChangeHandler}>
+                    <SelectTrigger className="h-10 flex-1"><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                    <SelectContent>
+                      {(suppliers as any[]).map((s) => (
+                        <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <CreateSupplierDialog companyId={companyId} onSuccess={(supplier) => supplierChangeHandler(String(supplier.id))}>
+                    <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                      <Plus className="h-3.5 w-3.5" /> New supplier
+                    </Button>
+                  </CreateSupplierDialog>
+                </div>
               </div>
 
               <div className="space-y-2">

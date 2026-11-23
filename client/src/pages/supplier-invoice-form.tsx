@@ -28,6 +28,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
+import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
+import { QuickCreateProductDialog } from "@/components/products/quick-create-product-dialog";
 
 type InvoiceLine = {
   isFreetext?: boolean;
@@ -66,9 +68,11 @@ export default function SupplierInvoiceFormPage() {
   const [dueDate, setDueDate] = useState("");
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
   const [grvReference, setGrvReference] = useState("");
+  const [referenceGdnId, setReferenceGdnId] = useState<number | null>(null);
   const [currency, setCurrency] = useState("USD");
   const [taxInclusive, setTaxInclusive] = useState(true);
   const [notes, setNotes] = useState("");
+  const [varianceApprovalReason, setVarianceApprovalReason] = useState("");
   
   const [lines, setLines] = useState<InvoiceLine[]>([
     { isFreetext: true, productId: "", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" },
@@ -170,6 +174,8 @@ export default function SupplierInvoiceFormPage() {
       setTaxInclusive(referenceBill.taxInclusive !== false);
       setPurchaseOrderId(referenceBill.purchaseOrderId ? String(referenceBill.purchaseOrderId) : "");
       setGrvReference(referenceBill.grvReference || "");
+      const sourceGdnId = Number((referenceBill as any).referenceGdnId);
+      setReferenceGdnId(Number.isInteger(sourceGdnId) && sourceGdnId > 0 ? sourceGdnId : null);
       setTransactionType(defaultType);
       setReferenceInvoiceId(String(referenceBill.id));
       const label = defaultType === "CreditNote" ? "Credit note" : "Debit note";
@@ -200,6 +206,8 @@ export default function SupplierInvoiceFormPage() {
         setSupplierId(String(grvDetail.supplierId));
       }
       setGrvReference(grvDetail.grvNumber || "");
+      const detailGdnId = Number(grvDetail.id);
+      setReferenceGdnId(Number.isInteger(detailGdnId) && detailGdnId > 0 ? detailGdnId : null);
       setReferenceInvoiceId(grvDetail.id ? String(grvDetail.id) : "");
       setNotes(`Supplier bill created from GRV ${grvDetail.grvNumber}`);
       setTaxInclusive(grvDetail.taxInclusive !== false);
@@ -252,6 +260,21 @@ export default function SupplierInvoiceFormPage() {
     setLines((prev) => prev.filter((_, i) => i !== index));
   const updateLine = (index: number, patch: Partial<InvoiceLine>) =>
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+
+  const supplierChangeHandler = (value: string) => setSupplierId(value);
+  const supplierSelectDisabled = !!grvIdParam || isLinkedNote;
+
+  const handleProductChange = (index: number, value: string, createdProduct?: any) => {
+    const line = lines[index];
+    const product = createdProduct ?? (products as any[]).find((p) => String(p.id) === value);
+    const newCost = String(product?.costPrice || line.unitCost || "0");
+    const rate = Number(line.taxRate || 0);
+    const qty = Number(line.quantity || 0);
+    const cost = Number(newCost);
+    const baseAmt = qty * cost;
+    const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
+    updateLine(index, { productId: value, isFreetext: false, unitCost: newCost, taxAmount: String(taxAmt.toFixed(2)) });
+  };
 
   const subtotal = lines.reduce(
     (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0),
@@ -307,9 +330,11 @@ export default function SupplierInvoiceFormPage() {
           taxInclusive,
           currency,
           purchaseOrderId: purchaseOrderId ? Number(purchaseOrderId) : undefined,
+          referenceGdnId: referenceGdnId || undefined,
           transactionType,
           referenceInvoiceId: referenceInvoiceId ? Number(referenceInvoiceId) : null,
           grvReference: grvReference.trim() || undefined,
+          varianceApprovalReason: varianceApprovalReason.trim() || undefined,
           notes: notes || undefined,
           status: "unpaid",
           items,
@@ -443,14 +468,23 @@ export default function SupplierInvoiceFormPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="space-y-2">
                 <Label>Supplier <span className="text-red-500">*</span></Label>
-                <Select value={supplierId} onValueChange={setSupplierId} disabled={!!grvIdParam || isLinkedNote}>
-                  <SelectTrigger className="h-11 bg-slate-50"><SelectValue placeholder="Select supplier" /></SelectTrigger>
-                  <SelectContent>
-                    {suppliers.map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select value={supplierId} onValueChange={supplierChangeHandler} disabled={supplierSelectDisabled}>
+                    <SelectTrigger className="h-11 flex-1 bg-slate-50"><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                    <SelectContent>
+                      {suppliers.map((s) => (
+                        <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!supplierSelectDisabled && (
+                    <CreateSupplierDialog companyId={companyId} onSuccess={(supplier) => supplierChangeHandler(String(supplier.id))}>
+                      <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                        <Plus className="h-3.5 w-3.5" /> New supplier
+                      </Button>
+                    </CreateSupplierDialog>
+                  )}
+                </div>
                 {isLinkedNote && <p className="text-[11px] text-slate-500">Locked to original bill supplier.</p>}
               </div>
               <div className="space-y-2">
@@ -511,6 +545,17 @@ export default function SupplierInvoiceFormPage() {
               <Label>Notes & Description</Label>
               <Textarea className="bg-slate-50" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What was this bill for?" rows={2} />
             </div>
+            {transactionType === "Invoice" && (
+              <div className="mt-4 space-y-2">
+                <Label>Variance Approval Reason <span className="text-slate-400 font-normal">(only if authorised to override a match variance)</span></Label>
+                <Input
+                  className="h-11 bg-slate-50"
+                  value={varianceApprovalReason}
+                  onChange={(e) => setVarianceApprovalReason(e.target.value)}
+                  placeholder="Leave blank unless approving a price or quantity variance"
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -535,20 +580,21 @@ export default function SupplierInvoiceFormPage() {
                     <div key={index} className="grid grid-cols-12 gap-2 items-start border-t border-slate-50 px-3 py-3">
                       <div className="col-span-4 space-y-1">
                         {!line.isFreetext ? (
-                          <ProductCombobox
-                            value={line.productId}
-                            products={products as any[]}
-                            onChange={(value) => {
-                              const product = (products as any[]).find((p) => String(p.id) === value);
-                              const newCost = String(product?.costPrice || line.unitCost || "0");
-                              const rate = Number(line.taxRate || 0);
-                              const qty = Number(line.quantity || 0);
-                              const cost = Number(newCost);
-                              const baseAmt = qty * cost;
-                              const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
-                              updateLine(index, { productId: value, unitCost: newCost, taxAmount: String(taxAmt.toFixed(2)) });
-                            }}
-                          />
+                          <div className="flex flex-wrap items-center gap-1">
+                            <ProductCombobox
+                              value={line.productId}
+                              products={products as any[]}
+                              onChange={(value) => handleProductChange(index, value)}
+                            />
+                            <QuickCreateProductDialog
+                              companyId={companyId}
+                              onCreated={(product) => handleProductChange(index, String(product.id), product)}
+                            >
+                              <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                                <Plus className="h-3.5 w-3.5" /> New item
+                              </Button>
+                            </QuickCreateProductDialog>
+                          </div>
                         ) : (
                           <div className="flex gap-2">
                             <Input

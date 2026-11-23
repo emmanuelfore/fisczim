@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { downloadExcel } from "@/lib/export-utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -64,6 +64,7 @@ import { Input } from "@/components/ui/input";
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { displayCurrency, formatMoney } from "@shared/currency";
 import { jurisdictionForCountry } from "@shared/statutory/jurisdictions";
+import { currentPayPeriod } from "@shared/payroll-calendar";
 
 // Intl throws on codes it doesn't know (ZWG), so payslips format through the shared table.
 const money = (value: unknown, currency = "USD") => formatMoney(Number(value || 0), displayCurrency(currency));
@@ -95,6 +96,24 @@ export default function HRPayrollRuns() {
     bonuses: {} as Record<number, number>,
   });
 
+  // New runs start from the company's payroll calendar; the user can still edit
+  // the dates/frequency in the dialog for off-cycle or bonus runs.
+  const { data: payrollSettings } = useQuery<any>({
+    queryKey: [`/api/companies/${companyId}/payroll/settings`],
+    enabled: !!companyId,
+  });
+
+  useEffect(() => {
+    if (!isAddModalOpen || !payrollSettings) return;
+    const period = currentPayPeriod(payrollSettings);
+    setFormData((f) => ({
+      ...f,
+      payFrequency: payrollSettings.defaultPayFrequency || f.payFrequency,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+    }));
+  }, [isAddModalOpen, payrollSettings]);
+
   const { data: runs = [] as any[], isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/runs`],
     enabled: !!companyId,
@@ -117,6 +136,8 @@ export default function HRPayrollRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/runs`] });
+      queryClient.invalidateQueries({ queryKey: ["pending-payroll-runs", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-notifications", companyId] });
       setIsAddModalOpen(false);
       toast({ title: "Payroll run created successfully" });
     },
@@ -132,6 +153,8 @@ export default function HRPayrollRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/runs`] });
+      queryClient.invalidateQueries({ queryKey: ["pending-payroll-runs", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-notifications", companyId] });
       toast({ title: "Run Submitted", description: "Payroll run submitted for approval." });
     },
     onError: (error: any) => {
@@ -146,6 +169,8 @@ export default function HRPayrollRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/runs`] });
+      queryClient.invalidateQueries({ queryKey: ["pending-payroll-runs", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-notifications", companyId] });
       toast({ title: "Run Approved", description: "Payroll run approved successfully." });
     },
     onError: (error: any) => {
@@ -160,6 +185,8 @@ export default function HRPayrollRuns() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/runs`] });
+      queryClient.invalidateQueries({ queryKey: ["pending-payroll-runs", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-notifications", companyId] });
       toast({ title: "Run Locked", description: "Payroll run locked and journal draft generated." });
     },
     onError: (error: any) => {
@@ -174,6 +201,8 @@ export default function HRPayrollRuns() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/runs`] });
+      queryClient.invalidateQueries({ queryKey: ["pending-payroll-runs", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-notifications", companyId] });
       toast({ title: "Run Reversed", description: data.message || "Run reversed and reversing journal posted." });
     },
     onError: (error: any) => {

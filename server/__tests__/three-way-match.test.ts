@@ -5,6 +5,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  evaluateThreeWayMatch,
   purchaseOrderGrossTotal,
   threeWayMatchStatus,
 } from "../lib/three-way-match.js";
@@ -101,5 +102,65 @@ describe("threeWayMatchStatus", () => {
 
   test("treats an empty bill as a mismatch rather than a match against a zero total", () => {
     expect(threeWayMatchStatus(poLines, grvQty, grvCost, [])).toBe("QTY_MISMATCH");
+  });
+});
+
+describe("evaluateThreeWayMatch", () => {
+  const matchOptions = { quantityTolerance: 0.01, priceToleranceAbs: 0.01, priceToleranceRate: 0.05 };
+
+  test("detects offsetting line price errors that a totals-only check would miss", () => {
+    const lines = (firstPrice: number, secondPrice: number) => [
+      { productId: 1, quantity: "10", unitCost: String(firstPrice) },
+      { productId: 2, quantity: "10", unitCost: String(secondPrice) },
+    ];
+    const result = evaluateThreeWayMatch({
+      poLines: lines(10, 20),
+      grvLines: lines(10, 20),
+      invoiceLines: lines(20, 10),
+    }, matchOptions);
+    expect(result.poNetTotal).toBe(300);
+    expect(result.grvNetTotal).toBe(300);
+    expect(result.invoiceNetTotal).toBe(300);
+    expect(result.status).toBe("PRICE_VARIANCE");
+  });
+
+  test("accepts a short receipt when the bill matches what was received", () => {
+    const result = evaluateThreeWayMatch({
+      poLines: [{ productId: 1, quantity: "10", unitCost: "100" }],
+      grvLines: [{ productId: 1, quantity: "8", unitCost: "100" }],
+      invoiceLines: [{ productId: 1, quantity: "8", unitCost: "100", totalPrice: "800" }],
+    }, matchOptions);
+    expect(result.status).toBe("MATCHED");
+  });
+
+  test("rejects over-receipt and a bill for more than was received", () => {
+    const over = evaluateThreeWayMatch({
+      poLines: [{ productId: 1, quantity: "10", unitCost: "100" }],
+      grvLines: [{ productId: 1, quantity: "12", unitCost: "100" }],
+      invoiceLines: [{ productId: 1, quantity: "12", unitCost: "100", totalPrice: "1200" }],
+    }, matchOptions);
+    expect(over.status).toBe("QTY_MISMATCH");
+
+    const fullBill = evaluateThreeWayMatch({
+      poLines: [{ productId: 1, quantity: "10", unitCost: "100" }],
+      grvLines: [{ productId: 1, quantity: "8", unitCost: "100" }],
+      invoiceLines: [{ productId: 1, quantity: "10", unitCost: "100", totalPrice: "1000" }],
+    }, matchOptions);
+    expect(fullBill.status).toBe("QTY_MISMATCH");
+  });
+
+  test("normalises tax-inclusive bills against tax-exclusive PO and GRV lines", () => {
+    const result = evaluateThreeWayMatch({
+      poLines: [{ productId: 1, quantity: "10", unitCost: "100", taxAmount: "150" }],
+      poTaxInclusive: false,
+      grvLines: [{ productId: 1, quantity: "10", unitCost: "100", taxAmount: "150" }],
+      grvTaxInclusive: false,
+      invoiceLines: [{ productId: 1, quantity: "10", totalPrice: "1150", taxAmount: "150" }],
+      invoiceTaxInclusive: true,
+    }, matchOptions);
+    expect(result.poNetTotal).toBe(1000);
+    expect(result.grvNetTotal).toBe(1000);
+    expect(result.invoiceNetTotal).toBe(1000);
+    expect(result.status).toBe("MATCHED");
   });
 });

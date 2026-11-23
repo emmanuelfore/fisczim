@@ -126,6 +126,8 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "accounting.fixedassets", label: "Fixed Asset Actions", description: "Dispose assets and run FX revaluation", group: "Finance" },
   { key: "accounting.receipts", label: "Customer Receipts", description: "Record customer receipts", group: "Finance" },
   { key: "accounting.payments", label: "Supplier Payments", description: "Record supplier payments", group: "Finance" },
+  { key: "accounting.bills.post", label: "Post Supplier Bills", description: "Create supplier bills with enforced three-way matching", group: "Finance" },
+  { key: "accounting.bills.waive", label: "Approve Match Variances", description: "Authorise supplier bill posting or payment with a three-way match variance", group: "Finance" },
   { key: "accounting.periods", label: "Financial Periods", description: "Open and close financial periods", group: "Finance" },
 
   // Reports
@@ -208,7 +210,8 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
     "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
     "accounting.budgets", "accounting.fixedassets",
-    "accounting.receipts", "accounting.payments", "accounting.periods",
+    "accounting.receipts", "accounting.payments", "accounting.bills.post",
+    "accounting.bills.waive", "accounting.periods",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     // Users & Roles
@@ -296,7 +299,8 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     // Accounting — can create drafts, approve postings, manage periods & receipts
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
     "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
-    "accounting.receipts", "accounting.payments", "accounting.periods",
+    "accounting.receipts", "accounting.payments", "accounting.bills.post",
+    "accounting.bills.waive", "accounting.periods",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     // Payroll — view only; processing requires payroll.write

@@ -30,11 +30,19 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Loader2, Building2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { Toaster } from "@/components/ui/toaster"; // Ensure Toaster is available in Layout, but good to have imports valid? global Toaster is in App.tsx.
 
-export function CreateCustomerDialog({ companyId }: { companyId: number }) {
+export function CreateCustomerDialog({
+  companyId,
+  onSuccess,
+  children,
+}: {
+  companyId: number;
+  onSuccess?: (customer: any) => void;
+  children?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const createCustomer = useCreateCustomer(companyId);
   const { isLesotho } = useFiscalAuthority();
@@ -62,9 +70,10 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
   const onSubmit = async (data: InsertCustomer) => {
     try {
       const { companyId: _, ...rest } = data;
-      await createCustomer.mutateAsync(rest);
+      const customer = await createCustomer.mutateAsync(rest);
       setOpen(false);
       form.reset();
+      onSuccess?.(customer);
     } catch (error) {
       console.error("Failed to create customer:", error);
     }
@@ -75,10 +84,12 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
-          <Plus className="w-4 h-4" />
-          Add Customer
-        </Button>
+        {children ?? (
+          <Button className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
+            <Plus className="w-4 h-4" />
+            Add Customer
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
         <DialogHeader>

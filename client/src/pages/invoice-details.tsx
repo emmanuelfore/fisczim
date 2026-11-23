@@ -40,6 +40,7 @@ import {
   User,
   Copy,
   AlertCircle,
+  Car,
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { InvoicePDF } from "@/components/invoices/pdf-document";
@@ -1155,6 +1156,71 @@ export default function InvoiceDetailsPage() {
                               </div>
                             </div>
                           </div>
+
+                          {(invoice as any)?.vehicleCosts && (invoice as any).vehicleCosts.length > 0 && (() => {
+                            const inv = invoice as any;
+                            const costs = inv.vehicleCosts.filter((c: any) => c.status !== "cancelled");
+                            const landed = costs.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
+                            const saleRate = Number(inv.exchangeRate || 1) || 1;
+                            const sale = inv.currency === "USD" ? Number(inv.total || 0) : (Number(inv.total || 0) / saleRate);
+                            const profit = sale - landed;
+                            return (
+                              <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                    <Car className="w-3.5 h-3.5 text-blue-600" />
+                                    Vehicle Costing Summary
+                                  </p>
+                                  {inv.vehicle?.id && (
+                                    <Link
+                                      href={`/vehicles/${inv.vehicle.id}`}
+                                      className="text-[11px] text-blue-600 hover:underline font-semibold"
+                                    >
+                                      Stock {inv.vehicle.stockNumber} →
+                                    </Link>
+                                  )}
+                                </div>
+                                {inv.vehicle && (
+                                  <div className="text-xs text-slate-700 pb-1 border-b border-slate-200">
+                                    <span className="font-bold text-slate-900">
+                                      {[inv.vehicle.year, inv.vehicle.make, inv.vehicle.model].filter(Boolean).join(" ")}
+                                    </span>
+                                    {inv.vehicle.vin && (
+                                      <span className="ml-2 font-mono text-[11px] text-slate-500">
+                                        VIN: {inv.vehicle.vin}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="space-y-1.5 text-xs">
+                                  {costs.map((cost: any) => (
+                                    <div key={cost.id} className="flex justify-between text-slate-600">
+                                      <span className="capitalize">
+                                        {(cost.category || "Other").replace(/_/g, " ")}
+                                        {cost.description ? ` (${cost.description})` : ""}
+                                      </span>
+                                      <span className="font-semibold text-slate-800">
+                                        ${Number(cost.baseAmount ?? cost.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="border-t border-slate-200 pt-2 space-y-1 text-xs">
+                                  <div className="flex justify-between font-bold text-slate-800">
+                                    <span>Landed Cost</span>
+                                    <span>${landed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  </div>
+                                  <div className="flex justify-between font-bold text-emerald-600">
+                                    <span>Estimated Margin</span>
+                                    <span>
+                                      ${profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                                      ({sale > 0 ? ((profit / sale) * 100).toFixed(1) : "0.0"}%)
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </TabsContent>
 
                         <TabsContent

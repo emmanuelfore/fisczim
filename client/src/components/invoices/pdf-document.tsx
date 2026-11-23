@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
 });
 
 interface InvoicePDFProps {
-    invoice: any & { expiryDate?: string | Date | null; vehicleCosts?: any[] };
+    invoice: any & { expiryDate?: string | Date | null; vehicleCosts?: any[]; vehicle?: any };
     company: any;
     customer: any;
     qrCodeUrl?: string;
@@ -709,13 +709,24 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                 {invoice.vehicleCosts?.length ? (() => {
                     const costs = invoice.vehicleCosts.filter((c: any) => c.status !== "cancelled");
                     const landed = costs.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
-                    const sale = Number(invoice.total || 0) * Number(invoice.exchangeRate || 1);
+                    const saleRate = Number(invoice.exchangeRate || 1) || 1;
+                    const sale = invoice.currency === "USD" ? Number(invoice.total || 0) : (Number(invoice.total || 0) / saleRate);
                     const profit = sale - landed;
                     return <View style={{ marginTop: 14, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
-                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 5, textTransform: "uppercase" }}>Vehicle costing summary</Text>
-                        {costs.map((cost: any) => <View key={cost.id} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}><Text style={{ color: "#475569" }}>{String(cost.category || "Other").replace(/_/g, " ")}</Text><Text>{formatCurrencyAmount(Number(cost.baseAmount ?? cost.amount ?? 0), invoice.currency || "USD")}</Text></View>)}
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: "uppercase" }}>Vehicle costing summary</Text>
+                        {invoice.vehicle ? (
+                            <Text style={{ fontSize: 7, color: "#64748b", marginBottom: 5 }}>
+                                Vehicle: {[invoice.vehicle.year, invoice.vehicle.make, invoice.vehicle.model].filter(Boolean).join(" ")} (Stock: {invoice.vehicle.stockNumber}{invoice.vehicle.vin ? `, VIN: ${invoice.vehicle.vin}` : ""})
+                            </Text>
+                        ) : null}
+                        {costs.map((cost: any) => <View key={cost.id} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}>
+                            <Text style={{ color: "#475569" }}>
+                                {String(cost.description ? `${(cost.category || "Other").replace(/_/g, " ")} (${cost.description})` : (cost.category || "Other").replace(/_/g, " "))}
+                            </Text>
+                            <Text>{formatCurrencyAmount(Number(cost.baseAmount ?? cost.amount ?? 0), invoice.currency || "USD")}</Text>
+                        </View>)}
                         <View style={{ flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: borderColor, marginTop: 3, paddingTop: 4, fontWeight: 700 }}><Text>Landed cost</Text><Text>{formatCurrencyAmount(landed, invoice.currency || "USD")}</Text></View>
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 3, fontWeight: 700 }}><Text>Estimated margin</Text><Text>{formatCurrencyAmount(profit, invoice.currency || "USD")} ({sale ? ((profit / sale) * 100).toFixed(1) : "0.0"}%)</Text></View>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 3, fontWeight: 700 }}><Text>Estimated margin</Text><Text>{formatCurrencyAmount(profit, invoice.currency || "USD")} ({sale > 0 ? ((profit / sale) * 100).toFixed(1) : "0.0"}%)</Text></View>
                     </View>;
                 })() : null}
 

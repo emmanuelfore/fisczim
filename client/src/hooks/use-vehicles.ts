@@ -205,6 +205,8 @@ export function useAllocateConsignment(companyId: number) {
       qc.invalidateQueries({ queryKey: ["vehicles", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicle", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicles-report", companyId] });
+      qc.invalidateQueries({ queryKey: ["/api/invoices"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
     },
   });
 }
@@ -219,6 +221,8 @@ export function useVehicleAction(companyId: number) {
       qc.invalidateQueries({ queryKey: ["vehicles", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicle", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicles-report", companyId] });
+      qc.invalidateQueries({ queryKey: ["/api/invoices"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
     },
   });
 }

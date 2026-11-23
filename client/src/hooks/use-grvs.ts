@@ -15,7 +15,7 @@ export type GrvListItem = {
   invoiceId?: number | null;
   invoiceNumber?: string | null;
   purchaseOrderId?: number | null;
-  matchingStatus?: "MATCHED" | "QTY_MISMATCH" | "PRICE_VARIANCE" | "PENDING_INVOICE";
+  matchingStatus?: "MATCHED" | "QTY_MISMATCH" | "PRICE_VARIANCE" | "PENDING_INVOICE" | "NO_PO" | "WAIVED";
   landedCostsBreakdown?: { freight: number; duty: number; handling: number };
   serialNumbers?: string[];
   journalEntry?: { id: number; description: string; lines: Array<{ accountCode: string; accountName: string; type: "DEBIT" | "CREDIT"; amount: number }> } | null;
@@ -36,7 +36,7 @@ export type GrvDetail = {
   invoiceId?: number | null;
   invoiceNumber?: string | null;
   purchaseOrderId?: number | null;
-  matchingStatus?: "MATCHED" | "QTY_MISMATCH" | "PRICE_VARIANCE" | "PENDING_INVOICE";
+  matchingStatus?: "MATCHED" | "QTY_MISMATCH" | "PRICE_VARIANCE" | "PENDING_INVOICE" | "NO_PO" | "WAIVED";
   landedCostsBreakdown?: { freight: number; duty: number; handling: number };
   serialNumbers?: string[];
   journalEntry?: { id: number; description: string; lines: Array<{ accountCode: string; accountName: string; type: "DEBIT" | "CREDIT"; amount: number }> } | null;

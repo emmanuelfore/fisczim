@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { Layout } from "@/components/layout";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CreditCard, Receipt, Loader2, Building2, CheckCircle2, Clock, Ban, MoreHorizontal, FileText, Printer } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,6 +45,35 @@ export default function SupplierInvoiceDetailsPage() {
   });
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [waiverReason, setWaiverReason] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const waiveMatch = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(
+        `/api/companies/${companyId}/supplier-invoices/${invoiceId}/match/approve`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: waiverReason }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.message || "Failed to approve variance");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Variance approved", description: "The match waiver has been recorded." });
+      setWaiverReason("");
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/supplier-invoices/${invoiceId}`] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Approval failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const isNote = invoice?.transactionType === "CreditNote" || invoice?.transactionType === "DebitNote";
   const isBill = invoice?.transactionType === "Invoice";
@@ -155,6 +185,81 @@ export default function SupplierInvoiceDetailsPage() {
           )}
         </div>
       </div>
+
+      {invoice.match && (
+        <Card className="rounded-[18px] border-slate-200 shadow-sm mb-6">
+          <CardContent className="p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Three-Way Match</p>
+                <div className="flex items-center gap-2">
+                  <Badge className={
+                    invoice.match.status === "MATCHED"
+                      ? "bg-emerald-100 text-emerald-800 border-none"
+                      : invoice.match.status === "NO_PO"
+                        ? "bg-slate-100 text-slate-600 border-none"
+                        : "bg-amber-100 text-amber-800 border-none"
+                  }>
+                    {invoice.match.status === "MATCHED"
+                      ? "Matched"
+                      : invoice.match.status === "NO_PO"
+                        ? "No Purchase Order"
+                        : invoice.match.status === "WAIVED"
+                          ? "Variance Approved"
+                          : invoice.match.status === "QTY_MISMATCH"
+                            ? "Quantity Variance"
+                            : "Price Variance"}
+                  </Badge>
+                  <span className="text-xs text-slate-500">
+                    {invoice.match.grvNumber ? `GRV ${invoice.match.grvNumber}` : "No linked GRV"}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-6 text-xs">
+                <div>
+                  <p className="text-slate-400">Qty variance</p>
+                  <p className="font-bold text-slate-800">{Number(invoice.match.quantityVariance || 0).toFixed(4)}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Value variance</p>
+                  <p className="font-bold text-slate-800">
+                    {formatCurrency(Number(invoice.match.priceVariance || 0), invoice.currency)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Matched</p>
+                  <p className="font-bold text-slate-800">
+                    {invoice.match.matchedAt ? format(new Date(invoice.match.matchedAt), "dd MMM yyyy HH:mm") : "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {(invoice.match.status === "QTY_MISMATCH" || invoice.match.status === "PRICE_VARIANCE") && (
+              <div className="mt-5 pt-5 border-t border-slate-100 flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[240px]">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Variance approval reason
+                  </label>
+                  <input
+                    value={waiverReason}
+                    onChange={(e) => setWaiverReason(e.target.value)}
+                    placeholder="Explain and authorise this variance"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <Button
+                  onClick={() => waiveMatch.mutate()}
+                  disabled={waiveMatch.isPending || waiverReason.trim().length < 5}
+                  className="rounded-xl font-bold"
+                >
+                  {waiveMatch.isPending ? "Approving..." : "Approve Variance"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 space-y-6">

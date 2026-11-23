@@ -180,6 +180,7 @@ function useSubmit(companyId: number) {
 // ── Details & sale ───────────────────────────────────────────────────────────
 
 function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
+  const { data: company } = useCompany(companyId);
   const { data: customers = [] } = useCustomers(companyId);
   const { data: consignments = [] } = useConsignments(companyId);
   const { data: suppliers = [] } = useSuppliers(companyId);
@@ -647,9 +648,30 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                       <Link href={`/invoices/${v.invoice.id}`} className="flex-1">
                         <Button variant="outline" size="sm" className="w-full"><Eye className="w-3.5 h-3.5 mr-1" />View</Button>
                       </Link>
-                      <Link href={`/invoices/${v.invoice.id}?download=1`} className="flex-1">
-                        <Button size="sm" className="w-full"><Download className="w-3.5 h-3.5 mr-1" />Download</Button>
-                      </Link>
+                      {company ? (
+                        <PDFDownloadLink
+                          document={
+                            <InvoicePDF
+                              invoice={{ ...v.invoice, vehicleCosts: v.costs, vehicle: v }}
+                              company={company}
+                              customer={v.customer}
+                            />
+                          }
+                          fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}
+                          className="flex-1"
+                        >
+                          {({ loading }) => (
+                            <Button size="sm" className="w-full" disabled={loading}>
+                              <Download className="w-3.5 h-3.5 mr-1" />
+                              {loading ? "Preparing…" : "Download"}
+                            </Button>
+                          )}
+                        </PDFDownloadLink>
+                      ) : (
+                        <Link href={`/invoices/${v.invoice.id}?download=1`} className="flex-1">
+                          <Button size="sm" className="w-full"><Download className="w-3.5 h-3.5 mr-1" />Download</Button>
+                        </Link>
+                      )}
                     </div>
                     <p className="text-[11px] text-slate-400">Posted to Accounts Receivable. Open the invoice to email or WhatsApp it to the customer.</p>
                     <div className="border-t pt-2 space-y-1.5">

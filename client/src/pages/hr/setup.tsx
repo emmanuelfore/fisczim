@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Settings2, Calculator, Briefcase, DollarSign, MinusCircle, Scale } from "lucide-react";
+import { Settings2, Calculator, Briefcase, DollarSign, MinusCircle, Scale, CalendarDays } from "lucide-react";
 import { HRLayout } from "./layout";
 import { cn } from "@/lib/utils";
+import { PayrollCalendarTab } from "./calendar-setup";
 import { TaxTablesTab } from "./tax-setup";
 import { PayGradesTab } from "./pay-grades";
 import { IncomesTab } from "./incomes-setup";
@@ -9,6 +10,7 @@ import { DeductionsTab } from "./deductions-setup";
 import { StatutoryTab } from "./statutory-setup";
 
 const TABS = [
+  { id: "calendar", label: "Payroll Calendar", description: "Pay frequency, pay day and cut-off dates", icon: CalendarDays },
   { id: "taxes", label: "Tax Tables", description: "PAYE brackets, NSSA limits, AIDS levy", icon: Calculator },
   { id: "pay-grades", label: "Pay Grades", description: "Salary bands and structures", icon: Briefcase },
   { id: "incomes", label: "Earnings", description: "Earning types and income categories", icon: DollarSign },
@@ -19,7 +21,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 export default function HRSetup() {
-  const [tab, setTab] = useState<TabId>("taxes");
+  const [tab, setTab] = useState<TabId>("calendar");
 
   return (
     <HRLayout>
@@ -30,8 +32,8 @@ export default function HRSetup() {
             Payroll Settings
           </h1>
           <p className="text-muted-foreground mt-1">
-            One place to configure everything the payroll engine uses: tax tables, pay grades,
-            earnings, deductions, and statutory rates.
+            One place to configure everything the payroll engine uses: pay dates and frequency,
+            tax tables, pay grades, earnings, deductions, and statutory rates.
           </p>
         </div>
 
@@ -59,6 +61,7 @@ export default function HRSetup() {
         </div>
 
         <div key={tab} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+          {tab === "calendar" && <PayrollCalendarTab />}
           {tab === "taxes" && <TaxTablesTab />}
           {tab === "pay-grades" && <PayGradesTab />}
           {tab === "incomes" && <IncomesTab />}

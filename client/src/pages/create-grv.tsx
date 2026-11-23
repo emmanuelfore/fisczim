@@ -17,6 +17,9 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
+import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
+import { CreateCustomerDialog } from "@/components/customers/create-customer-dialog";
+import { QuickCreateProductDialog } from "@/components/products/quick-create-product-dialog";
 
 export default function CreateGrv() {
   const { activeCompanyId } = useActiveCompany();
@@ -92,6 +95,34 @@ export default function CreateGrv() {
     const updated = [...lines];
     updated[index] = { ...updated[index], [field]: value };
     setLines(updated);
+  };
+
+  const handleProductChange = (index: number, value: string, createdProduct?: any) => {
+    const product = createdProduct ?? (products || []).find((p: any) => String(p.id) === value);
+    const newCost = Number(product?.costPrice || lines[index].unitCost || 0);
+    const rate = Number(lines[index].taxRate || 0);
+    const qty = Number(lines[index].quantity || 0);
+    const baseAmt = qty * newCost;
+    const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
+
+    const updated = [...lines];
+    updated[index] = {
+      ...updated[index],
+      productId: Number(value),
+      unitCost: newCost,
+      taxAmount: taxAmt.toFixed(2),
+    };
+    setLines(updated);
+  };
+
+  const supplierChangeHandler = (value: string) => {
+    setSupplierId(value);
+    setCustomerId("");
+  };
+
+  const customerChangeHandler = (value: string) => {
+    setCustomerId(value);
+    setSupplierId("");
   };
 
   const addLine = (type: "stock" | "expense") => {
@@ -269,31 +300,45 @@ export default function CreateGrv() {
                   </div>
                 </div>
                 {sourceType === "supplier" ? (
-                  <Select value={supplierId} onValueChange={setSupplierId}>
-                    <SelectTrigger className="bg-slate-50">
-                      <SelectValue placeholder="Select Supplier" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(suppliers || []).map((s: any) => (
-                        <SelectItem key={s.id} value={s.id.toString()}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Select value={supplierId} onValueChange={supplierChangeHandler}>
+                      <SelectTrigger className="flex-1 bg-slate-50">
+                        <SelectValue placeholder="Select Supplier" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(suppliers || []).map((s: any) => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <CreateSupplierDialog companyId={companyId} onSuccess={(supplier) => supplierChangeHandler(String(supplier.id))}>
+                      <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                        <Plus className="h-3.5 w-3.5" /> New supplier
+                      </Button>
+                    </CreateSupplierDialog>
+                  </div>
                 ) : (
-                  <Select value={customerId} onValueChange={setCustomerId}>
-                    <SelectTrigger className="bg-slate-50">
-                      <SelectValue placeholder="Select Customer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(customers || []).map((c: any) => (
-                        <SelectItem key={c.id} value={c.id.toString()}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Select value={customerId} onValueChange={customerChangeHandler}>
+                      <SelectTrigger className="flex-1 bg-slate-50">
+                        <SelectValue placeholder="Select Customer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(customers || []).map((c: any) => (
+                          <SelectItem key={c.id} value={c.id.toString()}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <CreateCustomerDialog companyId={companyId} onSuccess={(customer) => customerChangeHandler(String(customer.id))}>
+                      <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                        <Plus className="h-3.5 w-3.5" /> New customer
+                      </Button>
+                    </CreateCustomerDialog>
+                  </div>
                 )}
               </div>
               <div className="space-y-2">
@@ -347,25 +392,17 @@ export default function CreateGrv() {
                               <ProductCombobox
                                 value={line.productId?.toString() || ""}
                                 products={products || []}
-                                onChange={(val) => {
-                                  const product = (products || []).find((p: any) => String(p.id) === val);
-                                  const newCost = Number(product?.costPrice || line.unitCost || 0);
-                                  const rate = Number(line.taxRate || 0);
-                                  const qty = Number(line.quantity || 0);
-                                  const baseAmt = qty * newCost;
-                                  const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
-                                  
-                                  const updated = [...lines];
-                                  updated[idx] = { 
-                                    ...updated[idx], 
-                                    productId: Number(val), 
-                                    unitCost: newCost, 
-                                    taxAmount: taxAmt.toFixed(2) 
-                                  };
-                                  setLines(updated);
-                                }}
+                                onChange={(val) => handleProductChange(idx, val)}
                                 className="flex-1"
                               />
+                              <QuickCreateProductDialog
+                                companyId={companyId}
+                                onCreated={(product) => handleProductChange(idx, String(product.id), product)}
+                              >
+                                <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs whitespace-nowrap">
+                                  <Plus className="h-3.5 w-3.5" /> New item
+                                </Button>
+                              </QuickCreateProductDialog>
                               {(products || []).find((p: any) => String(p.id) === String(line.productId))?.serialTrackingEnabled && (
                                 <Button 
                                   variant="outline" 

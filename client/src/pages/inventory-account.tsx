@@ -105,6 +105,7 @@ function ConfirmGdnModal({
       landedCosts,
       allocationMethod,
       items: items.map(item => ({
+        lineId: item.id,
         productId: item.productId,
         quantity: item.quantityReceived,
         unitCost: item.unitCost,
@@ -411,6 +412,8 @@ export default function InventoryAccountPage() {
                           className={
                             grv.matchingStatus === "MATCHED"
                               ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-bold text-[10px]"
+                              : grv.matchingStatus === "WAIVED"
+                              ? "bg-blue-100 text-blue-800 hover:bg-blue-100 border-none font-bold text-[10px]"
                               : grv.matchingStatus === "QTY_MISMATCH"
                               ? "bg-rose-100 text-rose-800 hover:bg-rose-100 border-none font-bold text-[10px]"
                               : grv.matchingStatus === "PRICE_VARIANCE"
@@ -420,6 +423,8 @@ export default function InventoryAccountPage() {
                         >
                           {grv.matchingStatus === "MATCHED"
                             ? "3-Way Matched"
+                            : grv.matchingStatus === "WAIVED"
+                            ? "Variance Approved"
                             : grv.matchingStatus === "QTY_MISMATCH"
                             ? "Qty Mismatch"
                             : grv.matchingStatus === "PRICE_VARIANCE"

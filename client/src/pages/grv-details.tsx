@@ -33,6 +33,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { ProductCombobox } from "@/components/ui/product-combobox";
+import { QuickCreateProductDialog } from "@/components/products/quick-create-product-dialog";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 
 
@@ -109,6 +110,24 @@ export default function GrvDetailsPage() {
     setEditableLines(updated);
   };
 
+  const handleProductChange = (index: number, value: string, createdProduct?: any) => {
+    const product = createdProduct ?? (products as any[]).find((p: any) => String(p.id) === value);
+    const updated = [...editableLines];
+    const line = { ...updated[index], productId: Number(value) };
+    if (createdProduct && product) {
+      const cost = Number(product.costPrice || 0);
+      const rate = Number(product.taxRate || 0);
+      const qty = Number(line.quantity || 0);
+      const baseAmt = qty * cost;
+      const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
+      line.unitCost = cost;
+      line.taxRate = rate;
+      line.taxAmount = Number(taxAmt.toFixed(2));
+    }
+    updated[index] = line;
+    setEditableLines(updated);
+  };
+
   const addLine = (type: "stock" | "expense") => {
     setEditableLines([...editableLines, { 
       id: `new-${Date.now()}`,
@@ -149,7 +168,8 @@ export default function GrvDetailsPage() {
     confirmGdn.mutate({
       gdnId: Number(grv.id),
       items: editableLines.map(l => ({ 
-        productId: l.productId, 
+        lineId: l.id,
+        productId: l.productId,
         accountCode: l.accountCode,
         description: l.description,
         quantity: l.quantity, 
@@ -234,22 +254,28 @@ export default function GrvDetailsPage() {
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         totalAmount: invoiceTotal.toFixed(2),
         taxAmount: invoiceTaxAmount.toFixed(2),
+        taxInclusive,
         currency,
         notes: `Created from GRV ${grv.grvNumber}`,
         status: "unpaid",
         grvReference: grv.grvNumber,
         referenceGdnId: Number.isFinite(Number(grv.id)) ? Number(grv.id) : null,
         purchaseOrderId: grv.purchaseOrderId ?? undefined,
-        items: invoiceLinePreview.map((line) => ({
-          productId: line.productId,
-          accountCode: line.accountCode,
-          quantity: line.quantity.toString(),
-          description: line.productName,
-          unitPrice: (line.subtotal / Number(line.quantity || 1)).toFixed(2),
-          totalPrice: line.subtotal.toFixed(2),
-          taxRate: line.taxRate.toFixed(2),
-          taxAmount: line.taxAmount.toFixed(2),
-        })),
+        items: invoiceLinePreview.map((line) => {
+          // Line prices must match the document's tax basis: gross when tax-inclusive,
+          // net otherwise. The matcher normalises both sides to net before comparing.
+          const lineTotal = taxInclusive ? line.total : line.subtotal;
+          return {
+            productId: line.productId,
+            accountCode: line.accountCode,
+            quantity: line.quantity.toString(),
+            description: line.productName,
+            unitPrice: (lineTotal / Number(line.quantity || 1)).toFixed(2),
+            totalPrice: lineTotal.toFixed(2),
+            taxRate: line.taxRate.toFixed(2),
+            taxAmount: line.taxAmount.toFixed(2),
+          };
+        }),
       };
       const res = await apiRequest(
         "POST",
@@ -648,12 +674,22 @@ export default function GrvDetailsPage() {
                         <tr key={line.id} className="border-t border-slate-50">
                           <td className="p-3 font-semibold text-slate-800">
                             {line.isNew ? (
-                              <ProductCombobox
-                                value={line.productId?.toString() || ""}
-                                products={products || []}
-                                onChange={(val) => handleLineChange(idx, "productId", Number(val))}
-                                className="min-w-[200px]"
-                              />
+                              <div className="flex flex-wrap items-center gap-1">
+                                <ProductCombobox
+                                  value={line.productId?.toString() || ""}
+                                  products={products || []}
+                                  onChange={(val) => handleProductChange(idx, val)}
+                                  className="min-w-[200px]"
+                                />
+                                <QuickCreateProductDialog
+                                  companyId={companyId}
+                                  onCreated={(product) => handleProductChange(idx, String(product.id), product)}
+                                >
+                                  <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                                    <Plus className="h-3.5 w-3.5" /> New item
+                                  </Button>
+                                </QuickCreateProductDialog>
+                              </div>
                             ) : (
                               line.productName
                             )}

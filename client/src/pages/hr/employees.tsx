@@ -71,6 +71,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { jurisdictionForCountry } from "@shared/statutory/jurisdictions";
 import { nextStaffNumber } from "@shared/staff-file";
+import { PAY_FREQUENCIES } from "@shared/payroll-calendar";
 
 export default function HREmployees() {
   const { user } = useAuth();
@@ -139,6 +140,7 @@ export default function HREmployees() {
     currency: "USD",
     usdPercentage: "100",
     zigPercentage: "0",
+    payFrequency: "MONTHLY",
     payGradeId: "" as string | number,
   });
 
@@ -221,6 +223,7 @@ export default function HREmployees() {
         currency: contractData.currency || "USD",
         usdPercentage: cleanText(contractData.usdPercentage) ?? "100",
         zigPercentage: cleanText(contractData.zigPercentage) ?? "0",
+        payFrequency: contractData.payFrequency || "MONTHLY",
         payGradeId: contractData.payGradeId === "" || contractData.payGradeId === "none" || contractData.payGradeId === undefined
           ? undefined
           : Number(contractData.payGradeId),
@@ -307,6 +310,7 @@ export default function HREmployees() {
         currency: data.currency || "USD",
         usdPercentage: data.usdPercentage ?? "100",
         zigPercentage: data.zigPercentage ?? "0",
+        payFrequency: data.payFrequency || "MONTHLY",
         payGradeId: data.payGradeId === "" || data.payGradeId === "none" || data.payGradeId === undefined
           ? null
           : Number(data.payGradeId),
@@ -589,6 +593,7 @@ export default function HREmployees() {
           currency: contract.currency || "USD",
           usdPercentage: contract.usdPercentage ? String(contract.usdPercentage) : "100",
           zigPercentage: contract.zigPercentage ? String(contract.zigPercentage) : "0",
+          payFrequency: contract.payFrequency || "MONTHLY",
           payGradeId: contract.payGradeId || "",
         });
       }
@@ -609,7 +614,7 @@ export default function HREmployees() {
       setContractData({
         contractType: "PERMANENT", startDate: new Date().toISOString().slice(0, 10), endDate: "",
         probationEndDate: "",
-        baseSalary: "0", currency: "USD", usdPercentage: "100", zigPercentage: "0", payGradeId: "",
+        baseSalary: "0", currency: "USD", usdPercentage: "100", zigPercentage: "0", payFrequency: "MONTHLY", payGradeId: "",
       });
     }
     setIsEmployeeModalOpen(true);
@@ -1034,6 +1039,27 @@ export default function HREmployees() {
                   <Label>Base Salary</Label>
                   <Input type="number" step="0.01" required value={contractData.baseSalary} onChange={(e) => setContractData({...contractData, baseSalary: e.target.value})} />
                 </div>
+                <div className="space-y-2">
+                  <Label>Pay Frequency</Label>
+                  <Select
+                    value={contractData.payFrequency || "MONTHLY"}
+                    onValueChange={(v) => setContractData({...contractData, payFrequency: v})}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select pay frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAY_FREQUENCIES.map((freq) => (
+                        <SelectItem key={freq} value={freq}>
+                          {freq.charAt(0) + freq.slice(1).toLowerCase()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Pay Grade</Label>
                   <Select

@@ -1,1 +1,0 @@
-import{j as l}from"./vendor-DGnf-lJo.js";import{_ as m}from"./index-CVk_DIMv.js";function i({title:s,subtitle:e,actions:r,className:a}){return r?l.jsx("div",{className:m("mb-4 flex w-full flex-col items-stretch justify-end gap-2 sm:flex-row sm:flex-wrap sm:items-center",a),"aria-label":`${s}${e?` - ${e}`:""} actions`,children:r}):null}export{i as P};

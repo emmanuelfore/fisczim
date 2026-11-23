@@ -1,8 +1,10 @@
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { currencyLabel } from "@shared/currency";
 import { Layout } from "@/components/layout";
-import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
-import { useProducts, useCreateProduct } from "@/hooks/use-products";
+import { useCustomers } from "@/hooks/use-customers";
+import { useProducts } from "@/hooks/use-products";
+import { CreateCustomerDialog } from "@/components/customers/create-customer-dialog";
+import { QuickCreateProductDialog } from "@/components/products/quick-create-product-dialog";
 import {
   useCreateQuotation,
   useQuotation,
@@ -181,8 +183,14 @@ export default function CreateQuotationPage() {
     );
   };
 
-  const handleProductSelect = (localId: string, productId: string) => {
-    const product = products?.find((p) => p.id === parseInt(productId));
+  const handleProductSelect = (
+    localId: string,
+    productId: string,
+    createdProduct?: any,
+  ) => {
+    const product =
+      createdProduct ??
+      products?.find((p) => String(p.id) === productId);
     if (product) {
       setItems((prev) =>
         prev.map((item) => {
@@ -471,18 +479,30 @@ export default function CreateQuotationPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer</Label>
-                <Select value={customerId} onValueChange={setCustomerId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers?.map((c) => (
-                      <SelectItem key={c.id} value={c.id.toString()}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Select value={customerId} onValueChange={setCustomerId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Customer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customers?.map((c) => (
+                          <SelectItem key={c.id} value={c.id.toString()}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <CreateCustomerDialog
+                    companyId={companyId}
+                    onSuccess={(customer) => setCustomerId(String(customer.id))}
+                  >
+                    <Button type="button" variant="ghost" size="sm" className="h-9 gap-1 px-2 text-xs">
+                      <Plus className="h-3.5 w-3.5" /> New customer
+                    </Button>
+                  </CreateCustomerDialog>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Currency</Label>
@@ -536,63 +556,88 @@ export default function CreateQuotationPage() {
                 {items.map((item, index) => (
                   <TableRow key={item.localId}>
                     <TableCell className="max-w-[200px]">
-                      <Popover>
-                        <PopoverTrigger asChild>
+                      <div className="flex items-center gap-1">
+                        <div className="min-w-0 flex-1">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                className={cn(
+                                  "w-full justify-between h-9 px-3 font-medium text-[13px]",
+                                  !item.productId && "text-muted-foreground",
+                                )}
+                              >
+                                <span className="truncate block w-full text-left">
+                                  {item.productId
+                                    ? products?.find((p) => p.id === item.productId)
+                                        ?.name || "Select Product"
+                                    : "Select Product"}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[300px] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="Search products..." />
+                                <CommandList>
+                                  <CommandEmpty>No product found.</CommandEmpty>
+                                  <CommandGroup>
+                                    {products?.map((product) => (
+                                      <CommandItem
+                                        key={product.id}
+                                        value={product.name}
+                                        onSelect={() =>
+                                          handleProductSelect(
+                                            item.localId,
+                                            product.id.toString(),
+                                          )
+                                        }
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            item.productId === product.id
+                                              ? "opacity-100"
+                                              : "opacity-0",
+                                          )}
+                                        />
+                                        <div className="flex flex-col">
+                                          <span>{product.name}</span>
+                                          <span className="text-xs text-muted-foreground">
+                                            ${Number(product.price).toFixed(2)}
+                                          </span>
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <QuickCreateProductDialog
+                          companyId={companyId}
+                          onCreated={(product) =>
+                            handleProductSelect(
+                              item.localId,
+                              String(product.id),
+                              product,
+                            )
+                          }
+                        >
                           <Button
-                            variant="outline"
-                            role="combobox"
-                            className={cn(
-                              "w-full justify-between h-9 px-3 font-medium text-[13px]",
-                              !item.productId && "text-muted-foreground",
-                            )}
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 shrink-0"
+                            title="New item"
+                            aria-label="New item"
                           >
-                            <span className="truncate block w-full text-left">
-                              {item.productId
-                                ? products?.find((p) => p.id === item.productId)
-                                    ?.name || "Select Product"
-                                : "Select Product"}
-                            </span>
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            <Plus className="h-4 w-4" />
                           </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[300px] p-0" align="start">
-                          <Command>
-                            <CommandInput placeholder="Search products..." />
-                            <CommandList>
-                              <CommandEmpty>No product found.</CommandEmpty>
-                              <CommandGroup>
-                                {products?.map((product) => (
-                                  <CommandItem
-                                    key={product.id}
-                                    value={product.name}
-                                    onSelect={() =>
-                                      handleProductSelect(
-                                        item.localId,
-                                        product.id.toString(),
-                                      )
-                                    }
-                                  >
-                                    <Check
-                                      className={cn(
-                                        "mr-2 h-4 w-4",
-                                        item.productId === product.id
-                                          ? "opacity-100"
-                                          : "opacity-0",
-                                      )}
-                                    />
-                                    <div className="flex flex-col">
-                                      <span>{product.name}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        ${Number(product.price).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
+                        </QuickCreateProductDialog>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Input

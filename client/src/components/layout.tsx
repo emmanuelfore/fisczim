@@ -113,6 +113,7 @@ type NavItem = {
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { usePermissions, usePendingApprovalsCount } from "@/hooks/use-permissions";
+import { usePayrollNotifications, usePendingPayrollRuns } from "@/hooks/use-payroll-notifications";
 import { isHrOnly } from "@/lib/product-scope";
 
 function filterNavItems(items: NavItem[], canAccessPath: (href: string) => boolean): NavItem[] {
@@ -700,7 +701,11 @@ export function Layout({
     (x: any) => Number(x?.stockLevel || 0) <= Number(x?.lowStockThreshold || 0),
   ).length;
 
-  const totalNotifications = pendingGdnCount + lowStockCount;
+  const { data: pendingPayrollRuns } = usePendingPayrollRuns();
+  const { items: payrollNotifications, unreadCount: payrollUnreadCount, markAllRead: markAllPayrollRead } = usePayrollNotifications();
+  const payrollCount = Number(pendingPayrollRuns?.count || 0);
+
+  const totalNotifications = pendingGdnCount + lowStockCount + payrollCount;
 
   useEffect(() => {
     if (isCashier) return;
@@ -2224,6 +2229,31 @@ export function Layout({
                       </div>
                     </DropdownMenuItem>
                   ) : null}
+                  {payrollCount > 0 ? (
+                    <DropdownMenuItem
+                      onClick={() => setLocation("/hr/payroll")}
+                      className="p-3 rounded-xl cursor-pointer focus:bg-blue-50 mb-1"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                          <CalendarClock className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-black text-slate-900">
+                            {payrollCount} {payrollCount === 1 ? "pending payroll run" : "pending payroll runs"}
+                          </p>
+                          <p className="text-[11px] font-semibold text-slate-500">
+                            {t("Review and finish the open payroll runs.")}
+                          </p>
+                          {payrollNotifications.slice(0, 2).map((n) => (
+                            <p key={n.id} className="mt-1 text-[11px] text-slate-500 truncate">
+                              · {n.title} ({n.periodStart} – {n.periodEnd})
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ) : null}
                   {!isCashier && lowStockCount > 0 ? (
                     <DropdownMenuItem
                       onClick={() => setLocation("/reports/stock-alerts")}
@@ -2248,16 +2278,30 @@ export function Layout({
                         </div>
                       </div>
                     </DropdownMenuItem>
-                  ) : (
+                  ) : payrollCount > 0 ? null : (
                     <div className="p-5 text-center">
                       <p className=" font-black text-slate-700">
                         {t("No active alerts")}
                       </p>
                       <p className="text-[11px] font-semibold text-slate-500 mt-1">
                         {t(
-                          "Pending GDNs and other system alerts will appear here.",
+                          "Pending payroll runs, GDNs and other system alerts will appear here.",
                         )}
                       </p>
+                    </div>
+                  )}
+                  {payrollUnreadCount > 0 && (
+                    <div className="px-3 py-2 border-t border-slate-100 mt-1 flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-slate-500">
+                        {payrollUnreadCount} unread payroll alert{payrollUnreadCount === 1 ? "" : "s"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => markAllPayrollRead.mutate()}
+                        className="text-[11px] font-bold text-blue-600 hover:underline"
+                      >
+                        Mark all read
+                      </button>
                     </div>
                   )}
                 </DropdownMenuContent>

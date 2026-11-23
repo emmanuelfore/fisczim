@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { displayCurrency, formatMoney } from "@shared/currency";
 import { documentTypeLabel } from "@shared/staff-file";
+import { usePendingPayrollRuns } from "@/hooks/use-payroll-notifications";
 
 const RUN_STATUS: Record<string, { label: string; className: string }> = {
   DRAFT: { label: "Draft", className: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
@@ -61,6 +62,8 @@ export default function HRDashboard() {
   });
 
   const [closePeriod, setClosePeriod] = useState(currentPeriod);
+
+  const { data: pendingRuns, isLoading: pendingRunsLoading } = usePendingPayrollRuns();
 
   const {
     data: checklist,
@@ -160,6 +163,57 @@ export default function HRDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card className="border-blue-200 bg-blue-50/40 shadow-sm dark:border-blue-900/50 dark:bg-blue-900/10">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2 flex-wrap">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <CalendarClock className="h-4 w-4 text-blue-500" />
+                  Pending payroll runs
+                  {(pendingRuns?.count ?? 0) > 0 && (
+                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                      {pendingRuns?.count}
+                    </Badge>
+                  )}
+                </CardTitle>
+                <Link href="/hr/payroll" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
+                  Open Payroll →
+                </Link>
+              </CardHeader>
+              <CardContent>
+                {pendingRunsLoading ? (
+                  <LoadingRows rows={3} />
+                ) : !pendingRuns?.runs?.length ? (
+                  <p className="py-2 text-sm text-slate-500">
+                    No pending runs. The next pay period is {pendingRuns?.currentPeriod?.periodStart} – {pendingRuns?.currentPeriod?.periodEnd}, due {pendingRuns?.currentPeriod?.dueDate}.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {pendingRuns.runs.map((run) => (
+                      <Link
+                        key={run.id}
+                        href={`/hr/payroll?run=${run.id}`}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:border-blue-300 dark:border-slate-700 dark:bg-slate-900/60"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-800 dark:text-slate-100">
+                            {run.periodStart} – {run.periodEnd}
+                            <span className="ml-2 text-xs font-normal text-slate-500">
+                              {String(run.payFrequency).toLowerCase()}
+                            </span>
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Pay date {run.dueDate} · alerts from {run.reminderDate}
+                          </p>
+                        </div>
+                        <Badge className={RUN_STATUS[run.status]?.className || "bg-slate-100 text-slate-700"}>
+                          {RUN_STATUS[run.status]?.label || run.status.replace("_", " ")}
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="pb-2">

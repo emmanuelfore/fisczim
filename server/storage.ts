@@ -48,7 +48,7 @@ import {
   type FinancialPeriod, type InsertFinancialPeriod,
   type BankStatement, type InsertBankStatement,
   type BankStatementLine, type InsertBankStatementLine,
-  supplierInvoices, supplierInvoiceItems, supplierPayments,
+  supplierInvoices, supplierInvoiceItems, supplierBillMatches, supplierPayments,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierInvoiceItem, type InsertSupplierInvoiceItem,
   type SupplierPayment, type InsertSupplierPayment,
@@ -69,7 +69,8 @@ import {
   payrollElements, payrollCalculationAudits,
   type PayrollElement, type InsertPayrollElement,
   type PayrollCalculationAudit, type InsertPayrollCalculationAudit,
-  jobLogs, type JobLog, type InsertJobLog
+  jobLogs, type JobLog, type InsertJobLog,
+  vehicles, vehicleCosts
 } from "../shared/schema.js";
 import { baseCurrencyOf, defaultCurrencySeeds } from "../shared/currency.js";
 import { addToBucket, daysOverdue, emptyAgingAmounts, legacyAgingFields, resolveDueDate, type AgingAmounts } from "../shared/aging.js";
@@ -234,8 +235,8 @@ export interface IStorage {
   getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number, customerId?: string): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }>;
   getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]>;
   getInvoiceByNumber(companyId: number, invoiceNumber: string): Promise<Invoice | undefined>;
-  getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
-  getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
+  getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined>;
+  getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined>;
   createInvoice(invoice: CreateInvoiceRequest, tx?: any): Promise<Invoice>;
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
@@ -353,7 +354,7 @@ export interface IStorage {
   // Quotations
   getQuotations(companyId: number): Promise<Quotation[]>;
   getQuotation(id: number): Promise<(Quotation & { items: QuotationItem[]; customer?: Customer }) | undefined>;
-  getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
+  getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined>;
   createQuotation(data: InsertQuotation & { items: InsertQuotationItem[] }): Promise<Quotation>;
 
   updateQuotation(id: number, data: Partial<InsertQuotation> & { items?: InsertQuotationItem[] }): Promise<Quotation>;
@@ -434,7 +435,7 @@ export interface IStorage {
   getSupplier(id: number): Promise<Supplier | undefined>;
   createSupplier(data: InsertSupplier & { companyId: number }): Promise<Supplier>;
   updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined>;
-  createSupplierInvoice(data: InsertSupplierInvoice & { items: InsertSupplierInvoiceItem[], createdBy?: string }): Promise<SupplierInvoice>;
+  createSupplierInvoice(data: InsertSupplierInvoice & { items: Array<Omit<InsertSupplierInvoiceItem, "supplierInvoiceId">>, createdBy?: string, onAfterInsert?: (tx: any, invoiceId: number) => Promise<void> }): Promise<SupplierInvoice>;
   createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment>;
   getSupplierInvoices(companyId: number): Promise<any[]>;
   getSupplierPayments(companyId: number): Promise<any[]>;
@@ -1650,11 +1651,27 @@ export class DatabaseStorage implements IStorage {
     return { data, total, pages };
   }
 
-  async getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined> {
+  async getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined> {
     const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
     if (!invoice) return undefined;
 
     const [customer] = await db.select().from(customers).where(eq(customers.id, invoice.customerId));
+
+    // Fetch linked vehicle and vehicle costs if this invoice is for a vehicle sale
+    const [linkedVehicle] = await db
+      .select()
+      .from(vehicles)
+      .where(eq(vehicles.invoiceId, id))
+      .limit(1);
+
+    let vehicleCostsRows: any[] = [];
+    if (linkedVehicle) {
+      vehicleCostsRows = await db
+        .select()
+        .from(vehicleCosts)
+        .where(and(eq(vehicleCosts.vehicleId, linkedVehicle.id), ne(vehicleCosts.status, "cancelled")))
+        .orderBy(asc(vehicleCosts.costDate), asc(vehicleCosts.id));
+    }
 
     // Fetch related invoice details if this is a credit/debit note
     // ZIMRA Fields [26], [27], [28]
@@ -1709,11 +1726,13 @@ export class DatabaseStorage implements IStorage {
       relatedInvoiceDate,
       relatedFiscalCode,
       relatedReceiptGlobalNo,
-      relatedReceiptCounter
+      relatedReceiptCounter,
+      vehicle: linkedVehicle || undefined,
+      vehicleCosts: vehicleCostsRows.length ? vehicleCostsRows : undefined,
     };
   }
 
-  async getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined> {
+  async getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined> {
     return this.getInvoice(id);
   }
 
@@ -6071,20 +6090,33 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(products, eq(supplierInvoiceItems.productId, products.id))
       .where(eq(supplierInvoiceItems.supplierInvoiceId, id));
 
-    // Load linked GDN if present
+    // Load linked GDN if present. Company scope is mandatory even for legacy rows.
     let gdn = null;
     if (row.invoice.referenceGdnId) {
       const [gdnRow] = await db
         .select()
         .from(goodsDeliveryNotes)
-        .where(eq(goodsDeliveryNotes.id, row.invoice.referenceGdnId!));
+        .where(and(
+          eq(goodsDeliveryNotes.id, row.invoice.referenceGdnId!),
+          eq(goodsDeliveryNotes.companyId, companyId),
+        ));
       gdn = gdnRow || null;
     }
+
+    const [matchRow] = await db
+      .select()
+      .from(supplierBillMatches)
+      .where(and(
+        eq(supplierBillMatches.companyId, companyId),
+        eq(supplierBillMatches.supplierInvoiceId, id),
+      ))
+      .limit(1);
 
     return {
       ...row.invoice,
       supplier: row.supplier,
       gdn,
+      match: matchRow || null,
       items: itemRows.map(i => ({ ...i.item, product: i.product })),
     };
   }
@@ -6106,9 +6138,9 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async createSupplierInvoice(data: InsertSupplierInvoice & { items: InsertSupplierInvoiceItem[], createdBy?: string }): Promise<SupplierInvoice> {
+  async createSupplierInvoice(data: InsertSupplierInvoice & { items: Array<Omit<InsertSupplierInvoiceItem, "supplierInvoiceId">>, createdBy?: string, onAfterInsert?: (tx: any, invoiceId: number) => Promise<void> }): Promise<SupplierInvoice> {
     return await db.transaction(async (tx) => {
-      const { items, createdBy, ...invoiceData } = data;
+      const { items, createdBy, onAfterInsert, ...invoiceData } = data;
       const invoiceTotal = Number(invoiceData.totalAmount || 0);
       const invoiceTax = Number(invoiceData.taxAmount || 0);
       const transactionType = (invoiceData as any).transactionType || "Invoice";
@@ -6174,6 +6206,10 @@ export class DatabaseStorage implements IStorage {
           supplierInvoiceId: invoice.id
         }));
         await tx.insert(supplierInvoiceItems).values(itemsToInsert);
+      }
+
+      if (onAfterInsert) {
+        await onAfterInsert(tx, invoice.id);
       }
 
       const vatInputAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "vatInputAccountCode", tx);

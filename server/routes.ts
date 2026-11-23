@@ -175,9 +175,20 @@ import {
   insertPurchaseReturnItemSchema,
   fiscalizationJobs,
   recurringInvoices,
+  supplierBillMatches,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
-import { purchaseOrderGrossTotal, threeWayMatchStatus } from "./lib/three-way-match.js";
+import {
+  assertNewSupplierInvoiceNumber,
+  assertNoOpenReceivingDocument,
+  assertPurchaseOrderAvailable,
+  assertPurchaseOrderEditable,
+  assertReceiptWithinPurchaseOrder,
+  getPersistedSupplierBillMatch,
+  persistSupplierBillMatch,
+  resolveSupplierBillMatch,
+} from "./lib/supplier-bill-match.js";
+import { threeWayMatchStatus } from "./lib/three-way-match.js";
 import { baseCurrencyOf } from "@shared/currency";
 import { resolveProductScope } from "@shared/product-scope";
 
@@ -863,6 +874,34 @@ export async function registerRoutes(
   const requireOwner = createRequireOwner(storage);
 
   const requireAuthOrApiKey = createRequireAuthOrApiKey(storage);
+
+  // Accounting writes are interactive-only and require an explicit permission. API keys
+  // may read reconciliations but must never post bills, receipts or GL entries.
+  const assertAccountingAccess = async (
+    req: any,
+    res: any,
+    companyId: number,
+    permission: string,
+  ): Promise<boolean> => {
+    const user = req.user as any;
+    if (user?.isApiKey) {
+      res.status(403).json({ message: "API keys cannot post accounting documents." });
+      return false;
+    }
+    if (!user?.id) {
+      res.status(401).json({ message: "Authentication required" });
+      return false;
+    }
+    if (!(await checkCompanyAccess(storage, user, companyId))) {
+      res.status(403).json({ message: "Access denied" });
+      return false;
+    }
+    if (!(await userHasPermission(user.id, companyId, permission, !!user.isSuperAdmin))) {
+      res.status(403).json({ message: `You do not have permission for this accounting action (${permission}).` });
+      return false;
+    }
+    return true;
+  };
 
   const apiLogger = async (req: any, res: any, next: any) => {
     const startTime = Date.now();
@@ -7472,6 +7511,7 @@ export async function registerRoutes(
       if (order.status === "CANCELLED") {
         return res.status(409).json({ message: "Cancelled purchase orders cannot be received." });
       }
+      await assertPurchaseOrderAvailable(db, order.companyId, id);
 
       const [existing] = await db
         .select()
@@ -7499,6 +7539,7 @@ export async function registerRoutes(
       if (!orderItems.length) {
         return res.status(400).json({ message: "Purchase order has no items to receive." });
       }
+      await assertReceiptWithinPurchaseOrder(db, order.companyId, id, orderItems);
 
       const result = await db.transaction(async (tx) => {
         const [gdn] = await tx.insert(goodsDeliveryNotes).values({
@@ -7597,6 +7638,7 @@ export async function registerRoutes(
       if (!["DRAFT", "SENT"].includes(existing.status)) {
         return res.status(409).json({ message: `Cannot edit a ${existing.status} purchase order.` });
       }
+      await assertPurchaseOrderEditable(db, existing.companyId, id);
 
       const updated = await db.transaction(async (tx) => {
         const [po] = await tx.update(purchaseOrders).set({
@@ -8180,6 +8222,8 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/supplier-invoices", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
+      if (!(await assertAccountingAccess(req, res, companyId, "accounting.bills.post"))) return;
+
       const body = {
         ...req.body,
         date: req.body.date ? new Date(req.body.date) : undefined,
@@ -8191,68 +8235,108 @@ export async function registerRoutes(
         ),
       };
       await assertOpenAccountingPeriod(companyId, body.date || new Date(), "Supplier bill posting");
+
       const input = insertSupplierInvoiceSchema.parse({
         ...body,
         companyId,
         purchaseOrderId: body.purchaseOrderId ? Number(body.purchaseOrderId) : null,
+        referenceGdnId: body.referenceGdnId ? Number(body.referenceGdnId) : null,
         grvReference: body.grvReference || null,
       });
 
-      if (input.purchaseOrderId) {
-        // A bill may only match a purchase order this company issued. When the reference
-        // did not resolve, the tolerance and GRV checks used to be skipped silently — a
-        // bad purchaseOrderId now fails closed instead of booking an unchecked bill.
-        const [po] = await db
-          .select()
-          .from(purchaseOrders)
-          .where(and(eq(purchaseOrders.id, input.purchaseOrderId), eq(purchaseOrders.companyId, companyId)));
-        if (!po) return res.status(400).json({ message: `Purchase order #${input.purchaseOrderId} does not belong to this company.` });
+      const rawItems = z.array(z.object({
+        productId: z.coerce.number().int().positive().optional().nullable(),
+        description: z.string().optional().nullable(),
+        accountCode: z.string().optional().nullable(),
+        quantity: z.coerce.number().finite().positive(),
+        unitPrice: z.coerce.number().finite().nonnegative().optional(),
+        unitCost: z.coerce.number().finite().nonnegative().optional(),
+        totalPrice: z.coerce.number().finite().nonnegative().optional(),
+        taxRate: z.coerce.number().finite().nonnegative().optional(),
+        taxAmount: z.coerce.number().finite().nonnegative().optional(),
+        taxTypeId: z.coerce.number().int().positive().optional().nullable(),
+        isRecoverable: z.boolean().optional(),
+      })).min(1).parse(req.body.items || []);
 
-        // purchase_orders carries no total column — the authorised amount comes from its
-        // lines, compared gross against the bill's gross total.
-        const poLines = await db
-          .select({
-            quantity: purchaseOrderItems.quantity,
-            unitCost: purchaseOrderItems.unitCost,
-            taxAmount: purchaseOrderItems.taxAmount,
-          })
-          .from(purchaseOrderItems)
-          .where(eq(purchaseOrderItems.purchaseOrderId, po.id));
-
-        const poTotal = purchaseOrderGrossTotal(po, poLines);
-        const invTotal = Number(input.totalAmount || 0);
-
-        if (invTotal > poTotal * 1.05) {
-          return res.status(400).json({ message: `Three-Way Match Failed: Invoice total (${invTotal.toFixed(2)}) exceeds Purchase Order total (${poTotal.toFixed(2)}) by more than the 5% allowed tolerance.` });
-        }
-
-        const grvs = await db
-          .select()
-          .from(goodsDeliveryNotes)
-          .where(and(eq(goodsDeliveryNotes.purchaseOrderId, po.id), eq(goodsDeliveryNotes.status, "CONFIRMED")));
-        if (grvs.length === 0) {
-          return res.status(400).json({ message: `Three-Way Match Failed: No confirmed Goods Received Voucher (GRV) found for Purchase Order #${po.poNumber}.` });
-        }
-      }
-      
-      const invoice = await storage.createSupplierInvoice({
-        ...input,
-        companyId,
-        items: (req.body.items || []).map((item: any) => ({
-          ...item,
+      const items = rawItems.map((item) => {
+        const unitPrice = item.unitPrice ?? item.unitCost ?? 0;
+        return {
+          productId: item.productId ?? null,
           description: item.description || "Supplier bill line",
-          taxTypeId: item.taxTypeId ? Number(item.taxTypeId) : undefined,
-          taxRate: item.taxRate ? String(item.taxRate) : "0.00",
-          taxAmount: item.taxAmount ? String(item.taxAmount) : "0.00",
-          isRecoverable: item.isRecoverable !== undefined ? Boolean(item.isRecoverable) : true,
           accountCode: item.accountCode || undefined,
-          productId: item.productId ? Number(item.productId) : undefined,
-          quantity: item.quantity !== undefined ? String(item.quantity) : "1",
-          unitPrice: item.unitPrice !== undefined ? String(item.unitPrice) : (item.unitCost !== undefined ? String(item.unitCost) : "0.00"),
-          totalPrice: item.totalPrice !== undefined ? String(item.totalPrice) : "0.00",
-        })),
-        createdBy: (req.user as any)?.id
+          quantity: String(item.quantity),
+          unitPrice: String(unitPrice),
+          totalPrice: String(item.totalPrice ?? item.quantity * unitPrice),
+          taxRate: String(item.taxRate ?? 0),
+          taxAmount: String(item.taxAmount ?? 0),
+          taxTypeId: item.taxTypeId ?? undefined,
+          isRecoverable: item.isRecoverable !== false,
+        };
       });
+
+      const transactionType = String((input as any).transactionType || "Invoice");
+      await assertNewSupplierInvoiceNumber(db, companyId, String(input.invoiceNumber || ""), transactionType);
+
+      // Credit/debit notes inherit PO and GRV references from their source bill, but they
+      // are not receipts. Matching a partial credit note against the original PO/GRV
+      // would incorrectly block it, so enforcement applies to supplier invoices only.
+      let resolved: Awaited<ReturnType<typeof resolveSupplierBillMatch>> | null = null;
+      let matchApproval: { reason: string; approvedBy: string | null } | null = null;
+      let invoiceData: Record<string, unknown> = { ...input, companyId };
+      const varianceReason = typeof req.body?.varianceApprovalReason === "string"
+        ? req.body.varianceApprovalReason.trim()
+        : "";
+
+      if (transactionType === "Invoice") {
+        resolved = await resolveSupplierBillMatch(db, companyId, {
+          purchaseOrderId: input.purchaseOrderId ?? null,
+          referenceGdnId: input.referenceGdnId ?? null,
+          grvReference: input.grvReference ?? null,
+          supplierId: Number(input.supplierId),
+          currency: String(input.currency || "USD"),
+          taxInclusive: Boolean(input.taxInclusive),
+          items,
+        });
+
+        if (resolved.status === "QTY_MISMATCH" || resolved.status === "PRICE_VARIANCE") {
+          const varianceType = resolved.status === "QTY_MISMATCH" ? "quantity variance" : "price variance";
+          if (!varianceReason) {
+            throw new Error(
+              `Three-Way Match Failed: ${varianceType} ` +
+              `${resolved.detail.quantityVariance.toFixed(4)} qty / ${resolved.detail.priceVariance.toFixed(2)} value. ` +
+              `A variance approval is required before this bill can be posted.`,
+            );
+          }
+          if (varianceReason.length < 5) {
+            throw new Error("The variance approval reason must be at least 5 characters.");
+          }
+          if (!(await assertAccountingAccess(req, res, companyId, "accounting.bills.waive"))) return;
+          matchApproval = { reason: varianceReason, approvedBy: (req.user as any)?.id || null };
+        }
+
+        // A free-text GRV reference is not sufficient for GRNI clearing. Persist the
+        // verified GDN id so the bill debits the same GRNI account the receipt credited.
+        invoiceData = {
+          ...invoiceData,
+          referenceGdnId: resolved.goodsDeliveryNoteId,
+          grvReference: resolved.grvNumber,
+        };
+      }
+
+      const matchResult = resolved;
+      const matchApprovalForPersist = matchApproval;
+      const invoice = await storage.createSupplierInvoice({
+        ...invoiceData,
+        items,
+        createdBy: (req.user as any)?.id,
+        ...(matchResult
+          ? {
+              onAfterInsert: async (tx: any, invoiceId: number) => {
+                await persistSupplierBillMatch(tx, companyId, invoiceId, matchResult, (req.user as any)?.id, matchApprovalForPersist);
+              },
+            }
+          : {}),
+      } as any);
       res.status(201).json(invoice);
     } catch (err: any) {
       console.error("Create Supplier Invoice Error:", err);
@@ -8260,11 +8344,71 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/companies/:companyId/supplier-invoices/:id/match/approve", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const invoiceId = Number(req.params.id);
+      if (!(await assertAccountingAccess(req, res, companyId, "accounting.bills.waive"))) return;
+
+      const reason = z.string().trim().min(5, "A variance reason of at least 5 characters is required.")
+        .parse(req.body?.reason);
+      const [matchRow] = await db
+        .select()
+        .from(supplierBillMatches)
+        .where(and(
+          eq(supplierBillMatches.companyId, companyId),
+          eq(supplierBillMatches.supplierInvoiceId, invoiceId),
+        ))
+        .limit(1);
+      if (!matchRow) return res.status(404).json({ message: "No three-way match result exists for this bill." });
+      if (matchRow.status === "MATCHED" || matchRow.status === "NO_PO") {
+        return res.status(409).json({ message: "This bill does not have a blocking match variance." });
+      }
+
+      const now = new Date();
+      const [updated] = await db
+        .update(supplierBillMatches)
+        .set({
+          status: "WAIVED",
+          approvalStatus: "APPROVED",
+          waiverReason: reason,
+          approvedBy: (req.user as any)?.id || null,
+          approvedAt: now,
+          updatedAt: now,
+          snapshot: {
+            ...(matchRow.snapshot || {}),
+            originalStatus: matchRow.status,
+            originalApprovalStatus: matchRow.approvalStatus,
+            waiverReason: reason,
+          },
+        })
+        .where(and(
+          eq(supplierBillMatches.companyId, companyId),
+          eq(supplierBillMatches.supplierInvoiceId, invoiceId),
+        ))
+        .returning();
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Approve Supplier Bill Match Variance Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.post("/api/companies/:companyId/supplier-payments", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
+      if (!(await assertAccountingAccess(req, res, companyId, "accounting.payments"))) return;
       const input = insertSupplierPaymentSchema.parse(req.body);
       await assertOpenAccountingPeriod(companyId, input.paymentDate || new Date(), "Supplier payment posting");
+
+      if (input.supplierInvoiceId) {
+        const matchRow = await getPersistedSupplierBillMatch(db, companyId, Number(input.supplierInvoiceId));
+        if (matchRow && (matchRow.status === "QTY_MISMATCH" || matchRow.status === "PRICE_VARIANCE")) {
+          return res.status(400).json({
+            message: "Three-Way Match Failed: this bill has an unresolved quantity or price variance. Approve the variance before payment.",
+          });
+        }
+      }
       
       const payment = await storage.createSupplierPayment({
         ...input,
@@ -8774,6 +8918,25 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Add at least one item to the GDN." });
       }
 
+      if (purchaseOrderId) {
+        const poId = Number(purchaseOrderId);
+        await assertNoOpenReceivingDocument(db, companyId, poId);
+        await assertPurchaseOrderAvailable(db, companyId, poId);
+        const [po] = await db
+          .select({ supplierId: purchaseOrders.supplierId })
+          .from(purchaseOrders)
+          .where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.companyId, companyId)))
+          .limit(1);
+        if (!supplierId || Number(supplierId) !== Number(po?.supplierId)) {
+          return res.status(400).json({ message: "The GDN supplier must match the purchase order supplier." });
+        }
+        await assertReceiptWithinPurchaseOrder(db, companyId, poId, items.map((raw: any) => ({
+          productId: raw.productId ? Number(raw.productId) : null,
+          description: raw.description || raw.productName || null,
+          quantity: Number(raw.quantity ?? raw.quantityReceived ?? 0),
+        })));
+      }
+
       const result = await db.transaction(async (tx) => {
         const [gdn] = await tx.insert(goodsDeliveryNotes).values({
           companyId,
@@ -8842,86 +9005,209 @@ export async function registerRoutes(
       if (!gdn) return res.status(404).json({ message: "GDN not found." });
       if (gdn.status !== "DRAFT") return res.status(409).json({ message: "This GDN has already been processed." });
 
+      const grvNumberInput = typeof grvNumber === "string" ? grvNumber.trim() : "";
+      if (grvNumberInput) {
+        const [duplicateGrv] = await db
+          .select({ id: goodsDeliveryNotes.id })
+          .from(goodsDeliveryNotes)
+          .where(and(
+            eq(goodsDeliveryNotes.companyId, companyId),
+            eq(goodsDeliveryNotes.confirmedGrvNumber, grvNumberInput),
+            ne(goodsDeliveryNotes.id, gdnId),
+          ))
+          .limit(1);
+        if (duplicateGrv) throw new Error(`GRV number ${grvNumberInput} is already used by another receiving document.`);
+      }
 
+      type DraftLine = {
+        id: number;
+        productId: number | null;
+        description: string | null;
+        accountCode: string | null;
+        remaining: number;
+      };
 
-      const stockItems = items.map((raw: any) => {
-        const productId = raw.productId ? Number(raw.productId) : null;
-        const accountCode = raw.accountCode || null;
-        const description = raw.description || null;
-        const quantity = Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived);
-        const unitCost = Number(raw.unitCost);
-        const landedCost = raw.landedCost === undefined ? 0 : Number(raw.landedCost);
-        const taxTypeId = raw.taxTypeId ? Number(raw.taxTypeId) : null;
-        const taxRate = Number(raw.taxRate || 0);
-        const taxAmount = Number(raw.taxAmount || 0);
-        const isRecoverable = raw.isRecoverable !== false;
-        
-        if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
-        if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("Each confirmation line needs a valid unit cost.");
-        return { productId, accountCode, description, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0, taxTypeId, taxRate, taxAmount, isRecoverable, serialNumbers: Array.isArray(raw.serialNumbers) ? raw.serialNumbers : [] };
-      });
+      const draftKey = (
+        productId: number | string | null | undefined,
+        description: string | null | undefined,
+      ) => {
+        if (productId !== null && productId !== undefined && String(productId) !== "") {
+          return `product:${productId}`;
+        }
+        return `description:${String(description ?? "").trim().toLowerCase()}`;
+      };
 
       const { recordBatchStockIn } = await import("./lib/inventory.js");
-      const result = await recordBatchStockIn(
-        companyId,
-        stockItems,
-        gdn.supplierId || undefined,
-        notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`,
-        landedCosts ? Number(landedCosts) : 0,
-        allocationMethod || "value",
-        typeof grvNumber === "string" && grvNumber.trim() ? grvNumber : undefined,
-        (req.user as any)?.id,
-        gdn.purchaseOrderId || undefined,
-        gdn.id,
-        undefined
-      );
+      const result = await db.transaction(async (tx) => {
+        const draftRows = await tx
+          .select()
+          .from(goodsDeliveryNoteItems)
+          .where(eq(goodsDeliveryNoteItems.gdnId, gdnId));
 
-      await db.transaction(async (tx) => {
-        for (const item of stockItems) {
-          if (item.productId) {
-            await tx
-              .update(goodsDeliveryNoteItems)
-              .set({
-                unitCost: item.unitCost.toString(),
-                quantityAccepted: item.quantity.toString(),
-                quantityRejected: "0",
-                taxTypeId: item.taxTypeId,
-                taxRate: item.taxRate.toString(),
-                taxAmount: item.taxAmount.toString(),
-                isRecoverable: item.isRecoverable
-              })
-              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
-          } else {
-            await tx
-              .update(goodsDeliveryNoteItems)
-              .set({
-                unitCost: item.unitCost.toString(),
-                quantityAccepted: item.quantity.toString(),
-                quantityRejected: "0",
-                taxTypeId: item.taxTypeId,
-                taxRate: item.taxRate.toString(),
-                taxAmount: item.taxAmount.toString(),
-                isRecoverable: item.isRecoverable
-              })
-              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), sql`${goodsDeliveryNoteItems.productId} IS NULL`, eq(goodsDeliveryNoteItems.description, item.description || "")));
+        const draftRowsById = new Map<number, DraftLine>();
+        const draftRowsByKey = new Map<string, DraftLine[]>();
+        const registerDraftRow = (row: any): DraftLine => {
+          const draftLine: DraftLine = {
+            id: row.id,
+            productId: row.productId ?? null,
+            description: row.description ?? null,
+            accountCode: row.accountCode ?? null,
+            remaining: Number(row.quantityReceived || 0),
+          };
+          draftRowsById.set(draftLine.id, draftLine);
+          const key = draftKey(draftLine.productId, draftLine.description);
+          const list = draftRowsByKey.get(key) || [];
+          list.push(draftLine);
+          draftRowsByKey.set(key, list);
+          return draftLine;
+        };
+        for (const row of draftRows) registerDraftRow(row);
+
+        let poLines: any[] = [];
+        if (gdn.purchaseOrderId) {
+          await assertPurchaseOrderAvailable(tx, companyId, gdn.purchaseOrderId);
+          poLines = await tx
+            .select()
+            .from(purchaseOrderItems)
+            .where(eq(purchaseOrderItems.purchaseOrderId, gdn.purchaseOrderId));
+        }
+
+        const stockItems: any[] = [];
+        for (const raw of items) {
+          const rawLineId = Number(raw.lineId ?? raw.id ?? raw.itemId);
+          const hasLineId = Number.isInteger(rawLineId) && rawLineId > 0;
+          let draftLine = hasLineId ? draftRowsById.get(rawLineId) : undefined;
+          if (hasLineId && !draftLine) {
+            throw new Error(`Confirmation line #${rawLineId} is not on this receiving document.`);
           }
+
+          let productId = raw.productId ? Number(raw.productId) : null;
+          let accountCode = raw.accountCode || null;
+          let description = raw.description || raw.productName || null;
+          const quantity = Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived);
+          const unitCost = Number(raw.unitCost);
+          const landedCost = raw.landedCost === undefined ? 0 : Number(raw.landedCost);
+          const taxTypeId = raw.taxTypeId ? Number(raw.taxTypeId) : null;
+          const taxRate = Number(raw.taxRate || 0);
+          const taxAmount = Number(raw.taxAmount || 0);
+          const isRecoverable = raw.isRecoverable !== false;
+
+          if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
+          if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("Each confirmation line needs a valid unit cost.");
+
+          if (!draftLine) {
+            draftLine = (draftRowsByKey.get(draftKey(productId, description)) || [])
+              .find((row) => row.remaining + 0.01 >= quantity);
+          }
+
+          // Once a draft row is identified, its identity is authoritative. This
+          // prevents a relabelled description or product from posting against
+          // the wrong receiving line.
+          if (draftLine) {
+            productId = draftLine.productId;
+            accountCode = draftLine.accountCode;
+            description = draftLine.description;
+            if (draftLine.remaining + 0.01 < quantity) {
+              throw new Error(`Confirmation quantity for line #${draftLine.id} exceeds the received quantity.`);
+            }
+          } else {
+            // The GRV editor allows adding a line to a draft document before
+            // posting. Persist it in the same transaction so the stock posting
+            // and the receiving document stay in sync.
+            const [inserted] = await tx
+              .insert(goodsDeliveryNoteItems)
+              .values({
+                gdnId,
+                productId,
+                accountCode,
+                description,
+                quantityReceived: quantity.toString(),
+                unitCost: unitCost.toString(),
+                taxTypeId,
+                taxRate: taxRate.toString(),
+                taxAmount: taxAmount.toString(),
+                isRecoverable,
+                notes: raw.notes || null,
+              })
+              .returning();
+            draftLine = registerDraftRow(inserted);
+          }
+          draftLine.remaining -= quantity;
+
+          if (gdn.purchaseOrderId) {
+            const key = draftKey(productId, description);
+            const matchingPoLines = poLines.filter((row: any) => draftKey(row.productId, row.description) === key);
+            if (!matchingPoLines.length) throw new Error(`Received line ${key} is not on the purchase order.`);
+            const costWithinTolerance = matchingPoLines.some((poLine: any) => {
+              const poCost = Number(poLine.unitCost || 0);
+              return Math.abs(unitCost - poCost) <= Math.max(0.01, poCost * 0.05);
+            });
+            if (!costWithinTolerance) {
+              throw new Error(`Receipt unit cost for ${key} varies from the purchase order by more than 5%.`);
+            }
+          }
+
+          stockItems.push({
+            draftLineId: draftLine.id,
+            productId,
+            accountCode,
+            description,
+            quantity,
+            unitCost,
+            landedCost: Number.isFinite(landedCost) ? landedCost : 0,
+            taxTypeId,
+            taxRate,
+            taxAmount,
+            isRecoverable,
+            serialNumbers: Array.isArray(raw.serialNumbers) ? raw.serialNumbers : [],
+          });
+        }
+
+        await assertReceiptWithinPurchaseOrder(tx, companyId, gdn.purchaseOrderId, stockItems);
+
+        const stockResult = await recordBatchStockIn(
+          companyId,
+          stockItems,
+          gdn.supplierId || undefined,
+          notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`,
+          landedCosts ? Number(landedCosts) : 0,
+          allocationMethod || "value",
+          grvNumberInput || undefined,
+          userId,
+          gdn.purchaseOrderId || undefined,
+          gdn.id,
+          undefined,
+          tx,
+        );
+
+        for (const item of stockItems) {
+          await tx
+            .update(goodsDeliveryNoteItems)
+            .set({
+              unitCost: item.unitCost.toString(),
+              quantityAccepted: item.quantity.toString(),
+              quantityRejected: "0",
+              taxTypeId: item.taxTypeId,
+              taxRate: item.taxRate.toString(),
+              taxAmount: item.taxAmount.toString(),
+              isRecoverable: item.isRecoverable,
+            })
+            .where(and(
+              eq(goodsDeliveryNoteItems.id, item.draftLineId),
+              eq(goodsDeliveryNoteItems.gdnId, gdnId),
+            ));
         }
         await tx
           .update(goodsDeliveryNotes)
           .set({
             status: "CONFIRMED",
-            confirmedBy: (req.user as any)?.id || null,
-            confirmedGrvNumber: result.grvNumber,
+            confirmedBy: userId || null,
+            confirmedGrvNumber: stockResult.grvNumber,
             confirmedAt: new Date(),
           })
           .where(eq(goodsDeliveryNotes.id, gdnId));
 
-        if (gdn.purchaseOrderId) {
-          await tx
-            .update(purchaseOrders)
-            .set({ status: "RECEIVED", updatedAt: new Date() })
-            .where(eq(purchaseOrders.id, gdn.purchaseOrderId));
-        }
+        return stockResult;
       });
 
       res.status(200).json({ message: "GDN confirmed and stock posted", ...result });
@@ -9817,7 +10103,17 @@ export async function registerRoutes(
       invoiceItemsMap.get(item.supplierInvoiceId)!.push(item);
     }
 
-    // Helper for matching status
+    const persistedMatches = await db
+      .select()
+      .from(supplierBillMatches)
+      .where(eq(supplierBillMatches.companyId, companyId));
+    const persistedMatchByInvoice = new Map<number, any>();
+    for (const match of persistedMatches) {
+      persistedMatchByInvoice.set(match.supplierInvoiceId, match);
+    }
+
+    // Helper for matching status. New bills use the persisted, line-level result; older
+    // bills without a persisted row still use the legacy aggregate helper.
     function getMatchingStatus(
       purchaseOrderId: number | null,
       invoiceId: number | null,
@@ -9825,6 +10121,8 @@ export async function registerRoutes(
       grvCost: number
     ) {
       if (!invoiceId) return "PENDING_INVOICE";
+      const persisted = persistedMatchByInvoice.get(invoiceId);
+      if (persisted) return persisted.status;
       const invLines = invoiceItemsMap.get(invoiceId) || [];
       if (!purchaseOrderId) return threeWayMatchStatus(null, grvQty, grvCost, invLines);
       return threeWayMatchStatus(poItemsMap.get(purchaseOrderId) || [], grvQty, grvCost, invLines);
@@ -10014,6 +10312,9 @@ export async function registerRoutes(
         item.totalQuantity,
         item.totalCost
       );
+      item.matchingApprovalStatus = item.invoiceId
+        ? (persistedMatchByInvoice.get(item.invoiceId)?.approvalStatus || "NOT_REQUIRED")
+        : "NOT_REQUIRED";
     }
 
     const gdnRows = await db
@@ -10195,6 +10496,9 @@ export async function registerRoutes(
           const poLines = gdn.purchaseOrderId
             ? await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, gdn.purchaseOrderId))
             : null;
+          const persistedMatch = linkedBill
+            ? await getPersistedSupplierBillMatch(db, companyId, linkedBill.id)
+            : null;
 
           return res.json({
             id: String(gdn.id),
@@ -10209,7 +10513,8 @@ export async function registerRoutes(
             invoiceId: linkedBill ? linkedBill.id : null,
             invoiceNumber: linkedBill ? linkedBill.invoiceNumber : null,
             purchaseOrderId: gdn.purchaseOrderId || null,
-            matchingStatus: threeWayMatchStatus(poLines, totalQuantity, totalCost, linkedBill ? invLines : null),
+            matchingStatus: persistedMatch?.status || threeWayMatchStatus(poLines, totalQuantity, totalCost, linkedBill ? invLines : null),
+            matchingApprovalStatus: persistedMatch?.approvalStatus || "NOT_REQUIRED",
             totalQuantity,
             totalCost,
             lines,
@@ -10320,7 +10625,8 @@ export async function registerRoutes(
     // Fetch PO items & Invoice items for match status
     const poLines = purchaseOrderId ? await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId)) : null;
     const invLines = invoiceId ? await db.select().from(supplierInvoiceItems).where(eq(supplierInvoiceItems.supplierInvoiceId, invoiceId)) : null;
-    const matchingStatus = threeWayMatchStatus(poLines, totalQuantity, totalCost, invLines);
+    const persistedMatch = invoiceId ? await getPersistedSupplierBillMatch(db, companyId, invoiceId) : null;
+    const matchingStatus = persistedMatch?.status || threeWayMatchStatus(poLines, totalQuantity, totalCost, invLines);
 
     // Landed cost components
     const costComps = txIds.length > 0 ? await db
@@ -10392,6 +10698,7 @@ export async function registerRoutes(
       invoiceNumber: matchingInvoice ? matchingInvoice.invoiceNumber : null,
       purchaseOrderId,
       matchingStatus,
+      matchingApprovalStatus: persistedMatch?.approvalStatus || "NOT_REQUIRED",
       landedCostsBreakdown,
       serialNumbers,
       journalEntry,
@@ -15671,7 +15978,7 @@ export async function registerRoutes(
         })
         .from(cashbookEntries)
         .leftJoin(accounts, eq(cashbookEntries.bankAccountId, accounts.id))
-        .where(eq(cashbookEntries.companyId, companyId))
+        .where(and(...entryFilters))
         .orderBy(desc(cashbookEntries.entryDate));
       res.json(rows.map((row: any) => ({ ...row.entry, bankAccountCode: row.bankAccountCode, bankAccountName: row.bankAccountName })));
     } catch (err: any) {
@@ -15781,11 +16088,7 @@ export async function registerRoutes(
           .from(ledgerEntries)
           .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
           .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
-          .where(and(
-            eq(journalEntries.companyId, companyId),
-            eq(ledgerEntries.branchId, branchId),
-            lte(journalEntries.entryDate, throughEndOfDay(asOfDate))
-          ))
+          .where(and(...tbFilters))
           .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.category)
           .orderBy(accounts.code);
         tb = rows.map((row: any) => ({

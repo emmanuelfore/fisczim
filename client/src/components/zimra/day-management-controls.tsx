@@ -8,6 +8,7 @@ import {
   Download,
   Loader2,
   AlertTriangle,
+  Mail,
 } from "lucide-react";
 import { PDFDownloadLink, pdf } from "@react-pdf/renderer";
 import { FiscalReportPDF } from "@/components/reports/fiscal-report-pdf";
@@ -24,6 +25,25 @@ import {
 
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+
+const ZIMRA_CLOSE_DAY_SUPPORT_EMAIL = "SCOfdmssupport@zimra.co.zw";
+
+function buildCloseDaySupportHref(
+  company: any,
+  fiscalDayNo: string | number,
+): string {
+  const companyName = company?.name || company?.id || "Company";
+  const subject = `Close Day Request - Fiscal Day ${fiscalDayNo} - ${companyName}`;
+  const lines = [
+    "Dear ZIMRA Support,",
+    "",
+    `Please close the fiscal day for ${companyName}, fiscal day ${fiscalDayNo}, device ${company?.fdmsDeviceId || "N/A"}.`,
+    "",
+    "Thank you.",
+  ];
+
+  return `mailto:${ZIMRA_CLOSE_DAY_SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
+}
 
 interface DayManagementControlsProps {
   company: any;
@@ -69,6 +89,10 @@ export function DayManagementControls({
     zimraStatusQuery.data?.lastFiscalDayNo ||
     company.currentFiscalDayNo ||
     "N/A";
+
+  const showCloseDaySupport =
+    fa.isZimbabwe && (isClosurePending || !!errorRecovery?.message);
+  const closeDaySupportHref = buildCloseDaySupportHref(company, fiscalDayNo);
 
   // Close Day Mutation
   const closeDayMutation = useMutation({
@@ -234,6 +258,24 @@ export function DayManagementControls({
               Open Fiscal Day
             </Button>
           )}
+
+          {showCloseDaySupport && (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className={
+                !isLight
+                  ? "bg-white/10 text-white border-white/20 hover:bg-white/20 h-9"
+                  : "h-9"
+              }
+            >
+              <a href={closeDaySupportHref}>
+                <Mail className="w-4 h-4 mr-2" />
+                Email ZIMRA
+              </a>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -274,6 +316,13 @@ export function DayManagementControls({
               )}
             </div>
 
+            {showCloseDaySupport && (
+              <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-xs text-blue-900">
+                If the day remains in <strong>FiscalDayCloseFailed</strong>, email
+                ZIMRA support with the prefilled close-day request below.
+              </div>
+            )}
+
             <div className="space-y-2">
               <h4 className=" font-semibold text-slate-900">
                 Suggested Recovery Actions:
@@ -298,6 +347,14 @@ export function DayManagementControls({
             <Button variant="outline" onClick={() => setShowErrorDialog(false)}>
               Dismiss
             </Button>
+            {showCloseDaySupport && (
+              <Button asChild variant="outline">
+                <a href={closeDaySupportHref}>
+                  <Mail className="w-4 h-4 mr-2" />
+                  Email ZIMRA Support
+                </a>
+              </Button>
+            )}
             <Button
               variant="default"
               onClick={() => {

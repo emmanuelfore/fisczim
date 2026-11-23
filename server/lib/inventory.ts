@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts, productSerialNumbers, productVariations, productBatches } from "@shared/schema";
+import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, purchaseOrders, goodsDeliveryNotes, accounts, productSerialNumbers, productVariations, productBatches } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { createCostLayer, consumeInventory, recalculateBranchAVCO, type CostComponentType } from "./costing";
 import { adjustLocationStock, resolveReceivingLocation } from "./location-stock";
@@ -8,6 +8,45 @@ export function generateGrvReference() {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
     const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
     return `GRV-${stamp}-${suffix}`;
+}
+
+async function applyPurchaseOrderReceipt(
+    tx: any,
+    purchaseOrderId: number,
+    productId: number | null,
+    description: string | null,
+    quantity: number,
+) {
+    if (!Number.isFinite(quantity) || quantity <= 0) return;
+    const filters = [eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId)];
+    if (productId) filters.push(eq(purchaseOrderItems.productId, productId));
+    else filters.push(sql`${purchaseOrderItems.productId} IS NULL`, eq(purchaseOrderItems.description, description || ""));
+
+    const lines = await tx
+        .select({
+            id: purchaseOrderItems.id,
+            quantity: purchaseOrderItems.quantity,
+            quantityReceived: purchaseOrderItems.quantityReceived,
+        })
+        .from(purchaseOrderItems)
+        .where(and(...filters))
+        .orderBy(asc(purchaseOrderItems.id));
+
+    let remaining = quantity;
+    for (const line of lines as any[]) {
+        const capacity = Math.max(0, Number(line.quantity || 0) - Number(line.quantityReceived || 0));
+        const apply = Math.min(capacity, remaining);
+        if (apply <= 0) continue;
+        await tx
+            .update(purchaseOrderItems)
+            .set({ quantityReceived: sql`quantity_received + ${apply}` })
+            .where(eq(purchaseOrderItems.id, line.id));
+        remaining -= apply;
+        if (remaining <= 0.01) break;
+    }
+    if (remaining > 0.01) {
+        throw new Error("Receipt quantity exceeds the remaining quantity on the purchase order.");
+    }
 }
 
 type LandedCostAllocationMethod = "quantity" | "value" | "manual";
@@ -396,15 +435,11 @@ export async function recordBatchStockIn(
                     .where(eq(products.id, item.productId));
             }
 
-            // 4. If linked to a PO, update quantity received for 3-way match tracking
-            if (purchaseOrderId) {
-                await tx
-                    .update(purchaseOrderItems)
-                    .set({ quantityReceived: sql`quantity_received + ${quantity}` })
-                    .where(and(
-                        eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId),
-                        eq(purchaseOrderItems.productId, item.productId)
-                    ));
+            // 4. If linked to a PO, allocate the receipt across matching PO lines. A PO may
+            // legitimately contain the same product more than once; adding the full receipt
+            // to every matching line would corrupt the received quantities.
+            if (purchaseOrderId && item.productId) {
+                await applyPurchaseOrderReceipt(tx, purchaseOrderId, item.productId, null, quantity);
             }
         }
 
@@ -412,18 +447,36 @@ export async function recordBatchStockIn(
         if (purchaseOrderId && nonStockItemsInput.length > 0) {
             for (const item of nonStockItemsInput) {
                 const qty = typeof item.quantity === "string" ? parseFloat(item.quantity) : item.quantity;
-                await tx
-                    .update(purchaseOrderItems)
-                    .set({ quantityReceived: sql`quantity_received + ${qty}` })
-                    .where(and(
-                        eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId),
-                        sql`${purchaseOrderItems.productId} IS NULL`,
-                        eq(purchaseOrderItems.description, item.description || "")
-                    ));
+                await applyPurchaseOrderReceipt(tx, purchaseOrderId, null, item.description || "", qty);
             }
         }
 
-        // 5. Post GL: Dr Inventory (1300), Dr Input VAT (e.g. 1500), Cr GRNI (2010)
+        // 5. Derive PO status from actual received quantities. A short receipt stays open so
+        // that subsequent deliveries can complete the order.
+        if (purchaseOrderId) {
+            const poLines = await tx
+                .select({
+                    quantity: purchaseOrderItems.quantity,
+                    quantityReceived: purchaseOrderItems.quantityReceived,
+                })
+                .from(purchaseOrderItems)
+                .where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId));
+            const fullyReceived = poLines.length > 0 && poLines.every((line: any) =>
+                Number(line.quantityReceived || 0) + 0.01 >= Number(line.quantity || 0));
+            const [po] = await tx
+                .select({ status: purchaseOrders.status })
+                .from(purchaseOrders)
+                .where(eq(purchaseOrders.id, purchaseOrderId))
+                .limit(1);
+            if (po && po.status !== "CANCELLED") {
+                await tx
+                    .update(purchaseOrders)
+                    .set({ status: fullyReceived ? "RECEIVED" : "SENT", updatedAt: new Date() })
+                    .where(eq(purchaseOrders.id, purchaseOrderId));
+            }
+        }
+
+        // 6. Post GL: Dr Inventory (1300), Dr Input VAT (e.g. 1500), Cr GRNI (2010)
         // Lazy import to avoid circular dependency
         const { storage } = await import("../storage");
         const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);

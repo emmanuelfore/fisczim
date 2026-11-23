@@ -1,3 +1,6 @@
+import { and, eq, inArray } from "drizzle-orm";
+import { accounts, journalEntries, journalEntryDrafts, ledgerEntries } from "../../shared/schema.js";
+
 /**
  * Payroll -> general ledger.
  *
@@ -243,4 +246,87 @@ export function reversePayrollJournal(journal: PayrollJournal): PayrollJournalLe
     type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
     memo: `Reversal: ${line.memo}`,
   }));
+}
+
+export interface PayrollPostedReversalLine {
+  accountCode: string;
+  type: "DEBIT" | "CREDIT";
+  amount: number;
+  memo: string;
+  currency?: string;
+  exchangeRate?: number;
+}
+
+/**
+ * `payrollRuns.journalEntryId` may point at the lock draft, or at the posted
+ * journal once GL approval has happened. Resolve whichever exists so reversals
+ * can mirror the journal that is really in the ledger.
+ */
+export async function resolvePostedPayrollJournalId(
+  companyId: number,
+  journalOrDraftId: number | null | undefined,
+  tx: any
+): Promise<number | undefined> {
+  if (!journalOrDraftId) return undefined;
+
+  const [journal] = await tx.select({ id: journalEntries.id, status: journalEntries.status })
+    .from(journalEntries)
+    .where(and(eq(journalEntries.id, journalOrDraftId), eq(journalEntries.companyId, companyId)))
+    .limit(1);
+  if (journal && journal.status !== "DRAFT") return journal.id;
+
+  const [draft] = await tx.select({ postedJournalEntryId: journalEntryDrafts.postedJournalEntryId })
+    .from(journalEntryDrafts)
+    .where(and(eq(journalEntryDrafts.id, journalOrDraftId), eq(journalEntryDrafts.companyId, companyId)))
+    .limit(1);
+  return draft?.postedJournalEntryId || undefined;
+}
+
+/**
+ * Reverse the actual posted ledger lines. Rebuilding from mutable payslips is
+ * only a fallback for runs that never reached the GL.
+ */
+export async function loadPostedPayrollReversalLines(
+  companyId: number,
+  journalEntryId: number | null | undefined,
+  tx: any
+): Promise<PayrollPostedReversalLine[]> {
+  if (!journalEntryId) return [];
+
+  const lines = await tx.select({
+    accountCode: accounts.code,
+    type: ledgerEntries.type,
+    amount: ledgerEntries.amount,
+    currency: ledgerEntries.currency,
+    exchangeRate: ledgerEntries.exchangeRate,
+    memo: ledgerEntries.memo,
+  })
+    .from(ledgerEntries)
+    .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+    .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+    .where(and(
+      eq(journalEntries.id, journalEntryId),
+      eq(journalEntries.companyId, companyId),
+      eq(accounts.companyId, companyId),
+      inArray(ledgerEntries.type, ["DEBIT", "CREDIT"])
+    ));
+
+  return lines.map((line: {
+    accountCode: string;
+    type: string;
+    amount: unknown;
+    currency: string | null;
+    exchangeRate: unknown;
+    memo: string | null;
+  }) => {
+    const rate = Number(line.exchangeRate || 0);
+    return {
+      accountCode: line.accountCode,
+      type: line.type === "DEBIT" ? ("CREDIT" as const) : ("DEBIT" as const),
+      amount: Math.round(Number(line.amount || 0) * 100) / 100,
+      memo: `Reversal of posted journal: ${line.memo || line.accountCode}`,
+      currency: line.currency || undefined,
+      exchangeRate: Number.isFinite(rate) && rate > 0 ? rate : undefined,
+    };
+  });
 }

@@ -79,6 +79,8 @@ const ticketSyncSchema = insertBusTicketSchema.omit({
   accountingStatus: true,
   accountingError: true,
   postedJournalEntryId: true,
+  originalJournalEntryId: true,
+  voidJournalEntryId: true,
   postedAt: true,
 }).extend({
   tripId: z.coerce.number().int().positive(),
@@ -113,10 +115,26 @@ const reconciliationSyncSchema = insertBusReconciliationSchema.omit({
   accountingStatus: true,
   accountingError: true,
   postedJournalEntryId: true,
+  originalJournalEntryId: true,
+  voidJournalEntryId: true,
   postedAt: true,
+  // The variance is derived server-side from cashReceived - expectedCash.
+  gap: true,
 }).extend({
+  // Some clients still send a gap; accept it only so it can be validated against the derived value.
+  gap: z.coerce.number().optional(),
   adminNotes: z.string().max(500).nullable().optional(),
 });
+
+/** base = foreign / exchangeRate is the GL convention; reconciliation amounts are already in company currency. */
+function money(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+}
+
+function reconciliationGap(reconciliation: { expectedCash: unknown; cashReceived: unknown }) {
+  return money(money(reconciliation.cashReceived) - money(reconciliation.expectedCash));
+}
 const ONGOING_TRIP_STATUSES = ["boarding", "en_route", "in_progress"] as const;
 const ACTIVE_TICKET_STATUS = "active";
 // Africa/Harare is UTC+2 (no DST). Tickets/reconciliations store UTC values,
@@ -790,22 +808,35 @@ router.post("/tickets/:ticketId/void", requireBusPermission("bus.operations"), a
       return res.status(409).json({ error: "ALREADY_VOIDED", message: `Ticket is already ${ticket.status}.` });
     }
 
-    await db.transaction(async (tx) => {
+    const voided = await db.transaction(async (tx) => {
+      // Conditional update prevents two concurrent void requests from double-posting.
       const [updated] = await tx.update(busTickets)
         .set({
           status: "voided",
           voidedAt: new Date(),
           voidReason: parsed.data.reason,
         })
-        .where(eq(busTickets.id, ticketId))
+        .where(and(
+          eq(busTickets.id, ticketId),
+          eq(busTickets.companyId, companyId),
+          eq(busTickets.status, "active")
+        ))
         .returning();
 
-      if (updated?.postedJournalEntryId) {
-        await voidBusTicketAccounting(updated, tx);
-      }
+      if (!updated) return { conflict: true as const };
 
-      res.json(updated);
+      const posting = await voidBusTicketAccounting(updated, tx);
+      if (!posting.ok) return { conflict: false as const, posting };
+      return { conflict: false as const, posting, ticket: updated };
     });
+
+    if (voided.conflict) {
+      return res.status(409).json({ error: "ALREADY_VOIDED", message: "Ticket is no longer active." });
+    }
+    if (!voided.posting.ok) {
+      return res.status(502).json({ error: "GL_POSTING_FAILED", message: voided.posting.error });
+    }
+    res.json(voided.ticket);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -880,21 +911,39 @@ router.patch("/reconciliations/:reconciliationId", requireBusPermission("bus.ope
       return res.status(409).json({ error: "ALREADY_SIGNED_OFF", message: `Reconciliation is already ${parsed.data.status}.` });
     }
 
-    const [updated] = await db.update(busReconciliations)
-      .set({
-        status: parsed.data.status,
-        adminNotes: parsed.data.adminNotes ?? existing.adminNotes,
-        signedOffBy: userId ?? existing.signedOffBy,
-        signedOffAt: parsed.data.status === "approved" ? new Date() : existing.signedOffAt,
-      })
-      .where(eq(busReconciliations.id, reconciliationId))
-      .returning();
+    const expectedPreviousStatus = failedPosting ? "approved" : "pending";
+    const result = await db.transaction(async (tx) => {
+      // Conditional transition: a concurrent sign-off cannot be posted twice.
+      const [updated] = await tx.update(busReconciliations)
+        .set({
+          status: parsed.data.status,
+          adminNotes: parsed.data.adminNotes ?? existing.adminNotes,
+          signedOffBy: userId ?? existing.signedOffBy,
+          signedOffAt: parsed.data.status === "approved" ? new Date() : existing.signedOffAt,
+        })
+        .where(and(
+          eq(busReconciliations.id, reconciliationId),
+          eq(busReconciliations.companyId, companyId),
+          eq(busReconciliations.status, expectedPreviousStatus)
+        ))
+        .returning();
 
-    if (parsed.data.status === "approved") {
-      await postBusReconciliationAccounting(updated, db);
+      if (!updated) return { conflict: true as const };
+
+      if (parsed.data.status === "approved") {
+        const posting = await postBusReconciliationAccounting(updated, tx);
+        if (!posting.ok) return { conflict: false as const, posting };
+      }
+      return { conflict: false as const, posting: { ok: true as const }, ticket: updated };
+    });
+
+    if (result.conflict) {
+      return res.status(409).json({ error: "ALREADY_SIGNED_OFF", message: `Reconciliation is already ${parsed.data.status}.` });
     }
-
-    res.json(updated);
+    if (!result.posting.ok) {
+      return res.status(502).json({ error: "GL_POSTING_FAILED", message: result.posting.error });
+    }
+    res.json(result.ticket);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -1395,8 +1444,20 @@ router.post("/sync", async (req, res) => {
 
   const { tickets, shifts, reconciliations } = parsed.data;
 
+  // Gap is never trusted from the device: derive it server-side and reject mismatches.
+  for (const reconciliation of reconciliations) {
+    const derived = reconciliationGap(reconciliation);
+    if (reconciliation.gap != null && money(reconciliation.gap) !== derived) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: `Submitted cash-up gap ${reconciliation.gap} does not match cashReceived - expectedCash (${derived}).`,
+      });
+    }
+  }
+
   try {
     const companyId = getTargetCompanyId(req);
+    const postingFailures: string[] = [];
     const syncResult = await db.transaction(async (tx) => {
       let insertedTickets = 0;
       let skippedTickets = 0;
@@ -1503,7 +1564,10 @@ router.post("/sync", async (req, res) => {
             batchTicketNumbers.add(ticketNumber);
             existingTicketNumbers.add(ticketNumber);
             passengersByTrip.set(ticket.tripId, nextPassengers);
-            await postBusTicketAccounting(inserted[0], tx);
+            const posting = await postBusTicketAccounting(inserted[0], tx);
+            if (!posting.ok) {
+              postingFailures.push(`Ticket ${ticket.ticketNumber}: ${posting.error}`);
+            }
           } else {
             skippedTickets += 1;
           }
@@ -1583,6 +1647,7 @@ router.post("/sync", async (req, res) => {
             .values({
               ...reconciliation,
               companyId,
+              gap: reconciliationGap(reconciliation).toString(),
               status: "pending",
               signedOffBy: null,
               signedOffAt: null,
@@ -1591,13 +1656,22 @@ router.post("/sync", async (req, res) => {
           if (inserted) {
             insertedReconciliations += 1;
             existingReconMap.add(key);
-            await postBusReconciliationAccounting(inserted, tx);
+            // No GL post at sync time: pending cash-ups are posted only on admin approval.
           }
         }
       }
 
       return { insertedTickets, skippedTickets, rejectedTickets, insertedShifts, skippedShifts, insertedReconciliations, skippedReconciliations };
     });
+
+    if (postingFailures.length > 0) {
+      return res.status(502).json({
+        error: "GL_POSTING_FAILED",
+        message: "One or more ticket journals failed to post.",
+        details: postingFailures,
+        sync: syncResult,
+      });
+    }
 
     res.json({
       success: syncResult.rejectedTickets.length === 0,

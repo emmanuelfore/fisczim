@@ -39,6 +39,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import {
+  accountingKey,
+  fetchAccounting,
+  invalidateAccountingCache,
+} from "@/lib/accounting-query";
 import { Badge } from "@/components/ui/badge";
 
 export default function BankReconciliationPage() {
@@ -55,15 +61,15 @@ export default function BankReconciliationPage() {
     null,
   );
 
-  const [isCreateMatchOpen, setIsCreateMatchOpen] = useState(false);
-  const [targetAccountId, setTargetAccountId] = useState("");
-  const [matchDescription, setMatchDescription] = useState("");
-
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany();
+  const currency = activeCompany?.currency || "USD";
 
   const { data: accounts } = useQuery<any[]>({
-    queryKey: ["/api/accounting/accounts"],
+    queryKey: accountingKey("accounts", companyId),
+    enabled: !!companyId,
+    queryFn: () => fetchAccounting<any[]>("/api/accounting/accounts"),
   });
   const bankAccounts = accounts?.filter(
     (a) =>
@@ -75,26 +81,37 @@ export default function BankReconciliationPage() {
   ) || [];
 
   const { data: statements } = useQuery<any[]>({
-    queryKey: [
-      "/api/accounting/reconciliation/statements",
-      { accountId: selectedAccountId },
-    ],
-    enabled: !!selectedAccountId,
+    queryKey: accountingKey(
+      "reconciliation/statements",
+      companyId,
+      selectedAccountId,
+    ),
+    enabled: !!companyId && !!selectedAccountId,
+    queryFn: () =>
+      fetchAccounting<any[]>("/api/accounting/reconciliation/statements", {
+        accountId: selectedAccountId,
+      }),
   });
 
   const { data: bankLines, isLoading: bankLinesLoading } = useQuery<any[]>({
-    queryKey: [
-      `/api/accounting/reconciliation/statements/${selectedStatementId}/lines`,
-    ],
-    enabled: !!selectedStatementId,
+    queryKey: accountingKey(
+      `reconciliation/statements/${selectedStatementId}/lines`,
+      companyId,
+    ),
+    enabled: !!companyId && !!selectedStatementId,
+    queryFn: () =>
+      fetchAccounting<any[]>(
+        `/api/accounting/reconciliation/statements/${selectedStatementId}/lines`,
+      ),
   });
 
   const { data: ledgerLines, isLoading: ledgerLinesLoading } = useQuery<any[]>({
-    queryKey: [
-      "/api/accounting/reconciliation/ledger",
-      { accountId: selectedAccountId },
-    ],
-    enabled: !!selectedAccountId,
+    queryKey: accountingKey("reconciliation/ledger", companyId, selectedAccountId),
+    enabled: !!companyId && !!selectedAccountId,
+    queryFn: () =>
+      fetchAccounting<any[]>("/api/accounting/reconciliation/ledger", {
+        accountId: selectedAccountId,
+      }),
   });
 
   const uploadMutation = useMutation({
@@ -137,9 +154,7 @@ export default function BankReconciliationPage() {
       toast({ title: "Statement Uploaded successfully" });
       setIsUploadOpen(false);
       setCsvText("");
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/reconciliation/statements"],
-      });
+      invalidateAccountingCache(queryClient);
     },
     onError: (e: any) =>
       toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -158,14 +173,7 @@ export default function BankReconciliationPage() {
         title: "Auto-Match Complete",
         description: `Successfully automatically matched ${data.matchedCount} transactions.`,
       });
-      queryClient.invalidateQueries({
-        queryKey: [
-          `/api/accounting/reconciliation/statements/${selectedStatementId}/lines`,
-        ],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/reconciliation/ledger"],
-      });
+      invalidateAccountingCache(queryClient);
     },
     onError: (e: any) =>
       toast({ title: "Auto-Match Failed", description: e.message, variant: "destructive" }),
@@ -188,48 +196,10 @@ export default function BankReconciliationPage() {
       toast({ title: "Matched successfully!" });
       setSelectedBankLine(null);
       setSelectedLedgerLine(null);
-      queryClient.invalidateQueries({
-        queryKey: [
-          `/api/accounting/reconciliation/statements/${selectedStatementId}/lines`,
-        ],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/reconciliation/ledger"],
-      });
+      invalidateAccountingCache(queryClient);
     },
     onError: (e: any) =>
       toast({ title: "Match Failed", description: e.message, variant: "destructive" }),
-  });
-
-  const createMatchMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedBankLine || !targetAccountId) return;
-      const res = await apiRequest(
-        "POST",
-        "/api/accounting/reconciliation/create-match",
-        {
-          statementLineId: selectedBankLine,
-          targetAccountId: targetAccountId,
-          description: matchDescription,
-        },
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Entry Created & Reconciled successfully!" });
-      setIsCreateMatchOpen(false);
-      setSelectedBankLine(null);
-      setTargetAccountId("");
-      setMatchDescription("");
-      queryClient.invalidateQueries({
-        queryKey: [
-          `/api/accounting/reconciliation/statements/${selectedStatementId}/lines`,
-        ],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/reconciliation/ledger"],
-      });
-    },
   });
 
   return (
@@ -292,7 +262,7 @@ export default function BankReconciliationPage() {
                 {statements?.map((s: any) => (
                   <SelectItem key={s.id} value={s.id.toString()}>
                     {format(new Date(s.statementDate), "MMM dd, yyyy")} -
-                    Balance: {formatCurrency(Number(s.closingBalance))}
+                    Balance: {formatCurrency(Number(s.closingBalance), currency)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -406,7 +376,7 @@ export default function BankReconciliationPage() {
                         <TableCell
                           className={`text-right font-bold ${Number(line.amount) < 0 ? "text-rose-600" : "text-emerald-600"}`}
                         >
-                          {formatCurrency(Number(line.amount))}
+                          {formatCurrency(Number(line.amount), currency)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -443,55 +413,6 @@ export default function BankReconciliationPage() {
                   </p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-                  <Dialog open={isCreateMatchOpen} onOpenChange={setIsCreateMatchOpen}>
-                    <DialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        disabled={!selectedBankLine}
-                        className="w-full sm:w-auto font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                      >
-                        Create Entry
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Create Journal Entry from Bank Line</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 pt-4">
-                        <div className="space-y-2">
-                          <Label>Select Target Account</Label>
-                          <Select value={targetAccountId} onValueChange={setTargetAccountId}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choose Account..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {accounts?.map((a: any) => (
-                                <SelectItem key={a.id} value={a.id.toString()}>
-                                  {a.code} - {a.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Description</Label>
-                          <Input
-                            placeholder="Bank fee, interest, etc."
-                            value={matchDescription}
-                            onChange={(e) => setMatchDescription(e.target.value)}
-                          />
-                        </div>
-                        <Button
-                          className="w-full bg-emerald-600 hover:bg-emerald-700"
-                          disabled={!targetAccountId || createMatchMutation.isPending}
-                          onClick={() => createMatchMutation.mutate()}
-                        >
-                          Create & Reconcile
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  
                   <Button
                     onClick={() => manualMatchMutation.mutate()}
                     disabled={
@@ -537,7 +458,7 @@ export default function BankReconciliationPage() {
                           <TableCell
                             className={`text-right font-bold ${realAmt < 0 ? "text-rose-600" : "text-emerald-600"}`}
                           >
-                            {formatCurrency(realAmt)}
+                            {formatCurrency(realAmt, currency)}
                           </TableCell>
                         </TableRow>
                       );

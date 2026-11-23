@@ -7,6 +7,7 @@ import {
   crmCommissions,
   crmTaskPenalties,
   crmTasks,
+  companies,
   invoices,
   journalEntries,
   ledgerEntries,
@@ -37,6 +38,30 @@ import {
 type Executor = any;
 
 const round2 = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+
+/** GL convention: base = foreign / exchangeRate. Commission amounts are base amounts. */
+async function commissionFx(tx: Executor, companyId: number, commission: { invoiceId?: number | null }) {
+  let currency = "USD";
+  let exchangeRate = 1;
+  const [company] = await tx
+    .select({ currency: companies.currency })
+    .from(companies)
+    .where(eq(companies.id, companyId))
+    .limit(1);
+  currency = company?.currency || "USD";
+  if (commission.invoiceId) {
+    const [invoice] = await tx
+      .select({ currency: invoices.currency, exchangeRate: invoices.exchangeRate })
+      .from(invoices)
+      .where(and(eq(invoices.id, commission.invoiceId), eq(invoices.companyId, companyId)))
+      .limit(1);
+    if (invoice) {
+      currency = invoice.currency || currency;
+      exchangeRate = Number(invoice.exchangeRate || 1) || 1;
+    }
+  }
+  return { currency, exchangeRate };
+}
 
 export type CommissionBasis = "gross_profit" | "revenue" | "fixed";
 
@@ -206,7 +231,10 @@ export async function penaliseLateTask(
     const [fresh] = await tx
       .select()
       .from(crmTasks)
-      .where(eq(crmTasks.id, task.id))
+      .where(and(
+        eq(crmTasks.id, task.id),
+        eq(crmTasks.companyId, task.companyId),
+      ))
       .limit(1)
       .for("update");
     if (!fresh || fresh.penaltyApplied) {
@@ -245,7 +273,10 @@ export async function penaliseLateTask(
           netAmount: netOf(gross, nextPenalty).toFixed(2),
           updatedAt: new Date(),
         })
-        .where(eq(crmCommissions.id, commission.id));
+        .where(and(
+          eq(crmCommissions.id, commission.id),
+          eq(crmCommissions.companyId, task.companyId),
+        ));
 
       // A pending statement is what the admin is looking at: keep its approval
       // description honest when a late task reduces the amount under review.
@@ -256,7 +287,10 @@ export async function penaliseLateTask(
             description: `Commission statement for ${new Date().toLocaleDateString("en-GB")} — gross ${gross.toFixed(2)}, penalties ${nextPenalty.toFixed(2)}, net ${netOf(gross, nextPenalty).toFixed(2)}.`,
             payload: sql`${approvalRequests.payload} || ${JSON.stringify({ netAmount: netOf(gross, nextPenalty) })}::jsonb`,
           })
-          .where(eq(approvalRequests.id, commission.approvalRequestId));
+          .where(and(
+            eq(approvalRequests.id, commission.approvalRequestId),
+            eq(approvalRequests.companyId, task.companyId),
+          ));
       }
     } else {
       // Nothing open to deduct from yet: carry the full penalty forward.
@@ -264,7 +298,7 @@ export async function penaliseLateTask(
     }
 
     if (appliedAmount > 0) {
-      await tx.insert(crmTaskPenalties).values({
+      const [penaltyRow] = await tx.insert(crmTaskPenalties).values({
         companyId: task.companyId,
         taskId: task.id,
         salespersonId: task.assignedTo,
@@ -273,7 +307,21 @@ export async function penaliseLateTask(
         lateHours: lateHours.toFixed(2),
         reason: `Task "${task.title}" answered outside the ${settings.responseWindowHours}-working-hour window.`,
         appliedAt: commissionId ? new Date() : null,
-      });
+      }).returning();
+
+      // Penalties are a separate GL adjustment, never folded into the accrual.
+      // If the accrual has not been posted yet, the net accrual will carry this
+      // deduction instead; posting an adjustment now would be unbalanced.
+      if (penaltyRow && commissionId && commission?.accrualJournalEntryId) {
+        await postCommissionPenaltyAdjustment(
+          tx,
+          task.companyId,
+          commissionId,
+          appliedAmount,
+          penaltyRow.id,
+          { invoiceId: commission.invoiceId },
+        );
+      }
     }
 
     await tx
@@ -283,7 +331,10 @@ export async function penaliseLateTask(
         penaltyAmount: appliedAmount.toFixed(2),
         updatedAt: new Date(),
       })
-      .where(eq(crmTasks.id, task.id));
+      .where(and(
+        eq(crmTasks.id, task.id),
+        eq(crmTasks.companyId, task.companyId),
+      ));
 
     return { penaltyAmount: appliedAmount, commissionId };
   };
@@ -308,7 +359,10 @@ export async function consumePendingPenalties(
   const [commission] = await tx
     .select({ grossAmount: crmCommissions.grossAmount, penaltyAmount: crmCommissions.penaltyAmount })
     .from(crmCommissions)
-    .where(eq(crmCommissions.id, commissionId))
+    .where(and(
+      eq(crmCommissions.id, commissionId),
+      eq(crmCommissions.companyId, companyId),
+    ))
     .limit(1);
   if (!commission) return 0;
 
@@ -351,7 +405,10 @@ export async function consumePendingPenalties(
   await tx
     .update(crmTaskPenalties)
     .set({ commissionId, appliedAt: new Date() })
-    .where(inArray(crmTaskPenalties.id, consume));
+    .where(and(
+      eq(crmTaskPenalties.companyId, companyId),
+      inArray(crmTaskPenalties.id, consume),
+    ));
 
   // The ledger link alone is not a deduction: the statement it points at must
   // carry the amount as well, otherwise paysheets still pay gross.
@@ -363,9 +420,41 @@ export async function consumePendingPenalties(
       netAmount: netOf(gross, nextPenalty).toFixed(2),
       updatedAt: new Date(),
     })
-    .where(eq(crmCommissions.id, commissionId));
+    .where(and(
+      eq(crmCommissions.id, commissionId),
+      eq(crmCommissions.companyId, companyId),
+    ));
 
-  return penalty;
+  // Penalties reduce the accrued liability/expense through their own journal.
+  const [withAccrual] = await tx
+    .select({ accrualJournalEntryId: crmCommissions.accrualJournalEntryId, invoiceId: crmCommissions.invoiceId })
+    .from(crmCommissions)
+    .where(and(eq(crmCommissions.id, commissionId), eq(crmCommissions.companyId, companyId)))
+    .limit(1);
+  const totalPenalty = penalty;
+  if (withAccrual?.accrualJournalEntryId) {
+    for (const penaltyId of consume) {
+      const [penaltyRow] = await tx
+        .select({ amount: crmTaskPenalties.amount })
+        .from(crmTaskPenalties)
+        .where(and(eq(crmTaskPenalties.id, penaltyId), eq(crmTaskPenalties.companyId, companyId)))
+        .limit(1);
+      if (penaltyRow) {
+        await postCommissionPenaltyAdjustment(
+          tx,
+          companyId,
+          commissionId,
+          Math.min(round2(Number(penaltyRow.amount || 0)), penalty),
+          penaltyId,
+          { invoiceId: withAccrual.invoiceId },
+        );
+        penalty = round2(Math.max(0, penalty - round2(Number(penaltyRow.amount || 0))));
+        if (penalty <= 0) break;
+      }
+    }
+  }
+
+  return totalPenalty;
 }
 
 /**
@@ -426,58 +515,131 @@ async function postCommissionAccrualJournal(
   tx: Executor,
   companyId: number,
   commissionId: number,
-  grossAmount: number,
+  netAmount: number,
   userId?: string | null,
 ) {
   const expenseCode = await storage.getSystemAccountCode(companyId, "commissionExpenseAccountCode", tx);
   const payableCode = await storage.getSystemAccountCode(companyId, "commissionPayableAccountCode", tx);
+  const [commission] = await tx
+    .select({ invoiceId: crmCommissions.invoiceId })
+    .from(crmCommissions)
+    .where(and(eq(crmCommissions.id, commissionId), eq(crmCommissions.companyId, companyId)))
+    .limit(1);
+  const fx = await commissionFx(tx, companyId, commission ?? { invoiceId: null });
   const je = await storage.postToLedger(companyId, {
     entryDate: new Date(),
     description: `Accrued sales commission #${commissionId}`,
     referenceType: "COMMISSION_ACCRUAL",
     referenceId: String(commissionId),
+    postingKey: `crm-commission:${commissionId}:accrual`,
+    currency: fx.currency,
+    exchangeRate: fx.exchangeRate,
     createdBy: userId ?? undefined,
     lines: [
-      { accountCode: expenseCode, type: "DEBIT", amount: grossAmount },
-      { accountCode: payableCode, type: "CREDIT", amount: grossAmount },
+      { accountCode: expenseCode, type: "DEBIT", amount: netAmount, baseAmount: netAmount, currency: fx.currency, exchangeRate: fx.exchangeRate },
+      { accountCode: payableCode, type: "CREDIT", amount: netAmount, baseAmount: netAmount, currency: fx.currency, exchangeRate: fx.exchangeRate },
     ],
   }, tx);
   await tx
     .update(crmCommissions)
     .set({ accrualJournalEntryId: je.id, updatedAt: new Date() })
-    .where(eq(crmCommissions.id, commissionId));
+    .where(and(
+      eq(crmCommissions.id, commissionId),
+      eq(crmCommissions.companyId, companyId),
+    ));
   return je;
+}
+
+/** Reduce the accrued commission for a penalty without touching the original accrual journal. */
+async function postCommissionPenaltyAdjustment(
+  tx: Executor,
+  companyId: number,
+  commissionId: number,
+  penaltyAmount: number,
+  penaltyId: number,
+  commission: { invoiceId?: number | null },
+) {
+  if (!(penaltyAmount > 0)) return null;
+  const expenseCode = await storage.getSystemAccountCode(companyId, "commissionExpenseAccountCode", tx);
+  const payableCode = await storage.getSystemAccountCode(companyId, "commissionPayableAccountCode", tx);
+  const fx = await commissionFx(tx, companyId, commission);
+  return storage.postToLedger(companyId, {
+    entryDate: new Date(),
+    description: `Commission penalty adjustment #${penaltyId} on statement #${commissionId}`,
+    referenceType: "COMMISSION_PENALTY_ADJUSTMENT",
+    referenceId: String(penaltyId),
+    postingKey: `crm-commission:${commissionId}:penalty-${penaltyId}`,
+    currency: fx.currency,
+    exchangeRate: fx.exchangeRate,
+    lines: [
+      { accountCode: payableCode, type: "DEBIT", amount: penaltyAmount, baseAmount: penaltyAmount, currency: fx.currency, exchangeRate: fx.exchangeRate },
+      { accountCode: expenseCode, type: "CREDIT", amount: penaltyAmount, baseAmount: penaltyAmount, currency: fx.currency, exchangeRate: fx.exchangeRate },
+    ],
+  }, tx);
 }
 
 /** Reverse a commission's accrued-liability journal when the sale is reversed. */
 async function reverseCommissionAccrual(
   tx: Executor,
   companyId: number,
+  commissionId: number,
   journalEntryId: number,
   userId?: string | null,
 ) {
   const [entry] = await tx
     .select({ status: journalEntries.status })
     .from(journalEntries)
-    .where(eq(journalEntries.id, journalEntryId));
+    .where(and(
+      eq(journalEntries.id, journalEntryId),
+      eq(journalEntries.companyId, companyId),
+    ));
   if (!entry || entry.status === "REVERSED") return null;
 
   const lines = await tx
-    .select()
+    .select({
+      accountId: ledgerEntries.accountId,
+      type: ledgerEntries.type,
+      amount: ledgerEntries.amount,
+      baseAmount: ledgerEntries.baseAmount,
+      currency: ledgerEntries.currency,
+      exchangeRate: ledgerEntries.exchangeRate,
+      vatTypeId: ledgerEntries.vatTypeId,
+      vatAmount: ledgerEntries.vatAmount,
+    })
     .from(ledgerEntries)
-    .where(eq(ledgerEntries.journalEntryId, journalEntryId));
+    .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+    .where(and(
+      eq(ledgerEntries.journalEntryId, journalEntryId),
+      eq(journalEntries.companyId, companyId),
+    ));
   if (!lines.length) return null;
+
+  const [commission] = await tx
+    .select({ invoiceId: crmCommissions.invoiceId })
+    .from(crmCommissions)
+    .where(and(eq(crmCommissions.id, commissionId), eq(crmCommissions.companyId, companyId)))
+    .limit(1);
+  const fx = await commissionFx(tx, companyId, commission ?? { invoiceId: null });
+  // Mirror the FX of the posted journal, not the current invoice/company state.
+  const reversalCurrency = lines[0]?.currency || fx.currency;
+  const reversalRate = Number(lines[0]?.exchangeRate || 0) || fx.exchangeRate;
 
   const reversal = await storage.postToLedger(companyId, {
     entryDate: new Date(),
     description: `Reverse accrued commission journal ${journalEntryId}`,
     referenceType: "REVERSAL",
     referenceId: String(journalEntryId),
+    postingKey: `crm-commission:${commissionId}:reversal`,
+    currency: reversalCurrency,
+    exchangeRate: reversalRate,
     createdBy: userId ?? undefined,
     lines: lines.map((line: any) => ({
       accountId: line.accountId,
       type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
       amount: Number(line.amount),
+      baseAmount: Number(line.baseAmount ?? line.amount),
+      currency: line.currency || reversalCurrency,
+      exchangeRate: Number(line.exchangeRate || 1) || 1,
       memo: `Reversal of commission accrual ${journalEntryId}`,
       vatTypeId: line.vatTypeId ?? undefined,
       vatAmount: line.vatAmount != null ? Number(line.vatAmount) : undefined,
@@ -487,11 +649,18 @@ async function reverseCommissionAccrual(
   await tx
     .update(journalEntries)
     .set({ reversalOfJournalEntryId: journalEntryId })
-    .where(eq(journalEntries.id, reversal.id));
+    .where(and(eq(journalEntries.id, reversal.id), eq(journalEntries.companyId, companyId)));
   await tx
     .update(journalEntries)
     .set({ status: "REVERSED" })
-    .where(eq(journalEntries.id, journalEntryId));
+    .where(and(eq(journalEntries.id, journalEntryId), eq(journalEntries.companyId, companyId)));
+  await tx
+    .update(crmCommissions)
+    .set({ reversalJournalEntryId: reversal.id, updatedAt: new Date() })
+    .where(and(
+      eq(crmCommissions.id, commissionId),
+      eq(crmCommissions.companyId, companyId),
+    ));
   return reversal;
 }
 
@@ -530,14 +699,19 @@ export async function accrueVehicleCommission(
     const [invoice] = await tx
       .select({ total: invoices.total, currency: invoices.currency, exchangeRate: invoices.exchangeRate })
       .from(invoices)
-      .where(eq(invoices.id, vehicle.invoiceId))
+      .where(and(eq(invoices.id, vehicle.invoiceId), eq(invoices.companyId, input.companyId)))
       .limit(1);
-    if (invoice) invoiceTotal = Number(invoice.total ?? 0) || null;
+    if (invoice) {
+      // Commission amounts are base currency; GL convention is base = foreign / rate.
+      const rate = Number(invoice.exchangeRate ?? 1) || 1;
+      invoiceTotal = round2(Number(invoice.total ?? 0) / rate) || null;
+    }
   }
 
+  // GL convention: base = foreign / exchangeRate.
   const saleAmount =
     invoiceTotal ??
-    round2(Number(vehicle.salePrice ?? 0) * Number(vehicle.saleExchangeRate ?? 1) || 0);
+    round2(Number(vehicle.salePrice ?? 0) / (Number(vehicle.saleExchangeRate || 1) || 1) || 0);
   const costAmount = round2(Number(vehicle.cogsAmount ?? 0));
   const rule = await resolveCommissionRule(input.companyId, salespersonId, tx);
   const amounts = computeCommissionAmounts({ saleAmount, costAmount, rule });
@@ -581,19 +755,8 @@ export async function accrueVehicleCommission(
     )[0];
   if (!commission || !created) return commission ?? null;
 
-  // Opt-in: recognise the commission as a liability on the balance sheet.
-  if (Number(commission.grossAmount ?? 0) > 0) {
-    const settings = await getCommissionSettings(input.companyId, tx);
-    if (settings.accrueToLedger) {
-      try {
-        await postCommissionAccrualJournal(tx, input.companyId, commission.id, Number(commission.grossAmount), input.userId ?? null);
-      } catch (error) {
-        console.error(`[CRM] Failed to accrue commission ${commission.id} to GL`, error);
-      }
-    }
-  }
-
-  // Carried penalties from before this deal existed.
+  // Carried penalties from before this deal existed must be reflected before
+  // the accrual is posted: the GL recognises the NET commission.
   await consumePendingPenalties(
     tx,
     input.companyId,
@@ -601,13 +764,40 @@ export async function accrueVehicleCommission(
     commission.id,
     Number(commission.grossAmount ?? 0),
   );
+
+  const refreshed = (
+    await tx
+      .select()
+      .from(crmCommissions)
+      .where(and(
+        eq(crmCommissions.id, commission.id),
+        eq(crmCommissions.companyId, input.companyId),
+      ))
+      .limit(1)
+  )[0] ?? commission;
+
+  // Opt-in: recognise the net commission as a liability on the balance sheet.
+  const netAmount = Number(refreshed.netAmount ?? 0);
+  if (netAmount > 0) {
+    const settings = await getCommissionSettings(input.companyId, tx);
+    if (settings.accrueToLedger) {
+      try {
+        await postCommissionAccrualJournal(tx, input.companyId, commission.id, netAmount, input.userId ?? null);
+      } catch (error) {
+        console.error(`[CRM] Failed to accrue commission ${commission.id} to GL`, error);
+      }
+    }
+  }
   return (
     await tx
       .select()
       .from(crmCommissions)
-      .where(eq(crmCommissions.id, commission.id))
+      .where(and(
+        eq(crmCommissions.id, commission.id),
+        eq(crmCommissions.companyId, input.companyId),
+      ))
       .limit(1)
-  )[0] ?? commission;
+  )[0] ?? refreshed;
 }
 
 /** Approve/reject decision coming from either the CRM screen or the inbox. */
@@ -638,7 +828,10 @@ export async function applyCommissionDecision(
       reviewNotes: reviewNotes || null,
       updatedAt: new Date(),
     })
-    .where(eq(crmCommissions.id, commissionId))
+    .where(and(
+      eq(crmCommissions.id, commissionId),
+      eq(crmCommissions.companyId, companyId),
+    ))
     .returning();
   return updated;
 }
@@ -647,26 +840,50 @@ export async function applyCommissionDecision(
  * Cancel the open commission attached to a vehicle whose sale was reversed.
  * Paid statements are left untouched because the money has already moved.
  */
+export type CommissionCancellationResult = {
+  ok: boolean;
+  commissionId: number | null;
+  reversalJournalEntryId?: number | null;
+  error?: string;
+};
+
 export async function cancelVehicleCommission(
   executor: Executor,
   companyId: number,
   vehicleId: number,
   reason: string,
-) {
+): Promise<CommissionCancellationResult> {
   const tx = executor ?? db;
   const [commission] = await tx
     .select()
     .from(crmCommissions)
     .where(and(eq(crmCommissions.companyId, companyId), eq(crmCommissions.vehicleId, vehicleId)))
     .limit(1);
-  if (!commission || commission.status === "paid") return commission ?? null;
+  if (!commission) return { ok: true, commissionId: null };
+  if (commission.status === "paid") {
+    return { ok: true, commissionId: commission.id, error: "Paid commission left untouched" };
+  }
 
+  let reversalJournalEntryId = commission.reversalJournalEntryId ?? null;
   // Reverse the accrued-liability journal first so the books reflect the unwind.
-  if (commission.accrualJournalEntryId) {
+  if (commission.accrualJournalEntryId && !reversalJournalEntryId) {
     try {
-      await reverseCommissionAccrual(tx, companyId, commission.accrualJournalEntryId, null);
-    } catch (error) {
-      console.error(`[CRM] Failed to reverse commission accrual ${commission.accrualJournalEntryId}`, error);
+      const reversal = await reverseCommissionAccrual(
+        tx,
+        companyId,
+        commission.id,
+        commission.accrualJournalEntryId,
+        null,
+      );
+      reversalJournalEntryId = reversal?.id ?? null;
+    } catch (error: any) {
+      // Keep the original accrual link intact when the reversal fails.
+      return {
+        ok: false,
+        commissionId: commission.id,
+        reversalJournalEntryId: null,
+        error: error?.message || "Failed to reverse commission accrual",
+      };
     }
   }
 
@@ -675,12 +892,18 @@ export async function cancelVehicleCommission(
     .set({
       status: "rejected",
       reviewNotes: reason,
-      accrualJournalEntryId: null,
+      // The accrual link is historical traceability and must survive cancellation.
+      reversalJournalEntryId,
       updatedAt: new Date(),
     })
-    .where(eq(crmCommissions.id, commission.id))
+    .where(and(
+      eq(crmCommissions.id, commission.id),
+      eq(crmCommissions.companyId, companyId),
+    ))
     .returning();
-  return updated ?? null;
+  return updated
+    ? { ok: true, commissionId: updated.id, reversalJournalEntryId }
+    : { ok: false, commissionId: commission.id, error: "Commission cancellation did not update any row" };
 }
 
 /** Serialisable policy block returned to the client with commission data. */

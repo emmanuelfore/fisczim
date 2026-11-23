@@ -167,14 +167,19 @@ export async function recordBatchStockIn(
     createdBy?: string,
     purchaseOrderId?: number,
     gdnId?: number,
-    customerId?: number
+    customerId?: number,
+    externalTx?: any
 ) {
+    // When called from an approval's transaction, every read and write uses
+    // that transaction. Never open a nested transaction or the GL journal
+    // could commit while the caller rolls back.
+    const activeDb = externalTx || db;
     const grvReference = grvNumber?.trim() || generateGrvReference();
     
     // Apply variation UoM conversions before processing
     for (const item of items) {
         if ((item as any).variationId) {
-            const [variation] = await db.select().from(productVariations).where(eq(productVariations.id, (item as any).variationId));
+            const [variation] = await activeDb.select().from(productVariations).where(eq(productVariations.id, (item as any).variationId));
             if (variation && variation.baseUnitMultiplier) {
                 const multiplier = parseFloat(variation.baseUnitMultiplier.toString());
                 const oldQty = typeof item.quantity === "string" ? parseFloat(item.quantity) : item.quantity;
@@ -194,9 +199,23 @@ export async function recordBatchStockIn(
 
     // If the GRV is tax inclusive, the item.unitCost (which maps to baseUnitCost) may already include VAT.
     const [gdnRecord] = gdnId 
-        ? await db.select({ taxInclusive: goodsDeliveryNotes.taxInclusive }).from(goodsDeliveryNotes).where(eq(goodsDeliveryNotes.id, gdnId)).limit(1)
+        ? await activeDb.select({
+            taxInclusive: goodsDeliveryNotes.taxInclusive,
+            gdnNumber: goodsDeliveryNotes.gdnNumber,
+            currency: goodsDeliveryNotes.currency,
+        }).from(goodsDeliveryNotes)
+          .where(and(eq(goodsDeliveryNotes.id, gdnId), eq(goodsDeliveryNotes.companyId, companyId)))
+          .limit(1)
         : [null];
     const isGdnTaxInclusive = gdnRecord ? !!gdnRecord.taxInclusive : false;
+    const [company] = await activeDb.select({ currency: companies.currency })
+        .from(companies).where(eq(companies.id, companyId)).limit(1);
+    // GRV costs are already in the document currency; no rate is stored on the
+    // GDN, so pass 1 to prevent the ledger from converting the amount twice.
+    const glCurrency = gdnRecord?.currency || company?.currency || "USD";
+    const glExchangeRate = 1;
+    // Stable and meaningful to auditors: the GDN number when present, else the GRV.
+    const glPostingKey = `grv:${gdnRecord?.gdnNumber || grvReference}`;
 
     // Sum non-stock items to act as the auto-landed cost pool
     // Non-recoverable VAT gets added to the landed cost pool!
@@ -260,8 +279,9 @@ export async function recordBatchStockIn(
     const totalLandedCosts = landedCosts + autoLandedCostPool;
     const allocatedItems = allocateLandedCosts(stockItemsInput, totalLandedCosts, allocationMethod);
 
-    // Wrap in a transaction to ensure all or nothing
-    await db.transaction(async (tx) => {
+    // Wrap in a transaction to ensure all or nothing, unless the caller is
+    // already inside one (approvals roll the GRV back with their own changes).
+    const executeInTx = async (tx: any) => {
         const receivingLocation = await resolveReceivingLocation(tx, companyId, null);
 
         for (const item of allocatedItems) {
@@ -406,9 +426,9 @@ export async function recordBatchStockIn(
         // 5. Post GL: Dr Inventory (1300), Dr Input VAT (e.g. 1500), Cr GRNI (2010)
         // Lazy import to avoid circular dependency
         const { storage } = await import("../storage");
-        const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode");
-        const grniAccCode = await storage.getSystemAccountCode(companyId, "grniAccountCode");
-        const inputVatAccCode = await storage.getSystemAccountCode(companyId, "vatInputAccountCode"); // Key is vatInputAccountCode
+        const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+        const grniAccCode = await storage.getSystemAccountCode(companyId, "grniAccountCode", tx);
+        const inputVatAccCode = await storage.getSystemAccountCode(companyId, "vatInputAccountCode", tx); // Key is vatInputAccountCode
         
         // Note: allocatedItems baseUnitCost values have already been adjusted in pre-processing
         // (i.e. if taxInclusive and recoverable, baseUnitCost = cost - taxAmt/qty).
@@ -417,16 +437,24 @@ export async function recordBatchStockIn(
         const grandTotal = totalInventoryCost + totalRecoverableVat;
 
         if (inventoryAccCode && grniAccCode && grandTotal > 0 && !customerId) {
-            const lines: { accountCode: string, type: "DEBIT" | "CREDIT", amount: number }[] = [];
+            const glLine = (accountCode: string, type: "DEBIT" | "CREDIT", amount: number) => ({
+                accountCode,
+                type,
+                amount,
+                baseAmount: amount,
+                currency: glCurrency,
+                exchangeRate: glExchangeRate,
+            });
+            const lines = [];
             
             if (totalInventoryCost > 0) {
-                lines.push({ accountCode: inventoryAccCode, type: "DEBIT", amount: Number(totalInventoryCost.toFixed(2)) });
+                lines.push(glLine(inventoryAccCode, "DEBIT", Number(totalInventoryCost.toFixed(2))));
             }
             if (totalRecoverableVat > 0 && inputVatAccCode) {
-                lines.push({ accountCode: inputVatAccCode, type: "DEBIT", amount: Number(totalRecoverableVat.toFixed(2)) });
+                lines.push(glLine(inputVatAccCode, "DEBIT", Number(totalRecoverableVat.toFixed(2))));
             }
             if (grandTotal > 0) {
-                lines.push({ accountCode: grniAccCode, type: "CREDIT", amount: Number((totalInventoryCost + totalRecoverableVat).toFixed(2)) });
+                lines.push(glLine(grniAccCode, "CREDIT", Number((totalInventoryCost + totalRecoverableVat).toFixed(2))));
             }
 
             // Inside the caller's transaction — posting on a second connection
@@ -436,12 +464,21 @@ export async function recordBatchStockIn(
                 description: `GRV ${grvReference}${gdnId ? ` (GDN #${gdnId})` : ""}`,
                 referenceType: "GRV",
                 referenceId: grvReference,
+                postingKey: glPostingKey,
+                currency: glCurrency,
+                exchangeRate: glExchangeRate,
                 createdBy: createdBy,
                 deduplicate: true,
                 lines,
             }, tx);
         }
-    });
+    };
+
+    if (externalTx) {
+        await executeInTx(externalTx);
+    } else {
+        await db.transaction(executeInTx);
+    }
 
     return {
         grvNumber: grvReference,

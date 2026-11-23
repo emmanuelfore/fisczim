@@ -2,6 +2,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   GdnListItem,
   useGrvs,
@@ -61,14 +62,16 @@ import { LoadingRows } from "@/components/ui/page-skeleton";
 const ITEMS_PER_PAGE = 20;
 
 
-function ConfirmGdnModal({ 
-  gdn, 
+function ConfirmGdnModal({
+  gdn,
   onClose,
-  companyId 
-}: { 
-  gdn: GdnListItem | null, 
+  companyId,
+  canConfirm,
+}: {
+  gdn: GdnListItem | null,
   onClose: () => void,
-  companyId: number 
+  companyId: number,
+  canConfirm: boolean
 }) {
   const confirmGdn = useConfirmGdn(companyId);
   const { toast } = useToast();
@@ -92,6 +95,7 @@ function ConfirmGdnModal({
   if (!gdn) return null;
 
   const handleConfirm = () => {
+    if (!canConfirm) return;
     if (!grvNumber.trim()) return toast({ title: "Required", description: "GRV Number is required.", variant: "destructive" });
     
     confirmGdn.mutate({
@@ -177,7 +181,11 @@ function ConfirmGdnModal({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={confirmGdn.isPending}>
+          <Button
+            onClick={handleConfirm}
+            disabled={confirmGdn.isPending || !canConfirm}
+            title={!canConfirm ? "Requires grn.confirm or grn.confirm.direct" : undefined}
+          >
             {confirmGdn.isPending ? "Confirming..." : "Confirm & Post"}
           </Button>
         </DialogFooter>
@@ -188,13 +196,25 @@ function ConfirmGdnModal({
 
 export default function InventoryAccountPage() {
   const { activeCompanyId } = useActiveCompany();
+  const { can } = usePermissions();
+  const canCreateGrv = can("grn.create");
+  const canConfirmGdn = can("grn.confirm") || can("grn.confirm.direct");
   const companyId = activeCompanyId || 0;
-  const { data: grvs, isLoading } = useGrvs(companyId);
+  const {
+    data: grvs,
+    isLoading,
+    isError: isGrvsError,
+    refetch: refetchGrvs,
+  } = useGrvs(companyId);
 
-
-  
-  const { data: pendingGdns, isLoading: loadingGdns } = usePendingGdns(companyId);
+  const {
+    data: pendingGdns,
+    isLoading: loadingGdns,
+    isError: isGdnsError,
+    refetch: refetchGdns,
+  } = usePendingGdns(companyId);
   const [selectedGdn, setSelectedGdn] = useState<GdnListItem | null>(null);
+  const [activeTab, setActiveTab] = useState("grvs");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -211,7 +231,8 @@ export default function InventoryAccountPage() {
   }, [grvs, searchTerm]);
 
   const totalPages = Math.ceil((filtered.length || 0) / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const safePage = Math.min(Math.max(currentPage, 1), totalPages || 1);
+  const startIndex = (safePage - 1) * ITEMS_PER_PAGE;
   const rows = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   return (
@@ -221,12 +242,14 @@ export default function InventoryAccountPage() {
         subtitle="Review draft GDNs and manage confirmed GRV stock documents"
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/inventory/grvs/new">
-              <Button className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Direct GRV
-              </Button>
-            </Link>
+            {canCreateGrv && (
+              <Link href="/inventory/grvs/new">
+                <Button className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Direct GRV
+                </Button>
+              </Link>
+            )}
           </div>
         }
       />
@@ -234,7 +257,7 @@ export default function InventoryAccountPage() {
 
 
       
-      <Tabs defaultValue="grvs" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <TabsList className="bg-white/80 backdrop-blur-sm border border-slate-200 shadow-sm rounded-xl h-12 p-1">
             <TabsTrigger value="grvs" className="rounded-lg data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md font-bold text-slate-500">
@@ -254,7 +277,7 @@ export default function InventoryAccountPage() {
 
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-hover:text-violet-500 transition-colors" />
           <Input
-            placeholder="Search GRV number or supplier..."
+            placeholder={activeTab === "gdns" ? "Search GDN number..." : "Search GRV number or supplier..."}
             className="pl-12 h-12 rounded-xl border-slate-200 bg-white shadow-sm focus:ring-violet-500/20 focus:border-violet-500 font-medium transition-all"
             value={searchTerm}
             onChange={(e) => {
@@ -302,7 +325,18 @@ export default function InventoryAccountPage() {
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
+                {isGrvsError ? (
+                  <tr>
+                    <td colSpan={9} className="p-12 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <span className="text-rose-600 font-semibold">Could not load GRVs.</span>
+                        <Button variant="outline" size="sm" onClick={() => refetchGrvs()}>
+                          Retry
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : isLoading ? (
                   <tr>
                     <td colSpan={9} className="p-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-3">
@@ -527,14 +561,13 @@ export default function InventoryAccountPage() {
             </div>
             <div className="flex items-center gap-2">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-2">
-                Page {Math.min(currentPage, totalPages || 1)} of{" "}
-                {totalPages || 1}
+                Page {safePage} of {totalPages || 1}
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
+                disabled={safePage <= 1}
                 className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
               >
                 <ChevronLeft className="h-3 w-3 mr-1" />
@@ -544,9 +577,9 @@ export default function InventoryAccountPage() {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  setCurrentPage((p) => Math.min(totalPages || 1, p + 1))
+                  setCurrentPage(Math.min(totalPages || 1, safePage + 1))
                 }
-                disabled={currentPage >= totalPages || totalPages === 0}
+                disabled={safePage >= totalPages || totalPages === 0}
                 className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
               >
                 Next
@@ -574,7 +607,18 @@ export default function InventoryAccountPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {loadingGdns ? (
+                  {isGdnsError ? (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <span className="text-rose-600 font-semibold">Could not load pending GDNs.</span>
+                          <Button variant="outline" size="sm" onClick={() => refetchGdns()}>
+                            Retry
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : loadingGdns ? (
                     <tr>
                       <td colSpan={5} className="p-12 text-center text-slate-500">
                         <div className="flex flex-col items-center justify-center gap-3">
@@ -610,7 +654,13 @@ export default function InventoryAccountPage() {
                           {gdn.lineCount}
                         </td>
                         <td className="p-4 text-right">
-                          <Button size="sm" className="rounded-xl h-8 text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white" onClick={() => setSelectedGdn(gdn)}>
+                          <Button
+                            size="sm"
+                            className="rounded-xl h-8 text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white"
+                            disabled={!canConfirmGdn}
+                            title={!canConfirmGdn ? "Requires grn.confirm or grn.confirm.direct" : undefined}
+                            onClick={() => setSelectedGdn(gdn)}
+                          >
                             <ClipboardCheck className="w-3.5 h-3.5 mr-1" />
                             Confirm & Post
                           </Button>
@@ -625,7 +675,12 @@ export default function InventoryAccountPage() {
         </TabsContent>
       </Tabs>
       
-      <ConfirmGdnModal gdn={selectedGdn} onClose={() => setSelectedGdn(null)} companyId={companyId} />
+      <ConfirmGdnModal
+        gdn={selectedGdn}
+        onClose={() => setSelectedGdn(null)}
+        companyId={companyId}
+        canConfirm={canConfirmGdn}
+      />
 
     </Layout>
   );

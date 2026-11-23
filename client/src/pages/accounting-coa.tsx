@@ -37,6 +37,11 @@ import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useLocation } from "wouter";
+import {
+  accountingKey,
+  fetchAccounting,
+  invalidateAccountingCache,
+} from "@/lib/accounting-query";
 
 const ACCOUNT_CATEGORIES = {
   ASSET: ["Current Assets", "Non-current Assets"],
@@ -124,28 +129,18 @@ export default function AccountingCOAPage() {
   const [, setLocation] = useLocation();
 
   const { data: accounts, isLoading, isError, refetch } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts", companyId],
+    queryKey: accountingKey("accounts", companyId),
     enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(
+    queryFn: () =>
+      fetchAccounting<Account[]>(
         `/api/companies/${companyId}/accounting/accounts`,
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText }));
-        throw new Error(err.message || "Failed to load chart of accounts");
-      }
-      return res.json();
-    },
+      ),
   });
 
   const { data: segments } = useQuery<any[]>({
-    queryKey: ["/api/accounting/segments", companyId],
+    queryKey: accountingKey("segments", companyId),
     enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(`/api/accounting/segments`);
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchAccounting<any[]>("/api/accounting/segments"),
   });
 
   const createMutation = useMutation({
@@ -165,9 +160,7 @@ export default function AccountingCOAPage() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/accounts", companyId],
-      });
+      invalidateAccountingCache(queryClient);
       toast({ title: "Success", description: "Account created successfully" });
       setIsDialogOpen(false);
       setFormData({

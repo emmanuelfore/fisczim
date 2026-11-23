@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { accounts, busReconciliations, busTickets, companies, journalEntries, ledgerEntries } from "../../shared/schema.js";
 import { storage } from "../storage.js";
 
@@ -28,6 +28,12 @@ type JournalLine = {
   amount: number;
 };
 
+/** Explicit result so callers can turn a failed GL post into a non-2xx response. */
+export type BusPostingResult =
+  | { ok: true; skipped: true; reason: string }
+  | { ok: true; skipped: false; journalEntryId?: number }
+  | { ok: false; error: string };
+
 function amount(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -54,6 +60,18 @@ function resolveSettings(rawSettings: unknown): BusAccountingSettings {
       firstText(raw[key], nested[key], fallback),
     ])
   ) as BusAccountingSettings;
+}
+
+/** FX is stored as base = foreign / exchangeRate; default to 1 when not supplied. */
+function fxMeta(source: unknown, fallbackCurrency?: string) {
+  const record = source && typeof source === "object" ? source as Record<string, unknown> : {};
+  const currency = firstText(record.currency, fallbackCurrency) || "USD";
+  const rawRate = amount(record.exchangeRate);
+  return { currency, exchangeRate: rawRate > 0 ? rawRate : undefined };
+}
+
+function withFx<T extends JournalLine>(lines: T[], fx: ReturnType<typeof fxMeta>) {
+  return lines.map((line) => ({ ...line, currency: fx.currency, exchangeRate: fx.exchangeRate }));
 }
 
 function paymentClearingAccountCode(paymentMethod: unknown, settings: BusAccountingSettings) {
@@ -90,20 +108,35 @@ async function ensureBusAccounts(companyId: number, tx: any) {
   }
 }
 
-async function getSettings(companyId: number, tx: any) {
-  const [company] = await tx.select({ accountingSettings: companies.accountingSettings })
+async function getSettings(companyId: number, tx: any): Promise<BusAccountingSettings & { currency: string }> {
+  const [company] = await tx.select({
+    accountingSettings: companies.accountingSettings,
+    currency: companies.currency,
+  })
     .from(companies)
     .where(eq(companies.id, companyId));
-  return resolveSettings(company?.accountingSettings);
+  return {
+    ...resolveSettings(company?.accountingSettings),
+    currency: firstText(company?.currency) || "USD",
+  };
 }
 
-async function findExistingJournal(companyId: number, referenceType: string, referenceId: string, tx: any) {
+async function findExistingJournal(
+  companyId: number,
+  { postingKey, referenceType, referenceId }: { postingKey: string; referenceType: string; referenceId: string },
+  tx: any
+) {
   const [existing] = await tx.select({ id: journalEntries.id })
     .from(journalEntries)
     .where(and(
       eq(journalEntries.companyId, companyId),
-      eq(journalEntries.referenceType, referenceType),
-      eq(journalEntries.referenceId, referenceId)
+      or(
+        eq(journalEntries.postingKey, postingKey),
+        and(
+          eq(journalEntries.referenceType, referenceType),
+          eq(journalEntries.referenceId, referenceId)
+        )
+      )
     ));
   return existing;
 }
@@ -122,100 +155,149 @@ async function assertAccountCodes(companyId: number, codes: string[], tx: any) {
   }
 }
 
-async function markTicketPosting(ticketId: number, tx: any, status: "posted" | "skipped" | "failed" | "voided", journalEntryId?: number, error?: string) {
-  await tx.update(busTickets)
-    .set({
-      accountingStatus: status,
-      accountingError: error ? error.slice(0, 500) : null,
-      postedJournalEntryId: journalEntryId ?? null,
-      postedAt: status === "posted" ? new Date() : null,
-    })
-    .where(eq(busTickets.id, ticketId));
+async function markTicketPosting(
+  ticketId: number,
+  tx: any,
+  status: "posted" | "skipped" | "failed" | "voided",
+  journalEntryId?: number,
+  error?: string
+) {
+  const set: Record<string, unknown> = {
+    accountingStatus: status,
+    accountingError: error ? error.slice(0, 500) : null,
+  };
+
+  if (status === "posted") {
+    // First successful sale post is the immutable original; later retries must not replace it.
+    set.postedJournalEntryId = journalEntryId ?? null;
+    set.originalJournalEntryId = sql`coalesce(${busTickets.originalJournalEntryId}, ${journalEntryId ?? null})`;
+    set.postedAt = new Date();
+  } else if (status === "voided") {
+    // Keep the original sale link intact; only the void journal link changes.
+    set.voidJournalEntryId = journalEntryId ?? null;
+  } else if (status === "failed") {
+    // Preserve any previously recorded original/void journal links for retry traceability.
+    set.postedAt = null;
+  }
+
+  await tx.update(busTickets).set(set).where(eq(busTickets.id, ticketId));
 }
 
-async function markReconciliationPosting(reconciliationId: number, tx: any, status: "posted" | "skipped" | "failed", journalEntryId?: number, error?: string) {
-  await tx.update(busReconciliations)
-    .set({
-      accountingStatus: status,
-      accountingError: error ? error.slice(0, 500) : null,
-      postedJournalEntryId: journalEntryId ?? null,
-      postedAt: status === "posted" ? new Date() : null,
-    })
-    .where(eq(busReconciliations.id, reconciliationId));
+async function markReconciliationPosting(
+  reconciliationId: number,
+  tx: any,
+  status: "posted" | "skipped" | "failed",
+  journalEntryId?: number,
+  error?: string
+) {
+  const set: Record<string, unknown> = {
+    accountingStatus: status,
+    accountingError: error ? error.slice(0, 500) : null,
+  };
+  if (status === "posted") {
+    set.postedJournalEntryId = journalEntryId ?? null;
+    set.originalJournalEntryId = sql`coalesce(${busReconciliations.originalJournalEntryId}, ${journalEntryId ?? null})`;
+    set.postedAt = new Date();
+  } else if (status === "failed") {
+    set.postedAt = null;
+  }
+  await tx.update(busReconciliations).set(set).where(eq(busReconciliations.id, reconciliationId));
 }
 
-export async function postBusTicketAccounting(ticket: typeof busTickets.$inferSelect, tx: any) {
+export async function postBusTicketAccounting(
+  ticket: typeof busTickets.$inferSelect,
+  tx: any
+): Promise<BusPostingResult> {
   if ((ticket.status || "active") !== "active") {
-    await markTicketPosting(ticket.id, tx, "skipped", undefined, "Only active bus tickets are posted to revenue.");
-    return;
+    const reason = "Only active bus tickets are posted to revenue.";
+    await markTicketPosting(ticket.id, tx, "skipped", undefined, reason);
+    return { ok: true, skipped: true, reason };
   }
 
   const total = money(ticket.amount);
   if (total <= 0) {
-    await markTicketPosting(ticket.id, tx, "skipped", undefined, "Ticket amount is zero.");
-    return;
+    const reason = "Ticket amount is zero.";
+    await markTicketPosting(ticket.id, tx, "skipped", undefined, reason);
+    return { ok: true, skipped: true, reason };
   }
 
+  const postingKey = `bus-ticket:${ticket.id}:sale`;
+  const referenceType = "BUS_TICKET";
+  const referenceId = String(ticket.id);
+
   try {
-    const referenceType = "BUS_TICKET";
-    const referenceId = String(ticket.id);
-    const existing = await findExistingJournal(ticket.companyId, referenceType, referenceId, tx);
+    const existing = await findExistingJournal(ticket.companyId, { postingKey, referenceType, referenceId }, tx);
     if (existing) {
       await markTicketPosting(ticket.id, tx, "posted", existing.id);
-      return;
+      return { ok: true, skipped: false, journalEntryId: existing.id };
     }
 
     await ensureBusAccounts(ticket.companyId, tx);
     const settings = await getSettings(ticket.companyId, tx);
     const clearingAccountCode = paymentClearingAccountCode(ticket.paymentMethod, settings);
     await assertAccountCodes(ticket.companyId, [clearingAccountCode, settings.busRevenueAccountCode], tx);
+
+    const fx = fxMeta(ticket, settings.currency);
+    const lines: JournalLine[] = [
+      { accountCode: clearingAccountCode, type: "DEBIT", amount: total },
+      { accountCode: settings.busRevenueAccountCode, type: "CREDIT", amount: total },
+    ];
     const entry = await storage.postToLedger(ticket.companyId, {
       entryDate: ticket.timestamp,
       description: `Bus ticket ${ticket.ticketNumber}`,
       referenceType,
       referenceId,
-      lines: [
-        {
-          accountCode: clearingAccountCode,
-          type: "DEBIT" as const,
-          amount: total,
-        },
-        {
-          accountCode: settings.busRevenueAccountCode,
-          type: "CREDIT" as const,
-          amount: total,
-        },
-      ],
+      postingKey,
+      currency: fx.currency,
+      exchangeRate: fx.exchangeRate,
+      lines: withFx(lines, fx),
     }, tx);
 
     await markTicketPosting(ticket.id, tx, "posted", entry.id);
+    return { ok: true, skipped: false, journalEntryId: entry.id };
   } catch (err: any) {
-    await markTicketPosting(ticket.id, tx, "failed", undefined, err?.message || "Posting failed");
+    const message = err?.message || "Posting failed";
+    await markTicketPosting(ticket.id, tx, "failed", undefined, message);
+    // Returned (not swallowed): the route maps this to a non-2xx response.
+    return { ok: false, error: message };
   }
 }
 
-export async function postBusReconciliationAccounting(reconciliation: typeof busReconciliations.$inferSelect, tx: any) {
+export async function postBusReconciliationAccounting(
+  reconciliation: typeof busReconciliations.$inferSelect,
+  tx: any
+): Promise<BusPostingResult> {
   if ((reconciliation.status || "pending") !== "approved") {
-    await markReconciliationPosting(reconciliation.id, tx, "skipped", undefined, "Cash-up is not approved yet.");
-    return;
+    const reason = "Cash-up is not approved yet.";
+    await markReconciliationPosting(reconciliation.id, tx, "skipped", undefined, reason);
+    return { ok: true, skipped: true, reason };
   }
 
   const expectedCash = money(reconciliation.expectedCash);
   const cashReceived = money(reconciliation.cashReceived);
-  const variance = money(reconciliation.gap);
-
-  if (expectedCash <= 0 && cashReceived <= 0) {
-    await markReconciliationPosting(reconciliation.id, tx, "skipped", undefined, "Cash-up amount is zero.");
-    return;
+  // Always derive the variance; a submitted value is only trusted as a cross-check.
+  const variance = money(cashReceived - expectedCash);
+  if (reconciliation.gap != null && Math.abs(amount(reconciliation.gap) - variance) > 0.01) {
+    const message = `Submitted cash-up gap ${reconciliation.gap} does not match cashReceived - expectedCash (${variance}).`;
+    await markReconciliationPosting(reconciliation.id, tx, "failed", undefined, message);
+    return { ok: false, error: message };
   }
 
+  if (expectedCash <= 0 && cashReceived <= 0) {
+    const reason = "Cash-up amount is zero.";
+    await markReconciliationPosting(reconciliation.id, tx, "skipped", undefined, reason);
+    return { ok: true, skipped: true, reason };
+  }
+
+  const postingKey = `bus-reconciliation:${reconciliation.id}:approval`;
+  const referenceType = "BUS_RECONCILIATION";
+  const referenceId = String(reconciliation.id);
+
   try {
-    const referenceType = "BUS_RECONCILIATION";
-    const referenceId = String(reconciliation.id);
-    const existing = await findExistingJournal(reconciliation.companyId, referenceType, referenceId, tx);
+    const existing = await findExistingJournal(reconciliation.companyId, { postingKey, referenceType, referenceId }, tx);
     if (existing) {
       await markReconciliationPosting(reconciliation.id, tx, "posted", existing.id);
-      return;
+      return { ok: true, skipped: false, journalEntryId: existing.id };
     }
 
     await ensureBusAccounts(reconciliation.companyId, tx);
@@ -227,83 +309,122 @@ export async function postBusReconciliationAccounting(reconciliation: typeof bus
       settings.busCashOverageAccountCode,
     ], tx);
     const debitLines: JournalLine[] = [
-      {
-        accountCode: settings.busCashOnHandAccountCode,
-        type: "DEBIT" as const,
-        amount: cashReceived,
-      },
+      { accountCode: settings.busCashOnHandAccountCode, type: "DEBIT", amount: cashReceived },
     ];
     const creditLines: JournalLine[] = [
-      {
-        accountCode: settings.busConductorCashAccountCode,
-        type: "CREDIT" as const,
-        amount: expectedCash,
-      },
+      { accountCode: settings.busConductorCashAccountCode, type: "CREDIT", amount: expectedCash },
     ];
 
     if (variance < 0) {
       debitLines.push({
         accountCode: settings.busCashShortageAccountCode,
-        type: "DEBIT" as const,
+        type: "DEBIT",
         amount: Math.abs(variance),
       });
     } else if (variance > 0) {
       creditLines.push({
         accountCode: settings.busCashOverageAccountCode,
-        type: "CREDIT" as const,
+        type: "CREDIT",
         amount: variance,
       });
     }
 
+    const fx = fxMeta(reconciliation, settings.currency);
     const entry = await storage.postToLedger(reconciliation.companyId, {
       entryDate: new Date(`${reconciliation.date}T00:00:00.000Z`),
       description: `Bus conductor cash-up ${reconciliation.date}`,
       referenceType,
       referenceId,
+      postingKey,
+      currency: fx.currency,
+      exchangeRate: fx.exchangeRate,
       createdBy: reconciliation.signedOffBy || undefined,
-      lines: [...debitLines, ...creditLines],
+      lines: withFx([...debitLines, ...creditLines], fx),
     }, tx);
 
     await markReconciliationPosting(reconciliation.id, tx, "posted", entry.id);
+    return { ok: true, skipped: false, journalEntryId: entry.id };
   } catch (err: any) {
-    await markReconciliationPosting(reconciliation.id, tx, "failed", undefined, err?.message || "Posting failed");
+    const message = err?.message || "Posting failed";
+    await markReconciliationPosting(reconciliation.id, tx, "failed", undefined, message);
+    return { ok: false, error: message };
   }
 }
 
-export async function voidBusTicketAccounting(ticket: typeof busTickets.$inferSelect, tx: any) {
-  if (!ticket.postedJournalEntryId) return;
+export async function voidBusTicketAccounting(
+  ticket: typeof busTickets.$inferSelect,
+  tx: any
+): Promise<BusPostingResult> {
+  const originalJournalEntryId = ticket.originalJournalEntryId ?? ticket.postedJournalEntryId;
+  if (!originalJournalEntryId) {
+    const reason = "Ticket has no posted sale journal to reverse.";
+    await markTicketPosting(ticket.id, tx, "skipped", undefined, reason);
+    return { ok: true, skipped: true, reason };
+  }
+
+  const postingKey = `bus-ticket:${ticket.id}:void`;
+  const referenceType = "BUS_TICKET_VOID";
+  const referenceId = String(ticket.id);
 
   try {
-    const referenceType = "BUS_TICKET_VOID";
-    const referenceId = String(ticket.id);
-    const existing = await findExistingJournal(ticket.companyId, referenceType, referenceId, tx);
-    if (existing) return;
+    const existing = await findExistingJournal(ticket.companyId, { postingKey, referenceType, referenceId }, tx);
+    if (existing) {
+      await markTicketPosting(ticket.id, tx, "voided", existing.id);
+      return { ok: true, skipped: false, journalEntryId: existing.id };
+    }
 
+    // Reverse the ACTUAL posted journal lines, including their FX metadata.
     const originalLines = await tx.select({
       accountCode: accounts.code,
       type: ledgerEntries.type,
       amount: ledgerEntries.amount,
+      currency: ledgerEntries.currency,
+      exchangeRate: ledgerEntries.exchangeRate,
     })
       .from(ledgerEntries)
       .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
-      .where(eq(ledgerEntries.journalEntryId, ticket.postedJournalEntryId));
+      .where(eq(ledgerEntries.journalEntryId, originalJournalEntryId));
 
-    if (originalLines.length === 0) return;
+    if (originalLines.length === 0) {
+      const reason = "Original sale journal has no ledger lines to reverse.";
+      await markTicketPosting(ticket.id, tx, "failed", undefined, reason);
+      return { ok: false, error: reason };
+    }
 
+    const settings = await getSettings(ticket.companyId, tx);
+    // bus_tickets has no exchange_rate column: the posted sale ledger line is
+    // the source of truth for FX. Fall back to 1 (base currency) only when no
+    // rate was recorded on the original journal.
+    const voidCurrency = firstText(originalLines[0]?.currency, ticket.currency, settings.currency) || "USD";
+    const voidExchangeRate = amount(originalLines[0]?.exchangeRate) || 1;
     const entry = await storage.postToLedger(ticket.companyId, {
       entryDate: new Date(),
       description: `Void bus ticket ${ticket.ticketNumber}${ticket.voidReason ? ` (${ticket.voidReason})` : ""}`,
       referenceType,
       referenceId,
-      lines: originalLines.map((line: { accountCode: string; type: string; amount: unknown }) => ({
+      postingKey,
+      currency: voidCurrency,
+      exchangeRate: voidExchangeRate,
+      lines: originalLines.map((line: {
+        accountCode: string;
+        type: string;
+        amount: unknown;
+        currency: string | null;
+        exchangeRate: unknown;
+      }) => ({
         accountCode: line.accountCode,
         type: line.type === "DEBIT" ? ("CREDIT" as const) : ("DEBIT" as const),
-        amount: Number(line.amount),
+        amount: amount(line.amount),
+        currency: firstText(line.currency, settings.currency) || "USD",
+        exchangeRate: amount(line.exchangeRate) > 0 ? amount(line.exchangeRate) : undefined,
       })),
     }, tx);
 
     await markTicketPosting(ticket.id, tx, "voided", entry.id);
+    return { ok: true, skipped: false, journalEntryId: entry.id };
   } catch (err: any) {
-    await markTicketPosting(ticket.id, tx, "failed", undefined, err?.message || "Void posting failed");
+    const message = err?.message || "Void posting failed";
+    await markTicketPosting(ticket.id, tx, "failed", undefined, message);
+    return { ok: false, error: message };
   }
 }

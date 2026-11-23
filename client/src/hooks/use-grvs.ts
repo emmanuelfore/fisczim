@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { refreshProductQueries } from "@/hooks/use-products";
+import { invalidateAccountingCache } from "@/lib/accounting-query";
 
 export type GrvListItem = {
   id: string;
@@ -197,6 +198,7 @@ export function useConfirmGdn(companyId: number) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "DRAFT"] });
       queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
+      invalidateAccountingCache(queryClient);
       refreshProductQueries(queryClient, companyId);
     },
   });

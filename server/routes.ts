@@ -41,6 +41,7 @@ import {
   createRequireOwner,
 } from "./lib/company-auth.js";
 import { guardMiddleware } from "./lib/guard-middleware.js";
+import { requireAccountingPermission, sanitizeBankStatementLines, sanitizeManualJournalPayload } from "./lib/accounting-guards.js";
 import {
   getFiscalStateCarrier,
   hasDedicatedBranchFiscalDevice,
@@ -2349,6 +2350,11 @@ export async function registerRoutes(
             return res.status(403).json({ message: "Forbidden: You do not have permission to edit company settings" });
           }
         }
+      }
+
+      // Accounting setup is a separate capability from ordinary organization settings.
+      if ("accountingSettings" in req.body) {
+        if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
       }
 
       // Transform empty strings to null to avoid unique constraint violations
@@ -8510,6 +8516,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.receipts"))) return;
       const { customerId, amount, currency = "USD", paymentDate, paymentMethod = "Bank", reference, notes, allocations = [] } = req.body;
       const receiptAmount = Number(amount || 0);
       if (!customerId || receiptAmount <= 0) return res.status(400).json({ message: "Customer and positive receipt amount are required" });
@@ -8561,6 +8568,7 @@ export async function registerRoutes(
           description: `Customer receipt ${reference || receipt.id}`,
           referenceType: "CUSTOMER_RECEIPT",
           referenceId: String(receipt.id),
+          postingKey: `customer-receipt:${companyId}:${receipt.id}`,
           createdBy: req.user?.id,
           lines: [
             { accountCode: cashAccountCode, type: "DEBIT", amount: receiptAmount },
@@ -8581,6 +8589,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.payments"))) return;
       const { supplierId, amount, currency = "USD", paymentDate, method = "Bank", reference, notes, allocations = [] } = req.body;
       const paymentAmount = Number(amount || 0);
       if (!supplierId || paymentAmount <= 0) return res.status(400).json({ message: "Supplier and positive payment amount are required" });
@@ -8632,6 +8641,7 @@ export async function registerRoutes(
           description: `Supplier payment ${reference || payment.id}`,
           referenceType: "SUPPLIER_PAYMENT",
           referenceId: String(payment.id),
+          postingKey: `supplier-payment:${companyId}:${payment.id}`,
           createdBy: req.user?.id,
           lines: [
             { accountCode: apAccountCode, type: "DEBIT", amount: paymentAmount },
@@ -13216,6 +13226,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const supplierId = Number(req.params.id);
       const range = parseReportRange(req.query, { default: "all" });
       if (!range.ok) return res.status(400).json({ message: range.message });
@@ -13305,6 +13316,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const customerId = Number(req.params.customerId);
       const [receiptTotals, allocationTotals] = await Promise.all([
         db.select({ total: sql<number>`coalesce(sum(${payments.amount}), 0)` }).from(payments).leftJoin(invoices, eq(payments.invoiceId, invoices.id)).where(and(eq(payments.companyId, companyId), or(eq(invoices.customerId, customerId), isNull(payments.invoiceId)))),
@@ -15166,25 +15178,6 @@ export async function registerRoutes(
     return (await checkCompanyAccess(storage, req.user, companyId)) ? companyId : null;
   };
 
-  // API keys authenticate a whole tenant and carry no role, so only session users
-  // are matched against role permissions.
-  const accountingActionAllowed = async (req: any, companyId: number, permission: string) => {
-    if (req.apiKeyCompanyId) return true;
-    return userHasPermission(req.user?.id, companyId, permission, !!req.user?.isSuperAdmin);
-  };
-
-  const requireAccountingAction = async (
-    req: any,
-    res: any,
-    companyId: number,
-    permission: string,
-    label: string
-  ) => {
-    if (await accountingActionAllowed(req, companyId, permission)) return true;
-    res.status(403).json({ message: `You do not have permission to ${label}.` });
-    return false;
-  };
-
   const normalBalance = (accountType: string) =>
     accountType === "ASSET" || accountType === "EXPENSE" ? "DEBIT" : "CREDIT";
 
@@ -15199,16 +15192,19 @@ export async function registerRoutes(
     const periods = await db.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
     return periods.find((period: any) => {
       const start = new Date(period.startDate);
-      const end = new Date(period.endDate);
+      // A period covers the whole of its end date, not midnight at its start.
+      const end = throughEndOfDay(new Date(period.endDate));
       return postingDate >= start && postingDate <= end
-        && (period.status === "CLOSED" || period.status === "LOCKED");
+        && (period.status === "CLOSED" || period.status === "LOCKED" || period.glLocked === true);
     });
   };
 
   const assertOpenAccountingPeriod = async (companyId: number, value: Date | string | null | undefined, action: string) => {
     const closedPeriod = await getClosedPeriodForDate(companyId, value);
     if (closedPeriod) {
-      throw new Error(`${action} is blocked because ${closedPeriod.name} is ${String(closedPeriod.status).toLowerCase()}.`);
+      const glOnly = String(closedPeriod.status).toUpperCase() === "OPEN" && closedPeriod.glLocked === true;
+      const reason = glOnly ? "GL locked" : String(closedPeriod.status).toLowerCase();
+      throw new Error(`${action} is blocked because ${closedPeriod.name} is ${reason}.`);
     }
   };
 
@@ -15223,17 +15219,11 @@ export async function registerRoutes(
   const accountingSettingsOf = (company: any) =>
     company?.accountingSettings && typeof company.accountingSettings === "object" ? company.accountingSettings : {};
 
-  const resolveOpeningEquityAccount = async (companyId: number) => {
-    const accs = await storage.getAccounts(companyId);
-    return accs.find((account: any) => account.code === "3000")
-      || accs.find((account: any) => account.type === "EQUITY")
-      || null;
-  };
-
   const listAccountingAccounts = async (req: any, res: any) => {
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const accs = await storage.getAccounts(companyId);
       res.json(accs);
     } catch (err: any) {
@@ -15245,7 +15235,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.coa.manage", "manage the chart of accounts"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.coa.manage"))) return;
       const account = await storage.createAccount({ ...req.body, companyId });
       res.json(account);
     } catch (err: any) {
@@ -15262,6 +15252,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
       notImplemented(res, "Budgets");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15272,7 +15263,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "create budgets"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
       notImplemented(res, "Budgets");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15283,6 +15274,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       notImplemented(res, "Cost allocation rules");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15293,7 +15285,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "create allocation rules"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
       notImplemented(res, "Cost allocation rules");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15304,7 +15296,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "run cost allocations"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
       notImplemented(res, "Cost allocation runs");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15314,6 +15306,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const rows = await db.select().from(costCenters).where(eq(costCenters.companyId, companyId)).orderBy(costCenters.code);
       res.json(rows);
     } catch (err: any) {
@@ -15325,6 +15318,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.coa.manage"))) return;
       const [row] = await db.insert(costCenters).values({
         companyId,
         parentId: req.body.parentId ? Number(req.body.parentId) : null,
@@ -15343,6 +15337,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const rows = await db.select().from(accountingSegments).where(eq(accountingSegments.companyId, companyId)).orderBy(accountingSegments.type, accountingSegments.code);
       res.json(rows);
     } catch (err: any) {
@@ -15354,6 +15349,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.coa.manage"))) return;
       const [row] = await db.insert(accountingSegments).values({
         companyId,
         type: String(req.body.type || "CUSTOM").trim().toUpperCase(),
@@ -15372,6 +15368,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       
       const { from, to } = req.query;
       const dateFrom = from ? new Date(from as string) : undefined;
@@ -15389,6 +15386,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
 
       const drafts = await storage.getJournalEntryDrafts(companyId);
       res.json(drafts);
@@ -15401,6 +15399,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.journal.create"))) return;
 
       const draft = await storage.createJournalEntryDraft(companyId, {
         ...req.body,
@@ -15416,6 +15415,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.journal.post"))) return;
 
       const userId = req.user?.id;
       const isSuperAdmin = !!req.user?.isSuperAdmin;
@@ -15466,14 +15466,36 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.journal.post"))) return;
 
       const userId = req.user?.id;
       const isSuperAdmin = !!req.user?.isSuperAdmin;
-      const journalLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+      const rawPayload = req.body && typeof req.body === "object" ? req.body : {};
+      const journalLines = Array.isArray(rawPayload.lines) ? rawPayload.lines : [];
+      // Approval thresholds are calculated from the original submission before sanitizing.
       const journalAmount = journalLines.reduce(
         (sum: number, line: any) => sum + Math.max(Number(line.debit || 0), Number(line.credit || 0), Number(line.amount || 0)),
         0
       );
+      const description = String(rawPayload.description || "Manual entry");
+      const manualEntry = sanitizeManualJournalPayload(rawPayload);
+      // Belt-and-braces: these fields are never client-owned on a manual journal.
+      delete manualEntry.reference;
+      delete manualEntry.referenceId;
+      delete manualEntry.deduplicate;
+      manualEntry.description = description;
+      const headerKey = req.headers?.["idempotency-key"] ?? req.headers?.["x-idempotency-key"];
+      const clientKey = typeof headerKey === "string"
+        ? headerKey.trim()
+        : Array.isArray(headerKey) ? String(headerKey[0] || "").trim() : "";
+      if (clientKey) {
+        manualEntry.postingKey = `manual-journal:${clientKey}`;
+      } else if (!manualEntry.postingKey) {
+        // No explicit key: keep retries from the same requester/description distinct
+        // unless the caller supplies an idempotency header or body idempotencyKey.
+        manualEntry.postingKey = `manual-journal:${companyId}:${userId || "system"}:${description}:${Date.now()}`;
+      }
+      const postingKey = manualEntry.postingKey;
       const access = await resolveActionAccess(
         userId,
         companyId,
@@ -15489,9 +15511,9 @@ export async function registerRoutes(
         const approval = await createApprovalRequest({
           companyId,
           type: APPROVAL_TYPES.JOURNAL_POST,
-          title: `Journal posting: ${req.body?.description || "Manual entry"}`,
-          description: req.body?.description,
-          payload: { manualEntry: req.body },
+          title: `Journal posting: ${description}`,
+          description: manualEntry.description,
+          payload: { manualEntry },
           requestedBy: userId,
         });
         return res.status(202).json({
@@ -15502,7 +15524,8 @@ export async function registerRoutes(
       }
       
       const entry = await storage.postToLedger(companyId, {
-        ...req.body,
+        ...manualEntry,
+        postingKey,
         createdBy: userId
       });
       res.json(entry);
@@ -15515,6 +15538,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       
       const { date } = req.query;
       const asOfDate = date ? new Date(date as string) : undefined;
@@ -15536,6 +15560,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       notImplemented(res, "Consolidated group trial balance");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15546,7 +15571,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.budgets", "run consolidation eliminations"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
       notImplemented(res, "Consolidation eliminations");
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15557,6 +15582,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       
       const { accountId, from, to } = req.query;
       const accId = accountId && accountId !== 'all' ? parseInt(accountId as string) : undefined;
@@ -15575,7 +15601,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.cashbook", "post account transfers"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.cashbook"))) return;
 
       const { fromAccountId, toAccountId, amount, reference, date, notes } = req.body;
       
@@ -15608,6 +15634,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const rows = await db
         .select({
           entry: cashbookEntries,
@@ -15628,7 +15655,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.cashbook", "post cashbook entries"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.cashbook"))) return;
       const entry = await storage.createCashTransaction({
         companyId,
         type: req.body.type === "PAYMENT" ? "PAYMENT" : "RECEIPT",
@@ -15650,6 +15677,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const asOf = parseAsOfDate(req.query);
       if (!asOf.ok) return res.status(400).json({ message: asOf.message });
       const asOfDate = asOf.date;
@@ -15664,6 +15692,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const asOf = parseAsOfDate(req.query);
       if (!asOf.ok) return res.status(400).json({ message: asOf.message });
       const asOfDate = asOf.date;
@@ -15678,6 +15707,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const range = parseOptionalRange(req.query, { startKey: "from", endKey: "to" });
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
@@ -15692,6 +15722,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const asOf = parseAsOfDate(req.query);
       if (!asOf.ok) return res.status(400).json({ message: asOf.message });
       const asOfDate = asOf.date;
@@ -15790,6 +15821,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
 
       const company = await storage.getCompany(companyId);
       const settings = accountingSettingsOf(company);
@@ -15839,6 +15871,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const company = await storage.getCompany(companyId);
       const settings = accountingSettingsOf(company);
       const today = new Date();
@@ -15916,6 +15949,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const company = await storage.getCompany(companyId);
       const openingBalances = accountingSettingsOf(company).openingBalances || null;
       res.json(openingBalances || { locked: false, date: null, journalEntryId: null, customerBalances: [], supplierBalances: [], inventoryValue: 0 });
@@ -15928,6 +15962,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
 
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
@@ -15937,22 +15972,59 @@ export async function registerRoutes(
       }
 
       const openingDate = req.body.date ? new Date(req.body.date) : new Date();
+      if (Number.isNaN(openingDate.getTime())) {
+        return res.status(400).json({ message: "A valid opening balance date is required" });
+      }
       await assertOpenAccountingPeriod(companyId, openingDate, "Opening balance posting");
 
+      const validationErrors: string[] = [];
       const accountsById = new Map((await storage.getAccounts(companyId)).map((account: any) => [Number(account.id), account]));
       const lines: any[] = [];
-      for (const line of req.body.trialBalanceLines || []) {
-        const account = accountsById.get(Number(line.accountId));
-        const debit = Number(line.debit || 0);
-        const credit = Number(line.credit || 0);
-        if (!account || (debit <= 0 && credit <= 0)) continue;
-        if (debit > 0 && credit > 0) throw new Error("An opening balance line cannot have both debit and credit.");
+      const trialBalanceLines = Array.isArray(req.body.trialBalanceLines) ? req.body.trialBalanceLines : [];
+      trialBalanceLines.forEach((line: any, index: number) => {
+        const row = line && typeof line === "object" ? line : {};
+        const account = accountsById.get(Number(row.accountId));
+        const debit = Number(row.debit || 0);
+        const credit = Number(row.credit || 0);
+        const label = `Trial balance line ${index + 1}`;
+        if (!account) {
+          validationErrors.push(`${label}: account ${row.accountId ?? "(missing)"} was not found for this company.`);
+          return;
+        }
+        if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0) {
+          validationErrors.push(`${label}: debit and credit must be non-negative numbers.`);
+          return;
+        }
+        if (debit <= 0 && credit <= 0) {
+          validationErrors.push(`${label}: a debit or credit amount is required.`);
+          return;
+        }
+        if (debit > 0 && credit > 0) {
+          validationErrors.push(`${label}: cannot have both debit and credit.`);
+          return;
+        }
         lines.push({ accountCode: account.code, type: debit > 0 ? "DEBIT" : "CREDIT", amount: debit > 0 ? debit : credit });
-      }
+      });
 
       const customerBalances = Array.isArray(req.body.customerBalances) ? req.body.customerBalances : [];
       const supplierBalances = Array.isArray(req.body.supplierBalances) ? req.body.supplierBalances : [];
+      customerBalances.forEach((row: any, index: number) => {
+        if (!String(row?.name || "").trim()) validationErrors.push(`Customer balance ${index + 1}: name is required.`);
+        const amount = Number(row?.amount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) validationErrors.push(`Customer balance ${index + 1}: a positive amount is required.`);
+      });
+      supplierBalances.forEach((row: any, index: number) => {
+        if (!String(row?.name || "").trim()) validationErrors.push(`Supplier balance ${index + 1}: name is required.`);
+        const amount = Number(row?.amount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) validationErrors.push(`Supplier balance ${index + 1}: a positive amount is required.`);
+      });
       const inventoryValue = Number(req.body.inventoryValue || 0);
+      if (!Number.isFinite(inventoryValue) || inventoryValue < 0) {
+        validationErrors.push("Inventory value must be a non-negative number.");
+      }
+      if (validationErrors.length) {
+        return res.status(400).json({ message: "Opening balance validation failed", details: validationErrors });
+      }
       const customerTotal = customerBalances.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
       const supplierTotal = supplierBalances.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
 
@@ -15976,13 +16048,27 @@ export async function registerRoutes(
       const totalDebit = lines.filter((line) => line.type === "DEBIT").reduce((sum, line) => sum + Number(line.amount), 0);
       const totalCredit = lines.filter((line) => line.type === "CREDIT").reduce((sum, line) => sum + Number(line.amount), 0);
       const difference = Number((totalDebit - totalCredit).toFixed(2));
+      let equityAccount: any = null;
       if (Math.abs(difference) >= 0.01) {
-        const equityAccount = await resolveOpeningEquityAccount(companyId);
-        if (!equityAccount) throw new Error("Opening balance equity account is required to balance the opening entry.");
+        if (!req.body.openingEquityAccountId) {
+          return res.status(400).json({
+            message: "openingEquityAccountId is required when opening balances do not balance.",
+            details: [`A plug of ${difference.toFixed(2)} must be posted to an explicitly selected equity account.`],
+          });
+        }
+        equityAccount = await storage.getAccountById(companyId, Number(req.body.openingEquityAccountId));
+        if (!equityAccount || equityAccount.type !== "EQUITY") {
+          return res.status(400).json({
+            message: "Invalid openingEquityAccountId",
+            details: ["Select an equity account belonging to this company."],
+          });
+        }
         lines.push({ accountCode: equityAccount.code, type: difference > 0 ? "CREDIT" : "DEBIT", amount: Math.abs(difference) });
       }
 
-      if (lines.length < 2) throw new Error("Add at least two opening balance lines.");
+      if (lines.length < 2) {
+        return res.status(400).json({ message: "Add at least two opening balance lines.", details: [] });
+      }
 
       const result = await db.transaction(async (tx) => {
         const entry = await storage.postToLedger(companyId, {
@@ -15990,6 +16076,7 @@ export async function registerRoutes(
           description: `Opening balances as of ${format(openingDate, "yyyy-MM-dd")}`,
           referenceType: "OPENING_BALANCE",
           referenceId: `OB-${companyId}-${format(openingDate, "yyyyMMdd")}`,
+          postingKey: `opening-balance:${companyId}:${format(openingDate, "yyyyMMdd")}`,
           createdBy: req.user?.id,
           deduplicate: true,
           lines,
@@ -16094,6 +16181,7 @@ export async function registerRoutes(
             locked: true,
             date: openingDate.toISOString(),
             journalEntryId: entry.id,
+            openingEquityAccountId: equityAccount?.id ?? null,
             customerBalances,
             supplierBalances,
             customerSubledgerDocs,
@@ -16118,6 +16206,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const branchId = getBranchId(req);
       const entries = await storage.getJournalEntries(companyId, undefined, undefined, branchId);
       const reversalIds = new Set(entries.filter((entry: any) => entry.referenceType === "REVERSAL").map((entry: any) => String(entry.referenceId)));
@@ -16137,17 +16226,27 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.journal.reverse", "reverse journal entries"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.journal.reverse"))) return;
       const originalId = Number(req.params.id);
       const reversalDate = req.body.date ? new Date(req.body.date) : new Date();
+      if (Number.isNaN(reversalDate.getTime())) {
+        return res.status(400).json({ message: "A valid reversal date is required" });
+      }
       await assertOpenAccountingPeriod(companyId, reversalDate, "Journal reversal");
 
       const [original] = await db.select().from(journalEntries).where(and(eq(journalEntries.id, originalId), eq(journalEntries.companyId, companyId)));
       if (!original) return res.status(404).json({ message: "Journal entry not found" });
       if (original.referenceType === "REVERSAL") return res.status(400).json({ message: "Reversal journals cannot be reversed again." });
 
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      const isOpeningBalanceReversal = settings.openingBalances?.journalEntryId === originalId;
+      const reversalPostingKey = `reversal:${companyId}:${originalId}`;
+
       // Lock the original journal while checking and posting, so two concurrent
       // reversals of the same entry cannot both pass the already-reversed check.
+      // Opening-balance subledger cancellation and the settings unlock are in this
+      // same transaction: a failed posting must not leave them half-reversed.
       const reversal = await db.transaction(async (tx) => {
         await tx.select({ id: journalEntries.id })
           .from(journalEntries)
@@ -16175,11 +16274,12 @@ export async function registerRoutes(
           .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
           .where(eq(ledgerEntries.journalEntryId, originalId));
 
-        return storage.postToLedger(companyId, {
+        const posted = await storage.postToLedger(companyId, {
           entryDate: reversalDate,
           description: req.body.reason || `Reversal of journal ${originalId}: ${original.description}`,
           referenceType: "REVERSAL",
           referenceId: String(originalId),
+          postingKey: reversalPostingKey,
           createdBy: req.user?.id,
           deduplicate: true,
           lines: originalLines.map((line: any) => ({
@@ -16188,35 +16288,35 @@ export async function registerRoutes(
             amount: Number(line.amount),
           })),
         }, tx);
-      });
 
-      const company = await storage.getCompany(companyId);
-      const settings = accountingSettingsOf(company);
-      if (settings.openingBalances?.journalEntryId === originalId) {
-        const customerDocIds = (settings.openingBalances.customerSubledgerDocs || []).map((doc: any) => Number(doc.invoiceId)).filter(Boolean);
-        const supplierDocIds = (settings.openingBalances.supplierSubledgerDocs || []).map((doc: any) => Number(doc.supplierInvoiceId)).filter(Boolean);
-        if (customerDocIds.length) {
-          await db.update(invoices)
-            .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
-            .where(and(eq(invoices.companyId, companyId), inArray(invoices.id, customerDocIds)));
-        }
-        if (supplierDocIds.length) {
-          await db.update(supplierInvoices)
-            .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
-            .where(and(eq(supplierInvoices.companyId, companyId), inArray(supplierInvoices.id, supplierDocIds)));
-        }
-        await storage.updateCompany(companyId, {
-          accountingSettings: {
-            ...settings,
-            openingBalances: {
-              ...settings.openingBalances,
-              locked: false,
-              reversedAt: new Date().toISOString(),
-              reversalJournalEntryId: reversal.id,
+        if (isOpeningBalanceReversal) {
+          const customerDocIds = (settings.openingBalances.customerSubledgerDocs || []).map((doc: any) => Number(doc.invoiceId)).filter(Boolean);
+          const supplierDocIds = (settings.openingBalances.supplierSubledgerDocs || []).map((doc: any) => Number(doc.supplierInvoiceId)).filter(Boolean);
+          if (customerDocIds.length) {
+            await tx.update(invoices)
+              .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
+              .where(and(eq(invoices.companyId, companyId), inArray(invoices.id, customerDocIds)));
+          }
+          if (supplierDocIds.length) {
+            await tx.update(supplierInvoices)
+              .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
+              .where(and(eq(supplierInvoices.companyId, companyId), inArray(supplierInvoices.id, supplierDocIds)));
+          }
+          await tx.update(companies).set({
+            accountingSettings: {
+              ...settings,
+              openingBalances: {
+                ...settings.openingBalances,
+                locked: false,
+                reversedAt: new Date().toISOString(),
+                reversalJournalEntryId: posted.id,
+              },
             },
-          },
-        } as any);
-      }
+          } as any).where(eq(companies.id, companyId));
+        }
+
+        return posted;
+      });
 
       res.json({ success: true, reversal });
     } catch (err: any) {
@@ -16228,6 +16328,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
 
       const range = parseOptionalRange(req.query, { startKey: "from", endKey: "to" });
       if (!range.ok) return res.status(400).json({ message: range.message });
@@ -16324,6 +16425,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       
       const range = parseOptionalRange(req.query, { startKey: "from", endKey: "to" });
       if (!range.ok) return res.status(400).json({ message: range.message });
@@ -16445,6 +16547,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
 
       const paymentId = Number(req.params.paymentId);
       const [payment] = await db
@@ -16504,6 +16607,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const assets = await storage.getFixedAssets(companyId);
       res.json(assets);
     } catch (err: any) {
@@ -16515,6 +16619,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const runs = await storage.getDepreciationRuns(companyId);
       res.json(runs);
     } catch (err: any) {
@@ -16526,6 +16631,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const rows = await db
         .select()
         .from(inventoryValuationSnapshots)
@@ -16541,6 +16647,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.fixedassets"))) return;
       const snapshot = await storage.createInventoryValuationSnapshot(
         companyId,
         req.body.asOfDate ? new Date(req.body.asOfDate) : new Date(),
@@ -16557,7 +16664,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "add fixed assets"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.fixedassets"))) return;
       
       const payload = { ...req.body, companyId };
       const asset = await storage.createFixedAsset(payload);
@@ -16571,7 +16678,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "run depreciation"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.fixedassets"))) return;
       
       const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
       const userId = req.user?.id || 'system';
@@ -16587,7 +16694,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "dispose of fixed assets"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.fixedassets"))) return;
       
       const assetId = parseInt(req.params.id);
       if (isNaN(assetId)) return res.status(400).json({ message: "Invalid asset ID" });
@@ -16602,6 +16709,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const periods = await storage.getFinancialPeriods(companyId);
       res.json(periods);
     } catch (err: any) {
@@ -16613,12 +16721,14 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.periods"))) return;
 
       const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
-      const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
-      if (!req.body.name || !startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      const rawEndDate = req.body.endDate ? new Date(req.body.endDate) : null;
+      if (!req.body.name || !startDate || !rawEndDate || Number.isNaN(startDate.getTime()) || Number.isNaN(rawEndDate.getTime())) {
         return res.status(400).json({ message: "Period name, start date, and end date are required" });
       }
+      const endDate = throughEndOfDay(rawEndDate);
 
       const payload = {
         name: String(req.body.name).trim(),
@@ -16638,6 +16748,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.periods"))) return;
       const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
       if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
         return res.status(403).json({ message: "Only owner/admin can update financial periods." });
@@ -16661,6 +16772,19 @@ export async function registerRoutes(
       if (req.body?.reopenJustification !== undefined) {
         updates.reopenJustification = String(req.body.reopenJustification).slice(0, 500);
       }
+      const actorId = (req.user as any)?.id || null;
+      if (updates.status === "CLOSED") {
+        updates.closedBy = actorId;
+        updates.closedAt = new Date();
+      } else if (updates.status === "LOCKED") {
+        updates.lockedBy = actorId;
+        updates.lockedAt = new Date();
+      } else if (updates.status === "OPEN") {
+        updates.closedBy = null;
+        updates.closedAt = null;
+        updates.lockedBy = null;
+        updates.lockedAt = null;
+      }
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ message: "No valid fields to update." });
       }
@@ -16680,9 +16804,55 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.periods", "run year-end close"))) return;
-      await storage.runYearEndClose(companyId, new Date(req.body.asOfDate));
-      res.json({ success: true, message: "Year-End closing sweep completed." });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.periods"))) return;
+      const asOfDate = req.body?.asOfDate ? new Date(req.body.asOfDate) : null;
+      if (!asOfDate || Number.isNaN(asOfDate.getTime())) {
+        return res.status(400).json({ message: "A valid asOfDate is required" });
+      }
+      await assertOpenAccountingPeriod(companyId, asOfDate, "Year-end close");
+
+      const year = asOfDate.getFullYear();
+      const postingKey = `year-end-close:${companyId}:${year}:${format(asOfDate, "yyyy-MM-dd")}`;
+      const companyBefore = await storage.getCompany(companyId);
+      const settingsBefore = accountingSettingsOf(companyBefore);
+      const alreadyClosed = (settingsBefore.yearEndCloses || []).some((row: any) => row?.postingKey === postingKey);
+      const [priorSweep] = await db.select({ id: journalEntries.id })
+        .from(journalEntries)
+        .where(and(
+          eq(journalEntries.companyId, companyId),
+          eq(journalEntries.referenceType, "SYSTEM"),
+          eq(journalEntries.referenceId, "YEC-SWEEP"),
+          eq(journalEntries.entryDate, asOfDate),
+        ))
+        .limit(1);
+      if (alreadyClosed || priorSweep) {
+        return res.json({
+          success: true,
+          message: "Year-End closing sweep already completed.",
+          idempotent: true,
+          postingKey,
+        });
+      }
+
+      await storage.runYearEndClose(companyId, asOfDate);
+      const companyAfter = await storage.getCompany(companyId);
+      const settingsAfter = accountingSettingsOf(companyAfter);
+      await storage.updateCompany(companyId, {
+        accountingSettings: {
+          ...settingsAfter,
+          yearEndCloses: [
+            ...(settingsAfter.yearEndCloses || []),
+            {
+              postingKey,
+              year,
+              asOfDate: asOfDate.toISOString(),
+              createdAt: new Date().toISOString(),
+              createdBy: req.user?.id || "system",
+            },
+          ],
+        },
+      } as any);
+      res.json({ success: true, message: "Year-End closing sweep completed.", postingKey });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -16692,7 +16862,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
-      if (!(await requireAccountingAction(req, res, companyId, "accounting.fixedassets", "run FX revaluation"))) return;
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.periods"))) return;
       
       const { cutOffDate } = req.body;
       if (!cutOffDate) return res.status(400).json({ message: "cutOffDate is required" });
@@ -16708,6 +16878,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       
       const { startDate, endDate } = req.query;
       const from = startDate ? new Date(startDate) : undefined;
@@ -16725,6 +16896,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const company = await storage.getCompany(companyId);
       res.json(accountingSettingsOf(company).vatReturns || []);
     } catch (err: any) {
@@ -16736,6 +16908,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
       const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
       if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
@@ -16747,8 +16920,13 @@ export async function registerRoutes(
       if (!company) return res.status(404).json({ message: "Company not found" });
       const settings = accountingSettingsOf(company);
       const report = await storage.getVatReturn(companyId, startDate, endDate);
+      const draftId = `VAT-${companyId}-${format(startDate, "yyyyMMdd")}-${format(endDate, "yyyyMMdd")}`;
+      const existing = (settings.vatReturns || []).find((row: any) => row.id === draftId);
+      if (existing?.status === "SUBMITTED") {
+        return res.status(409).json({ message: "A submitted VAT return already exists for this period." });
+      }
       const draft = {
-        id: `VAT-${companyId}-${format(startDate, "yyyyMMdd")}-${format(endDate, "yyyyMMdd")}`,
+        id: draftId,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         status: "DRAFT",
@@ -16771,20 +16949,26 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       const settings = accountingSettingsOf(company);
-      let updated: any = null;
-      const vatReturns = (settings.vatReturns || []).map((row: any) => {
-        if (row.id !== req.params.id) return row;
-        updated = { ...row, status: "REVIEWED", reviewedAt: new Date().toISOString(), reviewedBy: req.user?.id || "system" };
-        return updated;
-      });
-      if (!updated) return res.status(404).json({ message: "VAT return draft not found" });
+      const target = (settings.vatReturns || []).find((row: any) => row.id === req.params.id);
+      if (!target) return res.status(404).json({ message: "VAT return draft not found" });
+      if (target.status !== "DRAFT") {
+        return res.status(409).json({ message: `Only DRAFT VAT returns can be reviewed (current status: ${target.status}).` });
+      }
+      const updated = {
+        ...target,
+        status: "REVIEWED",
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: req.user?.id || "system",
+      };
+      const vatReturns = (settings.vatReturns || []).map((row: any) => row.id === req.params.id ? updated : row);
       await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err?.statusCode ?? 400).json({ message: err.message });
     }
   });
 
@@ -16792,27 +16976,28 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       const settings = accountingSettingsOf(company);
-      let submitted: any = null;
-      const vatReturns = (settings.vatReturns || []).map((row: any) => {
-        if (row.id !== req.params.id) return row;
-        submitted = {
-          ...row,
-          status: "SUBMITTED",
-          submittedAt: new Date().toISOString(),
-          submittedBy: req.user?.id || "system",
-          submissionReference: req.body.submissionReference || null,
-          submittedSnapshot: row.snapshot,
-        };
-        return submitted;
-      });
-      if (!submitted) return res.status(404).json({ message: "VAT return not found" });
+      const target = (settings.vatReturns || []).find((row: any) => row.id === req.params.id);
+      if (!target) return res.status(404).json({ message: "VAT return not found" });
+      if (target.status !== "REVIEWED") {
+        return res.status(409).json({ message: `Only REVIEWED VAT returns can be submitted (current status: ${target.status}).` });
+      }
+      const submitted = {
+        ...target,
+        status: "SUBMITTED",
+        submittedAt: new Date().toISOString(),
+        submittedBy: req.user?.id || "system",
+        submissionReference: req.body.submissionReference || null,
+        submittedSnapshot: target.snapshot,
+      };
+      const vatReturns = (settings.vatReturns || []).map((row: any) => row.id === req.params.id ? submitted : row);
       await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
       res.json(submitted);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err?.statusCode ?? 400).json({ message: err.message });
     }
   });
 
@@ -16820,6 +17005,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const rows = await db
         .select()
         .from(withholdingTaxRates)
@@ -16835,6 +17021,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const [row] = await db.insert(withholdingTaxRates).values({
         companyId,
         code: String(req.body.code || "").trim(),
@@ -16855,6 +17042,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
       const rows = await db
         .select({
           certificate: withholdingTaxCertificates,
@@ -16876,6 +17064,17 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
+      const certificateId = Number(req.params.id);
+      if (!Number.isInteger(certificateId)) return res.status(400).json({ message: "Invalid WHT certificate id" });
+      const [existing] = await db.select({ id: withholdingTaxCertificates.id, status: withholdingTaxCertificates.status })
+        .from(withholdingTaxCertificates)
+        .where(and(eq(withholdingTaxCertificates.id, certificateId), eq(withholdingTaxCertificates.companyId, companyId)))
+        .limit(1);
+      if (!existing) return res.status(404).json({ message: "WHT certificate not found" });
+      if (existing.status !== "ISSUED") {
+        return res.status(409).json({ message: `Only ISSUED WHT certificates can be remitted (current status: ${existing.status}).` });
+      }
       const [row] = await db
         .update(withholdingTaxCertificates)
         .set({
@@ -16883,9 +17082,13 @@ export async function registerRoutes(
           remittanceReference: req.body.remittanceReference || null,
           remittedAt: new Date(),
         })
-        .where(and(eq(withholdingTaxCertificates.id, Number(req.params.id)), eq(withholdingTaxCertificates.companyId, companyId)))
+        .where(and(
+          eq(withholdingTaxCertificates.id, certificateId),
+          eq(withholdingTaxCertificates.companyId, companyId),
+          eq(withholdingTaxCertificates.status, "ISSUED"),
+        ))
         .returning();
-      if (!row) return res.status(404).json({ message: "WHT certificate not found" });
+      if (!row) return res.status(409).json({ message: "WHT certificate status changed; reload and retry." });
       res.json(row);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -16893,18 +17096,20 @@ export async function registerRoutes(
   });
 
   const accountingEntityRoutes = [
-    { path: "approval-requests", table: approvalRequests, order: approvalRequests.createdAt },
-    { path: "tax-obligations", table: taxObligations, order: taxObligations.dueDate },
-    { path: "mobile-money", table: mobileMoneyTransactions, order: mobileMoneyTransactions.createdAt },
-    { path: "provisions", table: provisions, order: provisions.createdAt },
-    { path: "revenue-contracts", table: revenueContracts, order: revenueContracts.createdAt },
+    { path: "approval-requests", table: approvalRequests, order: approvalRequests.createdAt, readPermission: "approvals.view", writePermission: "approvals.action" },
+    { path: "tax-obligations", table: taxObligations, order: taxObligations.dueDate, readPermission: "reports.tax", writePermission: "reports.tax" },
+    { path: "mobile-money", table: mobileMoneyTransactions, order: mobileMoneyTransactions.createdAt, readPermission: "accounting.view", writePermission: "accounting.receipts" },
+    { path: "provisions", table: provisions, order: provisions.createdAt, readPermission: "accounting.view", writePermission: "accounting.journal.create" },
+    { path: "revenue-contracts", table: revenueContracts, order: revenueContracts.createdAt, readPermission: "accounting.view", writePermission: "settings.accounting" },
   ] as const;
 
+  // Reads remain table-driven, but every entity now carries an explicit permission.
   for (const entityRoute of accountingEntityRoutes) {
     app.get(`/api/accounting/${entityRoute.path}`, requireAuth, async (req: any, res: any) => {
       try {
         const companyId = await resolveAccountingCompanyId(req);
         if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+        if (!(await requireAccountingPermission(req, res, companyId, entityRoute.readPermission))) return;
         const rows = await db
           .select()
           .from(entityRoute.table as any)
@@ -16915,28 +17120,199 @@ export async function registerRoutes(
         res.status(500).json({ message: err.message });
       }
     });
-
-    app.post(`/api/accounting/${entityRoute.path}`, requireAuth, async (req: any, res: any) => {
-      try {
-        const companyId = await resolveAccountingCompanyId(req);
-        if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-        const inserted: any = await db
-          .insert(entityRoute.table as any)
-          .values({ ...req.body, companyId })
-          .returning();
-        const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
-        res.status(201).json(row);
-      } catch (err: any) {
-        res.status(400).json({ message: err.message });
-      }
-    });
   }
+
+  const requireEntityString = (value: any, field: string): string => {
+    const text = String(value ?? "").trim();
+    if (!text) throw new Error(`${field} is required`);
+    return text;
+  };
+  const requireEntityDate = (value: any, field: string): Date => {
+    if (!value) throw new Error(`${field} is required`);
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) throw new Error(`${field} must be a valid date`);
+    return parsed;
+  };
+  const requireEntityAmount = (value: any, field: string, allowZero = true): string => {
+    const amount = Number(value ?? 0);
+    if (!Number.isFinite(amount) || amount < 0 || (!allowZero && amount <= 0)) {
+      throw new Error(`${field} must be a non-negative number`);
+    }
+    return amount.toFixed(2);
+  };
+
+  // Approval requests: clients choose the request content; workflow state is server-owned.
+  app.post("/api/accounting/approval-requests", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "approvals.action"))) return;
+      const requestedBy = req.user?.id;
+      if (!requestedBy) throw new Error("An authenticated user is required");
+      if (!req.body?.payload || typeof req.body.payload !== "object" || Array.isArray(req.body.payload)) {
+        throw new Error("payload must be an object");
+      }
+      const inserted: any = await db.insert(approvalRequests).values({
+        companyId,
+        type: requireEntityString(req.body.type, "type"),
+        title: requireEntityString(req.body.title, "title"),
+        description: req.body.description != null ? String(req.body.description) : null,
+        payload: req.body.payload,
+        referenceType: req.body.referenceType != null ? String(req.body.referenceType) : null,
+        referenceId: req.body.referenceId != null ? String(req.body.referenceId) : null,
+        status: "pending",
+        requestedBy,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNotes: null,
+        resultData: null,
+        createdAt: new Date(),
+      } as any).returning();
+      const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/tax-obligations", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "reports.tax"))) return;
+      if (req.body?.snapshot != null && (typeof req.body.snapshot !== "object" || Array.isArray(req.body.snapshot))) {
+        throw new Error("snapshot must be an object");
+      }
+      const inserted: any = await db.insert(taxObligations).values({
+        companyId,
+        taxType: requireEntityString(req.body.taxType, "taxType").toUpperCase(),
+        periodStart: requireEntityDate(req.body.periodStart, "periodStart"),
+        periodEnd: requireEntityDate(req.body.periodEnd, "periodEnd"),
+        dueDate: requireEntityDate(req.body.dueDate, "dueDate"),
+        amountDue: requireEntityAmount(req.body.amountDue, "amountDue"),
+        amountPaid: "0.00",
+        status: "OPEN",
+        reference: req.body.reference != null ? String(req.body.reference) : null,
+        snapshot: req.body.snapshot ?? null,
+        submittedAt: null,
+        paidAt: null,
+        createdAt: new Date(),
+      } as any).returning();
+      const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/mobile-money", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.receipts"))) return;
+      if (req.body?.rawPayload != null && (typeof req.body.rawPayload !== "object" || Array.isArray(req.body.rawPayload))) {
+        throw new Error("rawPayload must be an object");
+      }
+      const inserted: any = await db.insert(mobileMoneyTransactions).values({
+        companyId,
+        network: requireEntityString(req.body.network, "network").toUpperCase(),
+        reference: requireEntityString(req.body.reference, "reference"),
+        amount: requireEntityAmount(req.body.amount, "amount", false),
+        currency: req.body.currency ? String(req.body.currency).toUpperCase() : "USD",
+        status: "PENDING",
+        paymentId: null,
+        cashbookEntryId: null,
+        rawPayload: req.body.rawPayload ?? null,
+        signatureHash: req.body.signatureHash != null ? String(req.body.signatureHash) : null,
+        confirmedAt: null,
+        reconciledAt: null,
+        reversedAt: null,
+        createdAt: new Date(),
+      } as any).returning();
+      const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/provisions", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.journal.create"))) return;
+      const inserted: any = await db.insert(provisions).values({
+        companyId,
+        type: requireEntityString(req.body.type, "type").toUpperCase(),
+        description: requireEntityString(req.body.description, "description"),
+        openingBalance: requireEntityAmount(req.body.openingBalance, "openingBalance"),
+        additions: requireEntityAmount(req.body.additions, "additions"),
+        reversals: requireEntityAmount(req.body.reversals, "reversals"),
+        utilisation: requireEntityAmount(req.body.utilisation, "utilisation"),
+        closingBalance: requireEntityAmount(req.body.closingBalance, "closingBalance"),
+        probability: req.body.probability ? String(req.body.probability).toUpperCase() : "PROBABLE",
+        status: "ACTIVE",
+        journalEntryId: null,
+        createdAt: new Date(),
+      } as any).returning();
+      const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/revenue-contracts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = await resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
+      const customerId = req.body.customerId != null ? Number(req.body.customerId) : null;
+      if (customerId != null) {
+        if (!Number.isInteger(customerId)) throw new Error("customerId must be a valid customer");
+        const [customer] = await db.select({ id: customers.id }).from(customers)
+          .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)))
+          .limit(1);
+        if (!customer) throw new Error("customerId was not found for this company");
+      }
+      const recognitionMethod = req.body.recognitionMethod ? String(req.body.recognitionMethod).toUpperCase() : "POINT_IN_TIME";
+      if (!["POINT_IN_TIME", "OVER_TIME"].includes(recognitionMethod)) {
+        throw new Error("recognitionMethod must be POINT_IN_TIME or OVER_TIME");
+      }
+      const obligations = Array.isArray(req.body.obligations)
+        ? req.body.obligations.map((item: any) => ({
+            name: requireEntityString(item?.name, "obligation name"),
+            amount: Number(requireEntityAmount(item?.amount, "obligation amount", false)),
+            status: item?.status != null ? String(item.status) : undefined,
+          }))
+        : [];
+      const inserted: any = await db.insert(revenueContracts).values({
+        companyId,
+        customerId,
+        contractNumber: requireEntityString(req.body.contractNumber, "contractNumber"),
+        description: req.body.description != null ? String(req.body.description) : null,
+        totalValue: requireEntityAmount(req.body.totalValue, "totalValue", false),
+        currency: req.body.currency ? String(req.body.currency).toUpperCase() : "USD",
+        recognitionMethod,
+        deferredRevenue: "0.00",
+        recognizedRevenue: "0.00",
+        obligations,
+        status: "ACTIVE",
+        createdAt: new Date(),
+      } as any).returning();
+      const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
 
   // Debtor/Creditor Analysis
   app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const analysis = await storage.getDebtorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
     } catch (err: any) {
@@ -16948,6 +17324,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const analysis = await storage.getCreditorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
     } catch (err: any) {
@@ -16960,19 +17337,55 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.cashbook"))) return;
       
       const { statementDate, closingBalance, accountId, lines } = req.body;
+      const parsedStatementDate = statementDate ? new Date(statementDate) : null;
+      if (!parsedStatementDate || Number.isNaN(parsedStatementDate.getTime())) {
+        return res.status(400).json({ message: "A valid statementDate is required" });
+      }
+      const parsedClosingBalance = Number(closingBalance);
+      if (!Number.isFinite(parsedClosingBalance)) {
+        return res.status(400).json({ message: "A valid closingBalance is required" });
+      }
+      if (!Array.isArray(lines)) return res.status(400).json({ message: "lines must be an array" });
       // A statement has to be filed against one of this company's own bank accounts,
       // otherwise it would sit there waiting to be matched against money it cannot see.
       const bankAccount = await storage.getAccountById(companyId, Number(accountId));
       if (!bankAccount) return res.status(400).json({ message: "Bank account not found for this company" });
-      await assertOpenAccountingPeriod(companyId, statementDate, "Bank statement import");
+      await assertOpenAccountingPeriod(companyId, parsedStatementDate, "Bank statement import");
+
+      const statementLines: any[] = [];
+      const lineErrors: string[] = [];
+      sanitizeBankStatementLines(lines).forEach((line: any, index: number) => {
+        const label = `Bank statement line ${index + 1}`;
+        const date = line.date ? new Date(line.date) : null;
+        if (!date || Number.isNaN(date.getTime())) {
+          lineErrors.push(`${label}: a valid date is required.`);
+          return;
+        }
+        const description = String(line.description || "").trim();
+        if (!description) {
+          lineErrors.push(`${label}: a description is required.`);
+          return;
+        }
+        const amount = Number(line.amount);
+        if (!Number.isFinite(amount) || amount === 0) {
+          lineErrors.push(`${label}: a non-zero amount is required.`);
+          return;
+        }
+        statementLines.push({ date, description, amount: amount.toFixed(2) });
+      });
+      if (lineErrors.length) {
+        return res.status(400).json({ message: "Bank statement validation failed", details: lineErrors });
+      }
+
       const stmt = await storage.uploadBankStatement({
         companyId,
         accountId: Number(accountId),
-        statementDate: new Date(statementDate),
-        closingBalance: String(closingBalance)
-      }, lines);
+        statementDate: parsedStatementDate,
+        closingBalance: parsedClosingBalance.toFixed(2),
+      }, statementLines as any);
       
       res.json(stmt);
     } catch (err: any) {
@@ -16984,6 +17397,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const { accountId } = req.query;
       const stmts = await storage.getBankStatements(companyId, accountId ? Number(accountId) : undefined);
       res.json(stmts);
@@ -16996,6 +17410,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const lines = await storage.getBankStatementLines(companyId, Number(req.params.id));
       res.json(lines);
     } catch (err: any) {
@@ -17007,6 +17422,7 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
       const { accountId } = req.query;
       const entries = await storage.getUnreconciledLedger(companyId, Number(accountId));
       res.json(entries);
@@ -17032,7 +17448,11 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.cashbook"))) return;
       const { lineId, ledgerEntryId } = req.body;
+      if (!Number.isInteger(Number(lineId)) || !Number.isInteger(Number(ledgerEntryId)) || Number(ledgerEntryId) <= 0) {
+        return res.status(400).json({ message: "Valid lineId and ledgerEntryId are required" });
+      }
       const line = await bankStatementLineOf(companyId, Number(lineId));
       if (!line) return res.status(404).json({ message: "Bank statement line not found for this company" });
       await assertOpenAccountingPeriod(companyId, line.date || new Date(), "Bank reconciliation");
@@ -17047,7 +17467,11 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.cashbook"))) return;
       const { statementLineId } = req.body;
+      if (!Number.isInteger(Number(statementLineId))) {
+        return res.status(400).json({ message: "A valid statementLineId is required" });
+      }
       const line = await bankStatementLineOf(companyId, Number(statementLineId));
       if (!line) return res.status(404).json({ message: "Bank statement line not found for this company" });
       await assertOpenAccountingPeriod(companyId, line.date || new Date(), "Bank reconciliation entry");
@@ -17060,6 +17484,10 @@ export async function registerRoutes(
     try {
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      if (!(await requireAccountingPermission(req, res, companyId, "accounting.cashbook"))) return;
+      if (!Number.isInteger(Number(req.params.id))) {
+        return res.status(400).json({ message: "Invalid bank statement id" });
+      }
       const [statement] = await db.select().from(bankStatements)
         .where(and(eq(bankStatements.id, Number(req.params.id)), eq(bankStatements.companyId, companyId)));
       if (!statement) return res.status(404).json({ message: "Bank statement not found for this company" });

@@ -6,6 +6,7 @@ import {
 import { storage } from "../storage.js";
 import { userHasPermission } from "./permissions.js";
 import { sendApprovalRequestEmail } from "../email.js";
+import { sanitizeManualJournalPayload } from "./accounting-guards.js";
 
 export interface CreateApprovalInput {
   companyId: number;
@@ -73,21 +74,35 @@ export async function approveRequest(
 ) {
   const request = await storage.getApprovalRequest(requestId, companyId);
   if (!request) throw new Error("Approval request not found");
-  if (request.status !== "pending") throw new Error("This request has already been processed");
 
   const approvePerm = APPROVAL_TYPE_PERMISSION[request.type as ApprovalType];
   const canApprove = isSuperAdmin || await userHasPermission(reviewerId, companyId, approvePerm, false);
   if (!canApprove) throw new Error("You do not have permission to approve this request");
 
-  const resultData = await executeApprovalAction(request.type as ApprovalType, companyId, request.payload as Record<string, unknown>, reviewerId, reviewNotes);
+  // Claim before executing the action. Two approvers must never both run the
+  // posting; the conditional UPDATE makes exactly one of them win.
+  const claimed = await storage.claimApprovalRequest(requestId, companyId, reviewerId);
+  if (!claimed) throw new Error("This request has already been processed");
 
-  return storage.updateApprovalRequest(requestId, companyId, {
-    status: "approved",
-    reviewedBy: reviewerId,
-    reviewedAt: new Date(),
-    reviewNotes: reviewNotes || null,
-    resultData,
-  });
+  try {
+    const resultData = await executeApprovalAction(
+      request.type as ApprovalType,
+      companyId,
+      request.payload as Record<string, unknown>,
+      reviewerId,
+      reviewNotes,
+    );
+    return await storage.updateApprovalRequest(requestId, companyId, {
+      status: "approved",
+      reviewedBy: reviewerId,
+      reviewedAt: new Date(),
+      reviewNotes: reviewNotes || null,
+      resultData,
+    });
+  } catch (err) {
+    await storage.releaseApprovalRequest(requestId, companyId);
+    throw err;
+  }
 }
 
 export async function rejectRequest(
@@ -99,25 +114,30 @@ export async function rejectRequest(
 ) {
   const request = await storage.getApprovalRequest(requestId, companyId);
   if (!request) throw new Error("Approval request not found");
-  if (request.status !== "pending") throw new Error("This request has already been processed");
 
   const approvePerm = APPROVAL_TYPE_PERMISSION[request.type as ApprovalType];
   const canApprove = isSuperAdmin || await userHasPermission(reviewerId, companyId, approvePerm, false);
   if (!canApprove) throw new Error("You do not have permission to reject this request");
 
-  const updated = await storage.updateApprovalRequest(requestId, companyId, {
-    status: "rejected",
-    reviewedBy: reviewerId,
-    reviewedAt: new Date(),
-    reviewNotes: reviewNotes || null,
-  });
+  const claimed = await storage.claimApprovalRequest(requestId, companyId, reviewerId);
+  if (!claimed) throw new Error("This request has already been processed");
 
-  if (request.referenceType === "crm_commission" && request.referenceId) {
-    const { applyCommissionDecision } = await import("./commissions.js");
-    await applyCommissionDecision(companyId, Number(request.referenceId), "reject", reviewerId, reviewNotes);
+  try {
+    if (request.referenceType === "crm_commission" && request.referenceId) {
+      const { applyCommissionDecision } = await import("./commissions.js");
+      await applyCommissionDecision(companyId, Number(request.referenceId), "reject", reviewerId, reviewNotes);
+    }
+
+    return await storage.updateApprovalRequest(requestId, companyId, {
+      status: "rejected",
+      reviewedBy: reviewerId,
+      reviewedAt: new Date(),
+      reviewNotes: reviewNotes || null,
+    });
+  } catch (err) {
+    await storage.releaseApprovalRequest(requestId, companyId);
+    throw err;
   }
-
-  return updated;
 }
 
 async function executeApprovalAction(
@@ -141,64 +161,83 @@ async function executeApprovalAction(
       return { message: "Stock adjustment applied" };
     }
     case "grn_confirm": {
-      if (payload.batchStockIn) {
-        const { recordBatchStockIn } = await import("./inventory.js");
-        const result = await recordBatchStockIn(
-          companyId,
-          payload.items as any[],
-          payload.supplierId ? Number(payload.supplierId) : undefined,
-          typeof payload.notes === "string" ? payload.notes : undefined,
-          payload.landedCosts ? Number(payload.landedCosts) : 0,
-          (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
-          typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
-          userId
-        );
-        return { grvNumber: result.grvNumber, message: "Batch stock received" };
-      }
-
-      const gdnId = Number(payload.gdnId);
-      const items = payload.items as any[];
       const { recordBatchStockIn } = await import("./inventory.js");
       const { db } = await import("../db.js");
       const { goodsDeliveryNotes, goodsDeliveryNoteItems } = await import("../../shared/schema.js");
       const { eq, and, sql } = await import("drizzle-orm");
 
-      const [gdn] = await db
-        .select()
-        .from(goodsDeliveryNotes)
-        .where(and(eq(goodsDeliveryNotes.id, gdnId), eq(goodsDeliveryNotes.companyId, companyId)))
-        .limit(1);
+      // One transaction covers stock movements, the GL posting and the GDN
+      // state change. A failure anywhere rolls the whole confirmation back.
+      return await db.transaction(async (tx) => {
+        if (payload.batchStockIn) {
+          const result = await recordBatchStockIn(
+            companyId,
+            payload.items as any[],
+            payload.supplierId ? Number(payload.supplierId) : undefined,
+            typeof payload.notes === "string" ? payload.notes : undefined,
+            payload.landedCosts ? Number(payload.landedCosts) : 0,
+            (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
+            typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
+            userId,
+            undefined,
+            undefined,
+            undefined,
+            tx
+          );
+          return { grvNumber: result.grvNumber, message: "Batch stock received" };
+        }
 
-      if (!gdn) throw new Error("GDN not found");
-      if (gdn.status !== "DRAFT") throw new Error("GDN already processed");
+        const gdnId = Number(payload.gdnId);
+        const items = payload.items as any[];
+        const [gdn] = await tx
+          .select()
+          .from(goodsDeliveryNotes)
+          .where(and(eq(goodsDeliveryNotes.id, gdnId), eq(goodsDeliveryNotes.companyId, companyId)))
+          .limit(1);
 
-      const stockItems = items.map((raw: any) => ({
-        productId: raw.productId ? Number(raw.productId) : null,
-        accountCode: raw.accountCode || null,
-        description: raw.description || null,
-        quantity: Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived),
-        unitCost: Number(raw.unitCost),
-        landedCost: Number(raw.landedCost || 0),
-        taxTypeId: raw.taxTypeId ? Number(raw.taxTypeId) : null,
-        taxRate: Number(raw.taxRate || 0),
-        taxAmount: Number(raw.taxAmount || 0),
-        isRecoverable: raw.isRecoverable !== false,
-      }));
+        if (!gdn) throw new Error("GDN not found");
+        if (gdn.status !== "DRAFT") throw new Error("GDN already processed");
 
-      const result = await recordBatchStockIn(
-        companyId,
-        stockItems,
-        gdn.supplierId || undefined,
-        String(payload.notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`),
-        payload.landedCosts ? Number(payload.landedCosts) : 0,
-        (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
-        typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
-        userId,
-        gdn.purchaseOrderId || undefined,
-        gdn.id
-      );
+        // Conditional claim inside the same transaction as the posting.
+        const [claimed] = await tx
+          .update(goodsDeliveryNotes)
+          .set({ status: "PROCESSING" })
+          .where(and(
+            eq(goodsDeliveryNotes.id, gdnId),
+            eq(goodsDeliveryNotes.companyId, companyId),
+            eq(goodsDeliveryNotes.status, "DRAFT"),
+          ))
+          .returning();
+        if (!claimed) throw new Error("GDN already processed");
 
-      await db.transaction(async (tx) => {
+        const stockItems = items.map((raw: any) => ({
+          productId: raw.productId ? Number(raw.productId) : null,
+          accountCode: raw.accountCode || null,
+          description: raw.description || null,
+          quantity: Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived),
+          unitCost: Number(raw.unitCost),
+          landedCost: Number(raw.landedCost || 0),
+          taxTypeId: raw.taxTypeId ? Number(raw.taxTypeId) : null,
+          taxRate: Number(raw.taxRate || 0),
+          taxAmount: Number(raw.taxAmount || 0),
+          isRecoverable: raw.isRecoverable !== false,
+        }));
+
+        const result = await recordBatchStockIn(
+          companyId,
+          stockItems,
+          gdn.supplierId || undefined,
+          String(payload.notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`),
+          payload.landedCosts ? Number(payload.landedCosts) : 0,
+          (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
+          typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
+          userId,
+          gdn.purchaseOrderId || undefined,
+          gdn.id,
+          undefined,
+          tx
+        );
+
         for (const item of stockItems) {
           if (item.productId) {
             await tx
@@ -237,14 +276,17 @@ async function executeApprovalAction(
             confirmedGrvNumber: result.grvNumber,
           })
           .where(eq(goodsDeliveryNotes.id, gdnId));
-      });
 
-      return { grvNumber: result.grvNumber, message: "GDN confirmed and stock received" };
+        return { grvNumber: result.grvNumber, message: "GDN confirmed and stock received" };
+      });
     }
     case "journal_post": {
       if (payload.manualEntry) {
+        // Approval payloads are persisted from an earlier client request, so
+        // they are just as untrusted as req.body at the time of execution.
         const entry = await storage.postToLedger(companyId, {
-          ...(payload.manualEntry as Record<string, unknown>),
+          ...sanitizeManualJournalPayload(payload.manualEntry),
+          referenceType: "MANUAL",
           createdBy: userId,
         } as any);
         return { journalEntryId: entry.id, message: "Journal entry posted" };

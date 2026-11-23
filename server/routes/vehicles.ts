@@ -48,11 +48,18 @@ import { accrueVehicleCommission, cancelVehicleCommission } from "../lib/commiss
  * and deposit/part-payment tracking.
  *
  * Money in base currency (USD). Cost lines carry their own currency and
- * exchange rate; base_amount = amount * exchange_rate is frozen at entry so
- * later rate moves don't rewrite historical landed cost.
+ * exchange rate; following the GL convention base = foreign / exchangeRate,
+ * so later rate moves don't rewrite historical landed cost.
  */
 
 const money = (v: unknown) => Math.round(Number(v || 0) * 100) / 100;
+/** base = foreign / exchangeRate (the convention used by the GL). */
+const toBase = (amount: unknown, exchangeRate: unknown) =>
+  roundGuard(Number(amount || 0) / (Number(exchangeRate || 1) || 1));
+const roundGuard = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+/** Foreign = base * rate — used when comparing base-currency receipts to sale-currency schedules. */
+const fromBase = (base: unknown, exchangeRate: unknown) =>
+  roundGuard(Number(base || 0) * (Number(exchangeRate || 1) || 1));
 
 export function summariseVehicle(
   vehicle: { salePrice: string | null; targetPrice: string | null; saleExchangeRate?: string | null },
@@ -73,9 +80,9 @@ export function summariseVehicle(
   const pendingCosts = money(activeCosts.filter((c) => (c.status ?? "pending") === "pending").reduce((s, c) => s + Number(c.baseAmount), 0));
   const paidCosts = money(activeCosts.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.baseAmount), 0));
   const disputedCosts = money(activeCosts.filter((c) => c.status === "disputed").reduce((s, c) => s + Number(c.baseAmount), 0));
-  // salePrice is in saleCurrency; saleExchangeRate converts it to base (USD).
+  // salePrice is in saleCurrency; GL convention is base = foreign / rate.
   const saleRate = Number(vehicle.saleExchangeRate || 1) || 1;
-  const sellingPrice = vehicle.salePrice != null ? money(Number(vehicle.salePrice) * saleRate) : money(vehicle.targetPrice ?? 0);
+  const sellingPrice = vehicle.salePrice != null ? toBase(vehicle.salePrice, saleRate) : money(vehicle.targetPrice ?? 0);
   const profit = money(sellingPrice - landedCost);
   const margin = sellingPrice > 0 ? Math.round((profit / sellingPrice) * 10000) / 100 : 0;
   // Statements and schedules follow the actual invoice, because that carries
@@ -179,7 +186,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     if (!ids.length) return { costs: new Map<number, any[]>(), paid: new Map<number, number>(), invoiceBase: new Map<number, number>() };
     const costRows = await db.select().from(vehicleCosts).where(inArray(vehicleCosts.vehicleId, ids));
     const paidRows = await db
-      .select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} * COALESCE(${payments.exchangeRate}, 1)), 0)` })
+      .select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} / NULLIF(COALESCE(${payments.exchangeRate}, 1), 0)), 0)` })
       .from(payments)
       .where(inArray(payments.vehicleId, ids))
       .groupBy(payments.vehicleId);
@@ -195,12 +202,19 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     const paid = new Map<number, number>();
     for (const p of paidRows) if (p.vehicleId != null) paid.set(p.vehicleId, Number(p.total));
     const invoiceBase = new Map<number, number>();
-    for (const i of invoiceRows) invoiceBase.set(i.vehicleId, money(Number(i.total) * (Number(i.exchangeRate) || 1)));
+    for (const i of invoiceRows) invoiceBase.set(i.vehicleId, toBase(i.total, i.exchangeRate));
     return { costs, paid, invoiceBase };
   }
 
   const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
-  const baseAmountOf = (p: any) => round2(Number(p.amount || 0) * Number(p.exchangeRate || 1));
+  const baseAmountOf = (p: any) => toBase(p.amount, p.exchangeRate);
+  /** FX metadata for GL calls. Pass baseAmount explicitly for already-base amounts so storage does not convert twice. */
+  const fxOf = (source: any, fallbackCurrency = "USD") => ({
+    currency: String(source?.currency || fallbackCurrency),
+    exchangeRate: Number(source?.exchangeRate || 1) || 1,
+  });
+  /** vehicle_payment_schedules has no currency column: amounts are in vehicle.saleCurrency. */
+  const schedulePaid = (vehicle: any, paidBase: number) => fromBase(paidBase, vehicle?.saleExchangeRate);
 
   /** Add whole months to a YYYY-MM-DD date, clamping to the last day of the month. */
   function addMonthsIso(iso: string, months: number): string {
@@ -232,7 +246,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       tx.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicleId)).orderBy(asc(vehiclePaymentSchedules.dueDate), asc(vehiclePaymentSchedules.id)),
       tx.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId))),
     ]);
-    let remaining = round2(paidRows.reduce((sum: number, p: any) => sum + Number(p.amount) * Number(p.exchangeRate || 1), 0));
+    const [vehicle] = await tx.select({ saleExchangeRate: vehicles.saleExchangeRate, saleCurrency: vehicles.saleCurrency })
+      .from(vehicles).where(and(eq(vehicles.id, vehicleId), eq(vehicles.companyId, companyId))).limit(1);
+    // Schedule amounts have no currency column; they are stored in the vehicle's
+    // saleCurrency. Convert base-currency receipts before comparing.
+    const paidBase = round2(paidRows.reduce((sum: number, p: any) => sum + baseAmountOf(p), 0));
+    let remaining = schedulePaid(vehicle, paidBase);
     const today = new Date().toISOString().slice(0, 10);
     for (const line of lines) {
       const paid = round2(Math.min(remaining, Number(line.amount))); remaining = round2(remaining - paid);
@@ -266,11 +285,26 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     journalEntryId: number,
     description: string,
     userId?: string,
+    postingKey?: string,
   ) {
     const lines = await tx
-      .select()
+      .select({
+        accountId: ledgerEntries.accountId,
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount,
+        baseAmount: ledgerEntries.baseAmount,
+        currency: ledgerEntries.currency,
+        exchangeRate: ledgerEntries.exchangeRate,
+        memo: ledgerEntries.memo,
+        vatTypeId: ledgerEntries.vatTypeId,
+        vatAmount: ledgerEntries.vatAmount,
+      })
       .from(ledgerEntries)
-      .where(eq(ledgerEntries.journalEntryId, journalEntryId));
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .where(and(
+        eq(ledgerEntries.journalEntryId, journalEntryId),
+        eq(journalEntries.companyId, companyId),
+      ));
     if (!lines.length) throw new Error(`Journal entry ${journalEntryId} has no lines to reverse`);
 
     const reversal = await storage.postToLedger(companyId, {
@@ -278,11 +312,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       description,
       referenceType: "REVERSAL",
       referenceId: String(journalEntryId),
+      postingKey: postingKey || `vehicle-journal-reversal:${journalEntryId}`,
+      currency: lines[0]?.currency || "USD",
+      exchangeRate: Number(lines[0]?.exchangeRate || 1) || 1,
       createdBy: userId,
       lines: lines.map((line: any) => ({
         accountId: line.accountId,
         type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
         amount: Number(line.amount),
+        // Ledger amount is foreign; baseAmount is the frozen base-currency value.
+        baseAmount: Number(line.baseAmount ?? line.amount),
+        currency: line.currency || "USD",
+        exchangeRate: Number(line.exchangeRate || 1) || 1,
         memo: `Reversal of journal ${journalEntryId}`,
         vatTypeId: line.vatTypeId ?? undefined,
         vatAmount: line.vatAmount != null ? Number(line.vatAmount) : undefined,
@@ -292,22 +333,29 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     await tx
       .update(journalEntries)
       .set({ reversalOfJournalEntryId: journalEntryId })
-      .where(eq(journalEntries.id, reversal.id));
+      .where(and(eq(journalEntries.id, reversal.id), eq(journalEntries.companyId, companyId)));
     await tx
       .update(journalEntries)
       .set({ status: "REVERSED" })
-      .where(eq(journalEntries.id, journalEntryId));
+      .where(and(eq(journalEntries.id, journalEntryId), eq(journalEntries.companyId, companyId)));
     return reversal;
   }
 
   /** Reverse a journal once; a reversed journal is left alone. */
-  async function reverseJournalIfPosted(tx: any, companyId: number, journalEntryId: number, description: string, userId?: string) {
+  async function reverseJournalIfPosted(
+    tx: any,
+    companyId: number,
+    journalEntryId: number,
+    description: string,
+    userId?: string,
+    postingKey?: string,
+  ) {
     const [entry] = await tx
       .select({ status: journalEntries.status })
       .from(journalEntries)
-      .where(eq(journalEntries.id, journalEntryId));
+      .where(and(eq(journalEntries.id, journalEntryId), eq(journalEntries.companyId, companyId)));
     if (!entry || entry.status === "REVERSED") return null;
-    return reverseJournalEntry(tx, companyId, journalEntryId, description, userId);
+    return reverseJournalEntry(tx, companyId, journalEntryId, description, userId, postingKey);
   }
 
   /** Total of cost lines actually capitalised to inventory (journal posted). */
@@ -359,10 +407,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       description: `COGS: vehicle ${vehicle.stockNumber} ${vehicle.year ?? ""} ${vehicle.make} ${vehicle.model}`.replace(/\s+/g, " ").trim(),
       referenceType: "VEHICLE_COGS",
       referenceId: String(vehicle.id),
+      postingKey: `vehicle-sale:${vehicle.id}:cogs`,
+      currency: vehicle.saleCurrency || "USD",
+      exchangeRate: Number(vehicle.saleExchangeRate || 1) || 1,
       createdBy: userId,
       lines: [
-        { accountCode: cogsCode, type: "DEBIT", amount: total },
-        { accountCode: inventoryCode, type: "CREDIT", amount: total },
+        { accountCode: cogsCode, type: "DEBIT", amount: total, baseAmount: total, currency: vehicle.saleCurrency || "USD", exchangeRate: Number(vehicle.saleExchangeRate || 1) || 1 },
+        { accountCode: inventoryCode, type: "CREDIT", amount: total, baseAmount: total, currency: vehicle.saleCurrency || "USD", exchangeRate: Number(vehicle.saleExchangeRate || 1) || 1 },
       ],
     }, tx);
 
@@ -433,9 +484,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
     let invoicePaid = round2(Number(invoice.paidAmount || 0));
     const invoiceTotal = round2(Number(invoice.total || 0));
-    // Invoice totals/allocations are in the invoice currency; exchangeRate is
-    // base USD per 1 unit of that currency.
+    // Invoice totals/allocations are in the invoice currency; GL convention is
+    // base = foreign / exchangeRate, so foreign = base * rate.
     const invoiceRate = Number(invoice.exchangeRate || 1) || 1;
+    const invoiceFx = fxOf(invoice);
     let allocatedTotal = 0;
     let postedTotal = 0;
     const depositsAccountCode = await storage.getSystemAccountCode(companyId, "customerDepositsAccountCode", tx) || "2010";
@@ -443,7 +495,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
     for (const p of rows) {
       const baseAmount = baseAmountOf(p);
-      const paymentValue = round2(baseAmount / invoiceRate);
+      const paymentFx = fxOf(p);
+      // Normalise the receipt to the invoice currency before allocation.
+      const paymentValue = round2(fromBase(baseAmount, invoiceRate));
       const existingAllocations = await tx
         .select()
         .from(paymentAllocations)
@@ -494,10 +548,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             description: `Vehicle deposit ${p.reference || p.id}`,
             referenceType: "CUSTOMER_DEPOSIT",
             referenceId: String(p.id),
+            postingKey: `vehicle-deposit:${p.id}`,
+            currency: paymentFx.currency,
+            exchangeRate: paymentFx.exchangeRate,
             createdBy: userId,
             lines: [
-              { accountCode: receiptAccountCode, type: "DEBIT", amount: baseAmount },
-              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount },
+              { accountCode: receiptAccountCode, type: "DEBIT", amount: baseAmount, baseAmount, currency: paymentFx.currency, exchangeRate: paymentFx.exchangeRate },
+              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount, baseAmount, currency: paymentFx.currency, exchangeRate: paymentFx.exchangeRate },
             ],
           }, tx);
           journalEntryId = je.id;
@@ -507,17 +564,20 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         // Clear only the part of the deposit actually applied to this invoice;
         // any excess stays a customer liability (refundable/transferable).
         if (journalEntryId && !p.clearedAt && toAllocate > 0.004) {
-          const clearingAmount = Math.min(baseAmount, round2(toAllocate * invoiceRate));
+          const clearingAmount = Math.min(baseAmount, toBase(toAllocate, invoiceRate));
           if (clearingAmount > 0.004) {
             const clearingJe = await storage.postToLedger(companyId, {
               entryDate: invoice.issueDate || new Date(),
               description: `Clear deposit ${p.reference || p.id} against invoice ${invoice.invoiceNumber}`,
               referenceType: "DEPOSIT_CLEARING",
               referenceId: String(p.id),
+              postingKey: `vehicle-deposit-clearing:${p.id}:${invoice.id}`,
+              currency: invoiceFx.currency,
+              exchangeRate: invoiceFx.exchangeRate,
               createdBy: userId,
               lines: [
-                { accountCode: depositsAccountCode, type: "DEBIT", amount: clearingAmount },
-                { accountCode: arAccountCode, type: "CREDIT", amount: clearingAmount },
+                { accountCode: depositsAccountCode, type: "DEBIT", amount: clearingAmount, baseAmount: clearingAmount, currency: invoiceFx.currency, exchangeRate: invoiceFx.exchangeRate },
+                { accountCode: arAccountCode, type: "CREDIT", amount: clearingAmount, baseAmount: clearingAmount, currency: invoiceFx.currency, exchangeRate: invoiceFx.exchangeRate },
               ],
             }, tx);
             await tx.update(payments).set({
@@ -533,10 +593,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           description: `Vehicle receipt ${p.reference || p.id}`,
           referenceType: "CUSTOMER_RECEIPT",
           referenceId: String(p.id),
+          postingKey: `vehicle-receipt:${p.id}`,
+          currency: paymentFx.currency,
+          exchangeRate: paymentFx.exchangeRate,
           createdBy: userId,
           lines: [
-            { accountCode: receiptAccountCode, type: "DEBIT", amount: baseAmount },
-            { accountCode: arAccountCode, type: "CREDIT", amount: baseAmount },
+            { accountCode: receiptAccountCode, type: "DEBIT", amount: baseAmount, baseAmount, currency: paymentFx.currency, exchangeRate: paymentFx.exchangeRate },
+            { accountCode: arAccountCode, type: "CREDIT", amount: baseAmount, baseAmount, currency: paymentFx.currency, exchangeRate: paymentFx.exchangeRate },
           ],
         }, tx);
         journalEntryId = je.id;
@@ -707,8 +770,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
               .then((r) => r[0] ?? null)
           : Promise.resolve(null),
       ]);
-      const paid = paymentRows.reduce((s, p) => s + Number(p.amount) * Number(p.exchangeRate || 1), 0);
-      const invoiceBase = invoice ? money(Number(invoice.total) * (Number(invoice.exchangeRate) || 1)) : null;
+      const paid = paymentRows.reduce((s, p) => s + baseAmountOf(p), 0);
+      const invoiceBase = invoice ? toBase(invoice.total, invoice.exchangeRate) : null;
       res.json(redact({
         ...v,
         customer,
@@ -718,7 +781,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         costs,
         stages,
         schedule,
-        openSchedule: openScheduleLines(schedule, paid),
+        // Schedule amounts are in saleCurrency; convert base receipts before comparison.
+        openSchedule: openScheduleLines(schedule, schedulePaid(v, paid)),
         payments: paymentRows,
         invoice,
         reminders,
@@ -1021,7 +1085,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return res.status(400).json({ error: "Choose the supplier for a supplier-bill cost" });
       }
 
-      const baseAmount = money(Number(data.amount) * Number(data.exchangeRate ?? 1));
+      const baseAmount = toBase(data.amount, data.exchangeRate);
       if (baseAmount <= 0) return res.status(400).json({ error: "The cost amount must be greater than zero" });
       const vatAmount = money(data.inputVatAmount);
       if (vatAmount > baseAmount) {
@@ -1101,7 +1165,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
       const amount = body.amount ?? Number(existing.amount);
       const exchangeRate = body.exchangeRate ?? Number(existing.exchangeRate ?? 1);
-      const baseAmount = money(amount * exchangeRate);
+      const baseAmount = toBase(amount, exchangeRate);
       const vatAmount = body.inputVatAmount !== undefined
         ? money(body.inputVatAmount)
         : money(Number(existing.inputVatAmount || 0));
@@ -1607,10 +1671,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             description: `Vehicle deposit ${created.reference || created.id} for ${v.stockNumber}`,
             referenceType: "CUSTOMER_DEPOSIT",
             referenceId: String(created.id),
+            postingKey: `vehicle-deposit:${created.id}`,
+            currency: fxOf(created).currency,
+            exchangeRate: fxOf(created).exchangeRate,
             createdBy: req.user?.id,
             lines: [
-              { accountCode: bankAccount.code, type: "DEBIT", amount: baseAmount },
-              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount },
+              { accountCode: bankAccount.code, type: "DEBIT", amount: baseAmount, baseAmount, currency: fxOf(created).currency, exchangeRate: fxOf(created).exchangeRate },
+              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount, baseAmount, currency: fxOf(created).currency, exchangeRate: fxOf(created).exchangeRate },
             ],
           }, tx);
           await tx.update(payments).set({ journalEntryId: je.id }).where(eq(payments.id, created.id));
@@ -1704,6 +1771,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           isFiscalized: false,
           notes: body.notes ?? description,
           createdBy: req.user?.id,
+          // Sale revenue journal idempotency: one invoice per vehicle sale.
+          postingKey: `vehicle-sale:${v.id}:invoice`,
           items: [{
             description,
             quantity: "1",
@@ -1878,6 +1947,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             throw Object.assign(new Error("This vehicle is already cancelled"), { status: 409 });
           }
 
+          // Commission unwind must share the sale-cancellation transaction; a
+          // GL failure here aborts the whole cancellation instead of being lost.
+          const commissionResult = await cancelVehicleCommission(
+            tx,
+            companyId,
+            v.id,
+            body.reason || "Vehicle sale cancelled",
+          );
+          if (!commissionResult.ok) {
+            throw new Error(commissionResult.error || "Failed to cancel the linked sales commission");
+          }
+
           let invoice: any = null;
           if (v.invoiceId) {
             [invoice] = await tx
@@ -1896,13 +1977,27 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
                   eq(journalEntries.referenceId, String(invoice.id)),
                 ));
               for (const entry of revenueJournals) {
-                await reverseJournalIfPosted(tx, companyId, entry.id, `Cancel invoice ${invoice.invoiceNumber}`, req.user?.id);
+                await reverseJournalIfPosted(
+                  tx,
+                  companyId,
+                  entry.id,
+                  `Cancel invoice ${invoice.invoiceNumber}`,
+                  req.user?.id,
+                  `vehicle-cancel:${v.id}:invoice-${invoice.id}:journal-${entry.id}`,
+                );
               }
             }
           }
 
           if (v.cogsJournalEntryId) {
-            await reverseJournalIfPosted(tx, companyId, v.cogsJournalEntryId, `Reverse COGS for ${v.stockNumber}`, req.user?.id);
+            await reverseJournalIfPosted(
+              tx,
+              companyId,
+              v.cogsJournalEntryId,
+              `Reverse COGS for ${v.stockNumber}`,
+              req.user?.id,
+              `vehicle-cancel:${v.id}:cogs`,
+            );
           }
 
           const vehiclePayments = await tx
@@ -1918,6 +2013,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
                 payment.clearingJournalEntryId,
                 `Reverse deposit clearing for payment ${payment.id}`,
                 req.user?.id,
+                `vehicle-cancel:${v.id}:deposit-clearing-${payment.id}`,
               );
               await tx.update(payments).set({
                 clearingJournalEntryId: null,
@@ -2051,8 +2147,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         db.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, v.id)).orderBy(asc(vehiclePaymentSchedules.dueDate)),
         db.select().from(payments).where(and(eq(payments.vehicleId, v.id), eq(payments.companyId, companyId))),
       ]);
-      const paid = paymentRows.reduce((s, p) => s + Number(p.amount) * Number(p.exchangeRate || 1), 0);
-      const allOpen = openScheduleLines(schedule, paid).filter((l) => l.open > 0.004);
+      const paid = paymentRows.reduce((s, p) => s + baseAmountOf(p), 0);
+      const allOpen = openScheduleLines(schedule, schedulePaid(v, paid)).filter((l) => l.open > 0.004);
       const wanted = body.scheduleIds?.length ? new Set(body.scheduleIds) : null;
       const lines = wanted ? allOpen.filter((l) => wanted.has(l.id)) : allOpen;
       if (!lines.length) return res.status(400).json({ error: "No outstanding schedule lines to remind" });
@@ -2246,7 +2342,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       db.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicleId)).orderBy(asc(vehiclePaymentSchedules.dueDate), asc(vehiclePaymentSchedules.id)),
       db.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId))).orderBy(asc(payments.paymentDate), asc(payments.id)),
     ]);
-    return { agreement, schedule, payments: history, collected: round2(history.reduce((s, p) => s + Number(p.amount) * Number(p.exchangeRate || 1), 0)) };
+    // Agreement schedules are in the agreement currency: convert base receipts back.
+    const collected = round2(history.reduce((s, p) => s + fromBase(baseAmountOf(p), agreement.exchangeRate), 0));
+    return { agreement, schedule, payments: history, collected };
   }
   router.get("/companies/:companyId/vehicles/:id/agreement", ...need("vehicles.view"), async (req: any, res) => {
     const data = await agreementPayload(Number(req.params.companyId), Number(req.params.id));
@@ -2297,7 +2395,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     if (!row) return res.status(404).json({ error: "Payment not found" });
     const history = await db.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId)));
     const [agreement] = await db.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId));
-    const paid = history.reduce((sum, p) => sum + Number(p.amount) * Number(p.exchangeRate || 1), 0);
+    // Normalise base receipts to the sale/agreement currency before comparing balances.
+    const paid = history.reduce((sum, p) => sum + fromBase(baseAmountOf(p), row.vehicle.saleExchangeRate), 0);
     res.json({ receiptNumber: `VR-${row.payment.id}`, payment: row.payment, vehicle: row.vehicle, customer: row.customer, agreementNumber: agreement?.agreementNumber ?? null, remainingBalance: round2(Number(agreement?.agreedPrice ?? row.vehicle.salePrice ?? 0) - paid) });
   });
 
@@ -2363,6 +2462,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           const exchangeRate = Number(locked.saleExchangeRate || 1) || 1;
           const taxAmount = 0;
           const total = round2(subtotal + taxAmount);
+          const invoicePostingKey = `vehicle-sale:${locked.id}:invoice`;
 
           const description = [
             `${locked.year ?? ""} ${locked.make} ${locked.model}`.replace(/\s+/g, " ").trim(),
@@ -2387,6 +2487,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             isFiscalized: false,
             notes: description,
             createdBy: req.user?.id,
+            // Sale revenue journal idempotency: one invoice per vehicle sale.
+            postingKey: invoicePostingKey,
             items: [{
               description,
               quantity: "1",
@@ -2433,9 +2535,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         }
 
         // ── 2. Use the invoice total (tax-inclusive) as the schedule basis ─
-        const total = invoice
-          ? round2(Number(invoice.total) * (Number(invoice.exchangeRate) || 1))
-          : round2(subtotal * rate);
+        // Schedule lines carry the sale currency, matching invoice.total and
+        // body.deposit. Base conversion is handled at receipt time.
+        const total = invoice ? round2(Number(invoice.total)) : round2(subtotal);
 
         if (total <= 0) throw Object.assign(new Error("The agreed sale price must be greater than zero"), { status: 400 });
 
@@ -2565,7 +2667,11 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const result = rows
         .map((r) => {
           const summary = summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id));
-          const lines = openScheduleLines(schedules.filter((s) => s.vehicleId === r.vehicle.id), summary.paid);
+          // summary.paid is base currency; schedules carry saleCurrency amounts.
+          const lines = openScheduleLines(
+            schedules.filter((s) => s.vehicleId === r.vehicle.id),
+            schedulePaid(r.vehicle, summary.paid),
+          );
           const openLines = lines.filter((l) => l.open > 0.004);
           const overdue = money(openLines.filter((l) => l.state === "overdue").reduce((s, l) => s + l.open, 0));
           const next = openLines.find((l) => l.state === "upcoming");

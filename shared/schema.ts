@@ -677,6 +677,8 @@ export const crmCommissions = pgTable("crm_commissions", {
   paidBy: uuid("paid_by").references(() => users.id),
   /** GL journal that accrued this commission to the payable (null when off-ledger). */
   accrualJournalEntryId: integer("accrual_journal_entry_id").references(() => journalEntries.id),
+  /** GL journal that reversed the accrual; kept even if the accrual link remains for history. */
+  reversalJournalEntryId: integer("reversal_journal_entry_id").references(() => journalEntries.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -2461,7 +2463,11 @@ export const inventoryValuationSnapshots = pgTable("inventory_valuation_snapshot
     unitCost: number;
     totalValue: number;
     valuationMethod: string;
+    captureType: "CURRENT_STATE";
   }>>().default([]),
+  /** These snapshots capture today's stock/cost, not a reconstructed as-of-date valuation. */
+  captureType: text("capture_type").default("CURRENT_STATE").notNull(),
+  capturedAt: timestamp("captured_at").defaultNow(),
   journalEntryId: integer("journal_entry_id").references(() => journalEntries.id),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2957,6 +2963,8 @@ export const busTickets = pgTable("bus_tickets", {
   accountingStatus: text("accounting_status").default("unposted").notNull(), // unposted, posted, skipped, failed
   accountingError: text("accounting_error"),
   postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  originalJournalEntryId: integer("original_journal_entry_id").references(() => journalEntries.id),
+  voidJournalEntryId: integer("void_journal_entry_id").references(() => journalEntries.id),
   postedAt: timestamp("posted_at"),
   timestamp: timestamp("timestamp").notNull(),
   voidedAt: timestamp("voided_at"),
@@ -3004,6 +3012,8 @@ export const busReconciliations = pgTable("bus_reconciliations", {
   accountingStatus: text("accounting_status").default("unposted").notNull(), // unposted, posted, skipped, failed
   accountingError: text("accounting_error"),
   postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  originalJournalEntryId: integer("original_journal_entry_id").references(() => journalEntries.id),
+  voidJournalEntryId: integer("void_journal_entry_id").references(() => journalEntries.id),
   postedAt: timestamp("posted_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
@@ -3151,6 +3161,8 @@ export const journalEntries = pgTable("journal_entries", {
   reversalOfJournalEntryId: integer("reversal_of_journal_entry_id"),
   autoReverseOn: timestamp("auto_reverse_on"),
   fiscalSignature: text("fiscal_signature"),
+  /** Stable idempotency key; prevents duplicate postings on retry/approval races. */
+  postingKey: text("posting_key"),
   rowVersion: integer("row_version").default(1).notNull(),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -3158,8 +3170,15 @@ export const journalEntries = pgTable("journal_entries", {
   companyIdIdx: index("journal_entries_company_id_idx").on(table.companyId),
   branchIdx: index("journal_entries_branch_idx").on(table.branchId),
   referenceIdx: index("journal_entries_reference_idx").on(table.referenceType, table.referenceId),
+  companyReferenceIdx: index("journal_entries_company_reference_idx").on(table.companyId, table.referenceType, table.referenceId),
+  entryDateIdx: index("journal_entries_company_entry_date_idx").on(table.companyId, table.entryDate),
   statusIdx: index("journal_entries_company_status_idx").on(table.companyId, table.status),
   companyBranchIdx: index("journal_entries_company_branch_idx").on(table.companyId, table.branchId),
+  postingKeyUnique: uniqueIndex("journal_entries_company_posting_key_unique")
+    .on(table.companyId, table.postingKey)
+    .where(sql`${table.postingKey} IS NOT NULL`),
+  statusCheck: check("journal_entries_status_check", sql`${table.status} IN ('DRAFT','POSTED','REVERSED','VOID','CANCELLED')`),
+  approvalStatusCheck: check("journal_entries_approval_status_check", sql`${table.approvalStatus} IN ('PENDING','APPROVED','REJECTED')`),
 }));
 
 export const ledgerEntries = pgTable("ledger_entries", {
@@ -3171,6 +3190,10 @@ export const ledgerEntries = pgTable("ledger_entries", {
   segmentId: integer("segment_id").references(() => accountingSegments.id),
   type: text("type").notNull(), // DEBIT, CREDIT
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  /** Stable base-currency amount: amount / exchangeRate. */
+  baseAmount: decimal("base_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  /** Stable line identity for new rows; legacy duplicate IDs are left untouched. */
+  lineOrdinal: integer("line_ordinal"),
   currency: text("currency").default("USD"),
   exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 }).default("1.000000"),
   vatTypeId: integer("vat_type_id").references(() => taxTypes.id),
@@ -3182,9 +3205,16 @@ export const ledgerEntries = pgTable("ledger_entries", {
 }, (table) => ({
   journalEntryIdx: index("ledger_entries_journal_idx").on(table.journalEntryId),
   accountIdx: index("ledger_entries_account_idx").on(table.accountId),
+  journalAccountIdx: index("ledger_entries_journal_account_idx").on(table.journalEntryId, table.accountId),
+  accountJournalIdx: index("ledger_entries_account_journal_idx").on(table.accountId, table.journalEntryId),
   branchIdx: index("ledger_entries_branch_idx").on(table.branchId),
   costCenterIdx: index("ledger_entries_cost_center_idx").on(table.costCenterId),
   segmentIdx: index("ledger_entries_segment_idx").on(table.segmentId),
+  lineOrdinalUnique: uniqueIndex("ledger_entries_journal_line_ordinal_unique")
+    .on(table.journalEntryId, table.lineOrdinal)
+    .where(sql`${table.lineOrdinal} IS NOT NULL`),
+  typeCheck: check("ledger_entries_type_check", sql`${table.type} IN ('DEBIT','CREDIT')`),
+  amountCheck: check("ledger_entries_amount_check", sql`${table.amount} > 0`),
 }));
 
 export const journalEntryDrafts = pgTable("journal_entry_drafts", {
@@ -3195,6 +3225,8 @@ export const journalEntryDrafts = pgTable("journal_entry_drafts", {
   description: text("description").notNull(),
   referenceType: text("reference_type").default("JOURNAL"),
   referenceId: text("reference_id"),
+  /** Stable idempotency key for drafts created by automated modules. */
+  postingKey: text("posting_key"),
   status: text("status").default("DRAFT").notNull(),
   createdBy: uuid("created_by").references(() => users.id),
   postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
@@ -3204,12 +3236,17 @@ export const journalEntryDrafts = pgTable("journal_entry_drafts", {
 }, (table) => ({
   companyStatusIdx: index("journal_entry_drafts_company_status_idx").on(table.companyId, table.status),
   companyBranchIdx: index("journal_entry_drafts_company_branch_idx").on(table.companyId, table.branchId),
+  postingKeyUnique: uniqueIndex("journal_entry_drafts_company_posting_key_unique")
+    .on(table.companyId, table.postingKey)
+    .where(sql`${table.postingKey} IS NOT NULL`),
 }));
 
 export const journalEntryDraftLines = pgTable("journal_entry_draft_lines", {
   id: serial("id").primaryKey(),
   draftId: integer("draft_id").references(() => journalEntryDrafts.id).notNull(),
   accountId: integer("account_id").references(() => accounts.id).notNull(),
+  currency: text("currency").default("USD"),
+  exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 }).default("1.000000"),
   branchId: integer("branch_id").references(() => branches.id), // Branch-level GL segregation
   costCenterId: integer("cost_center_id").references(() => costCenters.id),
   segmentId: integer("segment_id").references(() => accountingSegments.id),
@@ -4105,7 +4142,7 @@ export const payrollRuns = pgTable("payroll_runs", {
   currency: text("currency").default("USD").notNull(),
   exchangeRate: decimal("exchange_rate", { precision: 15, scale: 6 }).default("1.000000").notNull(), // Target exchange rate USD->ZiG for this run
   
-  status: text("status").default("DRAFT").notNull(), // DRAFT, PENDING_APPROVAL, APPROVED, LOCKED, REVERSED
+  status: text("status").default("DRAFT").notNull(), // DRAFT, PENDING_APPROVAL, APPROVED, LOCKED, PENDING_GL, PENDING_GL_REVERSAL, REVERSED
   version: integer("version").default(1).notNull(),
   reversalOfRunId: integer("reversal_of_run_id"), // Points to run being reversed
   runType: text("run_type").default("REGULAR").notNull(), // REGULAR, BONUS (13th cheque / annual bonus)

@@ -11,7 +11,12 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Landmark, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import {
+  Landmark,
+  ArrowUpRight,
+  ArrowDownLeft,
+  ExternalLink,
+} from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
@@ -22,7 +27,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ExternalLink } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { formatCurrency } from "@/lib/utils";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
 
 type FullLedgerEntry = {
   id: number;
@@ -37,15 +46,27 @@ type FullLedgerEntry = {
 
 export default function GeneralLedgerPage() {
   const [, setLocation] = useLocation();
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany();
+  const currency = activeCompany?.currency || "USD";
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const { data: accounts } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts"],
+    queryKey: accountingKey("accounts", companyId),
+    enabled: !!companyId,
+    queryFn: () => fetchAccounting<Account[]>("/api/accounting/accounts"),
   });
 
   const { data: ledgerEntries, isLoading, isError, refetch } = useQuery<FullLedgerEntry[]>({
-    queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }],
-    enabled: !!selectedAccountId,
+    queryKey: accountingKey("ledger", companyId, selectedAccountId, fromDate, toDate),
+    enabled: !!companyId && !!selectedAccountId,
+    queryFn: () =>
+      fetchAccounting<FullLedgerEntry[]>("/api/accounting/ledger", {
+        accountId: selectedAccountId,
+        from: fromDate,
+        to: toDate,
+      }),
   });
 
   const totalDebit =
@@ -56,6 +77,9 @@ export default function GeneralLedgerPage() {
     ledgerEntries
       ?.filter((e) => e.type === "CREDIT")
       .reduce((sum, e) => sum + Number(e.amount), 0) || 0;
+
+  const openAccount = (accountId: number) =>
+    setLocation(`/accounting/ledger/${accountId}`);
 
   return (
     <Layout hideHeaderTitle>
@@ -75,7 +99,7 @@ export default function GeneralLedgerPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
             <div className="w-full md:w-[300px]">
               <Select
                 value={selectedAccountId}
@@ -96,6 +120,44 @@ export default function GeneralLedgerPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="ledger-from" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  From
+                </Label>
+                <Input
+                  id="ledger-from"
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="h-11 rounded-xl bg-white border-slate-200"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ledger-to" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  To
+                </Label>
+                <Input
+                  id="ledger-to"
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="h-11 rounded-xl bg-white border-slate-200"
+                />
+              </div>
+              {(fromDate || toDate) && (
+                <Button
+                  variant="outline"
+                  className="h-11 rounded-xl"
+                  onClick={() => {
+                    setFromDate("");
+                    setToDate("");
+                  }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -110,9 +172,7 @@ export default function GeneralLedgerPage() {
                   Total Debits
                 </span>
                 <span className="text-2xl font-black text-slate-800 font-display">
-                  {totalDebit.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
+                  {formatCurrency(totalDebit, currency)}
                 </span>
               </div>
             </CardContent>
@@ -127,9 +187,7 @@ export default function GeneralLedgerPage() {
                   Total Credits
                 </span>
                 <span className="text-2xl font-black text-slate-800 font-display">
-                  {totalCredit.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
+                  {formatCurrency(totalCredit, currency)}
                 </span>
               </div>
             </CardContent>
@@ -144,9 +202,7 @@ export default function GeneralLedgerPage() {
                   Net Movement
                 </span>
                 <span className="text-2xl font-black text-slate-800 font-display">
-                  {(totalDebit - totalCredit).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
+                  {formatCurrency(totalDebit - totalCredit, currency)}
                 </span>
               </div>
             </CardContent>
@@ -197,7 +253,7 @@ export default function GeneralLedgerPage() {
                       <TableCell colSpan={5} className="h-16 bg-slate-50/20" />
                     </TableRow>
                   ))
-                ) : ledgerEntries?.length === 0 ? (
+                ) : !isError && ledgerEntries?.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={5}
@@ -210,10 +266,17 @@ export default function GeneralLedgerPage() {
                   ledgerEntries?.map((entry) => (
                     <TableRow
                       key={entry.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ledger for account ${entry.account.code}`}
                       className="hover:bg-slate-50/50 border-slate-50 transition-colors cursor-pointer group"
-                      onClick={() =>
-                        setLocation(`/accounting/ledger/${entry.account.id}`)
-                      }
+                      onClick={() => openAccount(entry.account.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openAccount(entry.account.id);
+                        }
+                      }}
                     >
                       <TableCell className="text-slate-500 font-medium pl-8 ">
                         {format(new Date(entry.date), "dd MMM yyyy")}
@@ -244,16 +307,12 @@ export default function GeneralLedgerPage() {
                       </TableCell>
                       <TableCell className="text-right font-bold text-slate-800 text-[14px]">
                         {entry.type === "DEBIT"
-                          ? Number(entry.amount).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                            })
+                          ? formatCurrency(Number(entry.amount), currency)
                           : "-"}
                       </TableCell>
                       <TableCell className="text-right pr-8 font-bold text-slate-800 text-[14px]">
                         {entry.type === "CREDIT"
-                          ? Number(entry.amount).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                            })
+                          ? formatCurrency(Number(entry.amount), currency)
                           : "-"}
                       </TableCell>
                     </TableRow>

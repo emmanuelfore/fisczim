@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useLocation } from "wouter";
+import { useParams } from "wouter";
 import { type Account } from "@shared/schema";
 import {
   Table,
@@ -14,6 +14,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Landmark, ArrowLeft, FileText } from "lucide-react";
 import { format } from "date-fns";
+import { formatCurrency } from "@/lib/utils";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
 
 type FullLedgerEntry = {
   id: number;
@@ -28,17 +31,29 @@ type FullLedgerEntry = {
 
 export default function AccountDrilledLedgerPage() {
   const { id } = useParams();
-  const [, setLocation] = useLocation();
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany();
+  const currency = activeCompany?.currency || "USD";
 
   const { data: accounts } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts"],
+    queryKey: accountingKey("accounts", companyId),
+    enabled: !!companyId,
+    queryFn: () => fetchAccounting<Account[]>("/api/accounting/accounts"),
   });
 
   const account = accounts?.find((a) => a.id === Number(id));
 
-  const { data: ledgerEntries, isLoading } = useQuery<FullLedgerEntry[]>({
-    queryKey: ["/api/accounting/ledger", { accountId: id }],
-    enabled: !!id,
+  const {
+    data: ledgerEntries,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<FullLedgerEntry[]>({
+    queryKey: accountingKey("ledger", companyId, id),
+    enabled: !!companyId && !!id,
+    queryFn: () =>
+      fetchAccounting<FullLedgerEntry[]>("/api/accounting/ledger", {
+        accountId: id,
+      }),
   });
 
   // Running balance calculation based on account type
@@ -117,10 +132,7 @@ export default function AccountDrilledLedgerPage() {
                 Final Running Balance
               </span>
               <p className="text-2xl font-black font-display tracking-tight mt-1">
-                {currentBalance.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
+                {formatCurrency(currentBalance, currency)}
               </p>
             </CardContent>
           </Card>
@@ -134,6 +146,16 @@ export default function AccountDrilledLedgerPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            {isError && (
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 m-4">
+                <p className="text-sm font-semibold text-rose-700">
+                  Could not load this account ledger.
+                </p>
+                <Button variant="outline" size="sm" className="shrink-0" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow className="border-slate-50">
@@ -164,7 +186,7 @@ export default function AccountDrilledLedgerPage() {
                       <TableCell colSpan={6} className="h-14 bg-slate-50/20" />
                     </TableRow>
                   ))
-                ) : entriesWithBalance?.length === 0 ? (
+                ) : !isError && entriesWithBalance?.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={6}
@@ -192,22 +214,16 @@ export default function AccountDrilledLedgerPage() {
                       </TableCell>
                       <TableCell className="text-right text-[14px] font-bold text-slate-700">
                         {entry.type === "DEBIT"
-                          ? Number(entry.amount).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                            })
+                          ? formatCurrency(Number(entry.amount), currency)
                           : "-"}
                       </TableCell>
                       <TableCell className="text-right text-[14px] font-bold text-slate-700">
                         {entry.type === "CREDIT"
-                          ? Number(entry.amount).toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                            })
+                          ? formatCurrency(Number(entry.amount), currency)
                           : "-"}
                       </TableCell>
                       <TableCell className="text-right pr-6 text-[14px] font-black text-slate-900 font-display">
-                        {entry.runningBalance.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                        })}
+                        {formatCurrency(entry.runningBalance, currency)}
                       </TableCell>
                     </TableRow>
                   ))

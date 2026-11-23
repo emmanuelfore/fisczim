@@ -54,6 +54,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import {
+  accountingKey,
+  fetchAccounting,
+  invalidateAccountingCache,
+} from "@/lib/accounting-query";
 
 type AccountingSegment = {
   id: number;
@@ -82,6 +89,9 @@ export default function AccountingSegmentsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { can } = usePermissions();
+  const canManageCoa = can("accounting.coa.manage");
+  const { activeCompanyId: companyId } = useActiveCompany();
 
   const [newSegment, setNewSegment] = useState({
     type: "BRANCH",
@@ -91,17 +101,15 @@ export default function AccountingSegmentsPage() {
   });
 
   const { data: segments, isLoading, isError, refetch } = useQuery<AccountingSegment[]>({
-    queryKey: ["/api/accounting/segments"],
+    queryKey: accountingKey("segments", companyId),
+    enabled: !!companyId,
+    queryFn: () => fetchAccounting<AccountingSegment[]>("/api/accounting/segments"),
   });
 
   const createSegmentMutation = useMutation({
     mutationFn: async (payload: typeof newSegment) => {
-      const res = await apiRequest("POST", "/api/accounting/segments", payload);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "Failed to create accounting segment");
-      }
-      return res.json();
+      await apiRequest("POST", "/api/accounting/segments", payload);
+      return payload;
     },
     onSuccess: () => {
       toast({
@@ -110,7 +118,7 @@ export default function AccountingSegmentsPage() {
       });
       setIsOpen(false);
       setNewSegment({ type: "BRANCH", code: "", name: "", description: "" });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/segments"] });
+      invalidateAccountingCache(queryClient);
     },
     onError: (err: any) => {
       toast({
@@ -123,6 +131,7 @@ export default function AccountingSegmentsPage() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageCoa) return;
     if (!newSegment.code.trim()) {
       toast({ title: "Code is required", variant: "destructive" });
       return;
@@ -175,7 +184,11 @@ export default function AccountingSegmentsPage() {
 
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
-              <Button className="h-11 px-5 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/10 transition-all active:scale-95 flex items-center gap-2">
+              <Button
+                disabled={!canManageCoa}
+                title={!canManageCoa ? "Requires accounting.coa.manage" : undefined}
+                className="h-11 px-5 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/10 transition-all active:scale-95 flex items-center gap-2"
+              >
                 <Plus className="h-4 w-4" />
                 <span>Create Segment</span>
               </Button>
@@ -260,7 +273,7 @@ export default function AccountingSegmentsPage() {
                   </Button>
                   <Button
                     type="submit"
-                    disabled={createSegmentMutation.isPending}
+                    disabled={createSegmentMutation.isPending || !canManageCoa}
                     className="rounded-xl font-bold bg-primary text-white"
                   >
                     {createSegmentMutation.isPending ? "Creating..." : "Create Dimension"}

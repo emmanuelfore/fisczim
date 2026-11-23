@@ -2,6 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 import { type Account } from "@shared/schema";
 import {
+  DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS,
+  mergeAccountingSystemAccounts,
+  type AccountingSystemAccountKey,
+} from "@shared/accounting-defaults";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -17,33 +22,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { apiFetch } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
 
 type Props = {
   companyId: number;
   formData: any;
   setFormData: Dispatch<SetStateAction<any>>;
-};
-
-const DEFAULT_ACCOUNTING_SETTINGS = {
-  cashAccountCode: "1000",
-  accountsReceivableCode: "1200",
-  inventoryAccountCode: "1300",
-  accountsPayableCode: "2000",
-  vatOutputAccountCode: "2100",
-  vatInputAccountCode: "2110",
-  salesRevenueAccountCode: "4000",
-  cogsAccountCode: "5000",
-  generalExpenseAccountCode: "5100",
-  fxGainAccountCode: "4900",
-  fxLossAccountCode: "5900",
-  busConductorCashAccountCode: "1060",
-  busCashOnHandAccountCode: "1000",
-  busMobileMoneyAccountCode: "1070",
-  busCardClearingAccountCode: "1010",
-  busRevenueAccountCode: "4110",
-  busCashShortageAccountCode: "5920",
-  busCashOverageAccountCode: "4920",
 };
 
 const SYSTEM_POSTINGS = [
@@ -144,35 +129,36 @@ export function AccountingSystemSettings({
   formData,
   setFormData,
 }: Props) {
-  const { data: accounts = [], isLoading } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts", companyId],
+  const {
+    data: accounts = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<Account[]>({
+    queryKey: accountingKey("accounts", companyId),
     enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(
+    queryFn: () =>
+      fetchAccounting<Account[]>(
         `/api/companies/${companyId}/accounting/accounts`,
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText }));
-        throw new Error(err.message || "Failed to load chart of accounts");
-      }
-      return res.json();
-    },
+      ),
   });
 
-  const settings = {
-    ...DEFAULT_ACCOUNTING_SETTINGS,
-    ...(formData.accountingSettings || {}),
-  };
+  const settings = mergeAccountingSystemAccounts(formData.accountingSettings);
 
-  const updateSetting = (key: string, value: string) => {
-    setFormData((prev: any) => ({
-      ...prev,
-      accountingSettings: {
-        ...DEFAULT_ACCOUNTING_SETTINGS,
-        ...(prev.accountingSettings || {}),
-        [key]: value,
-      },
-    }));
+  const updateSetting = (key: AccountingSystemAccountKey, value: string) => {
+    setFormData((prev: any) => {
+      const existing = prev.accountingSettings?.[key];
+      if (existing === value || (!existing && value === DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS[key])) {
+        return prev;
+      }
+      return {
+        ...prev,
+        accountingSettings: {
+          ...(prev.accountingSettings || {}),
+          [key]: value,
+        },
+      };
+    });
   };
 
   return (
@@ -185,6 +171,16 @@ export function AccountingSystemSettings({
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-5">
+        {isError && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-[10px] border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-sm font-semibold text-rose-700">
+              Could not load the chart of accounts.
+            </p>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
         <div className="grid gap-4 md:grid-cols-2">
           {SYSTEM_POSTINGS.map((item) => (
             <div
@@ -193,7 +189,10 @@ export function AccountingSystemSettings({
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Label className=" font-semibold text-[#0F172A]">
+                  <Label
+                    htmlFor={`accounting-setting-${item.key}`}
+                    className=" font-semibold text-[#0F172A]"
+                  >
                     {item.label}
                   </Label>
                   <p className="mt-1 text-xs leading-5 text-[#64748B]">
@@ -212,7 +211,10 @@ export function AccountingSystemSettings({
                 onValueChange={(value) => updateSetting(item.key, value)}
                 disabled={isLoading}
               >
-                <SelectTrigger className="h-10 bg-white">
+                <SelectTrigger
+                  id={`accounting-setting-${item.key}`}
+                  className="h-10 bg-white"
+                >
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent>

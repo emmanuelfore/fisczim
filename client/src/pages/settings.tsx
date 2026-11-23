@@ -1,5 +1,6 @@
 import { Layout } from "@/components/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { getDefaultCountry, isLesothoInstance } from "@/lib/country-detect";
 import { useUpdateCompany } from "@/hooks/use-companies";
@@ -61,6 +62,8 @@ import { PageSkeleton } from "@/components/ui/page-skeleton";
 export default function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
+  const { can } = usePermissions();
+  const canManageAccounting = can("settings.accounting");
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
   const fa = useFiscalAuthority();
   const updateCompany = useUpdateCompany(activeCompany?.id || 0);
@@ -150,6 +153,7 @@ export default function SettingsPage() {
   }, [activeTab]);
 
   const handleGlobalSave = async () => {
+    if (activeTab === "accounting" && !canManageAccounting) return;
     try {
       await updateCompany.mutateAsync(formData);
       toast({
@@ -188,7 +192,7 @@ export default function SettingsPage() {
       title: t("Financial"),
       items: [
         { id: "banking", label: t("Banking") },
-        { id: "accounting", label: t("Accounting") },
+        ...(canManageAccounting ? [{ id: "accounting", label: t("Accounting") }] : []),
         { id: "sales-orders", label: t("Sales Orders") },
         { id: "cost-centers", label: t("Cost Centers") },
         { id: "inventory", label: t("Inventory") },
@@ -245,7 +249,7 @@ export default function SettingsPage() {
       case 'partnerships': return <PartnershipManagement companyId={activeCompany.id} />;
       case 'security': return <SecuritySettings company={activeCompany} />;
       case 'banking': return <BankingSettings formData={formData} setFormData={setFormData} />;
-      case 'accounting': return <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
+      case 'accounting': return canManageAccounting ? <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} /> : <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
       case 'sales-orders': return <SalesOrdersSettings companyId={activeCompany.id} />;
       case 'cost-centers': return <CostCenterManagement companyId={activeCompany.id} />;
       case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
@@ -282,6 +286,7 @@ export default function SettingsPage() {
   };
 
   const showGlobalSave = ['profile', 'banking', 'accounting', 'inventory', 'tax', 'app-mode', 'pos', 'communication', 'restaurant', 'bus-ticketing', 'maintenance', 'features'].includes(visibleActiveTab);
+  const canSaveActiveTab = visibleActiveTab !== "accounting" || canManageAccounting;
 
   const getItemIcon = (id: string) => {
     switch (id) {
@@ -405,7 +410,7 @@ const getTabMeta = (id: string) => {
               {showGlobalSave && (
                 <Button
                   onClick={handleGlobalSave}
-                  disabled={updateCompany.isPending}
+                  disabled={updateCompany.isPending || !canSaveActiveTab}
                   className="h-9 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 text-sm font-semibold text-white transition-colors self-start sm:self-auto"
                 >
                   {updateCompany.isPending ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}

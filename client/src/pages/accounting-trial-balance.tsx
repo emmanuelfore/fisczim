@@ -18,6 +18,11 @@ import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { useState } from "react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { formatCurrency } from "@/lib/utils";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
 
 type TrialBalanceLine = {
   accountId: number;
@@ -37,16 +42,23 @@ type TrialBalanceReport = {
 
 export default function TrialBalancePage() {
   const [, setLocation] = useLocation();
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany();
+  const currency = activeCompany?.currency || "USD";
   const [collapsedTypes, setCollapsedTypes] = useState<string[]>([]);
+  const [asOfDate, setAsOfDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   const { data: report, isLoading, isError, refetch } = useQuery<TrialBalanceReport>({
-    queryKey: ["/api/accounting/trial-balance"],
+    queryKey: accountingKey("trial-balance", companyId, asOfDate),
+    enabled: !!companyId,
+    queryFn: () =>
+      fetchAccounting<TrialBalanceReport>("/api/accounting/trial-balance", {
+        date: asOfDate,
+      }),
   });
 
-  const totalDebit =
-    report?.lines.reduce((sum, line) => sum + Number(line.debit), 0) || 0;
-  const totalCredit =
-    report?.lines.reduce((sum, line) => sum + Number(line.credit), 0) || 0;
+  // Use the server-computed totals so the balance check matches the report.
+  const totalDebit = Number(report?.totalDebit || 0);
+  const totalCredit = Number(report?.totalCredit || 0);
 
   const hasLoaded = !isLoading && !isError;
 
@@ -86,7 +98,7 @@ export default function TrialBalancePage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `trial-balance-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.download = `trial-balance-${asOfDate}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -122,7 +134,7 @@ export default function TrialBalancePage() {
                   {isError
                     ? "Unavailable"
                     : report
-                      ? `As of ${format(new Date(report.asOfDate), "PPP")}`
+                      ? `As of ${format(new Date(asOfDate ? `${asOfDate}T12:00:00` : Date.now()), "PPP")}`
                       : "Loading"}
                 </Badge>
                 <div
@@ -145,6 +157,18 @@ export default function TrialBalancePage() {
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+            <div className="space-y-1">
+              <Label htmlFor="trial-balance-date" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                As of
+              </Label>
+              <Input
+                id="trial-balance-date"
+                type="date"
+                value={asOfDate}
+                onChange={(event) => setAsOfDate(event.target.value)}
+                className="h-11 rounded-xl bg-white border-slate-200"
+              />
+            </div>
             <Button
               variant="outline"
               onClick={() => window.print()}
@@ -208,8 +232,17 @@ export default function TrialBalancePage() {
                     {Object.entries(groupedLines).map(([type, lines]) => (
                       <React.Fragment key={type}>
                         <TableRow
+                          role="button"
+                          tabIndex={0}
+                          aria-expanded={!collapsedTypes.includes(type)}
                           className="bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-slate-200"
                           onClick={() => toggleCollapse(type)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              toggleCollapse(type);
+                            }
+                          }}
                         >
                           <TableCell colSpan={4} className="pl-8 py-3">
                             <div className="flex items-center gap-2">
@@ -234,12 +267,23 @@ export default function TrialBalancePage() {
                           lines.map((line) => (
                             <TableRow
                               key={line.accountId}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Open ledger for ${line.accountCode} ${line.accountName}`}
                               className="hover:bg-slate-50/80 border-slate-100 transition-colors group cursor-pointer"
                               onClick={() =>
                                 setLocation(
                                   `/accounting/ledger/${line.accountId}`,
                                 )
                               }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setLocation(
+                                    `/accounting/ledger/${line.accountId}`,
+                                  );
+                                }
+                              }}
                             >
                               <TableCell className="font-bold text-slate-600 pl-14 font-mono ">
                                 {line.accountCode}
@@ -252,18 +296,12 @@ export default function TrialBalancePage() {
                               </TableCell>
                               <TableCell className="text-right font-bold text-slate-900 text-[14px]">
                                 {line.debit > 0
-                                  ? line.debit.toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })
+                                  ? formatCurrency(Number(line.debit), currency)
                                   : "-"}
                               </TableCell>
                               <TableCell className="text-right pr-8 font-bold text-slate-900 text-[14px]">
                                 {line.credit > 0
-                                  ? line.credit.toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })
+                                  ? formatCurrency(Number(line.credit), currency)
                                   : "-"}
                               </TableCell>
                             </TableRow>
@@ -277,16 +315,10 @@ export default function TrialBalancePage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-right py-5 text-xl font-black">
-                        {totalDebit.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
+                        {formatCurrency(totalDebit, currency)}
                       </TableCell>
                       <TableCell className="text-right pr-8 py-5 text-xl font-black">
-                        {totalCredit.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
+                        {formatCurrency(totalCredit, currency)}
                       </TableCell>
                     </TableRow>
                   </>
@@ -304,9 +336,7 @@ export default function TrialBalancePage() {
             <div className="flex-1">
               <p className="font-bold">
                 The Trial Balance is out of equilibrium by{" "}
-                {(totalDebit - totalCredit).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                })}
+                {formatCurrency(totalDebit - totalCredit, currency)}
               </p>
               <p className="text-xs opacity-80">
                 This usually indicates a missing ledger entry or a manual

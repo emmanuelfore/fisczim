@@ -48,7 +48,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useActiveCompany } from "@/hooks/use-active-company";
-import { apiFetch } from "@/lib/api";
+import {
+  accountingKey,
+  fetchAccounting,
+  invalidateAccountingCache,
+} from "@/lib/accounting-query";
 
 type FullJournalEntry = JournalEntry & {
   lines?: Array<
@@ -103,6 +107,8 @@ const emptyVoucherLine = (): VoucherLine => ({
 export default function AccountingJournalPage() {
   const [isVoucherOpen, setIsVoucherOpen] = useState(false);
   const [postingDraftId, setPostingDraftId] = useState<number | null>(null);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [voucher, setVoucher] = useState({
     entryDate: format(new Date(), "yyyy-MM-dd"),
     description: "",
@@ -114,64 +120,36 @@ export default function AccountingJournalPage() {
   const { can, requiresApproval } = usePermissions();
   const { activeCompanyId: companyId } = useActiveCompany();
 
+  const canViewJournal = can("accounting.view");
+
   const { data: segments } = useQuery<any[]>({
-    queryKey: ["/api/accounting/segments", { companyId }],
-    enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(`/api/accounting/segments`);
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryKey: accountingKey("segments", companyId),
+    enabled: !!companyId && canViewJournal,
+    queryFn: () => fetchAccounting<any[]>("/api/accounting/segments"),
   });
 
   const { data: entries, isLoading, isError, refetch } = useQuery<any[]>({
-    queryKey: ["/api/accounting/journal", { companyId }],
-    enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(`/api/accounting/journal`);
-      if (!res.ok) throw new Error("Failed to load journal entries");
-      return res.json();
-    },
+    queryKey: accountingKey("journal", companyId, fromDate, toDate),
+    enabled: !!companyId && canViewJournal,
+    queryFn: () =>
+      fetchAccounting<any[]>("/api/accounting/journal", {
+        from: fromDate,
+        to: toDate,
+      }),
   });
 
   const { data: accounts } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts", { companyId }],
-    enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(`/api/accounting/accounts`);
-      if (!res.ok) throw new Error("Failed to load accounts");
-      return res.json();
-    },
+    queryKey: accountingKey("accounts", companyId),
+    enabled: !!companyId && canViewJournal,
+    queryFn: () => fetchAccounting<Account[]>("/api/accounting/accounts"),
   });
 
   const { data: drafts } = useQuery<JournalDraft[]>({
-    queryKey: ["/api/accounting/journal-drafts", { companyId }],
-    enabled: !!companyId,
-    queryFn: async () => {
-      const res = await apiFetch(`/api/accounting/journal-drafts`);
-      if (!res.ok) throw new Error("Failed to load journal drafts");
-      return res.json();
-    },
+    queryKey: accountingKey("journal-drafts", companyId),
+    enabled: !!companyId && canViewJournal,
+    queryFn: () =>
+      fetchAccounting<JournalDraft[]>("/api/accounting/journal-drafts"),
   });
-
-  if (!can("accounting.view")) {
-    return (
-      <Layout>
-        <Card className="max-w-2xl mx-auto mt-8 border-rose-100 bg-rose-50/20">
-          <CardContent className="py-12 text-center">
-            <History className="mx-auto mb-4 h-12 w-12 text-rose-300" />
-            <h3 className="text-lg font-bold text-rose-900">Access Denied</h3>
-            <p className="mt-2 text-sm text-rose-700">
-              You do not have the required permissions to view the General Journal.
-            </p>
-            <p className="mt-1 text-xs text-rose-500 font-semibold">
-              Required permission: accounting.view
-            </p>
-          </CardContent>
-        </Card>
-      </Layout>
-    );
-  }
 
   const totals = voucher.lines.reduce(
     (acc, line) => {
@@ -183,7 +161,15 @@ export default function AccountingJournalPage() {
   );
 
   const voucherTotal = totals?.debit || 0;
-  const hasDirectAccess = !requiresApproval("journal_post", voucherTotal);
+  const canCreateJournal = can("accounting.journal.create");
+  const canPostJournal = can("accounting.journal.post");
+  const canSubmitVoucher = canPostJournal;
+  const hasDirectAccess =
+    canPostJournal && !requiresApproval("journal_post", voucherTotal);
+  const getDraftTotal = (draft: JournalDraft) =>
+    draft.lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const hasDirectDraftAccess = (draft: JournalDraft) =>
+    canPostJournal && !requiresApproval("journal_post", getDraftTotal(draft));
   const isBalanced =
     Math.abs(totals.debit - totals.credit) < 0.005 && totals.debit > 0;
 
@@ -245,7 +231,7 @@ export default function AccountingJournalPage() {
       setIsVoucherOpen(false);
       resetVoucher();
       queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/journal-drafts"],
+        queryKey: accountingKey("journal-drafts", companyId),
       });
     },
     onError: (error: any) => {
@@ -270,12 +256,7 @@ export default function AccountingJournalPage() {
       toast({ title: hasDirectAccess ? "Journal voucher posted" : "Voucher submitted for approval" });
       setIsVoucherOpen(false);
       resetVoucher();
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/journal"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/ledger"] });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/trial-balance"],
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/dashboard"] });
+      invalidateAccountingCache(queryClient);
     },
     onError: (error: any) => {
       toast({
@@ -287,24 +268,23 @@ export default function AccountingJournalPage() {
   });
 
   const postDraftMutation = useMutation({
-    mutationFn: async (draftId: number) => {
+    mutationFn: async ({ draftId, direct }: { draftId: number; direct: boolean }) => {
       const res = await apiRequest(
         "POST",
         `/api/accounting/journal-drafts/${draftId}/post`,
       );
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: hasDirectAccess ? "Draft posted to ledger" : "Draft submitted for approval" });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/journal-drafts"],
+    onSuccess: (_data, variables) => {
+      toast({
+        title: variables.direct
+          ? "Draft posted to ledger"
+          : "Draft submitted for approval",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/journal"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/ledger"] });
       queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/trial-balance"],
+        queryKey: accountingKey("journal-drafts", companyId),
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/dashboard"] });
+      invalidateAccountingCache(queryClient);
     },
     onError: (error: any) => {
       toast({
@@ -314,6 +294,41 @@ export default function AccountingJournalPage() {
       });
     },
   });
+
+  const handlePostDraft = (draft: JournalDraft) => {
+    if (!canSubmitVoucher) return;
+    const direct = hasDirectDraftAccess(draft);
+    const confirmed = window.confirm(
+      direct
+        ? `Post draft "${draft.description || `#${draft.id}`}" to the ledger?`
+        : `Submit draft "${draft.description || `#${draft.id}`}" for approval?`,
+    );
+    if (!confirmed) return;
+    setPostingDraftId(draft.id);
+    postDraftMutation.mutate(
+      { draftId: draft.id, direct },
+      { onSettled: () => setPostingDraftId(null) },
+    );
+  };
+
+  if (!canViewJournal) {
+    return (
+      <Layout>
+        <Card className="max-w-2xl mx-auto mt-8 border-rose-100 bg-rose-50/20">
+          <CardContent className="py-12 text-center">
+            <History className="mx-auto mb-4 h-12 w-12 text-rose-300" />
+            <h3 className="text-lg font-bold text-rose-900">Access Denied</h3>
+            <p className="mt-2 text-sm text-rose-700">
+              You do not have the required permissions to view the General Journal.
+            </p>
+            <p className="mt-1 text-xs text-rose-500 font-semibold">
+              Required permission: accounting.view
+            </p>
+          </CardContent>
+        </Card>
+      </Layout>
+    );
+  }
 
   return (
     <Layout hideHeaderTitle>
@@ -327,9 +342,52 @@ export default function AccountingJournalPage() {
               Review all financial transactions and double-entry postings.
             </p>
           </div>
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="space-y-1">
+              <Label htmlFor="journal-from" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                From
+              </Label>
+              <Input
+                id="journal-from"
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="h-9 rounded-lg"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="journal-to" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                To
+              </Label>
+              <Input
+                id="journal-to"
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+                className="h-9 rounded-lg"
+              />
+            </div>
+            {(fromDate || toDate) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-lg"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+              >
+                Clear dates
+              </Button>
+            )}
+          </div>
           <Dialog open={isVoucherOpen} onOpenChange={setIsVoucherOpen}>
             <DialogTrigger asChild>
-              <Button className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+              <Button
+                className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                disabled={!canCreateJournal}
+                title={!canCreateJournal ? "Requires accounting.journal.create" : undefined}
+              >
                 <Plus className="h-4 w-4" />
                 <span>New Journal Voucher</span>
               </Button>
@@ -549,12 +607,12 @@ export default function AccountingJournalPage() {
                         </TableCell>
                         <TableCell className="text-right font-black">
                           {totals.debit.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
+                            minimumFractionDigits: 2, maximumFractionDigits: 2,
                           })}
                         </TableCell>
                         <TableCell className="text-right font-black">
                           {totals.credit.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
+                            minimumFractionDigits: 2, maximumFractionDigits: 2,
                           })}
                         </TableCell>
                         <TableCell />
@@ -575,20 +633,30 @@ export default function AccountingJournalPage() {
                   >
                     {isBalanced
                       ? "Balanced"
-                      : `Difference ${(totals.debit - totals.credit).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                      : `Difference ${(totals.debit - totals.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </Badge>
                   <div className="flex justify-end gap-2">
                     <Button
                       variant="outline"
                       onClick={() => saveDraftMutation.mutate()}
-                      disabled={saveDraftMutation.isPending}
+                      disabled={saveDraftMutation.isPending || !canCreateJournal}
+                      title={!canCreateJournal ? "Requires accounting.journal.create" : undefined}
                     >
                       <Save className="h-4 w-4 mr-2" />{" "}
                       {saveDraftMutation.isPending ? "Saving..." : "Save Draft"}
                     </Button>
                     <Button
                       onClick={() => postVoucherMutation.mutate()}
-                      disabled={postVoucherMutation.isPending || !isBalanced}
+                      disabled={
+                        postVoucherMutation.isPending ||
+                        !isBalanced ||
+                        !canSubmitVoucher
+                      }
+                      title={
+                        !canSubmitVoucher
+                          ? "Requires accounting.journal.post"
+                          : undefined
+                      }
                     >
                       <Send className="h-4 w-4 mr-2" />{" "}
                       {postVoucherMutation.isPending
@@ -642,13 +710,13 @@ export default function AccountingJournalPage() {
                           <div>
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Debit</span>
                             <span className="font-bold text-slate-700">
-                              {debit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              {debit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                           </div>
                           <div className="text-right">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Credit</span>
                             <span className="font-bold text-slate-700">
-                              {credit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              {credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                           </div>
                         </div>
@@ -657,13 +725,14 @@ export default function AccountingJournalPage() {
                           <Button
                             size="sm"
                             className="w-full"
-                            onClick={() => {
-                              setPostingDraftId(draft.id);
-                              postDraftMutation.mutate(draft.id, { onSettled: () => setPostingDraftId(null) });
-                            }}
-                            disabled={postingDraftId === draft.id || Math.abs(debit - credit) > 0.005}
+                            onClick={() => handlePostDraft(draft)}
+                            disabled={
+                              postingDraftId === draft.id ||
+                              !canSubmitVoucher ||
+                              Math.abs(debit - credit) > 0.005
+                            }
                           >
-                            {hasDirectAccess ? "Post Draft" : "Request Approval"}
+                            {hasDirectDraftAccess(draft) ? "Post Draft" : "Request Approval"}
                           </Button>
                         </div>
                       </div>
@@ -708,27 +777,25 @@ export default function AccountingJournalPage() {
                           </TableCell>
                           <TableCell className="text-right font-bold">
                             {debit.toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
+                              minimumFractionDigits: 2, maximumFractionDigits: 2,
                             })}
                           </TableCell>
                           <TableCell className="text-right font-bold">
                             {credit.toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
+                              minimumFractionDigits: 2, maximumFractionDigits: 2,
                             })}
                           </TableCell>
                           <TableCell className="text-right pr-6">
                             <Button
                               size="sm"
-                              onClick={() => {
-                                setPostingDraftId(draft.id);
-                                postDraftMutation.mutate(draft.id, { onSettled: () => setPostingDraftId(null) });
-                              }}
+                              onClick={() => handlePostDraft(draft)}
                               disabled={
                                 postingDraftId === draft.id ||
+                                !canSubmitVoucher ||
                                 Math.abs(debit - credit) > 0.005
                               }
                             >
-                              {hasDirectAccess ? "Post Draft" : "Request Approval"}
+                              {hasDirectDraftAccess(draft) ? "Post Draft" : "Request Approval"}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -759,7 +826,7 @@ export default function AccountingJournalPage() {
                 className="animate-pulse border-slate-100 h-32 bg-slate-50/50"
               />
             ))
-          ) : entries?.length === 0 ? (
+          ) : !isError && entries?.length === 0 ? (
             <Card className="border-dashed border-2 border-slate-200 bg-slate-50/30 py-12">
               <CardContent className="flex flex-col items-center justify-center text-center">
                 <History className="h-12 w-12 text-slate-300 mb-4" />
@@ -862,7 +929,7 @@ export default function AccountingJournalPage() {
                               {line.type === "DEBIT"
                                 ? Number(line.amount).toLocaleString(
                                     undefined,
-                                    { minimumFractionDigits: 2 },
+                                    { minimumFractionDigits: 2, maximumFractionDigits: 2 },
                                   )
                                 : "-"}
                             </TableCell>
@@ -870,7 +937,7 @@ export default function AccountingJournalPage() {
                               {line.type === "CREDIT"
                                 ? Number(line.amount).toLocaleString(
                                     undefined,
-                                    { minimumFractionDigits: 2 },
+                                    { minimumFractionDigits: 2, maximumFractionDigits: 2 },
                                   )
                                 : "-"}
                             </TableCell>

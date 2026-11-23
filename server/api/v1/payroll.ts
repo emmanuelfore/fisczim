@@ -15,7 +15,8 @@ import {
   employeeSalaryChanges, payrollRemittances,
   users,
   employeeSalaryHistory, employeeEmploymentHistory,
-  employeeIncomeHistory, employeeDeductionHistory, payrollCompanySettings
+  employeeIncomeHistory, employeeDeductionHistory, payrollCompanySettings,
+  journalEntryDrafts
 } from "../../../shared/schema.js";
 import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull } from "drizzle-orm";
 import { taxYearTotalsByEmployee, taxTableLabels, labelForSnapshot } from "../../lib/payslip-evidence.js";
@@ -39,6 +40,8 @@ import {
   buildPayrollJournal,
   reversePayrollJournal,
   PAYROLL_JOURNAL_ACCOUNT_KEYS,
+  resolvePostedPayrollJournalId,
+  loadPostedPayrollReversalLines,
   type PayrollJournalAccountKey,
 } from "../../lib/payroll-journal.js";
 import { logAction } from "../../audit.js";
@@ -51,6 +54,14 @@ import { userHasPermission } from "../../lib/permissions.js";
 import sopRouter from "./payroll-sop.js";
 
 const router = Router({ mergeParams: true });
+
+/** Durable keys so a retried GL approval cannot create a second payroll journal. */
+function payrollLockPostingKey(runId: number) {
+  return `payroll-lock:${runId}`;
+}
+function payrollReversalPostingKey(runId: number) {
+  return `payroll-reversal:${runId}`;
+}
 
 // --- CRYPTOGRAPHY SECURITY VAULT UTILITIES ---
 const CIPHER_ALGORITHM = "aes-256-gcm";
@@ -4859,22 +4870,39 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
 
     await db.transaction(async (tx) => {
       // 1. Draft the payroll journal for accounting approval. It is a DRAFT so
-      // the existing journal_post approval can actually pick it up.
-      await storage.createJournalEntryDraft(companyId, {
+      // the existing journal_post approval can actually pick it up. The run
+      // stays PENDING_GL until that draft is posted by GL approval.
+      const postingKey = payrollLockPostingKey(runId);
+      const exchangeRate = Number(run.exchangeRate || 1) || 1;
+      const [existingDraft] = await tx.select({ id: journalEntryDrafts.id })
+        .from(journalEntryDrafts)
+        .where(and(
+          eq(journalEntryDrafts.companyId, companyId),
+          eq(journalEntryDrafts.referenceType, "PAYROLL"),
+          eq(journalEntryDrafts.referenceId, runId.toString())
+        ))
+        .limit(1);
+
+      const draft = existingDraft || await storage.createJournalEntryDraft(companyId, {
         companyId,
         entryDate: new Date(`${run.periodEnd}T12:00:00Z`),
         description: `Payroll ${run.periodStart} to ${run.periodEnd} (${lines.length} payslip${lines.length === 1 ? "" : "s"})`,
         referenceType: "PAYROLL",
         referenceId: runId.toString(),
         createdBy: userId || null,
+        postingKey,
+        currency: run.currency,
+        exchangeRate,
         lines: journal.lines.map((line) => ({
           accountCode: accountCodes[line.accountKey],
           type: line.type,
           amount: line.amount,
           memo: line.memo,
           branchId: run.branchId ?? undefined,
+          currency: run.currency,
+          exchangeRate,
         })),
-      }, tx);
+      } as any, tx);
 
       // 2. Record loan capital recovered by this run
       for (const line of lines) {
@@ -4909,9 +4937,10 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
       // so two concurrent locks cannot post the journal twice.
       const [locked] = await tx.update(payrollRuns)
         .set({
-          status: "LOCKED",
+          status: "PENDING_GL",
           lockedBy: userId || null,
           lockedAt: new Date(),
+          journalEntryId: draft?.id ?? null,
           updatedAt: new Date(),
         })
         .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.status, "APPROVED")))
@@ -4925,7 +4954,7 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
       totalNet: run.totalNet,
       journal: journal.totals,
     });
-    res.json({ success: true, status: "LOCKED", journal: journal.totals });
+    res.json({ success: true, status: "PENDING_GL", message: "Payroll journal is a draft awaiting GL approval.", journal: journal.totals });
   } catch (err: any) {
     respondPayrollError(res, err);
   }
@@ -4940,69 +4969,108 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
       .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
       .limit(1);
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    if (run.status !== "LOCKED") {
-      return res.status(409).json({ error: "STATE_ERROR", message: `Only LOCKED runs can be reversed (current: ${run.status})` });
+    if (!["LOCKED", "PENDING_GL"].includes(run.status)) {
+      return res.status(409).json({ error: "STATE_ERROR", message: `Only LOCKED or PENDING_GL runs can be reversed (current: ${run.status})` });
     }
 
     const userId = req.user?.id || null;
+    let reversalDraftId: number | null = null;
 
-    const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
-    const deductionRows = lines.length > 0
-      ? await db.select().from(payrollDeductions)
-          .where(inArray(payrollDeductions.payrollRunEmployeeId, lines.map((line) => line.id)))
+    // Resolve the journal that is actually in the GL before any run field is
+    // overwritten. Payslip data is mutable, so it is only a last-resort fallback.
+    const postedJournalId = await resolvePostedPayrollJournalId(companyId, run.journalEntryId, db);
+    const postedReversalLines = postedJournalId
+      ? await loadPostedPayrollReversalLines(companyId, postedJournalId, db)
       : [];
 
-    // The reversal is rebuilt from the same payslip data the lock used and then
-    // mirrored, so the two entries cancel to the cent even if the chart of
-    // accounts or the mapping moved on since the run was locked.
-    const journal = buildPayrollJournal({
-      lines: lines.map((line) => ({
-        runEmployeeId: line.id,
-        grossSalary: line.grossSalary,
-        netSalary: line.netSalary,
-        nssaEmployer: line.nssaEmployer,
-        necEmployer: line.necEmployer,
-        pensionEmployer: line.pensionEmployer,
-        snapshot: runSnapshot(line.snapshotData),
-      })),
-      deductions: deductionRows.map((row) => ({
-        runEmployeeId: row.payrollRunEmployeeId,
-        deductionType: row.deductionType,
-        amount: row.amount,
-        name: row.name,
-      })),
-    });
+    let journal: ReturnType<typeof buildPayrollJournal> | undefined;
+    if (postedReversalLines.length === 0) {
+      const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
+      const deductionRows = lines.length > 0
+        ? await db.select().from(payrollDeductions)
+            .where(inArray(payrollDeductions.payrollRunEmployeeId, lines.map((line) => line.id)))
+        : [];
 
-    if (journal.variances.length > 0) {
-      return res.status(422).json({
-        error: "PAYROLL_GL_IMBALANCE",
-        message: "Some payslips on this run no longer reconcile, so the reversal cannot be derived. Reversal blocked without writing to the ledger.",
-        variances: journal.variances,
+      journal = buildPayrollJournal({
+        lines: lines.map((line) => ({
+          runEmployeeId: line.id,
+          grossSalary: line.grossSalary,
+          netSalary: line.netSalary,
+          nssaEmployer: line.nssaEmployer,
+          necEmployer: line.necEmployer,
+          pensionEmployer: line.pensionEmployer,
+          snapshot: runSnapshot(line.snapshotData),
+        })),
+        deductions: deductionRows.map((row) => ({
+          runEmployeeId: row.payrollRunEmployeeId,
+          deductionType: row.deductionType,
+          amount: row.amount,
+          name: row.name,
+        })),
       });
+
+      if (journal.variances.length > 0) {
+        return res.status(422).json({
+          error: "PAYROLL_GL_IMBALANCE",
+          message: "Some payslips on this run no longer reconcile, so the reversal cannot be derived. Reversal blocked without writing to the ledger.",
+          variances: journal.variances,
+        });
+      }
     }
 
     const accountCodes = {} as Record<PayrollJournalAccountKey, string>;
-    for (const key of PAYROLL_JOURNAL_ACCOUNT_KEYS) {
-      accountCodes[key] = await storage.getSystemAccountCode(companyId, key);
+    if (postedReversalLines.length === 0) {
+      for (const key of PAYROLL_JOURNAL_ACCOUNT_KEYS) {
+        accountCodes[key] = await storage.getSystemAccountCode(companyId, key);
+      }
     }
 
     await db.transaction(async (tx) => {
-      if (journal.lines.length > 0) {
-        await storage.createJournalEntryDraft(companyId, {
+      const reversalLines = postedReversalLines.length > 0
+        ? postedReversalLines.map((line) => ({
+            accountCode: line.accountCode,
+            type: line.type,
+            amount: line.amount,
+            memo: line.memo,
+            branchId: run.branchId ?? undefined,
+            currency: line.currency || run.currency,
+            exchangeRate: line.exchangeRate ?? (Number(run.exchangeRate || 1) || 1),
+          }))
+        : reversePayrollJournal(journal!).map((line) => ({
+            accountCode: accountCodes[line.accountKey],
+            type: line.type,
+            amount: line.amount,
+            memo: line.memo,
+            branchId: run.branchId ?? undefined,
+            currency: run.currency,
+            exchangeRate: Number(run.exchangeRate || 1) || 1,
+          }));
+
+      if (reversalLines.length > 0) {
+        const postingKey = payrollReversalPostingKey(runId);
+        const exchangeRate = Number(run.exchangeRate || 1) || 1;
+        const [existingDraft] = await tx.select({ id: journalEntryDrafts.id })
+          .from(journalEntryDrafts)
+          .where(and(
+            eq(journalEntryDrafts.companyId, companyId),
+            eq(journalEntryDrafts.referenceType, "PAYROLL_REVERSAL"),
+            eq(journalEntryDrafts.referenceId, runId.toString())
+          ))
+          .limit(1);
+
+        const reversalDraft = existingDraft || await storage.createJournalEntryDraft(companyId, {
           companyId,
           entryDate: new Date(),
           description: `Reversal of payroll journal - run #${runId} (${run.periodEnd})`,
           referenceType: "PAYROLL_REVERSAL",
           referenceId: runId.toString(),
           createdBy: userId,
-          lines: reversePayrollJournal(journal).map((line) => ({
-            accountCode: accountCodes[line.accountKey],
-            type: line.type,
-            amount: line.amount,
-            memo: line.memo,
-            branchId: run.branchId ?? undefined,
-          })),
-        }, tx);
+          postingKey,
+          currency: run.currency,
+          exchangeRate,
+          lines: reversalLines,
+        } as any, tx);
+        reversalDraftId = reversalDraft?.id ?? null;
       }
 
       // Restore the loan capital this run recovered
@@ -5030,11 +5098,19 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
         await tx.delete(loanInstallments).where(inArray(loanInstallments.id, installments.map((i) => i.loan_installments.id)));
       }
 
-      // Only a run that is still locked flips to REVERSED, so two approvers
-      // clicking reverse at once cannot post the reversal journal twice.
+      // Conditional transition prevents two approvers from creating two
+      // reversal drafts. The run waits in PENDING_GL_REVERSAL for GL approval.
       const [reversed] = await tx.update(payrollRuns)
-        .set({ status: "REVERSED", updatedAt: new Date() })
-        .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.status, "LOCKED")))
+        .set({
+          status: "PENDING_GL_REVERSAL",
+          journalEntryId: reversalDraftId ?? run.journalEntryId,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(payrollRuns.id, runId),
+          eq(payrollRuns.companyId, companyId),
+          inArray(payrollRuns.status, ["LOCKED", "PENDING_GL"])
+        ))
         .returning();
       if (!reversed) throw new PayrollHttpError(409, "Payroll run changed state while reversing. Reload and try again.", "PAYROLL_REVERSE_CONFLICT");
     });
@@ -5044,9 +5120,11 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
       periodEnd: run.periodEnd,
       totalNet: run.totalNet,
       reversedBy: userId,
-      journal: journal.totals,
+      originalJournalEntryId: postedJournalId ?? null,
+      reversalJournalEntryId: reversalDraftId,
+      journal: journal?.totals ?? null,
     });
-    res.json({ success: true, status: "REVERSED", message: `Run #${runId} reversed. A reversing journal entry is waiting for GL approval.` });
+    res.json({ success: true, status: "PENDING_GL_REVERSAL", message: `Run #${runId} reversed. A reversing journal entry is waiting for GL approval.` });
   } catch (err: any) {
     respondPayrollError(res, err);
   }

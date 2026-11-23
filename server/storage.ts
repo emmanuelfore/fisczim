@@ -1,4 +1,5 @@
 
+import { DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS, mergeAccountingSystemAccounts } from "../shared/accounting-defaults.js";
 import {
   users, companies, customers, products, invoices, invoiceItems, companyUsers, productTaxLevies,
   companyRoles, companyRolePermissions, approvalRequests, companyPartners,
@@ -61,6 +62,7 @@ import {
   type Layby, type InsertLayby, type LaybyItem, type InsertLaybyItem,
   type LaybyPayment, type InsertLaybyPayment,
   inventoryValuationSnapshots,
+  payrollRuns,
   inventoryLocations,
   inventoryLocationStocks,
   payrollElements, payrollCalculationAudits,
@@ -79,43 +81,6 @@ import { promisify } from "util";
 import { format } from "date-fns";
 
 const scryptAsync = promisify(scrypt);
-
-const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
-  cashAccountCode: "1000",
-  accountsReceivableCode: "1200",
-  inventoryAccountCode: "1300",
-  inventoryInTransitCode: "1310",   // Inter-location inventory-in-transit account
-  accountsPayableCode: "2000",
-  vatOutputAccountCode: "2200",
-  vatInputAccountCode: "1420",
-  salesRevenueAccountCode: "4000",
-  cogsAccountCode: "5000",
-  generalExpenseAccountCode: "5100",
-  fxGainAccountCode: "4100",
-  fxLossAccountCode: "5300",
-  withholdingTaxPayableCode: "2012",
-  // Deliberately still Trade Payables: a GRV credits GRNI and the matching bill
-  // debits it, so repointing this mid-flight strands a residue in 2000 for every
-  // open return. Chart 2015 exists for tenants that close their GRVs first.
-  grniAccountCode: "2000",
-  landedCostClearingAccountCode: "2016",
-  partnerPayableAccountCode: "2017",
-  // Payroll postings resolve these through getSystemAccountCode, so a tenant can
-  // point them at their own chart without the ledger guessing at codes.
-  payrollExpenseAccountCode: "5004",
-  wagesPayableAccountCode: "2004",
-  payrollTaxPayableAccountCode: "2013",
-  employerPayrollLevyAccountCode: "5020",
-  statutoryContributionsPayableAccountCode: "2018",
-  employeeDeductionsPayableAccountCode: "2019",
-  staffLoansReceivableAccountCode: "1320",
-  // Vehicle module accounts
-  customerDepositsAccountCode: "2010",
-  // Commission accrual (opt-in) and forfeited-deposit income
-  commissionPayableAccountCode: "2021",
-  commissionExpenseAccountCode: "5005",
-  otherIncomeAccountCode: "4900",
-} as const;
 
 // Codes the postings above resolve to that many live charts were seeded without.
 // Created on first use so a missing default cannot abort a posting.
@@ -141,16 +106,6 @@ const SUPPLEMENTAL_SYSTEM_ACCOUNTS = [
 
 
 type AccountingSystemAccountKey = keyof typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
-
-function mergeAccountingSystemAccounts(settings: unknown): typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS {
-  const raw = settings && typeof settings === "object" ? settings as Record<string, unknown> : {};
-  return Object.fromEntries(
-    Object.entries(DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS).map(([key, fallback]) => {
-      const value = raw[key];
-      return [key, typeof value === "string" && value.trim() ? value.trim() : fallback];
-    })
-  ) as typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
-}
 
 function getAccountCodeRange(type?: string, category?: string): { start: number; end: number } {
   if (type === "ASSET") {
@@ -205,6 +160,9 @@ type LedgerPostLine = {
   vatTypeId?: number | null;
   vatAmount?: number | null;
   withholdingTaxAmount?: number | null;
+  currency?: string;
+  exchangeRate?: number | string;
+  baseAmount?: number;
 };
 
 type LedgerPostData = {
@@ -217,6 +175,10 @@ type LedgerPostData = {
   createdBy?: string;
   branchId?: number; // Optional branch context for GL segregation
   deduplicate?: boolean;
+  /** Durable idempotency key. Preferred over the legacy opt-in deduplicate flag. */
+  postingKey?: string;
+  currency?: string;
+  exchangeRate?: number | string;
   lines: LedgerPostLine[];
 };
 
@@ -320,6 +282,10 @@ export interface IStorage {
   getApprovalRequest(id: number, companyId: number): Promise<ApprovalRequest | undefined>;
   getApprovalRequests(companyId: number, status?: string): Promise<(ApprovalRequest & { requesterName?: string; reviewerName?: string })[]>;
   updateApprovalRequest(id: number, companyId: number, data: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
+  /** Atomically claim a pending request; returns undefined if another reviewer won. */
+  claimApprovalRequest(id: number, companyId: number, reviewerId: string): Promise<ApprovalRequest | undefined>;
+  /** Put a claimed request back into `pending` after an action failure. */
+  releaseApprovalRequest(id: number, companyId: number): Promise<void>;
   getPendingApprovalCount(companyId: number): Promise<number>;
 
   // Partnerships
@@ -629,12 +595,21 @@ export class DatabaseStorage implements IStorage {
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
   }
 
-  private async normalizeLedgerLines(companyId: number, lines: LedgerPostLine[], tx: any = db): Promise<Array<{
+  private async normalizeLedgerLines(
+    companyId: number,
+    lines: LedgerPostLine[],
+    tx: any = db,
+    defaults: { currency?: string; exchangeRate?: number | string } = {}
+  ): Promise<Array<{
     accountId: number;
     accountCode: string;
     accountName: string;
     type: "DEBIT" | "CREDIT";
     amount: number;
+    baseAmount: number;
+    currency: string;
+    exchangeRate: number;
+    lineOrdinal: number;
     memo?: string;
     branchId?: number | null;
     costCenterId?: number | null;
@@ -644,17 +619,40 @@ export class DatabaseStorage implements IStorage {
     withholdingTaxAmount?: number | null;
   }>> {
     const normalized = [];
+    const defaultCurrency = String(defaults.currency || "USD").trim().toUpperCase() || "USD";
+    const defaultRate = Number(defaults.exchangeRate ?? 1);
+    if (!Number.isFinite(defaultRate) || defaultRate <= 0) {
+      throw new Error(`Invalid exchange rate: ${defaults.exchangeRate}`);
+    }
 
     for (const line of lines || []) {
       const debit = Number(line.debit || 0);
       const credit = Number(line.credit || 0);
       const amount = Number(line.amount ?? (debit > 0 ? debit : credit));
       const type = line.type ?? (debit > 0 ? "DEBIT" : "CREDIT");
-      if (!amount || amount <= 0) continue;
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new Error("Journal line amounts must be non-negative finite numbers");
+      }
+      if (amount === 0) {
+        // Empty voucher placeholder lines are harmless; a targeted account line is not.
+        if (line.accountCode || line.accountId) {
+          throw new Error("Journal line amount must be greater than zero");
+        }
+        continue;
+      }
 
       if (type !== "DEBIT" && type !== "CREDIT") {
         throw new Error("Journal lines must be marked as DEBIT or CREDIT");
       }
+
+      const currency = String(line.currency ?? defaultCurrency).trim().toUpperCase() || "USD";
+      const exchangeRate = Number(line.exchangeRate ?? defaultRate);
+      if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+        throw new Error(`Invalid exchange rate on ledger line: ${line.exchangeRate}`);
+      }
+      const baseAmount = line.baseAmount != null
+        ? this.roundMoney(Number(line.baseAmount))
+        : this.roundMoney(amount / exchangeRate);
 
       const accountWhere = line.accountCode
         ? and(eq(accounts.companyId, companyId), eq(accounts.code, line.accountCode))
@@ -687,6 +685,10 @@ export class DatabaseStorage implements IStorage {
         accountName: account.name,
         type,
         amount,
+        baseAmount,
+        currency,
+        exchangeRate,
+        lineOrdinal: normalized.length,
         memo: line.memo,
         branchId: line.branchId ?? null,
         costCenterId,
@@ -3210,6 +3212,37 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  async claimApprovalRequest(id: number, companyId: number, reviewerId: string): Promise<ApprovalRequest | undefined> {
+    // Conditional UPDATE is the claim: only one reviewer can flip a pending row
+    // to `processing`. A claim older than the stale window is recoverable so a
+    // crashed process cannot leave the request stuck forever.
+    const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
+    const [row] = await db
+      .update(approvalRequests)
+      .set({ status: "processing", reviewedBy: reviewerId, reviewedAt: new Date() })
+      .where(and(
+        eq(approvalRequests.id, id),
+        eq(approvalRequests.companyId, companyId),
+        or(
+          eq(approvalRequests.status, "pending"),
+          and(eq(approvalRequests.status, "processing"), lt(approvalRequests.reviewedAt, staleBefore)),
+        ),
+      ))
+      .returning();
+    return row;
+  }
+
+  async releaseApprovalRequest(id: number, companyId: number): Promise<void> {
+    await db
+      .update(approvalRequests)
+      .set({ status: "pending", reviewedBy: null, reviewedAt: null, resultData: null })
+      .where(and(
+        eq(approvalRequests.id, id),
+        eq(approvalRequests.companyId, companyId),
+        eq(approvalRequests.status, "processing"),
+      ));
+  }
+
   async getPendingApprovalCount(companyId: number): Promise<number> {
     const [row] = await db
       .select({ total: count() })
@@ -4716,47 +4749,93 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
-    const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
-    
-    // Statuses are stored lowercase; a draft or quote is not earned revenue.
-    let invConditions = [eq(invoices.companyId, companyId), sql`lower(${invoices.status}) not in ('cancelled', 'void', 'draft', 'quote')`];
-    if (startDate) invConditions.push(gte(invoices.issueDate, startDate));
-    if (endDate) invConditions.push(lte(invoices.issueDate, endDate));
-    const allInvoices = await db.select().from(invoices).where(and(...invConditions));
-    
-    let expConditions = [eq(expenses.companyId, companyId), eq(expenses.status, 'approved')];
-    if (startDate) expConditions.push(gte(expenses.expenseDate, startDate));
-    if (endDate) expConditions.push(lte(expenses.expenseDate, endDate));
-    const allExpenses = await db.select().from(expenses).where(and(...expConditions));
-    
-    let cogsConditions = [eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, 'STOCK_OUT')];
-    if (startDate) cogsConditions.push(gte(inventoryTransactions.createdAt, startDate));
-    if (endDate) cogsConditions.push(lte(inventoryTransactions.createdAt, endDate));
-    const allCogs = await db.select().from(inventoryTransactions).where(and(...cogsConditions));
-    
-    return allBranches.map(branch => {
-      const bInvoices = allInvoices.filter(i => i.branchId === branch.id);
-      const bExpenses = allExpenses.filter(e => e.branchId === branch.id);
-      const bCogs = allCogs.filter(c => c.branchId === branch.id);
-      
-      const revenue = bInvoices.reduce((sum, inv) => sum + Number(inv.subtotal || 0), 0);
-      const cogsAmount = bCogs.reduce((sum, c) => sum + Number(c.totalCost || 0), 0); 
-      const expenseAmount = bExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
-      
-      const grossProfit = revenue - cogsAmount;
-      const netProfit = grossProfit - expenseAmount;
-      
+    // Cost-centre profitability is a GL report: it groups POSTED ledger lines by
+    // ledger_entries.cost_center_id. The old branch/subledger aggregation could
+    // not see manually tagged lines (or lines posted from other modules).
+    const centers = await db.select().from(costCenters).where(eq(costCenters.companyId, companyId));
+    const cogsCode = await this.getSystemAccountCode(companyId, "cogsAccountCode");
+
+    const conditions = [
+      eq(journalEntries.companyId, companyId),
+      eq(journalEntries.status, "POSTED"),
+    ];
+    if (startDate) conditions.push(gte(journalEntries.entryDate, startDate));
+    if (endDate) conditions.push(lte(journalEntries.entryDate, throughEndOfDay(new Date(endDate))));
+
+    const lines = await db
+      .select({
+        costCenterId: ledgerEntries.costCenterId,
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount,
+        journalId: journalEntries.id,
+        accountType: accounts.type,
+        accountCode: accounts.code,
+      })
+      .from(ledgerEntries)
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .where(and(...conditions));
+
+    type Bucket = { revenue: number; cogs: number; expenses: number; journals: Set<number> };
+    const buckets = new Map<number, Bucket>();
+    const bucketFor = (id: number) => {
+      let bucket = buckets.get(id);
+      if (!bucket) {
+        bucket = { revenue: 0, cogs: 0, expenses: 0, journals: new Set() };
+        buckets.set(id, bucket);
+      }
+      return bucket;
+    };
+
+    for (const line of lines) {
+      const amount = Number(line.amount || 0);
+      const signed = line.type === "CREDIT" ? -amount : amount;
+      const bucket = bucketFor(line.costCenterId ?? 0);
+      bucket.journals.add(line.journalId);
+
+      if (line.accountType === "REVENUE") {
+        bucket.revenue -= signed; // credits increase revenue
+      } else if (line.accountCode === cogsCode) {
+        bucket.cogs += signed;
+      } else if (line.accountType === "EXPENSE") {
+        bucket.expenses += signed;
+      }
+    }
+
+    const rows = centers.map((center) => {
+      const bucket = buckets.get(center.id) ?? { revenue: 0, cogs: 0, expenses: 0, journals: new Set<number>() };
+      const revenue = this.roundMoney(bucket.revenue);
+      const cogs = this.roundMoney(bucket.cogs);
+      const expenses = this.roundMoney(bucket.expenses);
       return {
-        id: branch.id,
-        name: branch.name,
+        id: center.id,
+        name: center.name,
         revenue,
-        cogs: cogsAmount,
-        grossProfit,
-        expenses: expenseAmount,
-        netProfit,
-        transactionCount: bInvoices.length + bExpenses.length
+        cogs,
+        grossProfit: this.roundMoney(revenue - cogs),
+        expenses,
+        netProfit: this.roundMoney(revenue - cogs - expenses),
+        transactionCount: bucket.journals.size,
       };
     });
+
+    const unassigned = buckets.get(0);
+    if (unassigned && unassigned.journals.size > 0) {
+      const revenue = this.roundMoney(unassigned.revenue);
+      const cogs = this.roundMoney(unassigned.cogs);
+      const expenses = this.roundMoney(unassigned.expenses);
+      rows.push({
+        id: 0,
+        name: "Unassigned",
+        revenue,
+        cogs,
+        grossProfit: this.roundMoney(revenue - cogs),
+        expenses,
+        netProfit: this.roundMoney(revenue - cogs - expenses),
+        transactionCount: unassigned.journals.size,
+      });
+    }
+    return rows;
   }
 
   async getAPAgingReport(companyId: number, asOfDate: Date = new Date()): Promise<any[]> {
@@ -4878,7 +4957,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async runYearEndClose(companyId: number, asOfDate: Date, currentYearEarningsCode: string = "3100", retainedEarningsCode: string = "3110"): Promise<void> {
+    if (Number.isNaN(new Date(asOfDate).getTime())) {
+      throw new Error("A valid year-end as-of date is required");
+    }
     return await db.transaction(async (tx) => {
+      const periods = await tx.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
+      const targetPeriod = periods.find((p: any) =>
+        new Date(asOfDate) >= new Date(p.startDate) &&
+        new Date(asOfDate) <= throughEndOfDay(new Date(p.endDate))
+      );
+      if (targetPeriod && (targetPeriod.glLocked || targetPeriod.status === "CLOSED" || targetPeriod.status === "LOCKED")) {
+        throw new Error("Cannot run year-end close in a locked or closed period");
+      }
+      const dateKey = new Date(asOfDate).toISOString().slice(0, 10);
+
       // 1. Calculate prior balance of Current Year Earnings (3100) before close
       const [currentEarningsBalance] = await tx.select({
         netDebit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
@@ -4912,6 +5004,7 @@ export class DatabaseStorage implements IStorage {
           description: "Prior Year Earnings Transfer to Retained Earnings",
           referenceType: "SYSTEM",
           referenceId: "YEC-TRANSFER",
+          postingKey: `year-end-close:${companyId}:${dateKey}:transfer`,
           lines: transferLines
         }, tx);
       }
@@ -4973,6 +5066,7 @@ export class DatabaseStorage implements IStorage {
           description: "Automated Year-End P&L Closing Sweep",
           referenceType: "SYSTEM",
           referenceId: "YEC-SWEEP",
+          postingKey: `year-end-close:${companyId}:${dateKey}:sweep`,
           lines: sweepLines
         }, tx);
       }
@@ -6231,7 +6325,10 @@ export class DatabaseStorage implements IStorage {
         unitCost,
         totalValue: quantity * unitCost,
         valuationMethod: method,
-      };
+        // The source tables hold only current stock/cost. Do not present this
+        // as a reconstructed historical valuation.
+        captureType: "CURRENT_STATE",
+      } as const;
     });
 
     const totalQuantity = lines.reduce((sum: any, l: any) => sum + l.quantity, 0);
@@ -6247,6 +6344,8 @@ export class DatabaseStorage implements IStorage {
         totalQuantity: totalQuantity.toFixed(2),
         totalValue: totalValue.toFixed(2),
         lines,
+        captureType: "CURRENT_STATE",
+        capturedAt: new Date(),
         createdBy: userId || null,
       })
       .returning();
@@ -8460,6 +8559,36 @@ export class DatabaseStorage implements IStorage {
     // Callers that are already inside a transaction (payroll lock, POS posting)
     // pass their tx so the draft and their own writes commit or roll back as one.
     const run = async (tx: any) => {
+      if (data.postingKey) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${
+          `accounting-draft:${companyId}:${data.postingKey}`
+        }))`);
+        const [existing] = await tx.select()
+          .from(journalEntryDrafts)
+          .where(and(
+            eq(journalEntryDrafts.companyId, companyId),
+            eq(journalEntryDrafts.postingKey, data.postingKey),
+          ))
+          .limit(1);
+        if (existing) {
+          const existingLines = await tx.select({
+            accountId: journalEntryDraftLines.accountId,
+            accountCode: accounts.code,
+            accountName: accounts.name,
+            type: journalEntryDraftLines.type,
+            amount: journalEntryDraftLines.amount,
+            memo: journalEntryDraftLines.memo,
+            branchId: journalEntryDraftLines.branchId,
+            costCenterId: journalEntryDraftLines.costCenterId,
+            segmentId: journalEntryDraftLines.segmentId,
+          })
+          .from(journalEntryDraftLines)
+          .innerJoin(accounts, eq(journalEntryDraftLines.accountId, accounts.id))
+          .where(eq(journalEntryDraftLines.draftId, existing.id));
+          return { ...existing, lines: existingLines };
+        }
+      }
+
       const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, tx);
       this.assertBalancedLedgerLines(normalizedLines);
       await this.checkControlAccounts(companyId, normalizedLines, data.referenceType || "JOURNAL", tx);
@@ -8470,6 +8599,7 @@ export class DatabaseStorage implements IStorage {
         description: data.description,
         referenceType: data.referenceType || "JOURNAL",
         referenceId: data.referenceId,
+        postingKey: data.postingKey ?? null,
         status: "DRAFT",
         createdBy: data.createdBy,
         updatedAt: new Date(),
@@ -8479,6 +8609,8 @@ export class DatabaseStorage implements IStorage {
         await tx.insert(journalEntryDraftLines).values({
           draftId: draft.id,
           accountId: line.accountId,
+          currency: line.currency,
+          exchangeRate: line.exchangeRate.toFixed(6),
           type: line.type,
           amount: line.amount.toFixed(2),
           memo: line.memo,
@@ -8510,12 +8642,23 @@ export class DatabaseStorage implements IStorage {
 
   async postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry> {
     return await db.transaction(async (tx) => {
-      const [draft] = await tx.select()
-        .from(journalEntryDrafts)
-        .where(and(eq(journalEntryDrafts.id, draftId), eq(journalEntryDrafts.companyId, companyId)));
+      // Atomic claim: two approvers clicking Post at once must not both post.
+      const [draft] = await tx.update(journalEntryDrafts)
+        .set({ status: "POSTING", updatedAt: new Date() })
+        .where(and(
+          eq(journalEntryDrafts.id, draftId),
+          eq(journalEntryDrafts.companyId, companyId),
+          eq(journalEntryDrafts.status, "DRAFT"),
+        ))
+        .returning();
 
-      if (!draft) throw new Error("Journal draft not found");
-      if (draft.status !== "DRAFT") throw new Error("Only draft journal entries can be posted");
+      if (!draft) {
+        const [existing] = await tx.select()
+          .from(journalEntryDrafts)
+          .where(and(eq(journalEntryDrafts.id, draftId), eq(journalEntryDrafts.companyId, companyId)));
+        if (!existing) throw new Error("Journal draft not found");
+        throw new Error("Only draft journal entries can be posted");
+      }
 
       const lines = await tx.select({
         accountId: journalEntryDraftLines.accountId,
@@ -8523,6 +8666,8 @@ export class DatabaseStorage implements IStorage {
         accountName: accounts.name,
         type: journalEntryDraftLines.type,
         amount: journalEntryDraftLines.amount,
+        currency: journalEntryDraftLines.currency,
+        exchangeRate: journalEntryDraftLines.exchangeRate,
         memo: journalEntryDraftLines.memo,
         branchId: journalEntryDraftLines.branchId,
         costCenterId: journalEntryDraftLines.costCenterId,
@@ -8532,12 +8677,16 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(accounts, eq(journalEntryDraftLines.accountId, accounts.id))
       .where(eq(journalEntryDraftLines.draftId, draftId));
 
+      const headerFx = lines.find((line) => line.currency)?.currency || undefined;
+      const headerRate = lines.find((line) => line.exchangeRate != null)?.exchangeRate;
       const normalizedLines = lines.map((line) => ({
         accountId: line.accountId,
         accountCode: line.accountCode,
         accountName: line.accountName,
         type: line.type as "DEBIT" | "CREDIT",
         amount: Number(line.amount),
+        currency: line.currency ?? undefined,
+        exchangeRate: line.exchangeRate != null ? Number(line.exchangeRate) : undefined,
         memo: line.memo ?? undefined,
         branchId: line.branchId ?? undefined,
         costCenterId: line.costCenterId ?? undefined,
@@ -8550,6 +8699,9 @@ export class DatabaseStorage implements IStorage {
         description: draft.description,
         referenceType: draft.referenceType || "JOURNAL",
         referenceId: draft.referenceId || `JD-${draft.id}`,
+        postingKey: `journal-draft:${draft.id}`,
+        currency: headerFx,
+        exchangeRate: headerRate != null ? Number(headerRate) : undefined,
         createdBy: userId || draft.createdBy || undefined,
         lines: normalizedLines,
       }, tx);
@@ -8561,7 +8713,35 @@ export class DatabaseStorage implements IStorage {
           postedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(journalEntryDrafts.id, draftId));
+        .where(and(
+          eq(journalEntryDrafts.id, draftId),
+          eq(journalEntryDrafts.companyId, companyId),
+        ));
+
+      // Payroll stays in its pending-GL state until the draft actually posts.
+      // Move it to the terminal state now so the run is no longer stuck waiting.
+      const payrollRunId = Number(draft.referenceId);
+      if (Number.isInteger(payrollRunId) && payrollRunId > 0 && (
+        draft.referenceType === "PAYROLL" || draft.referenceType === "PAYROLL_REVERSAL"
+      )) {
+        if (draft.referenceType === "PAYROLL") {
+          await tx.update(payrollRuns)
+            .set({ status: "LOCKED", journalEntryId: posted.id, updatedAt: new Date() })
+            .where(and(
+              eq(payrollRuns.id, payrollRunId),
+              eq(payrollRuns.companyId, companyId),
+              eq(payrollRuns.status, "PENDING_GL"),
+            ));
+        } else {
+          await tx.update(payrollRuns)
+            .set({ status: "REVERSED", journalEntryId: posted.id, updatedAt: new Date() })
+            .where(and(
+              eq(payrollRuns.id, payrollRunId),
+              eq(payrollRuns.companyId, companyId),
+              eq(payrollRuns.status, "PENDING_GL_REVERSAL"),
+            ));
+        }
+      }
 
       return posted;
     });
@@ -8640,40 +8820,63 @@ export class DatabaseStorage implements IStorage {
 
   async postToLedger(companyId: number, data: LedgerPostData, tx?: any): Promise<JournalEntry> {
     const executeInTx = async (t: any) => {
-      // POSTING GUARD: Cannot post to a CLOSED period
       const entryDate = data.entryDate ?? (data.date ? new Date(data.date) : new Date());
+      if (Number.isNaN(new Date(entryDate).getTime())) {
+        throw new Error("A valid journal entry date is required");
+      }
       const postingDate = new Date(entryDate);
+
+      // PERIOD GUARD: locked and closed periods are terminal; honour glLocked too.
       const periods = await t.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
       const applicablePeriod = periods.find((p: any) => {
         const pStart = new Date(p.startDate);
-        const pEnd = new Date(p.endDate);
+        const pEnd = throughEndOfDay(new Date(p.endDate));
         return postingDate >= pStart && postingDate <= pEnd;
       });
-
-      if (applicablePeriod && (applicablePeriod.status === "CLOSED" || applicablePeriod.status === "LOCKED")) {
-        throw new Error(`Cannot post journal entry: The financial period '${applicablePeriod.name}' is ${String(applicablePeriod.status).toLowerCase()}.`);
-      }
-
-      // IDEMPOTENCY GUARD (opt-in): a retried or double-submitted document would
-      // otherwise post a second, identical journal. Sources that legitimately post
-      // more than one journal per record — invoices post revenue plus COGS, stock
-      // and freight transfers post one journal per line — must not set this.
-      const dedupeKey = data.referenceId ?? data.reference;
-      if (data.deduplicate && data.referenceType && dedupeKey) {
-        const already = await t.select({ id: journalEntries.id })
-          .from(journalEntries)
-          .where(and(
-            eq(journalEntries.companyId, companyId),
-            eq(journalEntries.referenceType, data.referenceType),
-            eq(journalEntries.referenceId, dedupeKey),
-          ))
-          .limit(1);
-        if (already.length > 0) {
-          throw new Error(`Already posted: a journal entry (${already[0].id}) exists for ${data.referenceType} ${dedupeKey}.`);
+      if (applicablePeriod) {
+        const locked = applicablePeriod.status === "CLOSED" || applicablePeriod.status === "LOCKED" || applicablePeriod.glLocked;
+        if (locked) {
+          throw new Error(`Cannot post journal entry: The financial period '${applicablePeriod.name}' is locked or closed.`);
         }
       }
 
-      // 1. Create Journal Entry
+      const legacyDedupeKey = data.referenceId ?? data.reference;
+      const postingKey = data.postingKey || (
+        data.deduplicate && data.referenceType && legacyDedupeKey
+          ? `${data.referenceType}:${legacyDedupeKey}`
+          : undefined
+      );
+
+      if (postingKey) {
+        // Serialise same-key retries before the select so two concurrent callers
+        // cannot both pass the existence check. The unique index is the backstop.
+        await t.execute(sql`select pg_advisory_xact_lock(hashtext(${
+          `accounting-posting:${companyId}:${postingKey}`
+        }))`);
+        const existing = await t.select()
+          .from(journalEntries)
+          .where(and(
+            eq(journalEntries.companyId, companyId),
+            eq(journalEntries.postingKey, postingKey),
+          ))
+          .limit(1);
+        if (existing.length > 0) {
+          if (data.postingKey) return existing[0] as JournalEntry;
+          throw new Error(`Already posted: a journal entry (${existing[0].id}) exists for ${data.referenceType} ${legacyDedupeKey}.`);
+        }
+      }
+
+      // Validate everything BEFORE creating the journal header. An external
+      // caller must never be able to commit a header-only or unbalanced journal.
+      const normalizedLines = await this.normalizeLedgerLines(
+        companyId,
+        data.lines,
+        t,
+        { currency: data.currency, exchangeRate: data.exchangeRate }
+      );
+      this.assertBalancedLedgerLines(normalizedLines);
+      await this.checkControlAccounts(companyId, normalizedLines, data.referenceType, t);
+
       const [je] = await t.insert(journalEntries).values({
         companyId,
         branchId: data.branchId ?? null,
@@ -8681,14 +8884,12 @@ export class DatabaseStorage implements IStorage {
         description: data.description,
         referenceType: data.referenceType,
         referenceId: data.referenceId ?? data.reference,
+        postingKey: postingKey ?? null,
         createdBy: data.createdBy,
+        status: "POSTED",
+        approvalStatus: "APPROVED",
       }).returning();
 
-      const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, t);
-      this.assertBalancedLedgerLines(normalizedLines);
-      await this.checkControlAccounts(companyId, normalizedLines, data.referenceType, t);
-
-      // 2. Create Ledger Entries (denormalize branchId for efficient branch-level querying)
       for (const line of normalizedLines) {
         await t.insert(ledgerEntries).values({
           journalEntryId: je.id,
@@ -8696,6 +8897,10 @@ export class DatabaseStorage implements IStorage {
           branchId: line.branchId ?? data.branchId ?? null,
           type: line.type,
           amount: line.amount.toFixed(2),
+          baseAmount: line.baseAmount.toFixed(2),
+          lineOrdinal: line.lineOrdinal,
+          currency: line.currency,
+          exchangeRate: line.exchangeRate.toFixed(6),
           memo: line.memo ?? null,
           costCenterId: line.costCenterId ?? null,
           segmentId: line.segmentId ?? null,
@@ -8708,11 +8913,8 @@ export class DatabaseStorage implements IStorage {
       return je;
     };
 
-    if (tx) {
-      return await executeInTx(tx);
-    } else {
-      return await db.transaction(async (t) => await executeInTx(t));
-    }
+    if (tx) return await executeInTx(tx);
+    return await db.transaction(async (t) => await executeInTx(t));
   }
 
   async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; outputVatByCurrency: Record<string, number>; inputVatByCurrency: Record<string, number>; netVatByCurrency: Record<string, number>; dailyBreakdown: any[]; inputVatBreakdown?: any[]; outputVatBreakdown?: any[]; includedInvoiceCount: number; availableCurrencies: string[]; }> {
@@ -9158,6 +9360,9 @@ export class DatabaseStorage implements IStorage {
               description: `Manufacturing WO #${id} Completion${bom ? ` — ${bom.name}` : ''}`,
               referenceType: "MANUFACTURING",
               referenceId: `WO-${id}`,
+              postingKey: `manufacturing-wo:${id}:completion`,
+              status: "POSTED",
+              approvalStatus: "APPROVED",
               createdBy: userId || null,
             }).returning();
 
@@ -9167,6 +9372,10 @@ export class DatabaseStorage implements IStorage {
               accountId: invAccount.id,
               type: "DEBIT",
               amount: totalProductionCost.toFixed(2),
+              baseAmount: totalProductionCost.toFixed(2),
+              lineOrdinal: 0,
+              currency: "USD",
+              exchangeRate: "1.000000",
             });
             // Cr WIP
             await tx.insert(ledgerEntries).values({
@@ -9174,6 +9383,10 @@ export class DatabaseStorage implements IStorage {
               accountId: wipAccount.id,
               type: "CREDIT",
               amount: totalProductionCost.toFixed(2),
+              baseAmount: totalProductionCost.toFixed(2),
+              lineOrdinal: 1,
+              currency: "USD",
+              exchangeRate: "1.000000",
             });
           }
         }

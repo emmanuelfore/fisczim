@@ -12,11 +12,20 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useActiveCompany } from "@/hooks/use-active-company";
 import { apiRequest } from "@/lib/queryClient";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { RotateCcw, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { formatCurrency } from "@/lib/utils";
+import {
+  accountingKey,
+  fetchAccounting,
+  invalidateAccountingCache,
+} from "@/lib/accounting-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,14 +54,40 @@ type AuditEntry = {
   }>;
 };
 
+const PAGE_SIZE = 20;
+
+// The reversal route parses a date-only body with `new Date("YYYY-MM-DD")`,
+// which is stored as UTC midnight. Formatting that timestamp in the browser's
+// local zone shifts it to the previous day west of UTC, so use the date part.
+function formatEntryDate(value: string) {
+  const dateOnly = value?.slice(0, 10);
+  return dateOnly
+    ? format(new Date(`${dateOnly}T12:00:00`), "dd MMM yyyy")
+    : "-";
+}
+
 export default function AccountingAuditTrailPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany();
+  const currency = activeCompany?.currency || "USD";
   const [pendingReverseId, setPendingReverseId] = useState<number | null>(null);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
   const { can } = usePermissions();
   const canReverse = can("accounting.journal.reverse");
-  const { data: entries = [], isLoading, isError, refetch } = useQuery<AuditEntry[]>({
-    queryKey: ["/api/accounting/audit-trail"],
+
+  // The audit-trail endpoint has no date parameters, so narrow the fetched rows
+  // in the browser and keep the request cache keyed by the selected range.
+  const { data: allEntries = [], isLoading, isError, refetch } = useQuery<AuditEntry[]>({
+    queryKey: accountingKey("audit-trail", companyId, fromDate, toDate),
+    enabled: !!companyId,
+    queryFn: () =>
+      fetchAccounting<AuditEntry[]>("/api/accounting/audit-trail", {
+        from: fromDate,
+        to: toDate,
+      }),
   });
 
   const reverseMutation = useMutation({
@@ -72,13 +107,7 @@ export default function AccountingAuditTrailPage() {
         title: "Journal reversed",
         description: "A reversing journal has been posted.",
       });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/audit-trail"],
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/journal"] });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/accounting/opening-balances"],
-      });
+      invalidateAccountingCache(queryClient);
     },
     onError: (error: any) => {
       toast({
@@ -97,6 +126,24 @@ export default function AccountingAuditTrailPage() {
     return "bg-emerald-50 text-emerald-700 border-emerald-100";
   };
 
+  const entries = useMemo(
+    () =>
+      allEntries.filter((entry) => {
+        const date = entry.entryDate?.slice(0, 10);
+        if (!date) return true;
+        if (fromDate && date < fromDate) return false;
+        if (toDate && date > toDate) return false;
+        return true;
+      }),
+    [allEntries, fromDate, toDate],
+  );
+  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageEntries = entries.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
+
   return (
     <Layout hideHeaderTitle>
       <div className="space-y-6">
@@ -110,10 +157,56 @@ export default function AccountingAuditTrailPage() {
           </p>
         </div>
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5" /> Journal Audit
             </CardTitle>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="audit-from" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  From
+                </Label>
+                <Input
+                  id="audit-from"
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => {
+                    setFromDate(event.target.value);
+                    setPage(1);
+                  }}
+                  className="h-9 rounded-lg"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="audit-to" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  To
+                </Label>
+                <Input
+                  id="audit-to"
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => {
+                    setToDate(event.target.value);
+                    setPage(1);
+                  }}
+                  className="h-9 rounded-lg"
+                />
+              </div>
+              {(fromDate || toDate) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-lg"
+                  onClick={() => {
+                    setFromDate("");
+                    setToDate("");
+                    setPage(1);
+                  }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -158,10 +251,10 @@ export default function AccountingAuditTrailPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  entries.map((entry) => (
+                  pageEntries.map((entry) => (
                     <TableRow key={entry.id} className="align-top">
                       <TableCell className="whitespace-nowrap">
-                        {format(new Date(entry.entryDate), "dd MMM yyyy")}
+                        {formatEntryDate(entry.entryDate)}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {entry.sourceDocument}
@@ -182,7 +275,7 @@ export default function AccountingAuditTrailPage() {
                                 {line.accountCode}
                               </span>{" "}
                               {line.accountName} · {line.type}{" "}
-                              {Number(line.amount).toFixed(2)}
+                              {formatCurrency(Number(line.amount), currency)}
                             </div>
                           ))}
                         </div>
@@ -246,6 +339,31 @@ export default function AccountingAuditTrailPage() {
                 )}
               </TableBody>
             </Table>
+            {!isError && entries.length > PAGE_SIZE && (
+              <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
+                <p className="text-xs font-semibold text-slate-500">
+                  Page {safePage} of {totalPages}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

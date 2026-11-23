@@ -14,10 +14,16 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
 
 export default function AccountingDashboardPage() {
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany();
+  const currency = activeCompany?.currency || "USD";
   const { data, isLoading, isError, refetch } = useQuery<any>({
-    queryKey: ["/api/accounting/dashboard"],
+    queryKey: accountingKey("dashboard", companyId),
+    enabled: !!companyId,
+    queryFn: () => fetchAccounting<any>("/api/accounting/dashboard"),
   });
 
   const cards = [
@@ -82,7 +88,7 @@ export default function AccountingDashboardPage() {
                   <p className="mt-2 text-2xl font-bold text-slate-900">
                     {isLoading
                       ? "..."
-                      : formatCurrency(Number(card.value || 0))}
+                      : formatCurrency(Number(card.value || 0), currency)}
                   </p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3 text-slate-500">

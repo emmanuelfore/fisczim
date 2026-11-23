@@ -13,14 +13,18 @@ import { useAuth } from "@/hooks/use-auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
 
 const BLANK_FORM = {
+  currency: "USD",
+  payFrequency: "MONTHLY",
+  taxYear: String(new Date().getFullYear()),
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "" as string,
   sourceReference: "" as string,
-  brackets: `[\n  { "min": 0, "max": null, "rate": 0, "deduction": 0 }\n]`
+  brackets: `[\n  { "min": 0, "max": 100, "rate": 0, "deduction": 0 },\n  { "min": 100, "max": 300, "rate": 20, "deduction": 20 },\n  { "min": 300, "max": 1000, "rate": 25, "deduction": 35 },\n  { "min": 1000, "max": 2000, "rate": 30, "deduction": 85 },\n  { "min": 2000, "max": 3000, "rate": 35, "deduction": 185 },\n  { "min": 3000, "max": null, "rate": 40, "deduction": 335 }\n]`
 };
 
 // Pre-fill the new config from the current active one so an empty form can
@@ -29,6 +33,9 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
   const active = configs?.find((c) => c.isActive) || configs?.[0];
   if (!active) return BLANK_FORM;
   return {
+    currency: active.currency || "USD",
+    payFrequency: active.payFrequency || "MONTHLY",
+    taxYear: String(active.taxYear || new Date().getFullYear()),
     effectiveFrom: new Date().toISOString().slice(0, 10),
     effectiveTo: "",
     sourceReference: active.sourceReference || "",
@@ -38,6 +45,9 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
 
 function fromConfig(config: any): typeof BLANK_FORM {
   return {
+    currency: config.currency || "USD",
+    payFrequency: config.payFrequency || "MONTHLY",
+    taxYear: String(config.taxYear || new Date().getFullYear()),
     effectiveFrom: (config.effectiveFrom || new Date().toISOString().slice(0, 10)).slice(0, 10),
     effectiveTo: (config.effectiveTo || "").slice(0, 10),
     sourceReference: config.sourceReference || "",
@@ -156,6 +166,36 @@ export function TaxTablesTab() {
               </DialogHeader>
               
               <form onSubmit={handleSave} className="space-y-4 mt-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Currency</Label>
+                    <Select value={form.currency} onValueChange={e => setForm(f => ({ ...f, currency: e }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="ZiG">ZiG</SelectItem>
+                        <SelectItem value="ZWG">ZWG</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Pay frequency</Label>
+                    <Select value={form.payFrequency} onValueChange={e => setForm(f => ({ ...f, payFrequency: e }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MONTHLY">Monthly</SelectItem>
+                        <SelectItem value="WEEKLY">Weekly</SelectItem>
+                        <SelectItem value="FORTNIGHTLY">Fortnightly</SelectItem>
+                        <SelectItem value="DAILY">Daily</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tax year</Label>
+                    <Input type="number" required value={form.taxYear} onChange={e => setForm(f => ({ ...f, taxYear: e.target.value }))} />
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Effective From Date</Label>
@@ -179,7 +219,7 @@ export function TaxTablesTab() {
                 <div className="space-y-2">
                   <Label>Source <span className="text-muted-foreground">(which published table or gazette this came from)</span></Label>
                   <Input
-                    placeholder="e.g. ZIMRA USD Jan-Dec 2025 Tax Tables"
+                    placeholder="e.g. ZIMRA 2026 USD PAYE tax tables — monthly column"
                     value={form.sourceReference}
                     onChange={e => setForm(f => ({ ...f, sourceReference: e.target.value }))}
                   />
@@ -196,7 +236,8 @@ export function TaxTablesTab() {
                   />
                   <p className="text-xs text-muted-foreground">
                     One band per row: {"{"}"min":0,"max":100,"rate":0,"deduction":0{"}"} — rate is a percent (20 = 20%),
-                    bands must be contiguous, and exactly one band has no "max".
+                    bands must be contiguous, and exactly one band has no "max". Enter the published table for the selected
+                    pay frequency; the system never derives weekly or daily bands by dividing monthly rates.
                   </p>
                 </div>
 

@@ -11,6 +11,7 @@ import {
   accounts, companyUsers, auditLogs, payrollAttendanceImports,
   employeeDocuments, payslipDocuments, payrollPayGrades,
   payrollEarningTypes, payrollDeductionTypes, payrollStatutoryRules,
+  payrollIndustryCodes, payrollIndustryPremiumRates, payrollEmployeeTaxCredits,
   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies,
   employeeSalaryChanges, payrollRemittances,
@@ -19,10 +20,16 @@ import {
   employeeIncomeHistory, employeeDeductionHistory, payrollCompanySettings,
   journalEntryDrafts
 } from "../../../shared/schema.js";
-import { eq, and, or, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull, isNull } from "drizzle-orm";
 import { taxYearTotalsByEmployee, taxTableLabels, labelForSnapshot } from "../../lib/payslip-evidence.js";
-import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
-import { validateBrackets, canonicalizeBrackets } from "../../../shared/statutory/brackets.js";
+import {
+  ZimbabwePayrollEngine,
+  type TaxBracket,
+  type PayrollElementInput,
+  type ConfiguredStatutoryRule,
+  type ApprovedTaxCredit,
+} from "../../../shared/payroll-engine.js";
+import { validateBrackets, canonicalizeBrackets, rateAsFraction, rateAsPercent } from "../../../shared/statutory/brackets.js";
 import { ZIMBABWE_STATUTORY_DEFAULTS, isTaxTableStale } from "../../../shared/statutory/zimbabwe.js";
 import { jurisdictionForCountry, jurisdictionLevies, missingRequiredRules, supportsCurrency, STATUTORY_RULE_CODES, type PayrollJurisdiction } from "../../../shared/statutory/jurisdictions.js";
 import {
@@ -908,16 +915,22 @@ async function loadTaxBrackets(tx: any, taxTableId: number): Promise<TaxBracket[
   }));
 }
 
-async function loadEffectiveTaxConfig(tx: any, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
+async function loadEffectiveTaxConfig(tx: any, companyId: number, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
   const [table] = await tx.select()
     .from(payrollTaxTables)
     .where(and(
+      sql`(${payrollTaxTables.companyId} = ${companyId} OR ${payrollTaxTables.companyId} IS NULL)`,
       eq(payrollTaxTables.currency, currency),
+      eq(payrollTaxTables.payFrequency, payFrequency),
       eq(payrollTaxTables.isActive, true),
       sql`${payrollTaxTables.effectiveFrom} <= ${periodEnd}`,
       sql`(${payrollTaxTables.effectiveTo} IS NULL OR ${payrollTaxTables.effectiveTo} >= ${periodStart})`
     ))
-    .orderBy(desc(payrollTaxTables.effectiveFrom), desc(payrollTaxTables.version))
+    .orderBy(
+      sql`CASE WHEN ${payrollTaxTables.companyId} = ${companyId} THEN 0 ELSE 1 END`,
+      desc(payrollTaxTables.effectiveFrom),
+      desc(payrollTaxTables.version),
+    )
     .limit(1);
 
   if (!table) return null;
@@ -944,8 +957,8 @@ async function loadEffectiveTaxConfig(tx: any, currency: string, payFrequency: s
 }
 
 // Load the effective payroll_statutory_rules for a company+period. Company
-// specific rules override global (companyId IS NULL) ones; the latest
-// effectiveFrom wins within the same scope. Returns ruleCode -> rule.
+// specific rules override global (companyId IS NULL) ones; an exact frequency
+// override wins over the frequency-agnostic MONTHLY seed. Returns ruleCode -> rule.
 async function loadEffectiveStatutoryRules(tx: any, companyId: number, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
   const rules = await tx.select()
     .from(payrollStatutoryRules)
@@ -953,13 +966,15 @@ async function loadEffectiveStatutoryRules(tx: any, companyId: number, currency:
       sql`(${payrollStatutoryRules.companyId} = ${companyId} OR ${payrollStatutoryRules.companyId} IS NULL)`,
       eq(payrollStatutoryRules.isActive, true),
       eq(payrollStatutoryRules.currency, currency),
-      eq(payrollStatutoryRules.payFrequency, payFrequency),
+      sql`(${payrollStatutoryRules.payFrequency} = ${payFrequency} OR ${payrollStatutoryRules.payFrequency} = 'MONTHLY')`,
       sql`${payrollStatutoryRules.effectiveFrom} <= ${periodEnd}`,
       sql`(${payrollStatutoryRules.effectiveTo} IS NULL OR ${payrollStatutoryRules.effectiveTo} >= ${periodStart})`
     ))
     .orderBy(
       sql`CASE WHEN ${payrollStatutoryRules.companyId} = ${companyId} THEN 0 ELSE 1 END`,
-      desc(payrollStatutoryRules.effectiveFrom)
+      sql`CASE WHEN ${payrollStatutoryRules.payFrequency} = ${payFrequency} THEN 0 ELSE 1 END`,
+      desc(payrollStatutoryRules.effectiveFrom),
+      desc(payrollStatutoryRules.version),
     );
 
   const byCode: Record<string, any> = {};
@@ -967,14 +982,181 @@ async function loadEffectiveStatutoryRules(tx: any, companyId: number, currency:
     const code = String(rule.ruleCode).toUpperCase();
     if (!byCode[code]) byCode[code] = rule;
   }
+
+  // Older tenants have one combined NSSA_POBS row; newer configuration splits
+  // employee and employer sides so they can be classified and capped separately.
+  // Synthesise both shapes so either storage style keeps working.
+  const combined = byCode.NSSA_POBS;
+  if (combined && !byCode.NSSA_POBS_EMPLOYEE) {
+    byCode.NSSA_POBS_EMPLOYEE = {
+      ...combined,
+      ruleCode: "NSSA_POBS_EMPLOYEE",
+      name: `${combined.name} — Employee`,
+      category: "EMPLOYEE_DEDUCTION",
+      responsibleParty: "EMPLOYEE",
+    };
+  }
+  if (combined && !byCode.NSSA_POBS_EMPLOYER) {
+    byCode.NSSA_POBS_EMPLOYER = {
+      ...combined,
+      ruleCode: "NSSA_POBS_EMPLOYER",
+      name: `${combined.name} — Employer`,
+      category: "EMPLOYER_CONTRIBUTION",
+      responsibleParty: "EMPLOYER",
+      employeeRate: "0.000000",
+    };
+  }
+  if (!combined && (byCode.NSSA_POBS_EMPLOYEE || byCode.NSSA_POBS_EMPLOYER)) {
+    const employeeRule = byCode.NSSA_POBS_EMPLOYEE;
+    const employerRule = byCode.NSSA_POBS_EMPLOYER;
+    byCode.NSSA_POBS = {
+      ...(employeeRule || employerRule),
+      ruleCode: "NSSA_POBS",
+      employeeRate: employeeRule?.employeeRate ?? "0.000000",
+      employerRate: employerRule?.employerRate ?? "0.000000",
+      ceilingAmount: employeeRule?.ceilingAmount ?? employerRule?.ceilingAmount ?? null,
+      category: "EMPLOYEE_DEDUCTION",
+      responsibleParty: "BOTH",
+    };
+  }
+
   return byCode;
 }
 
+/** Numeric rate from one side only; a null side is not a licence to use the other. */
 function statutoryRate(rule: any, side: "employeeRate" | "employerRate", fallback: number): number {
   if (!rule) return fallback;
-  const raw = rule[side] ?? rule.employeeRate ?? rule.employerRate;
-  const value = Number(raw ?? 0);
+  const raw = rule[side];
+  if (raw === null || raw === undefined) return fallback;
+  const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
+}
+
+/** A missing ceiling means uncapped, never a zero ceiling. */
+function statutoryCeiling(rule: any): number | null {
+  const raw = rule?.ceilingAmount;
+  if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function configuredStatutoryRules(ruleMap: Record<string, any>): ConfiguredStatutoryRule[] {
+  return Object.entries(ruleMap)
+    .filter(([code]) => code !== "NSSA_POBS")
+    .map(([code, rule]) => ({
+      ruleCode: code,
+      name: String(rule.name || code),
+      category: String(rule.category || "EMPLOYEE_DEDUCTION") as ConfiguredStatutoryRule["category"],
+      responsibleParty: String(rule.responsibleParty || "EMPLOYEE") as ConfiguredStatutoryRule["responsibleParty"],
+      calculationType: rule.calculationType ? String(rule.calculationType) : undefined,
+      calculationBasis: rule.calculationBasis ? String(rule.calculationBasis) : undefined,
+      employeeRate: rule.employeeRate === null || rule.employeeRate === undefined ? null : toNumber(rule.employeeRate),
+      employerRate: rule.employerRate === null || rule.employerRate === undefined ? null : toNumber(rule.employerRate),
+      ceilingAmount: statutoryCeiling(rule),
+      annualAmount: rule.annualAmount === null || rule.annualAmount === undefined ? null : toNumber(rule.annualAmount),
+      requiresIndustryRate: !!rule.requiresIndustryRate,
+      sourceReference: rule.sourceReference ? String(rule.sourceReference) : null,
+    }));
+}
+
+/** Employer-specific APWCS rate. No rate is guessed when configuration is absent. */
+async function resolveApwcsRate(tx: any, companyId: number, periodStart: string, periodEnd: string) {
+  const [premium] = await tx.select({
+    id: payrollIndustryPremiumRates.id,
+    rate: payrollIndustryPremiumRates.rate,
+    ceilingAmount: payrollIndustryPremiumRates.ceilingAmount,
+    sourceReference: payrollIndustryPremiumRates.sourceReference,
+    gazetteReference: payrollIndustryPremiumRates.gazetteReference,
+    code: payrollIndustryCodes.code,
+  })
+    .from(payrollIndustryPremiumRates)
+    .innerJoin(payrollIndustryCodes, eq(payrollIndustryPremiumRates.industryCodeId, payrollIndustryCodes.id))
+    .where(and(
+      eq(payrollIndustryPremiumRates.companyId, companyId),
+      eq(payrollIndustryCodes.companyId, companyId),
+      eq(payrollIndustryPremiumRates.isActive, true),
+      eq(payrollIndustryCodes.isActive, true),
+      sql`${payrollIndustryPremiumRates.effectiveFrom} <= ${periodEnd}`,
+      sql`(${payrollIndustryPremiumRates.effectiveTo} IS NULL OR ${payrollIndustryPremiumRates.effectiveTo} >= ${periodStart})`,
+      sql`${payrollIndustryCodes.effectiveFrom} <= ${periodEnd}`,
+      sql`(${payrollIndustryCodes.effectiveTo} IS NULL OR ${payrollIndustryCodes.effectiveTo} >= ${periodStart})`,
+    ))
+    .orderBy(desc(payrollIndustryPremiumRates.effectiveFrom), desc(payrollIndustryPremiumRates.id))
+    .limit(1);
+
+  if (!premium) return null;
+  const rate = Number(premium.rate);
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return {
+    rate,
+    ratePercent: rateAsPercent(rate),
+    ceilingAmount: statutoryCeiling(premium),
+    industryCode: premium.code,
+    sourceReference: premium.sourceReference,
+    gazetteReference: premium.gazetteReference,
+  };
+}
+
+/** Approved, effective employee claims only. PENDING claims never reach PAYE. */
+async function loadApprovedTaxCredits(
+  tx: any,
+  companyId: number,
+  employeeId: number,
+  currency: string,
+  taxYear: number,
+  periodStart: string,
+  periodEnd: string,
+): Promise<ApprovedTaxCredit[]> {
+  const rows = await tx.select({
+    id: payrollEmployeeTaxCredits.id,
+    creditCode: payrollEmployeeTaxCredits.creditCode,
+    qualifyingExpenses: payrollEmployeeTaxCredits.qualifyingExpenses,
+    override: payrollEmployeeTaxCredits.annualAmountOverride,
+    calculationType: payrollStatutoryRules.calculationType,
+    ruleAnnualAmount: payrollStatutoryRules.annualAmount,
+    ruleRate: payrollStatutoryRules.employeeRate,
+  })
+    .from(payrollEmployeeTaxCredits)
+    .leftJoin(payrollStatutoryRules, eq(payrollEmployeeTaxCredits.statutoryRuleId, payrollStatutoryRules.id))
+    .where(and(
+      eq(payrollEmployeeTaxCredits.companyId, companyId),
+      eq(payrollEmployeeTaxCredits.employeeId, employeeId),
+      eq(payrollEmployeeTaxCredits.currency, currency),
+      eq(payrollEmployeeTaxCredits.taxYear, taxYear),
+      eq(payrollEmployeeTaxCredits.approvalStatus, "APPROVED"),
+      eq(payrollEmployeeTaxCredits.isActive, true),
+      sql`${payrollEmployeeTaxCredits.effectiveFrom} <= ${periodEnd}`,
+      sql`(${payrollEmployeeTaxCredits.effectiveTo} IS NULL OR ${payrollEmployeeTaxCredits.effectiveTo} >= ${periodStart})`,
+    ));
+
+  return rows.map((row: any) => {
+    const code = String(row.creditCode).toUpperCase();
+    const fixedAnnual = ["ELDERLY_CREDIT", "BLIND_CREDIT", "DISABLED_CREDIT"].includes(code);
+    const calculationType = row.calculationType === "PERCENT_OF_QUALIFYING_EXPENSE" || code === "MEDICAL_CREDIT"
+      ? "PERCENT_OF_QUALIFYING_EXPENSE" as const
+      : "FIXED_ANNUAL" as const;
+    const defaultAnnual = fixedAnnual ? ZIMBABWE_STATUTORY_DEFAULTS.elderlyPersonCreditAnnual : 0;
+    const defaultRate = calculationType === "PERCENT_OF_QUALIFYING_EXPENSE"
+      ? (ZIMBABWE_STATUTORY_DEFAULTS as any).medicalCreditRate ?? 0.5
+      : 0;
+    return {
+      code,
+      calculationType,
+      annualAmount: row.override !== null && row.override !== undefined
+        ? toNumber(row.override)
+        : row.ruleAnnualAmount !== null && row.ruleAnnualAmount !== undefined
+          ? toNumber(row.ruleAnnualAmount)
+          : defaultAnnual,
+      qualifyingExpenses: toNumber(row.qualifyingExpenses),
+      rate: row.ruleRate !== null && row.ruleRate !== undefined ? toNumber(row.ruleRate) : defaultRate,
+      currency,
+    } satisfies ApprovedTaxCredit;
+  });
+}
+
+function taxYearForPeriod(periodStart: string): number {
+  const year = Number(String(periodStart).slice(0, 4));
+  return Number.isFinite(year) ? year : new Date().getUTCFullYear();
 }
 
 // ── Effective-period validation (never overwrite; never overlap) ───────────
@@ -1002,10 +1184,11 @@ function addDays(dateStr: string, days: number): string {
 // For a jurisdiction/currency/frequency there can only be one applicable table
 // per period. Returns an error string when the new period overlaps an existing
 // record (excluding excludeId).
-async function assertTaxConfigNoOverlap(tx: any, currency: string, countryCode: string, payFrequency: string, effectiveFrom: string, effectiveTo: string | null | undefined, excludeId?: number): Promise<string | null> {
+async function assertTaxConfigNoOverlap(tx: any, companyId: number, currency: string, countryCode: string, payFrequency: string, effectiveFrom: string, effectiveTo: string | null | undefined, excludeId?: number): Promise<string | null> {
   const existing = await tx.select({ id: payrollTaxTables.id, effectiveFrom: payrollTaxTables.effectiveFrom, effectiveTo: payrollTaxTables.effectiveTo })
     .from(payrollTaxTables)
     .where(and(
+      eq(payrollTaxTables.companyId, companyId),
       eq(payrollTaxTables.currency, currency),
       eq(payrollTaxTables.countryCode, countryCode),
       eq(payrollTaxTables.payFrequency, payFrequency),
@@ -1031,10 +1214,11 @@ async function assertTaxConfigNoOverlap(tx: any, currency: string, countryCode: 
 
 // When a new table starts on a later date, close the current open-ended table
 // for the same scope so at most one table is applicable at any time.
-async function closeOpenTaxConfig(tx: any, currency: string, countryCode: string, payFrequency: string, effectiveFrom: string) {
+async function closeOpenTaxConfig(tx: any, companyId: number, currency: string, countryCode: string, payFrequency: string, effectiveFrom: string) {
   await tx.update(payrollTaxTables)
     .set({ effectiveTo: addDays(effectiveFrom, -1), isActive: false })
     .where(and(
+      eq(payrollTaxTables.companyId, companyId),
       eq(payrollTaxTables.currency, currency),
       eq(payrollTaxTables.countryCode, countryCode),
       eq(payrollTaxTables.payFrequency, payFrequency),
@@ -3596,8 +3780,10 @@ async function insertTaxBands(tx: any, taxTableId: number, brackets: TaxBracket[
 
 router.get("/tax-config", async (req, res) => {
   try {
+    const companyId = getTargetCompanyId(req);
     const tables = await db.select()
       .from(payrollTaxTables)
+      .where(or(eq(payrollTaxTables.companyId, companyId), isNull(payrollTaxTables.companyId)))
       .orderBy(desc(payrollTaxTables.effectiveFrom), desc(payrollTaxTables.version));
     const results: any[] = [];
     for (const table of tables) results.push(await taxConfigView(db, table));
@@ -3621,17 +3807,18 @@ router.post("/tax-config", requirePayrollApproval, async (req, res) => {
   const taxYear = parsed.data.taxYear ?? new Date(`${parsed.data.effectiveFrom}T00:00:00`).getFullYear();
 
   try {
-    const countryCode = parsed.data.countryCode || (await payrollJurisdiction(getTargetCompanyId(req))).countryCode;
-    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom, parsed.data.effectiveTo);
+    const companyId = getTargetCompanyId(req);
+    const countryCode = parsed.data.countryCode || (await payrollJurisdiction(companyId)).countryCode;
+    const overlapError = await assertTaxConfigNoOverlap(db, companyId, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom, parsed.data.effectiveTo);
     if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
     const table = await db.transaction(async (tx) => {
       // Close the currently open-ended table for this scope so only one table
       // is applicable at any point in time.
-      await closeOpenTaxConfig(tx, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom);
+      await closeOpenTaxConfig(tx, companyId, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom);
 
       const [created] = await tx.insert(payrollTaxTables).values({
-        companyId: null,
+        companyId,
         countryCode,
         currency: parsed.data.currency,
         taxYear,
@@ -3680,11 +3867,20 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
     // UI-friendly shape: a single rate + ruleType; mapped to employee/employer below
     ruleType: z.string().optional().nullable(),
     rate: z.coerce.string().optional().nullable(),
-    employeeRate: z.coerce.string().optional(),
-    employerRate: z.coerce.string().optional(),
+    employeeRate: z.coerce.string().optional().nullable(),
+    employerRate: z.coerce.string().optional().nullable(),
     ceilingAmount: z.coerce.string().optional().nullable(),
     floorAmount: z.coerce.string().optional().nullable(),
     calculationBasis: z.string().default("TAXABLE_INCOME"),
+    calculationType: z.string().default("PERCENTAGE"),
+    category: z.string().default("EMPLOYEE_DEDUCTION"),
+    responsibleParty: z.string().default("EMPLOYEE"),
+    statutoryAuthority: z.string().optional().nullable(),
+    sourceReference: z.string().optional().nullable(),
+    isCapped: z.coerce.boolean().default(false),
+    ceilingPeriod: z.string().optional().nullable(),
+    annualAmount: z.coerce.string().optional().nullable(),
+    requiresIndustryRate: z.coerce.boolean().default(false),
     formula: z.string().optional().nullable(),
     metadata: z.record(z.any()).default({}),
     effectiveFrom: z.string().optional().nullable(),
@@ -3698,17 +3894,29 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
     // The rule belongs to the tenant's country. It used to be stamped "ZW" for
     // everyone, which filed a Lesotho tenant's pension rule under Zimbabwe.
     const jurisdiction = await payrollJurisdiction(companyId);
-    const rate = parsed.data.rate ?? parsed.data.employeeRate ?? "0.000000";
+    const party = parsed.data.responsibleParty.toUpperCase();
+    const rate = parsed.data.rate ?? "0.000000";
+    const employeeRate = parsed.data.employeeRate ?? (party === "EMPLOYER" ? "0.000000" : rate);
+    const employerRate = parsed.data.employerRate ?? (party === "EMPLOYEE" ? "0.000000" : rate);
     const ruleData = {
       ruleCode: parsed.data.ruleCode,
       name: parsed.data.name,
       currency: parsed.data.currency,
       payFrequency: parsed.data.payFrequency,
-      employeeRate: parsed.data.employeeRate ?? rate,
-      employerRate: parsed.data.employerRate ?? rate,
+      employeeRate,
+      employerRate,
       ceilingAmount: parsed.data.ceilingAmount,
       floorAmount: parsed.data.floorAmount,
       calculationBasis: parsed.data.calculationBasis,
+      calculationType: parsed.data.calculationType.toUpperCase(),
+      category: parsed.data.category.toUpperCase(),
+      responsibleParty: party,
+      statutoryAuthority: parsed.data.statutoryAuthority,
+      sourceReference: parsed.data.sourceReference,
+      isCapped: parsed.data.isCapped,
+      ceilingPeriod: parsed.data.ceilingPeriod?.toUpperCase() || null,
+      annualAmount: parsed.data.annualAmount,
+      requiresIndustryRate: parsed.data.requiresIndustryRate,
       formula: parsed.data.formula ?? (parsed.data.ruleType || null),
       metadata: parsed.data.metadata,
       effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
@@ -3759,8 +3967,10 @@ router.patch("/statutory-rules/:id", requirePayrollApproval, async (req, res) =>
     const updates: Partial<typeof payrollStatutoryRules.$inferInsert> = {};
     const editableColumns = [
       "name", "currency", "payFrequency", "employeeRate", "employerRate",
-      "ceilingAmount", "floorAmount", "calculationBasis", "formula",
-      "metadata", "effectiveFrom", "effectiveTo", "version", "isActive",
+      "ceilingAmount", "floorAmount", "calculationBasis", "calculationType",
+      "category", "responsibleParty", "statutoryAuthority", "sourceReference",
+      "isCapped", "ceilingPeriod", "annualAmount", "requiresIndustryRate",
+      "formula", "metadata", "effectiveFrom", "effectiveTo", "version", "isActive",
     ] as const;
     for (const key of editableColumns) {
       if (raw[key] !== undefined) (updates as any)[key] = raw[key];
@@ -3769,9 +3979,11 @@ router.patch("/statutory-rules/:id", requirePayrollApproval, async (req, res) =>
       updates.ruleCode = raw.ruleCode;
     }
     if (raw.ruleType !== undefined) updates.formula = raw.ruleType;
-    if (raw.rate !== undefined) {
-      updates.employeeRate = raw.employeeRate ?? raw.rate;
-      updates.employerRate = raw.employerRate ?? raw.rate;
+    if (raw.rate !== undefined || raw.employeeRate !== undefined || raw.employerRate !== undefined) {
+      const party = String(updates.responsibleParty ?? existing.responsibleParty ?? "EMPLOYEE").toUpperCase();
+      const rate = raw.rate ?? "0.000000";
+      updates.employeeRate = raw.employeeRate ?? (party === "EMPLOYER" ? "0.000000" : rate);
+      updates.employerRate = raw.employerRate ?? (party === "EMPLOYEE" ? "0.000000" : rate);
     }
 
     const [updated] = await db.update(payrollStatutoryRules)
@@ -3817,6 +4029,324 @@ router.delete("/statutory-rules/:id", requirePayrollApproval, async (req, res) =
   }
 });
 
+// ── NSSA industrial classification / effective APWCS premium schedule ──────
+router.get("/industry-codes", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const rows = await db.select()
+      .from(payrollIndustryCodes)
+      .where(eq(payrollIndustryCodes.companyId, companyId))
+      .orderBy(asc(payrollIndustryCodes.code), desc(payrollIndustryCodes.effectiveFrom));
+    res.json(rows);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/industry-codes", requirePayrollApproval, async (req, res) => {
+  const schema = z.object({
+    code: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+    statutoryAuthority: z.string().default("NSSA"),
+    effectiveFrom: z.string().min(10),
+    effectiveTo: z.string().optional().nullable(),
+    sourceReference: z.string().optional().nullable(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+  const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
+  if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [row] = await db.insert(payrollIndustryCodes).values({
+      companyId,
+      code: parsed.data.code.trim().toUpperCase(),
+      description: parsed.data.description.trim(),
+      statutoryAuthority: parsed.data.statutoryAuthority.trim().toUpperCase(),
+      effectiveFrom: parsed.data.effectiveFrom,
+      effectiveTo: parsed.data.effectiveTo || null,
+      sourceReference: parsed.data.sourceReference || null,
+    }).returning();
+    await auditPayroll(req, "PAYROLL_INDUSTRY_CODE_CREATED", "payroll_industry_codes", row.id, { code: row.code });
+    res.status(201).json(row);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.patch("/industry-codes/:id", requirePayrollApproval, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid id" });
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [existing] = await db.select().from(payrollIndustryCodes)
+      .where(and(eq(payrollIndustryCodes.id, id), eq(payrollIndustryCodes.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND" });
+    const raw = req.body || {};
+    const updates: Record<string, unknown> = {};
+    for (const key of ["description", "effectiveFrom", "effectiveTo", "sourceReference", "isActive"] as const) {
+      if (raw[key] !== undefined) updates[key] = raw[key];
+    }
+    const periodError = assertValidPeriod(
+      String(updates.effectiveFrom ?? existing.effectiveFrom),
+      updates.effectiveTo === null ? null : String(updates.effectiveTo ?? existing.effectiveTo ?? "") || null,
+    );
+    if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+    const [updated] = await db.update(payrollIndustryCodes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(payrollIndustryCodes.id, id))
+      .returning();
+    await auditPayroll(req, "PAYROLL_INDUSTRY_CODE_UPDATED", "payroll_industry_codes", id, { updatedFields: Object.keys(updates) });
+    res.json(updated);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.get("/industry-premium-rates", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const rows = await db.select({
+      id: payrollIndustryPremiumRates.id,
+      industryCodeId: payrollIndustryPremiumRates.industryCodeId,
+      industryCode: payrollIndustryCodes.code,
+      rate: payrollIndustryPremiumRates.rate,
+      ceilingAmount: payrollIndustryPremiumRates.ceilingAmount,
+      effectiveFrom: payrollIndustryPremiumRates.effectiveFrom,
+      effectiveTo: payrollIndustryPremiumRates.effectiveTo,
+      statutoryAuthority: payrollIndustryPremiumRates.statutoryAuthority,
+      sourceReference: payrollIndustryPremiumRates.sourceReference,
+      gazetteReference: payrollIndustryPremiumRates.gazetteReference,
+      notes: payrollIndustryPremiumRates.notes,
+      isActive: payrollIndustryPremiumRates.isActive,
+    })
+      .from(payrollIndustryPremiumRates)
+      .innerJoin(payrollIndustryCodes, eq(payrollIndustryPremiumRates.industryCodeId, payrollIndustryCodes.id))
+      .where(and(
+        eq(payrollIndustryPremiumRates.companyId, companyId),
+        eq(payrollIndustryCodes.companyId, companyId),
+      ))
+      .orderBy(asc(payrollIndustryCodes.code), desc(payrollIndustryPremiumRates.effectiveFrom));
+    res.json(rows);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/industry-premium-rates", requirePayrollApproval, async (req, res) => {
+  const schema = z.object({
+    industryCodeId: z.number().int().positive(),
+    rate: z.coerce.number().positive().max(100),
+    ceilingAmount: z.coerce.string().optional().nullable(),
+    effectiveFrom: z.string().min(10),
+    effectiveTo: z.string().optional().nullable(),
+    sourceReference: z.string().trim().min(1),
+    gazetteReference: z.string().optional().nullable(),
+    notes: z.string().optional().nullable(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+  const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
+  if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [code] = await db.select({ id: payrollIndustryCodes.id })
+      .from(payrollIndustryCodes)
+      .where(and(eq(payrollIndustryCodes.id, parsed.data.industryCodeId), eq(payrollIndustryCodes.companyId, companyId)))
+      .limit(1);
+    if (!code) return res.status(404).json({ error: "NOT_FOUND", message: "Industry code not found for this company" });
+    const [row] = await db.insert(payrollIndustryPremiumRates).values({
+      companyId,
+      industryCodeId: parsed.data.industryCodeId,
+      rate: rateAsFraction(parsed.data.rate).toFixed(6),
+      ceilingAmount: parsed.data.ceilingAmount || null,
+      effectiveFrom: parsed.data.effectiveFrom,
+      effectiveTo: parsed.data.effectiveTo || null,
+      statutoryAuthority: "NSSA",
+      sourceReference: parsed.data.sourceReference.trim(),
+      gazetteReference: parsed.data.gazetteReference || null,
+      notes: parsed.data.notes || null,
+    }).returning();
+    await auditPayroll(req, "PAYROLL_INDUSTRY_PREMIUM_CREATED", "payroll_industry_premium_rates", row.id, { industryCodeId: row.industryCodeId, rate: row.rate });
+    res.status(201).json(row);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.patch("/industry-premium-rates/:id", requirePayrollApproval, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid id" });
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [existing] = await db.select().from(payrollIndustryPremiumRates)
+      .where(and(eq(payrollIndustryPremiumRates.id, id), eq(payrollIndustryPremiumRates.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND" });
+    const raw = req.body || {};
+    const updates: Record<string, unknown> = {};
+    for (const key of ["ceilingAmount", "effectiveFrom", "effectiveTo", "sourceReference", "gazetteReference", "notes", "isActive"] as const) {
+      if (raw[key] !== undefined) updates[key] = raw[key];
+    }
+    if (raw.rate !== undefined) {
+      const numericRate = Number(raw.rate);
+      if (!Number.isFinite(numericRate) || numericRate <= 0) {
+        return res.status(400).json({ error: "VALIDATION_ERROR", message: "Rate must be greater than zero" });
+      }
+      updates.rate = rateAsFraction(numericRate).toFixed(6);
+    }
+    const periodError = assertValidPeriod(
+      String(updates.effectiveFrom ?? existing.effectiveFrom),
+      updates.effectiveTo === null ? null : String(updates.effectiveTo ?? existing.effectiveTo ?? "") || null,
+    );
+    if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+    const [updated] = await db.update(payrollIndustryPremiumRates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(payrollIndustryPremiumRates.id, id))
+      .returning();
+    await auditPayroll(req, "PAYROLL_INDUSTRY_PREMIUM_UPDATED", "payroll_industry_premium_rates", id, { updatedFields: Object.keys(updates) });
+    res.json(updated);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+// ── Approved employee tax credit claims ────────────────────────────────────
+router.get("/employee-tax-credits", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const employeeId = Number(req.query.employeeId);
+    const conditions = [eq(payrollEmployeeTaxCredits.companyId, companyId)];
+    if (Number.isInteger(employeeId) && employeeId > 0) {
+      conditions.push(eq(payrollEmployeeTaxCredits.employeeId, employeeId));
+    }
+    const rows = await db.select()
+      .from(payrollEmployeeTaxCredits)
+      .where(and(...conditions))
+      .orderBy(desc(payrollEmployeeTaxCredits.taxYear), asc(payrollEmployeeTaxCredits.creditCode), desc(payrollEmployeeTaxCredits.effectiveFrom));
+    res.json(rows);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/employee-tax-credits", requirePayrollWrite, async (req, res) => {
+  const schema = z.object({
+    employeeId: z.number().int().positive(),
+    statutoryRuleId: z.number().int().positive().optional().nullable(),
+    creditCode: z.string().trim().min(1),
+    currency: z.string().default("USD"),
+    taxYear: z.number().int().min(2000).max(2200),
+    qualifyingExpenses: z.coerce.number().min(0).default(0),
+    annualAmountOverride: z.coerce.number().min(0).optional().nullable(),
+    documentationReference: z.string().optional().nullable(),
+    effectiveFrom: z.string().min(10),
+    effectiveTo: z.string().optional().nullable(),
+    notes: z.string().optional().nullable(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+  const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
+  if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [employee] = await db.select({ id: employees.id })
+      .from(employees)
+      .where(and(eq(employees.id, parsed.data.employeeId), eq(employees.companyId, companyId)))
+      .limit(1);
+    if (!employee) return res.status(404).json({ error: "NOT_FOUND", message: "Employee not found for this company" });
+    const [row] = await db.insert(payrollEmployeeTaxCredits).values({
+      companyId,
+      employeeId: parsed.data.employeeId,
+      statutoryRuleId: parsed.data.statutoryRuleId || null,
+      creditCode: parsed.data.creditCode.trim().toUpperCase(),
+      currency: parsed.data.currency.trim().toUpperCase(),
+      taxYear: parsed.data.taxYear,
+      qualifyingExpenses: parsed.data.qualifyingExpenses.toFixed(2),
+      annualAmountOverride: parsed.data.annualAmountOverride === null || parsed.data.annualAmountOverride === undefined
+        ? null
+        : parsed.data.annualAmountOverride.toFixed(2),
+      documentationReference: parsed.data.documentationReference || null,
+      approvalStatus: "PENDING",
+      effectiveFrom: parsed.data.effectiveFrom,
+      effectiveTo: parsed.data.effectiveTo || null,
+      notes: parsed.data.notes || null,
+    }).returning();
+    await auditPayroll(req, "PAYROLL_TAX_CREDIT_CLAIM_CREATED", "payroll_employee_tax_credits", row.id, { employeeId: row.employeeId, creditCode: row.creditCode });
+    res.status(201).json(row);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.patch("/employee-tax-credits/:id", requirePayrollWrite, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid id" });
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [existing] = await db.select().from(payrollEmployeeTaxCredits)
+      .where(and(eq(payrollEmployeeTaxCredits.id, id), eq(payrollEmployeeTaxCredits.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND" });
+    if (existing.approvalStatus === "APPROVED") {
+      return res.status(409).json({ error: "IMMUTABLE", message: "An approved credit claim cannot be edited. Create a new claim version instead." });
+    }
+    const raw = req.body || {};
+    const updates: Record<string, unknown> = {};
+    for (const key of ["qualifyingExpenses", "annualAmountOverride", "documentationReference", "effectiveFrom", "effectiveTo", "notes", "isActive"] as const) {
+      if (raw[key] !== undefined) updates[key] = raw[key];
+    }
+    const periodError = assertValidPeriod(
+      String(updates.effectiveFrom ?? existing.effectiveFrom),
+      updates.effectiveTo === null ? null : String(updates.effectiveTo ?? existing.effectiveTo ?? "") || null,
+    );
+    if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+    const [updated] = await db.update(payrollEmployeeTaxCredits)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(payrollEmployeeTaxCredits.id, id))
+      .returning();
+    await auditPayroll(req, "PAYROLL_TAX_CREDIT_CLAIM_UPDATED", "payroll_employee_tax_credits", id, { updatedFields: Object.keys(updates) });
+    res.json(updated);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/employee-tax-credits/:id/decision", requirePayrollApproval, async (req, res) => {
+  const id = Number(req.params.id);
+  const decision = String(req.body?.decision || "").toUpperCase();
+  if (!Number.isInteger(id) || !["APPROVED", "REJECTED"].includes(decision)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Decision must be APPROVED or REJECTED" });
+  }
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [existing] = await db.select().from(payrollEmployeeTaxCredits)
+      .where(and(eq(payrollEmployeeTaxCredits.id, id), eq(payrollEmployeeTaxCredits.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND" });
+    if (existing.approvalStatus === "APPROVED" && decision !== "APPROVED") {
+      return res.status(409).json({ error: "IMMUTABLE", message: "An approved credit claim cannot be reopened. Create a new claim version instead." });
+    }
+    const [updated] = await db.update(payrollEmployeeTaxCredits)
+      .set({
+        approvalStatus: decision,
+        approvedBy: req.user?.id || null,
+        approvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(payrollEmployeeTaxCredits.id, id))
+      .returning();
+    await auditPayroll(req, `PAYROLL_TAX_CREDIT_CLAIM_${decision}`, "payroll_employee_tax_credits", id, { employeeId: existing.employeeId });
+    res.json(updated);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
 // Edit an existing tax table (isActive is not touched here)
 router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
@@ -3834,8 +4364,9 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
   const bands = canonicalizeBrackets(parsed.data.brackets);
 
   try {
+    const companyId = getTargetCompanyId(req);
     const [existing] = await db.select().from(payrollTaxTables).where(eq(payrollTaxTables.id, id)).limit(1);
-    if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+    if (!existing || existing.companyId !== companyId) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
     // Immutability: once a table has been used to process payroll, it cannot be
     // edited in place. Government rate changes must be a new version.
@@ -3848,7 +4379,7 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
 
     // An edit that does not name a country keeps the table where it is.
     const countryCode = parsed.data.countryCode || existing.countryCode;
-    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom, parsed.data.effectiveTo, id);
+    const overlapError = await assertTaxConfigNoOverlap(db, companyId, parsed.data.currency, countryCode, parsed.data.payFrequency, parsed.data.effectiveFrom, parsed.data.effectiveTo, id);
     if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
     const updated = await db.transaction(async (tx) => {
@@ -3890,8 +4421,9 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
 router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
+    const companyId = getTargetCompanyId(req);
     const [table] = await db.select().from(payrollTaxTables).where(eq(payrollTaxTables.id, id)).limit(1);
-    if (!table) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+    if (!table || table.companyId !== companyId) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
     const brackets = await loadTaxBrackets(db, id);
     if (!brackets.length) {
@@ -3902,7 +4434,7 @@ router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res)
       return res.status(409).json({ error: "INVALID_BRACKETS", details: bracketErrors });
     }
 
-    const overlapError = await assertTaxConfigNoOverlap(db, table.currency, table.countryCode, table.payFrequency, table.effectiveFrom, table.effectiveTo, id);
+    const overlapError = await assertTaxConfigNoOverlap(db, companyId, table.currency, table.countryCode, table.payFrequency, table.effectiveFrom, table.effectiveTo, id);
     if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
     const [updated] = await db.update(payrollTaxTables)
@@ -3924,9 +4456,10 @@ router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res)
 router.post("/tax-config/:id/deactivate", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
+    const companyId = getTargetCompanyId(req);
     const [updated] = await db.update(payrollTaxTables)
       .set({ isActive: false })
-      .where(eq(payrollTaxTables.id, id))
+      .where(and(eq(payrollTaxTables.id, id), eq(payrollTaxTables.companyId, companyId)))
       .returning();
     if (!updated) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
@@ -4375,7 +4908,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         .returning();
 
       // 2. Fetch active tax configurations
-      const taxConfig = await loadEffectiveTaxConfig(tx, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
+      const taxConfig = await loadEffectiveTaxConfig(tx, companyId, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
 
       if (!taxConfig) {
         throw new PayrollHttpError(422, `Effective tax configuration not found for ${parsed.data.currency} ${parsed.data.payFrequency} covering ${parsed.data.periodStart} to ${parsed.data.periodEnd}`, "TAX_CONFIG_NOT_FOUND");
@@ -4389,6 +4922,12 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
       if (missingRules.length > 0) {
         throw new PayrollHttpError(422, `Missing required statutory rules for ${jurisdiction.name} payroll (${missingRules.join(", ")}). Please configure them in the Statutory Settings before running payroll.`, "STATUTORY_RULES_MISSING");
       }
+
+      const apwcsConfig = jurisdictionLevies(jurisdiction, "APWCS")
+        ? await resolveApwcsRate(tx, companyId, parsed.data.periodStart, parsed.data.periodEnd)
+        : null;
+      const engineStatutoryRules = configuredStatutoryRules(statutoryRules);
+      const runTaxYear = taxYearForPeriod(parsed.data.periodStart);
 
       // A levy this country does not charge stays at zero even when another
       // tenant's rule rows are visible: ZW rates must never price a payslip
@@ -4580,18 +5119,31 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         const pensionRule = statutoryRules["PENSION"];
         const pensionEmployeeRate = pensionRule ? statutoryRate(pensionRule, "employeeRate", 0) : 0;
         const pensionEmployerRate = pensionRule ? statutoryRate(pensionRule, "employerRate", 0) : 0;
+        const nssaEmployeeRule = statutoryRules["NSSA_POBS_EMPLOYEE"] || statutoryRules["NSSA_POBS"];
+        const nssaEmployerRule = statutoryRules["NSSA_POBS_EMPLOYER"] || statutoryRules["NSSA_POBS"];
+        const approvedTaxCredits = await loadApprovedTaxCredits(
+          tx,
+          companyId,
+          emp.id,
+          parsed.data.currency,
+          runTaxYear,
+          parsed.data.periodStart,
+          parsed.data.periodEnd,
+        );
 
         // The rates actually charged, hoisted so the snapshot records what the
         // engine got instead of re-reading rule rows that may not exist in this
         // country.
         const appliedStatutoryRates = {
           aidsLevyRate: levyRate("AIDS_LEVY", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.aidsLevyRate),
-          nssaRateEmployee: levyRate("NSSA_POBS", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployee),
-          nssaRateEmployer: levyRate("NSSA_POBS", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployer),
-          nssaCeilingLimit: jurisdictionLevies(jurisdiction, "NSSA_POBS") ? toMoney(statutoryRules["NSSA_POBS"]?.ceilingAmount) : 0,
+          nssaRateEmployee: levyRate("NSSA_POBS_EMPLOYEE", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployee),
+          nssaRateEmployer: levyRate("NSSA_POBS_EMPLOYER", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployer),
+          nssaCeilingLimit: jurisdictionLevies(jurisdiction, "NSSA_POBS")
+            ? statutoryCeiling(nssaEmployeeRule) ?? statutoryCeiling(nssaEmployerRule)
+            : null,
           zimdefRate: levyRate("ZIMDEF", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.zimdefRate),
           standardsLevyRate: jurisdictionLevies(jurisdiction, "STANDARDS_LEVY") ? statutoryRate(standardsRule, "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.standardsLevyRate) : 0,
-          apwcsRate: jurisdictionLevies(jurisdiction, "APWCS") && statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
+          apwcsRate: apwcsConfig?.rate ?? null,
         };
 
         // Perform calculation
@@ -4603,6 +5155,9 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           pensionEmployeeRate,
           pensionEmployerRate,
           apwcsRate: appliedStatutoryRates.apwcsRate,
+          employerMedicalContributions: 0,
+          statutoryRules: engineStatutoryRules,
+          taxCredits: approvedTaxCredits,
           necRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necRate) : 0,
           necEmployerRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necEmployerRate) : 0,
           necFixedAmount: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necFixedAmount) : 0,
@@ -4658,6 +5213,11 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
             nssaEmployer: calcs.nssaEmployer.toFixed(2),
             necEmployee: calcs.necEmployee.toFixed(2),
             necEmployer: calcs.necEmployer.toFixed(2),
+            apwcsAmount: calcs.apwcsAmount.toFixed(2),
+            zimdefAmount: calcs.zimdefAmount.toFixed(2),
+            standardsLevyAmount: calcs.standardsLevyAmount.toFixed(2),
+            employerCostTotal: calcs.totalEmployerCost.toFixed(2),
+            statutoryBreakdown: calcs.statutoryBreakdown,
             usdPercentage: calcs.usdPercentage.toFixed(2),
             zigPercentage: calcs.zigPercentage.toFixed(2),
             netSalaryUsd: calcs.netSalaryUsd.toFixed(2),
@@ -4699,7 +5259,9 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
                 ...appliedStatutoryRates,
                 pensionEmployeeRate,
                 pensionEmployerRate,
+                apwcsConfig,
               },
+              approvedTaxCredits,
             })
           })
           .returning();
@@ -4929,7 +5491,7 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
           })),
       ];
 
-      const taxConfig = await loadEffectiveTaxConfig(tx, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
+      const taxConfig = await loadEffectiveTaxConfig(tx, companyId, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
       if (!taxConfig) {
         throw new PayrollHttpError(422, `Effective tax configuration not found for ${run.currency} ${run.payFrequency} covering ${run.periodStart} to ${run.periodEnd}`, "TAX_CONFIG_NOT_FOUND");
       }
@@ -4938,6 +5500,11 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
       if (missingRules.length > 0) {
         throw new PayrollHttpError(422, `Missing required statutory rules for ${jurisdiction.name} payroll (${missingRules.join(", ")}). Configure them in Statutory Settings before adjusting payroll.`, "STATUTORY_RULES_MISSING");
       }
+      const apwcsConfig = jurisdictionLevies(jurisdiction, "APWCS")
+        ? await resolveApwcsRate(tx, companyId, run.periodStart, run.periodEnd)
+        : null;
+      const engineStatutoryRules = configuredStatutoryRules(statutoryRules);
+      const runTaxYear = taxYearForPeriod(run.periodStart);
       const levyRate = (ruleCode: string, field: "employeeRate" | "employerRate", fallback: number) =>
         jurisdictionLevies(jurisdiction, ruleCode) ? statutoryRate(statutoryRules[ruleCode], field, fallback) : 0;
       // Older tenants stored the Standards levy under STANDARDS, so read either.
@@ -4965,6 +5532,17 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
       }
 
       const pensionRule = statutoryRules["PENSION"];
+      const nssaEmployeeRule = statutoryRules["NSSA_POBS_EMPLOYEE"] || statutoryRules["NSSA_POBS"];
+      const nssaEmployerRule = statutoryRules["NSSA_POBS_EMPLOYER"] || statutoryRules["NSSA_POBS"];
+      const approvedTaxCredits = await loadApprovedTaxCredits(
+        tx,
+        companyId,
+        runLine.employeeId,
+        run.currency,
+        runTaxYear,
+        run.periodStart,
+        run.periodEnd,
+      );
       const isBonusLine = run.runType === "BONUS";
       const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
         baseSalary: isBonusLine ? 0 : toMoney(runLine.basicSalary),
@@ -4973,7 +5551,10 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
         ytdBonusAmount: isBonusLine ? toMoney(snapshot.ytdBonusAmount) : undefined,
         pensionEmployeeRate: pensionRule ? statutoryRate(pensionRule, "employeeRate", 0) : 0,
         pensionEmployerRate: pensionRule ? statutoryRate(pensionRule, "employerRate", 0) : 0,
-        apwcsRate: jurisdictionLevies(jurisdiction, "APWCS") && statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
+        apwcsRate: apwcsConfig?.rate ?? null,
+        employerMedicalContributions: 0,
+        statutoryRules: engineStatutoryRules,
+        taxCredits: approvedTaxCredits,
         necRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necRate) : 0,
         necEmployerRate: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necEmployerRate) : 0,
         necFixedAmount: jurisdictionLevies(jurisdiction, "NEC") ? toNumber(necFixedAmount) : 0,
@@ -4985,9 +5566,11 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
         statutoryConfig: {
           ...ZIMBABWE_STATUTORY_DEFAULTS,
           aidsLevyRate: levyRate("AIDS_LEVY", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.aidsLevyRate),
-          nssaRateEmployee: levyRate("NSSA_POBS", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployee),
-          nssaRateEmployer: levyRate("NSSA_POBS", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployer),
-          nssaCeilingLimit: jurisdictionLevies(jurisdiction, "NSSA_POBS") ? toMoney(statutoryRules["NSSA_POBS"]?.ceilingAmount) : 0,
+          nssaRateEmployee: levyRate("NSSA_POBS_EMPLOYEE", "employeeRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployee),
+          nssaRateEmployer: levyRate("NSSA_POBS_EMPLOYER", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.nssaRateEmployer),
+          nssaCeilingLimit: jurisdictionLevies(jurisdiction, "NSSA_POBS")
+            ? statutoryCeiling(nssaEmployeeRule) ?? statutoryCeiling(nssaEmployerRule)
+            : null,
           zimdefRate: levyRate("ZIMDEF", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.zimdefRate),
           standardsLevyRate: jurisdictionLevies(jurisdiction, "STANDARDS_LEVY") ? statutoryRate(standardsRule, "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.standardsLevyRate) : 0,
         }
@@ -5008,6 +5591,11 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
           nssaEmployer: calcs.nssaEmployer.toFixed(2),
           necEmployee: calcs.necEmployee.toFixed(2),
           necEmployer: calcs.necEmployer.toFixed(2),
+          apwcsAmount: calcs.apwcsAmount.toFixed(2),
+          zimdefAmount: calcs.zimdefAmount.toFixed(2),
+          standardsLevyAmount: calcs.standardsLevyAmount.toFixed(2),
+          employerCostTotal: calcs.totalEmployerCost.toFixed(2),
+          statutoryBreakdown: calcs.statutoryBreakdown,
           netSalaryUsd: calcs.netSalaryUsd.toFixed(2),
           netSalaryZig: calcs.netSalaryZig.toFixed(2),
           payeUsd: calcs.payeUsd.toFixed(2),
@@ -5019,6 +5607,11 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
           snapshotData: buildPayrollSnapshot({
             ...snapshotCarryOver,
             ...calcs,
+            approvedTaxCredits,
+            statutoryRatesUsed: {
+              ...(snapshot.statutoryRatesUsed || {}),
+              apwcsConfig,
+            },
             auditNote: parsed.data.auditNote || "Manual line adjustment updated",
             lastAdjustedAt: new Date().toISOString(),
           }),
@@ -6482,17 +7075,19 @@ router.get("/runs/:runId/report", async (req, res) => {
       const gross = toMoney(runData.grossSalary);
       const r2 = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
       const zimdefRate = Number(rates.zimdefRate ?? 0.01) || 0.01;
-      const standardsRate = Number(rates.standardsLevyRate ?? 0.005) || 0.005;
-      const apwcsRate = rates.apwcsRate != null ? Number(rates.apwcsRate) : zimdefRate / 2;
+      const standardsRate = Number(rates.standardsLevyRate ?? 0) || 0;
+      // APWCS has no guessed rate. A run without an effective industry premium
+      // reports zero and carries a warning in its statutory breakdown.
+      const apwcsRate = rates.apwcsRate != null ? Number(rates.apwcsRate) : 0;
       // The levy actually charged, from the immutable snapshot, so the report
       // matches the locked journal instead of a rate re-derived here.
       const employerCosts = {
         nssaEmployer: toMoney(runData.nssaEmployer),
         necEmployer: toMoney(runData.necEmployer),
         pensionEmployer: toMoney(runData.pensionEmployer),
-        zimdef: snapshot.zimdefAmount != null ? toMoney(snapshot.zimdefAmount) : r2(gross * zimdefRate),
-        standardsLevy: snapshot.standardsLevyAmount != null ? toMoney(snapshot.standardsLevyAmount) : r2(gross * standardsRate),
-        apwcs: snapshot.apwcsAmount != null ? toMoney(snapshot.apwcsAmount) : r2(gross * apwcsRate),
+        zimdef: runData.zimdefAmount != null ? toMoney(runData.zimdefAmount) : snapshot.zimdefAmount != null ? toMoney(snapshot.zimdefAmount) : r2(gross * zimdefRate),
+        standardsLevy: runData.standardsLevyAmount != null ? toMoney(runData.standardsLevyAmount) : snapshot.standardsLevyAmount != null ? toMoney(snapshot.standardsLevyAmount) : r2(gross * standardsRate),
+        apwcs: runData.apwcsAmount != null ? toMoney(runData.apwcsAmount) : snapshot.apwcsAmount != null ? toMoney(snapshot.apwcsAmount) : r2(gross * apwcsRate),
         total: 0,
       };
       employerCosts.total = centsToMoney(

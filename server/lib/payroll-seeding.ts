@@ -15,7 +15,7 @@
  * always wins over this seed.
  *
  * Sources:
- *  - ZIMRA "USD Jan-Dec 2025 Tax Tables" (PAYE), Income Tax Act [Chapter 11:06]
+ *  - ZIMRA "USD Jan-Dec 2026 Tax Tables" (PAYE), Income Tax Act [Chapter 11:06]
  *  - NSSA Act Chapter 17:04 — contribution rates and insurable-earnings ceiling
  *  - Various NEC Collective Bargaining Agreements (CBA) 2024
  */
@@ -24,7 +24,11 @@ import { db } from "../db.js";
 import { necSectorsConfig, payrollTaxTables, payrollTaxBrackets, payrollStatutoryRules } from "../../shared/schema.js";
 import { eq, and, isNull } from "drizzle-orm";
 import { canonicalizeBrackets } from "../../shared/statutory/brackets.js";
-import { ZIMRA_USD_PAYE_2025, ZIMBABWE_STATUTORY_RULE_SEED, type StatutoryTaxTable } from "../../shared/statutory/zimbabwe.js";
+import {
+  ZIMRA_USD_PAYE_2026,
+  VERIFIED_ZW_2026_STATUTORY_RULES,
+  type StatutoryTaxTable,
+} from "../../shared/statutory/zimbabwe.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NEC (National Employment Council) Sector Presets
@@ -63,7 +67,7 @@ export async function seedGlobalPayrollDefaults(): Promise<void> {
   }
 
   try {
-    await ensureGlobalTaxTable(ZIMRA_USD_PAYE_2025);
+    await ensureGlobalTaxTable(ZIMRA_USD_PAYE_2026);
   } catch (err: any) {
     console.error("[PAYROLL-SEED] Failed to seed the ZIMRA PAYE table:", err.message);
   }
@@ -156,15 +160,14 @@ async function ensureGlobalTaxTable(table: StatutoryTaxTable): Promise<void> {
 }
 
 async function ensureGlobalStatutoryRules() {
-  const seeds = [ZIMBABWE_STATUTORY_RULE_SEED.aidsLevy, ZIMBABWE_STATUTORY_RULE_SEED.nssaPobs];
-
-  for (const seed of seeds) {
+  for (const seed of VERIFIED_ZW_2026_STATUTORY_RULES) {
     const [existing] = await db
       .select({ id: payrollStatutoryRules.id })
       .from(payrollStatutoryRules)
       .where(and(
         eq(payrollStatutoryRules.ruleCode, seed.ruleCode),
         isNull(payrollStatutoryRules.companyId),
+        eq(payrollStatutoryRules.currency, seed.currency),
       ))
       .limit(1);
 
@@ -178,15 +181,25 @@ async function ensureGlobalStatutoryRules() {
       countryCode: "ZW",
       ruleCode: seed.ruleCode,
       name: seed.name,
-      currency: "USD",
+      currency: seed.currency,
       payFrequency: "MONTHLY",
-      employeeRate: seed.employeeRate,
-      employerRate: seed.employerRate,
-      ceilingAmount: "ceilingAmount" in seed ? seed.ceilingAmount : null,
+      employeeRate: seed.employeeRate === null ? null : seed.employeeRate.toFixed(6),
+      employerRate: seed.employerRate === null ? null : seed.employerRate.toFixed(6),
+      ceilingAmount: seed.ceilingAmount === null ? null : seed.ceilingAmount.toFixed(2),
       calculationBasis: seed.calculationBasis,
+      calculationType: seed.calculationType,
+      category: seed.category,
+      responsibleParty: seed.responsibleParty,
+      statutoryAuthority: seed.statutoryAuthority,
+      sourceReference: seed.sourceReference,
+      isCapped: seed.isCapped,
+      ceilingPeriod: seed.ceilingPeriod,
+      annualAmount: seed.annualAmount === null ? null : seed.annualAmount.toFixed(2),
+      requiresIndustryRate: seed.requiresIndustryRate,
       isActive: true,
       isSystemLocked: true,
       effectiveFrom: seed.effectiveFrom,
+      metadata: { notes: seed.notes ?? null },
     });
     console.log(`[PAYROLL-SEED] Global rule created: ${seed.ruleCode}`);
   }

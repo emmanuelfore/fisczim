@@ -3983,11 +3983,20 @@ export const payrollStatutoryRules = pgTable("payroll_statutory_rules", {
   name: text("name").notNull(),
   currency: text("currency").default("USD").notNull(),
   payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
-  employeeRate: decimal("employee_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
-  employerRate: decimal("employer_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  employeeRate: decimal("employee_rate", { precision: 8, scale: 6 }).default("0.000000"),
+  employerRate: decimal("employer_rate", { precision: 8, scale: 6 }).default("0.000000"),
   ceilingAmount: decimal("ceiling_amount", { precision: 15, scale: 2 }),
   floorAmount: decimal("floor_amount", { precision: 15, scale: 2 }),
   calculationBasis: text("calculation_basis").default("TAXABLE_INCOME").notNull(),
+  calculationType: text("calculation_type").default("PERCENTAGE").notNull(),
+  category: text("category").default("EMPLOYEE_DEDUCTION").notNull(),
+  responsibleParty: text("responsible_party").default("EMPLOYEE").notNull(),
+  statutoryAuthority: text("statutory_authority"),
+  sourceReference: text("source_reference"),
+  isCapped: boolean("is_capped").default(false).notNull(),
+  ceilingPeriod: text("ceiling_period"),
+  annualAmount: decimal("annual_amount", { precision: 15, scale: 2 }),
+  requiresIndustryRate: boolean("requires_industry_rate").default(false).notNull(),
   formula: text("formula"),
   metadata: jsonb("metadata").default({}).notNull(),
   effectiveFrom: date("effective_from").notNull(),
@@ -3999,6 +4008,77 @@ export const payrollStatutoryRules = pgTable("payroll_statutory_rules", {
 }, (table) => ({
   statutoryRuleLookupIdx: index("payroll_statutory_rules_lookup_idx").on(table.countryCode, table.ruleCode, table.currency, table.payFrequency, table.effectiveFrom),
   statutoryRuleCompanyIdx: index("payroll_statutory_rules_company_idx").on(table.companyId),
+  statutoryRuleCategoryIdx: index("payroll_statutory_rules_category_idx").on(table.companyId, table.category, table.effectiveFrom),
+}));
+
+/**
+ * NSSA industrial classification codes. These are tenant-specific because the
+ * code assigned to an employer is employer-specific; no default rate is seeded.
+ */
+export const payrollIndustryCodes = pgTable("payroll_industry_codes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  code: text("code").notNull(),
+  description: text("description").notNull(),
+  statutoryAuthority: text("statutory_authority").default("NSSA").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  sourceReference: text("source_reference"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyCodeIdx: index("payroll_industry_codes_company_code_idx").on(table.companyId, table.code),
+}));
+
+/** Effective-dated APWCS premium schedule for an employer's industrial code. */
+export const payrollIndustryPremiumRates = pgTable("payroll_industry_premium_rates", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  industryCodeId: integer("industry_code_id").references(() => payrollIndustryCodes.id, { onDelete: "cascade" }).notNull(),
+  rate: decimal("rate", { precision: 8, scale: 6 }).notNull(),
+  ceilingAmount: decimal("ceiling_amount", { precision: 15, scale: 2 }),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  statutoryAuthority: text("statutory_authority").default("NSSA").notNull(),
+  sourceReference: text("source_reference").notNull(),
+  gazetteReference: text("gazette_reference"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyPeriodIdx: index("payroll_industry_premium_rates_company_period_idx").on(table.companyId, table.industryCodeId, table.effectiveFrom),
+}));
+
+/**
+ * Employee eligibility, documentation and approval for statutory tax credits.
+ * Credits are never applied automatically: only APPROVED rows with a matching
+ * effective period and currency are passed to the payroll engine.
+ */
+export const payrollEmployeeTaxCredits = pgTable("payroll_employee_tax_credits", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id, { onDelete: "cascade" }).notNull(),
+  statutoryRuleId: integer("statutory_rule_id").references(() => payrollStatutoryRules.id),
+  creditCode: text("credit_code").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  taxYear: integer("tax_year").notNull(),
+  qualifyingExpenses: decimal("qualifying_expenses", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  annualAmountOverride: decimal("annual_amount_override", { precision: 15, scale: 2 }),
+  documentationReference: text("documentation_reference"),
+  approvalStatus: text("approval_status").default("PENDING").notNull(),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  employeePeriodIdx: index("payroll_employee_tax_credits_employee_period_idx").on(table.companyId, table.employeeId, table.taxYear, table.effectiveFrom),
+  approvalIdx: index("payroll_employee_tax_credits_approval_idx").on(table.companyId, table.approvalStatus),
 }));
 
 // 6D. Configurable earning and deduction definitions
@@ -4234,6 +4314,11 @@ export const payrollRunEmployees = pgTable("payroll_run_employees", {
   necEmployer: decimal("nec_employer", { precision: 15, scale: 2 }).default("0.00").notNull(),
   pensionEmployee: decimal("pension_employee", { precision: 15, scale: 2 }).default("0.00").notNull(),
   pensionEmployer: decimal("pension_employer", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  apwcsAmount: decimal("apwcs_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  zimdefAmount: decimal("zimdef_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  standardsLevyAmount: decimal("standards_levy_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  employerCostTotal: decimal("employer_cost_total", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  statutoryBreakdown: jsonb("statutory_breakdown").default({}).notNull(),
   
   // Finance Act Compliant Multi-Currency Split Allocations
   usdPercentage: decimal("usd_percentage", { precision: 5, scale: 2 }).default("100.00").notNull(),
@@ -5175,6 +5260,18 @@ export type InsertPayrollTaxBracket = z.infer<typeof insertPayrollTaxBracketSche
 export const insertPayrollStatutoryRuleSchema = createInsertSchema(payrollStatutoryRules).omit({ id: true, createdAt: true });
 export type PayrollStatutoryRule = typeof payrollStatutoryRules.$inferSelect;
 export type InsertPayrollStatutoryRule = z.infer<typeof insertPayrollStatutoryRuleSchema>;
+
+export const insertPayrollIndustryCodeSchema = createInsertSchema(payrollIndustryCodes).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollIndustryCode = typeof payrollIndustryCodes.$inferSelect;
+export type InsertPayrollIndustryCode = z.infer<typeof insertPayrollIndustryCodeSchema>;
+
+export const insertPayrollIndustryPremiumRateSchema = createInsertSchema(payrollIndustryPremiumRates).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollIndustryPremiumRate = typeof payrollIndustryPremiumRates.$inferSelect;
+export type InsertPayrollIndustryPremiumRate = z.infer<typeof insertPayrollIndustryPremiumRateSchema>;
+
+export const insertPayrollEmployeeTaxCreditSchema = createInsertSchema(payrollEmployeeTaxCredits).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollEmployeeTaxCredit = typeof payrollEmployeeTaxCredits.$inferSelect;
+export type InsertPayrollEmployeeTaxCredit = z.infer<typeof insertPayrollEmployeeTaxCreditSchema>;
 
 export const insertPayrollEarningTypeSchema = createInsertSchema(payrollEarningTypes).omit({ id: true, createdAt: true });
 export type PayrollEarningType = typeof payrollEarningTypes.$inferSelect;

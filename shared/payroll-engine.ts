@@ -18,8 +18,42 @@
  */
 
 import { rateAsFraction, selectBracket, type TaxBracketRow } from "./statutory/brackets.js";
+import { payPeriodsPerYear } from "./statutory/statutory-config.js";
 
 export type TaxBracket = TaxBracketRow;
+
+/** Effective statutory rule resolved from tenant configuration for a payroll period. */
+export interface ConfiguredStatutoryRule {
+  ruleCode: string;
+  name: string;
+  category: "EMPLOYEE_DEDUCTION" | "EMPLOYER_CONTRIBUTION" | "TAX_CREDIT";
+  responsibleParty: "EMPLOYEE" | "EMPLOYER" | "BOTH";
+  calculationType?: string;
+  calculationBasis?: string;
+  employeeRate?: number | null;
+  employerRate?: number | null;
+  ceilingAmount?: number | null;
+  annualAmount?: number | null;
+  requiresIndustryRate?: boolean;
+  sourceReference?: string | null;
+}
+
+/** Approved employee credit claim resolved for a payroll period. */
+export interface ApprovedTaxCredit {
+  code: string;
+  calculationType: "FIXED_ANNUAL" | "PERCENT_OF_QUALIFYING_EXPENSE";
+  annualAmount?: number | null;
+  rate?: number | null;
+  qualifyingExpenses?: number | null;
+  currency?: string;
+}
+
+export interface StatutoryBreakdown {
+  employeeDeductions: Array<{ code: string; name: string; amount: number; responsibleParty: string }>;
+  employerCosts: Array<{ code: string; name: string; amount: number; responsibleParty: string }>;
+  taxCredits: Array<{ code: string; amount: number }>;
+  warnings: string[];
+}
 
 export interface PayrollElementInput {
   type: "EARNING" | "DEDUCTION";
@@ -51,7 +85,12 @@ export interface CalculationInput {
   necEmployerRate: number;
   necFixedAmount: number;
 
-  apwcsRate?: number;
+  apwcsRate?: number | null;
+  apwcsGrossUpEnabled?: boolean;
+  employerMedicalContributions?: number;
+  zimdefBasisIncludesEmployerContributions?: boolean;
+  statutoryRules?: ConfiguredStatutoryRule[];
+  taxCredits?: ApprovedTaxCredit[];
 
   annualTaxCreditAmount?: number;
   medicalAidMonthlyContribution?: number;
@@ -81,10 +120,12 @@ export interface CalculationInput {
     taxFreeBonusThreshold: number;
     nssaRateEmployee: number;
     nssaRateEmployer: number;
-    nssaCeilingLimit: number;
+    nssaCeilingLimit: number | null;
     medicalAidCreditMonthly: number; // This might be an upper cap if any, otherwise we just use 50%
     blindPersonCreditAnnual: number;
     elderlyPersonCreditAnnual: number;
+    disabledPersonCreditAnnual?: number;
+    medicalCreditRate?: number;
     maxTaxDeductiblePensionAnnual: number;
     hoursPerDay: number;
     workingDaysPerMonth: number;
@@ -152,6 +193,7 @@ export interface CalculationResult {
   nssaEmployeeZig: number;
 
   totalEmployerCost: number;
+  statutoryBreakdown: StatutoryBreakdown;
 }
 
 export class ZimbabwePayrollEngine {
@@ -164,39 +206,44 @@ export class ZimbabwePayrollEngine {
     return rateAsFraction(rate);
   }
 
-  // ZIMRA publishes monthly tax tables (min/max/rate/deduction constants).
-  // For non-monthly frequencies we normalize the period income to a monthly
-  // equivalent, apply the monthly table, then scale back to the period.
-  private static periodsPerMonth(freq: string, workingDaysPerMonth: number): number {
-    switch ((freq || "MONTHLY").toUpperCase()) {
-      case "WEEKLY": return 52 / 12;
-      case "FORTNIGHTLY": return 26 / 12;
-      case "DAILY": return workingDaysPerMonth;
-      default: return 1;
-    }
-  }
-
-  // Monthly PAYE: income matches the first band whose upper bound reaches it,
-  // falling back to the top band. Never resolve to zero when no band covers the
-  // income — a gap between bands silently under-remitted PAYE before.
-  // Income is taxed against the MONTHLY table; it is not annualized first.
-  private static computeMonthlyPAYE(monthlyIncome: number, brackets: TaxBracket[]): number {
-    if (!brackets?.length || monthlyIncome <= 0) return 0;
-    const income = Number(monthlyIncome);
+  // PAYE uses the published table for the run's own frequency. The API only
+  // loads a table whose pay_frequency matches the run, so weekly/daily bands are
+  // never derived by dividing a monthly table.
+  private static computePAYE(periodIncome: number, brackets: TaxBracket[]): number {
+    if (!brackets?.length || periodIncome <= 0) return 0;
+    const income = Number(periodIncome);
     const bracket = selectBracket(income, brackets);
     if (!bracket) return 0;
     return Math.max(0, income * rateAsFraction(bracket.rate) - Number(bracket.deduction));
   }
 
-  // Annual PAYE derived from the monthly table (ZIMRA annual = monthly constant ×12).
-  private static computeAnnualPAYE(annualIncome: number, brackets: TaxBracket[]): number {
+  // Annual PAYE for FDS is the configured period table scaled by the number of
+  // periods in the year (monthly ×12, weekly ×52, and so on). This annualises the
+  // income into the same published table; it does not invent another band set.
+  private static computeAnnualPAYE(
+    annualIncome: number,
+    brackets: TaxBracket[],
+    periodsPerYear: number,
+  ): number {
     if (!brackets?.length || annualIncome <= 0) return 0;
-    return ZimbabwePayrollEngine.computeMonthlyPAYE(Number(annualIncome) / 12, brackets) * 12;
+    return ZimbabwePayrollEngine.computePAYE(Number(annualIncome) / periodsPerYear, brackets) * periodsPerYear;
   }
 
   public static calculateEmployeeLine(input: CalculationInput): CalculationResult {
     const r2 = ZimbabwePayrollEngine.round2;
     const nr = ZimbabwePayrollEngine.normalizeRate;
+
+    const rulesByCode = new Map(
+      (input.statutoryRules || []).map((rule) => [String(rule.ruleCode).toUpperCase(), rule]),
+    );
+    const ruleRate = (code: string, side: "employeeRate" | "employerRate", fallback: number): number => {
+      const rule = rulesByCode.get(code);
+      const raw = rule ? rule[side] : undefined;
+      if (raw === null || raw === undefined) return fallback;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : fallback;
+    };
+    const warnings: string[] = [];
 
     // ── 1. Overtime ────────────────────────────────────────────────────────
     const dailyRate = input.baseSalary / input.statutoryConfig.workingDaysPerMonth;
@@ -256,13 +303,33 @@ export class ZimbabwePayrollEngine {
 
     // ── 4. NSSA POBS ───────────────────────────────────────────────────────
     const earningsSubjectToTaxes = r2(input.baseSalary + taxableAllowances + taxableBonus + totalOvertimePay);
-    const nssaBase = Math.min(earningsSubjectToTaxes, input.statutoryConfig.nssaCeilingLimit);
-    const nssaEmployee = r2(nssaBase * input.statutoryConfig.nssaRateEmployee);
-    const nssaEmployer = r2(nssaBase * input.statutoryConfig.nssaRateEmployer);
+    const nssaEmployeeRule = rulesByCode.get("NSSA_POBS_EMPLOYEE");
+    const nssaEmployerRule = rulesByCode.get("NSSA_POBS_EMPLOYER");
+    const configuredCeiling =
+      nssaEmployeeRule?.ceilingAmount ??
+      nssaEmployerRule?.ceilingAmount ??
+      input.statutoryConfig.nssaCeilingLimit;
+    const ceiling = configuredCeiling === null || configuredCeiling === undefined
+      ? Infinity
+      : Number(configuredCeiling);
+    const effectiveCeiling = Number.isFinite(ceiling) && ceiling >= 0 ? ceiling : Infinity;
+    const nssaBase = Math.min(earningsSubjectToTaxes, effectiveCeiling);
+    const nssaEmployee = r2(nssaBase * ruleRate("NSSA_POBS_EMPLOYEE", "employeeRate", input.statutoryConfig.nssaRateEmployee));
+    const nssaEmployer = r2(nssaBase * ruleRate("NSSA_POBS_EMPLOYER", "employerRate", input.statutoryConfig.nssaRateEmployer));
 
-    // ── 5. APWCS ───────────────────────────────────────────────────────────
-    const apwcsRate = Number(input.apwcsRate ?? (input.statutoryConfig.zimdefRate / 2));
-    const apwcsAmount = r2(grossSalary * nr(apwcsRate));
+    // ── 5. APWCS (employer-only, industry-specific) ───────────────────────
+    // There is deliberately no fallback percentage. A missing effective premium
+    // produces zero and a warning instead of inventing a statutory rate.
+    const apwcsRule = rulesByCode.get("APWCS");
+    const configuredApwcsRate = input.apwcsRate ?? apwcsRule?.employerRate ?? null;
+    const apwcsRate = configuredApwcsRate === null || configuredApwcsRate === undefined
+      ? 0
+      : Number(configuredApwcsRate);
+    const apwcsBase = input.apwcsGrossUpEnabled === false ? earningsSubjectToTaxes : grossSalary;
+    const apwcsAmount = r2(apwcsBase * nr(apwcsRate));
+    if (!Number.isFinite(apwcsRate) || apwcsRate <= 0) {
+      warnings.push("APWCS premium not configured: add an NSSA industry code and effective-dated premium rate before remitting.");
+    }
 
     // ── 6. Pension ─────────────────────────────────────────────────────────
     const pensionEmployee = r2(input.baseSalary * nr(Number(input.pensionEmployeeRate || 0)));
@@ -272,8 +339,12 @@ export class ZimbabwePayrollEngine {
     const necEmployee = r2((input.baseSalary * nr(Number(input.necRate || 0))) + Number(input.necFixedAmount || 0));
     const necEmployer = r2((input.baseSalary * nr(Number(input.necEmployerRate || 0))) + Number(input.necFixedAmount || 0));
 
-    // ── 8. ZIMDEF & Standards ──────────────────────────────────────────────
-    const zimdefAmount = r2(grossSalary * nr(input.statutoryConfig.zimdefRate));
+    // ── 8. ZIMDEF & Standards (employer-only) ──────────────────────────────
+    const zimdefIncludeEmployer = input.zimdefBasisIncludesEmployerContributions ?? rulesByCode.has("ZIMDEF");
+    const zimdefBase = zimdefIncludeEmployer
+      ? r2(grossSalary + pensionEmployer + Number(input.employerMedicalContributions || 0))
+      : grossSalary;
+    const zimdefAmount = r2(zimdefBase * nr(ruleRate("ZIMDEF", "employerRate", input.statutoryConfig.zimdefRate)));
     const standardsLevyAmount = r2(grossSalary * nr(input.statutoryConfig.standardsLevyRate));
 
     // ── 9. Taxable Income ──────────────────────────────────────────────────
@@ -298,24 +369,23 @@ export class ZimbabwePayrollEngine {
 
     let payeRaw: number;
     let fdsAdjustment = 0;
-    const periodsPerMonth = ZimbabwePayrollEngine.periodsPerMonth(input.payFrequency || "MONTHLY", input.statutoryConfig.workingDaysPerMonth);
-    // Normalize the period income to a monthly equivalent, tax it on the
-    // monthly table, then scale back to the period being paid.
-    const standalonePaye = r2(ZimbabwePayrollEngine.computeMonthlyPAYE(taxableIncome / periodsPerMonth, brackets) * periodsPerMonth);
+    const periodsPerYear = payPeriodsPerYear(input.payFrequency, input.statutoryConfig.workingDaysPerMonth);
+    // The brackets are already the published table for this pay frequency.
+    const standalonePaye = r2(ZimbabwePayrollEngine.computePAYE(taxableIncome, brackets));
 
     if (useFds && monthNum > 0) {
       if (fdsMethod === "FORECASTING") {
         const remainingMonths = 12 - monthNum;
         const regularTaxableIncome = r2(input.baseSalary + regularTaxableAllowances - totalTaxDeductible - nssaEmployee);
         const annualizedTaxable = r2(ytdTaxable + taxableIncome + (Math.max(0, regularTaxableIncome) * remainingMonths));
-        const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets);
+        const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets, periodsPerYear);
         
         const taxBalance = Math.max(0, annualPAYE - ytdPaid);
         payeRaw = r2(taxBalance / (remainingMonths + 1));
       } else { // AVERAGING
         const averageTaxable = r2((ytdTaxable + taxableIncome) / monthNum);
         const annualizedTaxable = r2(averageTaxable * 12);
-        const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets);
+        const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets, periodsPerYear);
         
         const cumulativeTaxToDate = r2((annualPAYE / 12) * monthNum);
         payeRaw = Math.max(0, r2(cumulativeTaxToDate - ytdPaid));
@@ -325,21 +395,45 @@ export class ZimbabwePayrollEngine {
       payeRaw = standalonePaye;
     }
 
-    // ── 11. Tax Credits ────────────────────────────────────────────────────
-    const medicalAidContrib = Number(input.medicalAidMonthlyContribution || 0);
-    const medicalExp = Number(input.medicalExpenses || 0);
-    const medicalCredit = r2((medicalAidContrib + medicalExp) * 0.5); // 50% for medical
+    // ── 11. Tax Credits (approved claims only) ─────────────────────────────
+    const appliedCreditItems: Array<{ code: string; amount: number }> = [];
+    let periodCredits = 0;
 
-    const monthlyOtherCredits = r2(Number(input.annualTaxCreditAmount || 0) / 12);
+    if (input.taxCredits && input.taxCredits.length > 0) {
+      for (const credit of input.taxCredits) {
+        let amount = 0;
+        if (credit.calculationType === "FIXED_ANNUAL") {
+          amount = r2(Number(credit.annualAmount || 0) / periodsPerYear);
+        } else if (credit.calculationType === "PERCENT_OF_QUALIFYING_EXPENSE") {
+          amount = r2(Number(credit.qualifyingExpenses || 0) * nr(Number(credit.rate ?? 0)));
+        }
+        if (amount > 0) {
+          appliedCreditItems.push({ code: credit.code, amount });
+          periodCredits = r2(periodCredits + amount);
+        }
+      }
+    } else {
+      // Backwards compatibility for older payroll runs that only supplied flat
+      // credit inputs. New runs resolve approved employee claims instead.
+      const medicalAidContrib = Number(input.medicalAidMonthlyContribution || 0);
+      const medicalExp = Number(input.medicalExpenses || 0);
+      const medicalCredit = r2((medicalAidContrib + medicalExp) * Number(input.statutoryConfig.medicalCreditRate ?? 0.5));
+      const otherCredits = r2(Number(input.annualTaxCreditAmount || 0) / periodsPerYear);
+      periodCredits = r2(medicalCredit + otherCredits);
+      if (medicalCredit > 0) appliedCreditItems.push({ code: "MEDICAL_CREDIT", amount: medicalCredit });
+      if (otherCredits > 0) appliedCreditItems.push({ code: "ANNUAL_TAX_CREDIT", amount: otherCredits });
+    }
+
     const carriedOver = monthNum === 1 ? 0 : Number(input.rolledOverCredits || 0);
-    const totalMonthlyCredit = r2(medicalCredit + monthlyOtherCredits + carriedOver);
-    
-    const taxCreditApplied = Math.min(payeRaw, totalMonthlyCredit);
+    const totalPeriodCredit = r2(periodCredits + carriedOver);
+
+    const taxCreditApplied = Math.min(payeRaw, totalPeriodCredit);
     const payeAfterCredit = Math.max(0, r2(payeRaw - taxCreditApplied));
-    const rolledOverCredits = monthNum === 12 ? 0 : r2(totalMonthlyCredit - taxCreditApplied);
+    const rolledOverCredits = monthNum === 12 ? 0 : r2(totalPeriodCredit - taxCreditApplied);
 
     // ── 12. AIDS Levy ──────────────────────────────────────────────────────
-    const aidsLevy = r2(payeAfterCredit * input.statutoryConfig.aidsLevyRate);
+    const aidsLevyRate = ruleRate("AIDS_LEVY", "employeeRate", input.statutoryConfig.aidsLevyRate);
+    const aidsLevy = r2(payeAfterCredit * aidsLevyRate);
     const payeFinal = r2(payeAfterCredit + aidsLevy);
 
     // ── 13. Net Salary ─────────────────────────────────────────────────────
@@ -350,6 +444,27 @@ export class ZimbabwePayrollEngine {
     const usdRatio = r2(Number(input.usdPercentage || 100) / 100);
     const zigRatio = r2(Number(input.zigPercentage || 0) / 100);
     const rate = Number(input.exchangeRate || 1);
+
+    const ruleName = (code: string, fallback: string) => rulesByCode.get(code)?.name || fallback;
+    const statutoryBreakdown: StatutoryBreakdown = {
+      employeeDeductions: [
+        { code: "PAYE", name: "PAYE", amount: payeAfterCredit, responsibleParty: "EMPLOYEE" },
+        { code: "AIDS_LEVY", name: ruleName("AIDS_LEVY", "AIDS Levy"), amount: aidsLevy, responsibleParty: "EMPLOYEE" },
+        { code: "NSSA_POBS_EMPLOYEE", name: ruleName("NSSA_POBS_EMPLOYEE", "NSSA POBS"), amount: nssaEmployee, responsibleParty: "EMPLOYEE" },
+        { code: "PENSION_EMPLOYEE", name: "Pension Fund", amount: pensionEmployee, responsibleParty: "EMPLOYEE" },
+        { code: "NEC_EMPLOYEE", name: "NEC", amount: necEmployee, responsibleParty: "EMPLOYEE" },
+      ].filter((item) => item.amount > 0),
+      employerCosts: [
+        { code: "NSSA_POBS_EMPLOYER", name: ruleName("NSSA_POBS_EMPLOYER", "NSSA POBS"), amount: nssaEmployer, responsibleParty: "EMPLOYER" },
+        { code: "ZIMDEF", name: ruleName("ZIMDEF", "ZIMDEF Training Levy"), amount: zimdefAmount, responsibleParty: "EMPLOYER" },
+        { code: "APWCS", name: ruleName("APWCS", "NSSA APWCS Premium"), amount: apwcsAmount, responsibleParty: "EMPLOYER" },
+        { code: "PENSION_EMPLOYER", name: "Pension Fund", amount: pensionEmployer, responsibleParty: "EMPLOYER" },
+        { code: "NEC_EMPLOYER", name: "NEC", amount: necEmployer, responsibleParty: "EMPLOYER" },
+        { code: "STANDARDS_LEVY", name: "Standards Development Levy", amount: standardsLevyAmount, responsibleParty: "EMPLOYER" },
+      ].filter((item) => item.amount > 0),
+      taxCredits: appliedCreditItems,
+      warnings,
+    };
 
     return {
       processedEarnings,
@@ -399,6 +514,7 @@ export class ZimbabwePayrollEngine {
       nssaEmployeeZig: r2(nssaEmployee * zigRatio * rate),
 
       totalEmployerCost: r2(grossSalary + nssaEmployer + pensionEmployer + necEmployer + apwcsAmount + zimdefAmount + standardsLevyAmount),
+      statutoryBreakdown,
     };
   }
 }

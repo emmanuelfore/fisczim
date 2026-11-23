@@ -6,6 +6,12 @@ import { sweepOverdueTaskPenalties } from './lib/commissions.js';
 import { storage } from './storage.js';
 import { crmPublicLeadRateLimits } from '../shared/schema.js';
 import { format, subMonths } from 'date-fns';
+import { runStatutoryRateReviewReminder } from './lib/statutory-review.js';
+import {
+  STATUTORY_REVIEW_CRON,
+  STATUTORY_REVIEW_START_UTC,
+  STATUTORY_REVIEW_TIME_ZONE,
+} from '../shared/statutory/review-schedule.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -58,6 +64,22 @@ export function initializeScheduler() {
       console.error('[Scheduler] Public lead rate-limit cleanup failed:', err?.message ?? err);
     }
   });
+
+  // Quarterly statutory review: 09:00 Africa/Harare on 1 Jan/Apr/Jul/Oct,
+  // starting 1 Jan 2027. node-cron fires from deployment time, so the job body
+  // also guards against invocations before the configured start date.
+  cron.schedule(
+    STATUTORY_REVIEW_CRON,
+    async () => {
+      if (Date.now() < Date.parse(STATUTORY_REVIEW_START_UTC)) return;
+      await runStatutoryRateReviewReminder();
+    },
+    {
+      name: 'statutory_rate_review_reminder',
+      timezone: STATUTORY_REVIEW_TIME_ZONE,
+      noOverlap: true,
+    },
+  );
 
   console.log('[Scheduler] Initialized');
 }

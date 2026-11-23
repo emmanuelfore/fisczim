@@ -1,5 +1,6 @@
 
 import { DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS, mergeAccountingSystemAccounts } from "../shared/accounting-defaults.js";
+import { seedCompanyStatutoryConfig } from "./lib/statutory-config-seeding.js";
 import {
   users, companies, customers, products, invoices, invoiceItems, companyUsers, productTaxLevies,
   companyRoles, companyRolePermissions, approvalRequests, companyPartners,
@@ -823,6 +824,11 @@ export class DatabaseStorage implements IStorage {
           isActive: true
         }))
       );
+
+      // Verified 2026 statutory settings are tenant data, seeded atomically so a
+      // new company can run payroll immediately. APWCS stays unpriced until an
+      // effective-dated industry premium is configured.
+      await seedCompanyStatutoryConfig(newCompany.id, tx);
 
       return newCompany;
     });

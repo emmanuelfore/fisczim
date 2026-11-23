@@ -9,6 +9,18 @@
  */
 
 import type { TaxBracketRow } from "./brackets.js";
+export {
+  VERIFIED_ZW_2026_STATUTORY_RULES,
+  STATUTORY_RULE_CODES_2026,
+  payPeriodsPerYear,
+} from "./statutory-config.js";
+export type {
+  StatutoryCategory,
+  StatutoryResponsibleParty,
+  StatutoryCalculationType,
+  StatutoryCeilingPeriod,
+  StatutoryRuleSeed,
+} from "./statutory-config.js";
 
 export interface StatutoryTaxTable {
   countryCode: string;
@@ -22,9 +34,9 @@ export interface StatutoryTaxTable {
 }
 
 /**
- * ZIMRA USD monthly PAYE, 1 January – 31 December 2025. This is the most recent
- * foreign-currency table ZIMRA has published; there is no 2026 table yet, so
- * payroll after 1 January 2026 is computed on bands that carry an expiry flag.
+ * ZIMRA USD monthly PAYE for 2025, retained for historical/replayed periods.
+ * Current 2026 payroll must use ZIMRA_USD_PAYE_2026 below; the tax tables are
+ * effective-dated and the payroll run loads the table matching its frequency.
  */
 export const ZIMRA_USD_PAYE_2025: StatutoryTaxTable = {
   countryCode: "ZW",
@@ -45,9 +57,32 @@ export const ZIMRA_USD_PAYE_2025: StatutoryTaxTable = {
 };
 
 /**
- * Engine constants that are not tenant-configurable: they come from the Finance
- * Act and the NSSA Act, and every one of them was previously hardcoded twice —
- * once as the unused ZIMBABWE_DEFAULTS and once inline in the payroll run.
+ * ZIMRA USD monthly PAYE, 1 January – 31 December 2026. The bands are unchanged
+ * from 2025, but this is the verified 2026 publication and must be the table
+ * selected for 2026 payroll periods. Non-monthly tables are not derived by
+ * dividing these bands; add the published frequency table when needed.
+ */
+export const ZIMRA_USD_PAYE_2026: StatutoryTaxTable = {
+  countryCode: "ZW",
+  currency: "USD",
+  payFrequency: "MONTHLY",
+  taxYear: 2026,
+  effectiveFrom: "2026-01-01",
+  effectiveTo: "2026-12-31",
+  sourceReference: "ZIMRA 2026 USD PAYE tax tables — monthly column (verified 23 Nov 2026)",
+  brackets: [
+    { min: 0, max: 100, rate: 0, deduction: 0 },
+    { min: 100, max: 300, rate: 20, deduction: 20 },
+    { min: 300, max: 1000, rate: 25, deduction: 35 },
+    { min: 1000, max: 2000, rate: 30, deduction: 85 },
+    { min: 2000, max: 3000, rate: 35, deduction: 185 },
+    { min: 3000, max: null, rate: 40, deduction: 335 },
+  ],
+};
+
+/**
+ * Legacy engine constants kept for backwards compatibility with older runs.
+ * New tenants are seeded from VERIFIED_ZW_2026_STATUTORY_RULES instead.
  */
 export const ZIMBABWE_STATUTORY_DEFAULTS = {
   aidsLevyRate: 0.03, // 3% of PAYE
@@ -59,6 +94,8 @@ export const ZIMBABWE_STATUTORY_DEFAULTS = {
   medicalAidCreditMonthly: 75,
   blindPersonCreditAnnual: 900,
   elderlyPersonCreditAnnual: 900,
+  disabledPersonCreditAnnual: 900,
+  medicalCreditRate: 0.5,
   maxTaxDeductiblePensionAnnual: 54000,
   hoursPerDay: 8,
   workingDaysPerMonth: 22,

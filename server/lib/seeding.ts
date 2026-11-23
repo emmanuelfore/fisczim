@@ -4,6 +4,7 @@ import { type Product, taxTypes, products } from "../../shared/schema";
 import { baseCurrencyOf, defaultCurrencySeeds } from "../../shared/currency";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
+import { backfillCompanyStatutoryConfig } from "./statutory-config-seeding";
 
 // Snapshot from LIPVIEW INVESTMENTS (ID: 8) - Taken 2026-02-08
 const DEFAULT_TAX_TYPES = [
@@ -124,6 +125,10 @@ const DEFAULT_CUSTOMERS = [
 export async function seedCompanyDefaults(companyId: number) {
     try {
         console.log(`[SEED] Starting seed for company ${companyId}`);
+
+        // Effective-dated statutory settings for older tenants that predate
+        // the 2026 seeding. Idempotent; never overwrites tenant edits.
+        await backfillCompanyStatutoryConfig(companyId);
 
         // Get company to check VAT registration status
         const company = await storage.getCompany(companyId);

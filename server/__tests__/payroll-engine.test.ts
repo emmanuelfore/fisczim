@@ -119,14 +119,16 @@ describe("ZimbabwePayrollEngine", () => {
     at(4000, 1252.4);
   });
 
-  test("normalizes non-monthly pay frequencies to the monthly table", () => {
-    const brackets = [
-      { min: 0, max: 100, rate: 0, deduction: 0 },
-      { min: 100, max: 300, rate: 20, deduction: 20 },
-      { min: 300, max: 1000, rate: 25, deduction: 35 },
-      { min: 1000, max: 2000, rate: 30, deduction: 85 },
-      { min: 2000, max: 3000, rate: 35, deduction: 185 },
-      { min: 3000, max: null, rate: 40, deduction: 335 },
+  test("uses the published table for the run frequency without dividing monthly bands", () => {
+    // A weekly table is loaded for a weekly run. Its bands are separate
+    // published figures, not the monthly bands divided by 52/12.
+    const weeklyBrackets = [
+      { min: 0, max: 25, rate: 0, deduction: 0 },
+      { min: 25, max: 75, rate: 20, deduction: 5 },
+      { min: 75, max: 250, rate: 25, deduction: 8.75 },
+      { min: 250, max: 500, rate: 30, deduction: 21.25 },
+      { min: 500, max: 750, rate: 35, deduction: 46.25 },
+      { min: 750, max: null, rate: 40, deduction: 83.75 },
     ];
     const base = {
       baseSalary: 1000,
@@ -139,17 +141,14 @@ describe("ZimbabwePayrollEngine", () => {
       usdPercentage: 100,
       zigPercentage: 0,
       exchangeRate: 1,
-      taxConfig: { brackets },
+      taxConfig: { brackets: weeklyBrackets },
       statutoryConfig: STATUTORY,
     } as any;
 
-    // Weekly $1,000: taxable 968.5 (after NSSA 31.50); monthly-equivalent
-    // 968.5/(52/12)=223.5 → 223.5×0.2−20=24.7 → ×(52/12) ≈ 107.03
+    // Taxable 968.50 (after the 31.50 NSSA cap) sits in the published top band:
+    // 968.50 × 40% − 83.75 = 303.65. Deriving from the monthly table would
+    // instead produce about 107.03, which is deliberately not used here.
     const weekly = ZimbabwePayrollEngine.calculateEmployeeLine({ ...base, payFrequency: "WEEKLY" });
-    expect(weekly.payeRaw).toBeCloseTo(107.03, 1);
-
-    // Fortnightly $1,000: monthly-equivalent 968.5/(26/12)=446.99 → 446.99×0.25−35=76.75 → ×(26/12) ≈ 166.29
-    const fortnightly = ZimbabwePayrollEngine.calculateEmployeeLine({ ...base, payFrequency: "FORTNIGHTLY" });
-    expect(fortnightly.payeRaw).toBeCloseTo(166.29, 1);
+    expect(weekly.payeRaw).toBeCloseTo(303.65, 2);
   });
 });

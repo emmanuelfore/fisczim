@@ -253,6 +253,13 @@
       "when": 1795406000000,
       "tag": "0106_payroll_element_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795490000000,
+      "tag": "0107_configurable_statutory_engine",
+      "breakpoints": true
     }
   ]
 }

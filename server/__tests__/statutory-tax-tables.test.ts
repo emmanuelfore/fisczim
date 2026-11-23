@@ -7,7 +7,7 @@ import {
   validateBrackets,
   type TaxBracketRow,
 } from "../../shared/statutory/brackets";
-import { ZIMBABWE_STATUTORY_DEFAULTS, ZIMRA_USD_PAYE_2025, isTaxTableStale } from "../../shared/statutory/zimbabwe";
+import { ZIMBABWE_STATUTORY_DEFAULTS, ZIMRA_USD_PAYE_2026, isTaxTableStale } from "../../shared/statutory/zimbabwe";
 import { ZimbabwePayrollEngine } from "../../shared/payroll-engine";
 
 // The table the demo seeder used to write, and which sat active in production
@@ -28,7 +28,7 @@ const PAYE_ONLY = {
   nssaCeilingLimit: 0,
 };
 
-function payeAt(taxable: number, brackets: TaxBracketRow[] = ZIMRA_USD_PAYE_2025.brackets) {
+function payeAt(taxable: number, brackets: TaxBracketRow[] = ZIMRA_USD_PAYE_2026.brackets) {
   return ZimbabwePayrollEngine.calculateEmployeeLine({
     baseSalary: taxable,
     elements: [],
@@ -46,8 +46,10 @@ function payeAt(taxable: number, brackets: TaxBracketRow[] = ZIMRA_USD_PAYE_2025
 }
 
 describe("canonical ZIMRA table", () => {
-  test("the published 2025 monthly table validates as-is", () => {
-    expect(validateBrackets(ZIMRA_USD_PAYE_2025.brackets)).toEqual([]);
+  test("the verified 2026 monthly table validates as-is", () => {
+    expect(validateBrackets(ZIMRA_USD_PAYE_2026.brackets)).toEqual([]);
+    expect(ZIMRA_USD_PAYE_2026.taxYear).toBe(2026);
+    expect(ZIMRA_USD_PAYE_2026.payFrequency).toBe("MONTHLY");
   });
 
   test("reproduces the ZIMRA worked examples", () => {
@@ -142,7 +144,7 @@ describe("bracket validation", () => {
 describe("tax table expiry", () => {
   test("a table older than the period's year is flagged stale", () => {
     const during2026 = new Date("2026-11-03T00:00:00");
-    expect(isTaxTableStale(ZIMRA_USD_PAYE_2025.taxYear, during2026)).toBe(true);
+    expect(isTaxTableStale(2025, during2026)).toBe(true);
     expect(isTaxTableStale(2026, during2026)).toBe(false);
   });
 });

@@ -40,7 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Loader2, Settings2, Lock, Pencil, Trash2 } from "lucide-react";
+import { Plus, Loader2, Settings2, Lock, Pencil, Trash2, Building2, BadgeCheck } from "lucide-react";
 import { format } from "date-fns";
 import { BankExportSettingsModal } from "@/components/hr/BankExportSettingsModal";
 
@@ -53,11 +53,43 @@ const RULE_TYPES = [
   { value: "TIERED_BRACKETS", label: "Tiered Brackets" },
 ];
 
+const CATEGORIES = [
+  { value: "EMPLOYEE_DEDUCTION", label: "Employee deduction" },
+  { value: "EMPLOYER_CONTRIBUTION", label: "Employer contribution / levy" },
+  { value: "TAX_CREDIT", label: "Employee tax credit / exemption" },
+];
+
+const RESPONSIBLE_PARTIES = [
+  { value: "EMPLOYEE", label: "Employee" },
+  { value: "EMPLOYER", label: "Employer" },
+  { value: "BOTH", label: "Both" },
+];
+
+const CALCULATION_TYPES = [
+  { value: "PERCENTAGE", label: "Percentage" },
+  { value: "FIXED_ANNUAL", label: "Fixed annual amount" },
+  { value: "PERCENT_OF_QUALIFYING_EXPENSE", label: "% of qualifying expense" },
+];
+
 const BLANK_FORM = {
   ruleCode: "",
   name: "",
   ruleType: "PERCENTAGE_GROSS",
+  category: "EMPLOYEE_DEDUCTION",
+  responsibleParty: "EMPLOYEE",
+  calculationType: "PERCENTAGE",
+  calculationBasis: "GROSS",
+  statutoryAuthority: "",
+  sourceReference: "",
+  ceilingAmount: "",
+  ceilingPeriod: "",
+  annualAmount: "",
+  isCapped: false,
+  requiresIndustryRate: false,
   effectiveFrom: format(new Date(), "yyyy-MM-dd"),
+  effectiveTo: "",
+  employeeRate: "",
+  employerRate: "",
   rate: "0.00",
 };
 
@@ -89,8 +121,8 @@ function ruleTypeLabel(rule: any): string {
 }
 
 function isFixedRateRule(rule: any): boolean {
-  const type = rule.formula || rule.metadata?.ruleType;
-  return type === "FIXED_AMOUNT" || rule.calculationBasis === "FIXED_AMOUNT";
+  const type = rule.calculationType || rule.formula || rule.metadata?.ruleType;
+  return type === "FIXED_ANNUAL" || type === "FIXED_AMOUNT" || rule.calculationBasis === "FIXED_AMOUNT";
 }
 
 function formatRate(value: any, fixed: boolean): string {
@@ -112,11 +144,26 @@ function formatRate(value: any, fixed: boolean): string {
 function formFromRule(rule: any): RuleForm {
   const storedType = rule.formula || rule.ruleType;
   return {
+    ...BLANK_FORM,
     ruleCode: rule.ruleCode || "",
     name: rule.name || "",
     ruleType: isKnownRuleType(storedType) ? storedType : "PERCENTAGE_GROSS",
+    category: rule.category || "EMPLOYEE_DEDUCTION",
+    responsibleParty: rule.responsibleParty || "EMPLOYEE",
+    calculationType: rule.calculationType || "PERCENTAGE",
+    calculationBasis: rule.calculationBasis || "GROSS",
+    statutoryAuthority: rule.statutoryAuthority || "",
+    sourceReference: rule.sourceReference || "",
+    ceilingAmount: rule.ceilingAmount ?? "",
+    ceilingPeriod: rule.ceilingPeriod || "",
+    annualAmount: rule.annualAmount ?? "",
+    isCapped: !!rule.isCapped,
+    requiresIndustryRate: !!rule.requiresIndustryRate,
     effectiveFrom: (rule.effectiveFrom || format(new Date(), "yyyy-MM-dd")).slice(0, 10),
-    rate: String(rule.employeeRate ?? rule.rate ?? "0.000000"),
+    effectiveTo: rule.effectiveTo ? String(rule.effectiveTo).slice(0, 10) : "",
+    employeeRate: rule.employeeRate ?? "",
+    employerRate: rule.employerRate ?? "",
+    rate: String(rule.employeeRate ?? rule.employerRate ?? rule.rate ?? "0.000000"),
   };
 }
 
@@ -160,7 +207,21 @@ export function StatutoryTab() {
         ruleCode: data.ruleCode,
         name: data.name,
         ruleType: data.ruleType,
+        category: data.category,
+        responsibleParty: data.responsibleParty,
+        calculationType: data.calculationType,
+        calculationBasis: data.calculationBasis,
+        statutoryAuthority: data.statutoryAuthority || null,
+        sourceReference: data.sourceReference || null,
+        ceilingAmount: data.ceilingAmount === "" ? null : data.ceilingAmount,
+        ceilingPeriod: data.ceilingPeriod || null,
+        annualAmount: data.annualAmount === "" ? null : data.annualAmount,
+        isCapped: data.isCapped,
+        requiresIndustryRate: data.requiresIndustryRate,
         effectiveFrom: data.effectiveFrom,
+        effectiveTo: data.effectiveTo || null,
+        employeeRate: data.employeeRate === "" ? null : data.employeeRate,
+        employerRate: data.employerRate === "" ? null : data.employerRate,
         rate: data.rate,
       };
       const res = id
@@ -263,7 +324,7 @@ export function StatutoryTab() {
                 Add Rule
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
                   {editingId ? "Edit Statutory Rule" : "Create Statutory Rule"}
@@ -303,48 +364,210 @@ export function StatutoryTab() {
                     }
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>Rule Type</Label>
-                  <Select
-                    value={formData.ruleType}
-                    onValueChange={(val) =>
-                      setFormData({ ...formData, ruleType: val })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RULE_TYPES.map((type) => (
-                        <SelectItem key={type.value} value={type.value}>
-                          {type.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select
+                      value={formData.category}
+                      onValueChange={(val) => setFormData({ ...formData, category: val })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Responsible Party</Label>
+                    <Select
+                      value={formData.responsibleParty}
+                      onValueChange={(val) => setFormData({ ...formData, responsibleParty: val })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {RESPONSIBLE_PARTIES.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Calculation Type</Label>
+                    <Select
+                      value={formData.calculationType}
+                      onValueChange={(val) => setFormData({ ...formData, calculationType: val })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {CALCULATION_TYPES.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Legacy Rule Type</Label>
+                    <Select
+                      value={formData.ruleType}
+                      onValueChange={(val) => setFormData({ ...formData, ruleType: val })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                      <SelectContent>
+                        {RULE_TYPES.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Rate (Decimal or Amount)</Label>
+                  <Label>Calculation Basis</Label>
+                  <Input
+                    placeholder="GROSS, INSURABLE_EARNINGS, PAYE_AFTER_CREDITS..."
+                    value={formData.calculationBasis}
+                    onChange={(e) => setFormData({ ...formData, calculationBasis: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Employee Rate / Fixed Amount</Label>
+                    <Input
+                      type="number"
+                      step="0.000001"
+                      value={formData.employeeRate}
+                      placeholder="0.045 or 900"
+                      onChange={(e) => setFormData({ ...formData, employeeRate: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Employer Rate</Label>
+                    <Input
+                      type="number"
+                      step="0.000001"
+                      value={formData.employerRate}
+                      placeholder="0.045"
+                      onChange={(e) => setFormData({ ...formData, employerRate: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Single Rate (legacy editor)</Label>
                   <Input
                     type="number"
                     step="0.000001"
                     required
                     value={formData.rate}
-                    onChange={(e) =>
-                      setFormData({ ...formData, rate: e.target.value })
-                    }
+                    onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Used only when employee and employer rates are left blank.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Ceiling Amount</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={formData.ceilingAmount}
+                      placeholder="e.g. 700"
+                      onChange={(e) => setFormData({ ...formData, ceilingAmount: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ceiling Period</Label>
+                    <Select
+                      value={formData.ceilingPeriod || "NONE"}
+                      onValueChange={(val) => setFormData({ ...formData, ceilingPeriod: val === "NONE" ? "" : val })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">None</SelectItem>
+                        <SelectItem value="MONTHLY">Monthly</SelectItem>
+                        <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                        <SelectItem value="ANNUAL">Annual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Annual Credit Amount</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={formData.annualAmount}
+                      placeholder="e.g. 900"
+                      onChange={(e) => setFormData({ ...formData, annualAmount: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Statutory Authority</Label>
+                    <Input
+                      value={formData.statutoryAuthority}
+                      placeholder="ZIMRA, NSSA, ZIMDEF..."
+                      onChange={(e) => setFormData({ ...formData, statutoryAuthority: e.target.value })}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Effective From</Label>
+                  <Label>Source Reference</Label>
                   <Input
-                    type="date"
-                    required
-                    value={formData.effectiveFrom}
-                    onChange={(e) =>
-                      setFormData({ ...formData, effectiveFrom: e.target.value })
-                    }
+                    value={formData.sourceReference}
+                    placeholder="Gazette / circular reference"
+                    onChange={(e) => setFormData({ ...formData, sourceReference: e.target.value })}
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Capped?</Label>
+                    <Select
+                      value={String(formData.isCapped)}
+                      onValueChange={(val) => setFormData({ ...formData, isCapped: val === "true" })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="false">No</SelectItem>
+                        <SelectItem value="true">Yes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Requires Industry Rate?</Label>
+                    <Select
+                      value={String(formData.requiresIndustryRate)}
+                      onValueChange={(val) => setFormData({ ...formData, requiresIndustryRate: val === "true" })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="false">No</SelectItem>
+                        <SelectItem value="true">Yes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Effective From</Label>
+                    <Input
+                      type="date"
+                      required
+                      value={formData.effectiveFrom}
+                      onChange={(e) => setFormData({ ...formData, effectiveFrom: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Effective To</Label>
+                    <Input
+                      type="date"
+                      value={formData.effectiveTo}
+                      onChange={(e) => setFormData({ ...formData, effectiveTo: e.target.value })}
+                    />
+                  </div>
                 </div>
 
                 <div className="pt-4 flex justify-end gap-2">
@@ -378,22 +601,24 @@ export function StatutoryTab() {
             <TableRow>
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
-              <TableHead>Rule Type</TableHead>
+              <TableHead>Category / Party</TableHead>
+              <TableHead>Type / Basis</TableHead>
               <TableHead>Rate</TableHead>
-              <TableHead>Effective From</TableHead>
+              <TableHead>Cap / Ceiling</TableHead>
+              <TableHead>Effective</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   <LoadingRows rows={4} />
                 </TableCell>
               </TableRow>
             ) : !rules?.length ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   No statutory rules found.
                 </TableCell>
               </TableRow>
@@ -414,11 +639,26 @@ export function StatutoryTab() {
                         <span title="System Locked (Required)"><Lock className="w-3.5 h-3.5 text-slate-400" /></span>
                       )}
                     </TableCell>
-                    <TableCell>{rule.name}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{rule.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {rule.statutoryAuthority || "—"}
+                        {rule.sourceReference ? ` · ${rule.sourceReference}` : ""}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-xs">
+                        <div>{String(rule.category || "EMPLOYEE_DEDUCTION").replace(/_/g, " ")}</div>
+                        <div className="text-muted-foreground">{String(rule.responsibleParty || "EMPLOYEE")}</div>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300">
-                        {ruleTypeLabel(rule)}
+                        {rule.calculationType || ruleTypeLabel(rule)}
                       </span>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {String(rule.calculationBasis || "—").replace(/_/g, " ")}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {hasSplitRate ? (
@@ -429,9 +669,28 @@ export function StatutoryTab() {
                       ) : (
                         formatRate(employeeRate, fixed)
                       )}
+                      {fixed && rule.annualAmount != null && (
+                        <div className="text-xs text-muted-foreground">Annual: {formatRate(rule.annualAmount, true)}</div>
+                      )}
                     </TableCell>
                     <TableCell>
-                      {rule.effectiveFrom ? format(new Date(rule.effectiveFrom), 'PP') : '-'}
+                      {rule.isCapped ? (
+                        <div className="text-xs">
+                          <div>Capped at {formatRate(rule.ceilingAmount, true)}</div>
+                          <div className="text-muted-foreground">{rule.ceilingPeriod || "period not set"}</div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Uncapped</span>
+                      )}
+                      {rule.requiresIndustryRate && (
+                        <div className="text-xs text-amber-600">Industry rate required</div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div>{rule.effectiveFrom ? format(new Date(rule.effectiveFrom), 'PP') : '-'}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {rule.effectiveTo ? `to ${format(new Date(rule.effectiveTo), 'PP')}` : "open ended"}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -492,6 +751,388 @@ export function StatutoryTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ApwcsSetupSection companyId={companyId} />
+      <TaxCreditClaimsSection companyId={companyId} />
     </div>
+  );
+}
+
+function ApwcsSetupSection({ companyId }: { companyId: number | null }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [codeForm, setCodeForm] = useState({
+    code: "",
+    description: "",
+    effectiveFrom: format(new Date(), "yyyy-MM-dd"),
+    sourceReference: "",
+  });
+  const [premiumForm, setPremiumForm] = useState({
+    industryCodeId: "",
+    rate: "",
+    ceilingAmount: "",
+    effectiveFrom: format(new Date(), "yyyy-MM-dd"),
+    effectiveTo: "",
+    sourceReference: "",
+    gazetteReference: "",
+  });
+
+  const keys = {
+    codes: [`/api/companies/${companyId}/payroll/industry-codes`],
+    premiums: [`/api/companies/${companyId}/payroll/industry-premium-rates`],
+  };
+
+  const { data: codes } = useQuery<any[]>({
+    queryKey: keys.codes,
+    enabled: !!companyId,
+  });
+  const { data: premiums } = useQuery<any[]>({
+    queryKey: keys.premiums,
+    enabled: !!companyId,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: keys.codes });
+    queryClient.invalidateQueries({ queryKey: keys.premiums });
+  };
+
+  const codeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/industry-codes`, codeForm);
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      setCodeForm({ code: "", description: "", effectiveFrom: format(new Date(), "yyyy-MM-dd"), sourceReference: "" });
+      toast({ title: "NSSA industry code saved" });
+    },
+    onError: (error: Error) => toast({ title: "Could not save industry code", description: readableError(error), variant: "destructive" }),
+  });
+
+  const premiumMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/industry-premium-rates`, {
+        industryCodeId: Number(premiumForm.industryCodeId),
+        rate: Number(premiumForm.rate),
+        ceilingAmount: premiumForm.ceilingAmount || null,
+        effectiveFrom: premiumForm.effectiveFrom,
+        effectiveTo: premiumForm.effectiveTo || null,
+        sourceReference: premiumForm.sourceReference,
+        gazetteReference: premiumForm.gazetteReference || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      setPremiumForm({
+        industryCodeId: "", rate: "", ceilingAmount: "", effectiveFrom: format(new Date(), "yyyy-MM-dd"),
+        effectiveTo: "", sourceReference: "", gazetteReference: "",
+      });
+      toast({ title: "APWCS premium rate saved" });
+    },
+    onError: (error: Error) => toast({ title: "Could not save APWCS rate", description: readableError(error), variant: "destructive" }),
+  });
+
+  return (
+    <section className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Building2 className="w-5 h-5 text-rose-500" />
+        <div>
+          <h3 className="text-lg font-semibold">NSSA APWCS industry classification</h3>
+          <p className="text-sm text-muted-foreground">
+            Employer-only levy. No default rate is applied: configure the employer's industry code and an effective-dated gazetted premium.
+          </p>
+        </div>
+      </div>
+
+      <form
+        className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end"
+        onSubmit={(e) => { e.preventDefault(); codeMutation.mutate(); }}
+      >
+        <div className="space-y-1">
+          <Label>Industry code</Label>
+          <Input required value={codeForm.code} onChange={(e) => setCodeForm({ ...codeForm, code: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Description</Label>
+          <Input required value={codeForm.description} onChange={(e) => setCodeForm({ ...codeForm, description: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Effective from</Label>
+          <Input type="date" required value={codeForm.effectiveFrom} onChange={(e) => setCodeForm({ ...codeForm, effectiveFrom: e.target.value })} />
+        </div>
+        <div className="space-y-1 md:col-span-2">
+          <Label>Source reference</Label>
+          <Input value={codeForm.sourceReference} onChange={(e) => setCodeForm({ ...codeForm, sourceReference: e.target.value })} />
+        </div>
+        <Button type="submit" disabled={!companyId || codeMutation.isPending} className="md:w-fit">
+          Save code
+        </Button>
+      </form>
+
+      <form
+        className="grid grid-cols-1 md:grid-cols-7 gap-3 items-end"
+        onSubmit={(e) => { e.preventDefault(); premiumMutation.mutate(); }}
+      >
+        <div className="space-y-1">
+          <Label>Industry code</Label>
+          <Select value={premiumForm.industryCodeId} onValueChange={(val) => setPremiumForm({ ...premiumForm, industryCodeId: val })}>
+            <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+            <SelectContent>
+              {(codes || []).map((code) => (
+                <SelectItem key={code.id} value={String(code.id)}>{code.code} — {code.description}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Rate (%)</Label>
+          <Input type="number" step="0.000001" required value={premiumForm.rate} onChange={(e) => setPremiumForm({ ...premiumForm, rate: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Ceiling</Label>
+          <Input type="number" step="0.01" value={premiumForm.ceilingAmount} onChange={(e) => setPremiumForm({ ...premiumForm, ceilingAmount: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Effective from</Label>
+          <Input type="date" required value={premiumForm.effectiveFrom} onChange={(e) => setPremiumForm({ ...premiumForm, effectiveFrom: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Effective to</Label>
+          <Input type="date" value={premiumForm.effectiveTo} onChange={(e) => setPremiumForm({ ...premiumForm, effectiveTo: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Source (required)</Label>
+          <Input required value={premiumForm.sourceReference} onChange={(e) => setPremiumForm({ ...premiumForm, sourceReference: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Gazette reference</Label>
+          <Input value={premiumForm.gazetteReference} onChange={(e) => setPremiumForm({ ...premiumForm, gazetteReference: e.target.value })} />
+          <Button type="submit" className="mt-2 w-full" disabled={!premiumForm.industryCodeId || premiumMutation.isPending}>
+            Save premium
+          </Button>
+        </div>
+      </form>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Code</TableHead>
+            <TableHead>Rate</TableHead>
+            <TableHead>Ceiling</TableHead>
+            <TableHead>Effective</TableHead>
+            <TableHead>Source</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!premiums?.length ? (
+            <TableRow><TableCell colSpan={5} className="text-center py-6 text-muted-foreground">No APWCS premium configured. Payroll will report zero with a warning.</TableCell></TableRow>
+          ) : premiums.map((rate) => (
+            <TableRow key={rate.id}>
+              <TableCell className="font-medium">{rate.industryCode}</TableCell>
+              <TableCell>{Number((Number(rate.rate) * 100).toFixed(4))}%</TableCell>
+              <TableCell>{rate.ceilingAmount ? formatRate(rate.ceilingAmount, true) : "Uncapped"}</TableCell>
+              <TableCell>
+                {format(new Date(rate.effectiveFrom), "PP")}
+                {rate.effectiveTo ? ` – ${format(new Date(rate.effectiveTo), "PP")}` : " – open ended"}
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">{rate.gazetteReference || rate.sourceReference}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </section>
+  );
+}
+
+function TaxCreditClaimsSection({ companyId }: { companyId: number | null }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const currentYear = new Date().getFullYear();
+
+  const [form, setForm] = useState({
+    employeeId: "",
+    creditCode: "MEDICAL_CREDIT",
+    taxYear: String(currentYear),
+    qualifyingExpenses: "",
+    annualAmountOverride: "",
+    documentationReference: "",
+    effectiveFrom: `${currentYear}-01-01`,
+    effectiveTo: `${currentYear}-12-31`,
+    notes: "",
+  });
+
+  const keys = {
+    employees: [`/api/companies/${companyId}/payroll/employees`],
+    credits: [`/api/companies/${companyId}/payroll/employee-tax-credits`],
+    rules: [`/api/companies/${companyId}/payroll/statutory-rules`],
+  };
+
+  const { data: employees } = useQuery<any[]>({ queryKey: keys.employees, enabled: !!companyId });
+  const { data: credits } = useQuery<any[]>({ queryKey: keys.credits, enabled: !!companyId });
+  const { data: rules } = useQuery<any[]>({ queryKey: keys.rules, enabled: !!companyId });
+  const creditRules = (rules || []).filter((rule: any) => rule.category === "TAX_CREDIT");
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const selectedRule = creditRules.find((rule: any) => rule.ruleCode === form.creditCode);
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employee-tax-credits`, {
+        employeeId: Number(form.employeeId),
+        statutoryRuleId: selectedRule?.id || null,
+        creditCode: form.creditCode,
+        taxYear: Number(form.taxYear),
+        qualifyingExpenses: Number(form.qualifyingExpenses || 0),
+        annualAmountOverride: form.annualAmountOverride === "" ? null : Number(form.annualAmountOverride),
+        documentationReference: form.documentationReference,
+        effectiveFrom: form.effectiveFrom,
+        effectiveTo: form.effectiveTo || null,
+        notes: form.notes,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.credits });
+      toast({ title: "Tax credit claim submitted for approval" });
+    },
+    onError: (error: Error) => toast({ title: "Could not save tax credit claim", description: readableError(error), variant: "destructive" }),
+  });
+
+  const decisionMutation = useMutation({
+    mutationFn: async ({ id, decision }: { id: number; decision: "APPROVED" | "REJECTED" }) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employee-tax-credits/${id}/decision`, { decision });
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: keys.credits });
+      toast({ title: `Credit claim ${vars.decision.toLowerCase()}` });
+    },
+    onError: (error: Error) => toast({ title: "Could not update credit claim", description: readableError(error), variant: "destructive" }),
+  });
+
+  const employeeName = (id: number) => {
+    const emp = (employees || []).find((item) => item.id === id);
+    return emp ? `${emp.firstName} ${emp.lastName}`.trim() : `#${id}`;
+  };
+
+  return (
+    <section className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <BadgeCheck className="w-5 h-5 text-rose-500" />
+        <div>
+          <h3 className="text-lg font-semibold">Employee tax credit claims</h3>
+          <p className="text-sm text-muted-foreground">
+            Credits are never applied automatically. Capture eligibility and documents, then approve the claim before payroll uses it.
+          </p>
+        </div>
+      </div>
+
+      <form
+        className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end"
+        onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }}
+      >
+        <div className="space-y-1">
+          <Label>Employee</Label>
+          <Select value={form.employeeId} onValueChange={(val) => setForm({ ...form, employeeId: val })}>
+            <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+            <SelectContent>
+              {(employees || []).map((emp) => (
+                <SelectItem key={emp.id} value={String(emp.id)}>{emp.firstName} {emp.lastName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Credit</Label>
+          <Select value={form.creditCode} onValueChange={(val) => setForm({ ...form, creditCode: val })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {creditRules.length ? creditRules.map((rule) => (
+                <SelectItem key={rule.id} value={rule.ruleCode}>{rule.name}</SelectItem>
+              )) : (
+                <>
+                  <SelectItem value="MEDICAL_CREDIT">Medical expenses</SelectItem>
+                  <SelectItem value="ELDERLY_CREDIT">Elderly person</SelectItem>
+                  <SelectItem value="BLIND_CREDIT">Blind person</SelectItem>
+                  <SelectItem value="DISABLED_CREDIT">Disabled person</SelectItem>
+                </>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Tax year</Label>
+          <Input type="number" required value={form.taxYear} onChange={(e) => setForm({ ...form, taxYear: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Qualifying expenses / override</Label>
+          <Input type="number" step="0.01" value={form.qualifyingExpenses} onChange={(e) => setForm({ ...form, qualifyingExpenses: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Document reference</Label>
+          <Input value={form.documentationReference} onChange={(e) => setForm({ ...form, documentationReference: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Effective from</Label>
+          <Input type="date" required value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Effective to</Label>
+          <Input type="date" value={form.effectiveTo} onChange={(e) => setForm({ ...form, effectiveTo: e.target.value })} />
+        </div>
+        <div className="space-y-1 md:col-span-2">
+          <Label>Notes / interactions</Label>
+          <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="e.g. does not combine with another fixed credit" />
+        </div>
+        <Button type="submit" disabled={!form.employeeId || createMutation.isPending} className="md:w-fit">Submit claim</Button>
+      </form>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Employee</TableHead>
+            <TableHead>Credit</TableHead>
+            <TableHead>Tax year / period</TableHead>
+            <TableHead>Value</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!credits?.length ? (
+            <TableRow><TableCell colSpan={6} className="text-center py-6 text-muted-foreground">No tax credit claims captured.</TableCell></TableRow>
+          ) : credits.map((claim) => (
+            <TableRow key={claim.id}>
+              <TableCell className="font-medium">{employeeName(claim.employeeId)}</TableCell>
+              <TableCell>{String(claim.creditCode).replace(/_/g, " ")}</TableCell>
+              <TableCell>
+                {claim.taxYear}<br />
+                <span className="text-xs text-muted-foreground">
+                  {format(new Date(claim.effectiveFrom), "PP")}
+                  {claim.effectiveTo ? ` – ${format(new Date(claim.effectiveTo), "PP")}` : " – open ended"}
+                </span>
+              </TableCell>
+              <TableCell>
+                {claim.annualAmountOverride != null ? `Override ${formatRate(claim.annualAmountOverride, true)}` : `Expenses ${formatRate(claim.qualifyingExpenses, true)}`}
+                <div className="text-xs text-muted-foreground">{claim.documentationReference || "No document reference"}</div>
+              </TableCell>
+              <TableCell>
+                <span className={`text-xs font-medium ${claim.approvalStatus === "APPROVED" ? "text-emerald-600" : claim.approvalStatus === "REJECTED" ? "text-rose-600" : "text-amber-600"}`}>
+                  {claim.approvalStatus}
+                </span>
+              </TableCell>
+              <TableCell className="text-right">
+                {claim.approvalStatus === "PENDING" && (
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="outline" onClick={() => decisionMutation.mutate({ id: claim.id, decision: "APPROVED" })}>Approve</Button>
+                    <Button size="sm" variant="ghost" onClick={() => decisionMutation.mutate({ id: claim.id, decision: "REJECTED" })}>Reject</Button>
+                  </div>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </section>
   );
 }

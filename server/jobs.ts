@@ -3,6 +3,10 @@ import { type RecurringInvoice, type InsertJobLog } from "../shared/schema.js";
 import { addDays, addWeeks, addMonths, addYears } from "date-fns";
 import { ZimraDevice } from "./zimra.js";
 import { getZimraLogger } from "./lib/fiscalization.js";
+import {
+  STATUTORY_REVIEW_CRON,
+  STATUTORY_REVIEW_TIME_ZONE,
+} from "../shared/statutory/review-schedule.js";
 
 // In-memory scheduler status: lets the API surface schedules and outcomes
 export interface JobSchedulerEntry {
@@ -31,6 +35,16 @@ const schedulerEntries: JobSchedulerEntry[] = [
     name: 'recurring_invoices',
     description: 'Generates invoices from due recurring invoice templates.',
     schedule: 'Every hour',
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: null,
+    lastRunDurationMs: null,
+    lastRunSummary: null
+  },
+  {
+    name: 'statutory_rate_review_reminder',
+    description: 'Records the quarterly ZIMRA/NSSA/ZIMDEF/APWCS statutory rate review reminder.',
+    schedule: `${STATUTORY_REVIEW_CRON} (${STATUTORY_REVIEW_TIME_ZONE}), from 1 Jan 2027`,
     nextRunAt: null,
     lastRunAt: null,
     lastRunStatus: null,

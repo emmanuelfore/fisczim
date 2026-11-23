@@ -260,6 +260,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
     const verificationCode = verificationCodeRaw.match(/.{1,4}/g)?.join("-") || "";
 
     const isExclusive = !invoice.taxInclusive;
+    // Vehicle cost lines are informational only: they are shown on the invoice
+    // document but never added to the invoice items, subtotal, VAT or total.
+    const vehicleCostLines = (invoice.vehicleCosts || []).filter((c: any) => c.status !== "cancelled");
     const hasDesignerPartnership = designerSettings.showPartnership;
     const partner = (invoice.partnerSnapshot || (hasDesignerPartnership ? {
         id: 1,
@@ -609,6 +612,42 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             </View>
                         );
                     })}
+
+                    {vehicleCostLines.map((cost: any, i: number) => {
+                        const label = String(cost.category || "Other").replace(/_/g, " ");
+                        const amount = Number(cost.baseAmount ?? cost.amount ?? 0);
+                        const description = [label, cost.description].filter(Boolean).join(" — ");
+                        return (
+                            <View key={`cost-${cost.id ?? i}`} style={[styles.tableRow, { borderBottomColor: borderColor, backgroundColor: sectionBg }]}>
+                                {isExclusive ? (
+                                    <>
+                                        <Text style={[styles.colExCode, { color: "#64748b" }]}>COST</Text>
+                                        <View style={styles.colExDesc}>
+                                            <Text style={{ color: "#475569" }}>Vehicle cost: {description}</Text>
+                                            <Text style={{ fontSize: 7, color: "#94a3b8", fontStyle: "italic" }}>Informational — not charged</Text>
+                                        </View>
+                                        <Text style={styles.colExQty}>-</Text>
+                                        <Text style={styles.colExPrice}>-</Text>
+                                        <Text style={styles.colExAmt}>-</Text>
+                                        <Text style={styles.colExVat}>-</Text>
+                                        <Text style={styles.colExTotal}>{formatCurrencyAmount(amount, invoice.currency || "USD")}</Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={[styles.colCode, { color: "#64748b" }]}>COST</Text>
+                                        <View style={styles.colDesc}>
+                                            <Text style={{ color: "#475569" }}>Vehicle cost: {description}</Text>
+                                            <Text style={{ fontSize: 7, color: "#94a3b8", fontStyle: "italic" }}>Informational — not charged</Text>
+                                        </View>
+                                        <Text style={styles.colQty}>-</Text>
+                                        <Text style={styles.colPrice}>-</Text>
+                                        <Text style={styles.colVat}>-</Text>
+                                        <Text style={styles.colTotal}>{formatCurrencyAmount(amount, invoice.currency || "USD")}</Text>
+                                    </>
+                                )}
+                            </View>
+                        );
+                    })}
                 </View>
 
                 {/* 5. Summary & Totals */}
@@ -706,9 +745,8 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     </View>
                 </View>
 
-                {invoice.vehicleCosts?.length ? (() => {
-                    const costs = invoice.vehicleCosts.filter((c: any) => c.status !== "cancelled");
-                    const landed = costs.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
+                {vehicleCostLines.length ? (() => {
+                    const landed = vehicleCostLines.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
                     const saleRate = Number(invoice.exchangeRate || 1) || 1;
                     const sale = invoice.currency === "USD" ? Number(invoice.total || 0) : (Number(invoice.total || 0) / saleRate);
                     const profit = sale - landed;
@@ -719,14 +757,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                 Vehicle: {[invoice.vehicle.year, invoice.vehicle.make, invoice.vehicle.model].filter(Boolean).join(" ")} (Stock: {invoice.vehicle.stockNumber}{invoice.vehicle.vin ? `, VIN: ${invoice.vehicle.vin}` : ""})
                             </Text>
                         ) : null}
-                        {costs.map((cost: any) => <View key={cost.id} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}>
-                            <Text style={{ color: "#475569" }}>
-                                {String(cost.description ? `${(cost.category || "Other").replace(/_/g, " ")} (${cost.description})` : (cost.category || "Other").replace(/_/g, " "))}
-                            </Text>
-                            <Text>{formatCurrencyAmount(Number(cost.baseAmount ?? cost.amount ?? 0), invoice.currency || "USD")}</Text>
-                        </View>)}
                         <View style={{ flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: borderColor, marginTop: 3, paddingTop: 4, fontWeight: 700 }}><Text>Landed cost</Text><Text>{formatCurrencyAmount(landed, invoice.currency || "USD")}</Text></View>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 3, fontWeight: 700 }}><Text>Estimated margin</Text><Text>{formatCurrencyAmount(profit, invoice.currency || "USD")} ({sale > 0 ? ((profit / sale) * 100).toFixed(1) : "0.0"}%)</Text></View>
+                        <Text style={{ fontSize: 7, color: "#94a3b8", marginTop: 4 }}>Cost lines above are informational and are not included in the invoice total.</Text>
                     </View>;
                 })() : null}
 

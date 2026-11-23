@@ -1192,19 +1192,27 @@ export default function InvoiceDetailsPage() {
                                     )}
                                   </div>
                                 )}
-                                <div className="space-y-1.5 text-xs">
+                                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                  <div className="grid grid-cols-[1fr_auto] gap-2 bg-slate-100 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
+                                    <span>Vehicle cost line</span>
+                                    <span>Amount</span>
+                                  </div>
                                   {costs.map((cost: any) => (
-                                    <div key={cost.id} className="flex justify-between text-slate-600">
+                                    <div key={cost.id} className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-600">
                                       <span className="capitalize">
                                         {(cost.category || "Other").replace(/_/g, " ")}
-                                        {cost.description ? ` (${cost.description})` : ""}
+                                        {cost.description ? ` — ${cost.description}` : ""}
                                       </span>
                                       <span className="font-semibold text-slate-800">
-                                        ${Number(cost.baseAmount ?? cost.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {currencyLabel(inv.currency)}{" "}
+                                        {Number(cost.baseAmount ?? cost.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                       </span>
                                     </div>
                                   ))}
                                 </div>
+                                <p className="text-[10px] italic text-slate-400">
+                                  Informational cost lines — not included in the invoice total.
+                                </p>
                                 <div className="border-t border-slate-200 pt-2 space-y-1 text-xs">
                                   <div className="flex justify-between font-bold text-slate-800">
                                     <span>Landed Cost</span>

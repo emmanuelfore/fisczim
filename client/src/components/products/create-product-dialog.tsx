@@ -71,6 +71,15 @@ export function CreateProductDialog({
     enabled: open,
   });
   const { data: costCenters = [] } = useCostCenters(companyId);
+  const { data: departments = [] } = useQuery<any[]>({
+    queryKey: ["payroll-departments", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/v1/payroll/departments?companyId=${companyId}`);
+      if (!res.ok) throw new Error("Failed to fetch departments");
+      return res.json();
+    },
+    enabled: open,
+  });
 
   const form = useForm<InsertProduct>({
     resolver: zodResolver(insertProductSchema),
@@ -82,6 +91,8 @@ export function CreateProductDialog({
       hsCode: "",
       category: "",
       ownerGroup: "",
+      departmentId: null,
+      costCenterId: null,
       price: "0.00",
       costPrice: "0.00",
       taxRate: "15.50",
@@ -305,9 +316,17 @@ export function CreateProductDialog({
                   </FormLabel>
                   <Select
                     value={field.value || "none"}
-                    onValueChange={(val) =>
-                      form.setValue("ownerGroup", val === "none" ? "" : val, { shouldDirty: true })
-                    }
+                    onValueChange={(val) => {
+                      const ccName = val === "none" ? "" : val;
+                      const cc = costCenters.find((item) => item.name === ccName);
+                      form.setValue("ownerGroup", ccName, { shouldDirty: true });
+                      form.setValue("costCenterId", cc?.id ?? null, { shouldDirty: true });
+                      form.setValue(
+                        "departmentId",
+                        departments.find((dept) => dept.costCenterId === cc?.id)?.id ?? null,
+                        { shouldDirty: true },
+                      );
+                    }}
                   >
                     <FormControl>
                       <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">

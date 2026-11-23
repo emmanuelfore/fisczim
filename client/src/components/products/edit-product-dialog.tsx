@@ -75,6 +75,15 @@ export function EditProductDialog({ product, trigger, children }: Props) {
     enabled: open,
   });
   const { data: costCenters = [] } = useCostCenters(product.companyId);
+  const { data: departments = [] } = useQuery<any[]>({
+    queryKey: ["payroll-departments", product.companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/v1/payroll/departments?companyId=${product.companyId}`);
+      if (!res.ok) throw new Error("Failed to fetch departments");
+      return res.json();
+    },
+    enabled: open,
+  });
 
   const isService = product.productType === "service";
 
@@ -88,6 +97,8 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       hsCode: product.hsCode || "",
       category: product.category || "",
       ownerGroup: product.ownerGroup || "",
+      departmentId: product.departmentId ?? null,
+      costCenterId: product.costCenterId ?? null,
       price: product.price?.toString() || "0.00",
       costPrice: product.costPrice?.toString() || "0.00",
       taxRate: product.taxRate?.toString() || "15.50",
@@ -314,9 +325,17 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                   </FormLabel>
                   <Select
                     value={field.value || "none"}
-                    onValueChange={(val) =>
-                      form.setValue("ownerGroup", val === "none" ? "" : val, { shouldDirty: true })
-                    }
+                    onValueChange={(val) => {
+                      const ccName = val === "none" ? "" : val;
+                      const cc = costCenters.find((item) => item.name === ccName);
+                      form.setValue("ownerGroup", ccName, { shouldDirty: true });
+                      form.setValue("costCenterId", cc?.id ?? null, { shouldDirty: true });
+                      form.setValue(
+                        "departmentId",
+                        departments.find((dept) => dept.costCenterId === cc?.id)?.id ?? null,
+                        { shouldDirty: true },
+                      );
+                    }}
                   >
                     <FormControl>
                       <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">

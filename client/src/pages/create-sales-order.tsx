@@ -15,6 +15,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useCostCenters } from "@/hooks/use-cost-centers";
+import { useInventoryLocations } from "@/hooks/use-stock-transfers";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,6 +105,17 @@ export default function CreateSalesOrderPage() {
   const { data: company } = useCompany(companyId);
   const { data: customers } = useCustomers(companyId);
   const { data: products } = useProducts(companyId);
+  const { data: costCenters = [] } = useCostCenters(companyId);
+  const { data: locations = [] } = useInventoryLocations(companyId, { all: true });
+  const { data: departments = [] } = useQuery<any[]>({
+    queryKey: ["payroll-departments", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/v1/payroll/departments?companyId=${companyId}`);
+      if (!res.ok) throw new Error("Failed to fetch departments");
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
   const { data: currencies } = useCurrencies(companyId);
   const { data: existingSalesOrder } = useSalesOrder(
     editId ?? undefined,
@@ -112,6 +127,9 @@ export default function CreateSalesOrderPage() {
 
   // Form State
   const [customerId, setCustomerId] = useState<string>("");
+  const [departmentId, setDepartmentId] = useState<string>("");
+  const [costCenterId, setCostCenterId] = useState<string>("");
+  const [locationId, setLocationId] = useState<string>("");
   const [issueDate, setIssueDate] = useState<string>(
     new Date().toISOString().split("T")[0],
   );
@@ -146,6 +164,9 @@ export default function CreateSalesOrderPage() {
   useEffect(() => {
     if (existingSalesOrder && isEditing) {
       setCustomerId(existingSalesOrder.customerId.toString());
+      setDepartmentId(existingSalesOrder.departmentId?.toString() || "");
+      setCostCenterId(existingSalesOrder.costCenterId?.toString() || "");
+      setLocationId(existingSalesOrder.locationId?.toString() || "");
       if (existingSalesOrder.issueDate)
         setIssueDate(
           new Date(existingSalesOrder.issueDate).toISOString().split("T")[0],
@@ -209,6 +230,12 @@ export default function CreateSalesOrderPage() {
       createdProduct ??
       products?.find((p) => String(p.id) === productId);
     if (product) {
+      if (product.costCenterId && !costCenterId) {
+        setCostCenterId(String(product.costCenterId));
+      }
+      if (product.departmentId && !departmentId) {
+        setDepartmentId(String(product.departmentId));
+      }
       setItems((prev) =>
         prev.map((item) => {
           if (item.localId !== localId) return item;
@@ -325,6 +352,9 @@ export default function CreateSalesOrderPage() {
     const payload = {
       companyId,
       customerId: customerId ? parseInt(customerId) : null,
+      departmentId: departmentId ? parseInt(departmentId) : null,
+      costCenterId: costCenterId ? parseInt(costCenterId) : null,
+      locationId: locationId ? parseInt(locationId) : null,
       issueDate: new Date(issueDate),
       expiryDate: expiryDate ? new Date(expiryDate) : undefined,
       notes,
@@ -665,6 +695,57 @@ export default function CreateSalesOrderPage() {
                 </CardContent>
               </Card>
             )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Select value={departmentId || "none"} onValueChange={(v) => setDepartmentId(v === "none" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Department</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={String(dept.id)}>
+                        {dept.name}{dept.code ? ` (${dept.code})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Cost Centre</Label>
+                <Select value={costCenterId || "none"} onValueChange={(v) => setCostCenterId(v === "none" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Cost Centre" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Cost Centre</SelectItem>
+                    {costCenters.map((cc) => (
+                      <SelectItem key={cc.id} value={String(cc.id)}>
+                        {cc.name} ({cc.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Dispatch Warehouse</Label>
+                <Select value={locationId || "none"} onValueChange={(v) => setLocationId(v === "none" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Warehouse" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Default Warehouse</SelectItem>
+                    {locations.filter((loc) => loc.isActive).map((loc) => (
+                      <SelectItem key={loc.id} value={String(loc.id)}>
+                        {loc.name}{loc.code ? ` (${loc.code})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">

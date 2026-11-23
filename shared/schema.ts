@@ -263,6 +263,7 @@ export const inventoryLocations = pgTable("inventory_locations", {
   code: text("code"),
   address: text("address"),
   branchId: integer("branch_id").references(() => branches.id),
+  departmentId: integer("department_id").references(() => departments.id),
   isDefaultReceiving: boolean("is_default_receiving").default(false).notNull(),
   isDefaultDispatch: boolean("is_default_dispatch").default(false).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
@@ -1272,6 +1273,8 @@ export const products = pgTable("products", {
   hsCode: text("hs_code"),
   category: text("category"),
   ownerGroup: text("owner_group"),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   costPrice: decimal("cost_price", { precision: 14, scale: 6 }),
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("15.50"), // Default VAT
@@ -1482,6 +1485,9 @@ export const invoices = pgTable("invoices", {
   branchId: integer("branch_id").references(() => branches.id), // Nullable for migration
   customerId: integer("customer_id").references(() => customers.id).notNull(),
   salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
 
   invoiceNumber: text("invoice_number").notNull(),
   issueDate: timestamp("issue_date").defaultNow(),
@@ -1970,6 +1976,8 @@ export const quotations = pgTable("quotations", {
   branchId: integer("branch_id").references(() => branches.id),
   customerId: integer("customer_id").references(() => customers.id).notNull(),
   salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
   convertedAt: timestamp("converted_at"),
 
   quotationNumber: text("quotation_number").notNull(),
@@ -2349,6 +2357,8 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
   locationId: integer("location_id").references(() => inventoryLocations.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
   productId: integer("product_id").references(() => products.id).notNull(),
   variationId: integer("variation_id"), // Added for pharma/variant tracking
   supplierId: integer("supplier_id").references(() => suppliers.id),
@@ -2582,6 +2592,9 @@ export const purchaseOrders = pgTable("purchase_orders", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   supplierId: integer("supplier_id").references(() => suppliers.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
   poNumber: text("po_number").notNull(),
   status: text("status").default("DRAFT").notNull(), // DRAFT, SENT, RECEIVED, CANCELLED
   expectedDate: timestamp("expected_date"),
@@ -2696,6 +2709,8 @@ export const expenses = pgTable("expenses", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
   supplierId: integer("supplier_id").references(() => suppliers.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
 
   category: text("category").notNull(), // Rent, Utilities, Salary, etc.
   description: text("description").notNull(),
@@ -3859,6 +3874,8 @@ export const departments = pgTable("departments", {
   name: text("name").notNull(),
   code: text("code"),
   glAccountId: integer("gl_account_id").references(() => accounts.id), // Direct payroll expense mapping
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  managerUserId: uuid("manager_user_id").references(() => users.id),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
@@ -6099,7 +6116,10 @@ export const salesOrders = pgTable("sales_orders", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
   customerId: integer("customer_id").references(() => customers.id),
-  quotationId: integer("quotation_id").references((): AnyPgColumn => invoices.id),
+  quotationId: integer("quotation_id").references((): AnyPgColumn => quotations.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
 
   orderNumber: text("order_number").notNull(),
   issueDate: timestamp("issue_date").defaultNow(),
@@ -6140,7 +6160,7 @@ export const salesOrders = pgTable("sales_orders", {
 export const salesOrderItems = pgTable("sales_order_items", {
   id: serial("id").primaryKey(),
   salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id).notNull(),
-  quotationItemId: integer("quotation_item_id").references((): AnyPgColumn => invoiceItems.id),
+  quotationItemId: integer("quotation_item_id").references((): AnyPgColumn => quotationItems.id),
   productId: integer("product_id").references(() => products.id),
   description: text("description").notNull(),
   quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),

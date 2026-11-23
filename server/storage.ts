@@ -665,7 +665,12 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Account ${identifier} not found for company ${companyId}`);
       }
 
-      const costCenterId = line.costCenterId ? Number(line.costCenterId) : null;
+      // Source documents should supply the department's cost centre. Where they
+      // do not, fall back to the account-level default so postings do not leak
+      // into the "Unassigned" analytical bucket.
+      const costCenterId = line.costCenterId
+        ? Number(line.costCenterId)
+        : (account.defaultCostCenterId ?? null);
       if (costCenterId) {
         const [cc] = await tx.select({ id: costCenters.id }).from(costCenters)
           .where(and(eq(costCenters.id, costCenterId), eq(costCenters.companyId, companyId)))
@@ -6511,8 +6516,8 @@ export class DatabaseStorage implements IStorage {
         referenceId: expense.id.toString(),
         createdBy: undefined,
         lines: [
-          { accountCode: debitAccountCode, type: "DEBIT", amount: Number(expense.amount) },
-          { accountCode: creditAccountCode, type: "CREDIT", amount: Number(expense.amount) },
+          { accountCode: debitAccountCode, type: "DEBIT", amount: Number(expense.amount), costCenterId: expense.costCenterId ?? null },
+          { accountCode: creditAccountCode, type: "CREDIT", amount: Number(expense.amount), costCenterId: expense.costCenterId ?? null },
         ]
       }, tx);
 

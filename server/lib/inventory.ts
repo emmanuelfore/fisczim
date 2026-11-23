@@ -322,6 +322,19 @@ export async function recordBatchStockIn(
     // already inside one (approvals roll the GRV back with their own changes).
     const executeInTx = async (tx: any) => {
         const receivingLocation = await resolveReceivingLocation(tx, companyId, null);
+        const [purchaseOrder] = purchaseOrderId
+            ? await tx
+                .select({
+                    status: purchaseOrders.status,
+                    departmentId: purchaseOrders.departmentId,
+                    costCenterId: purchaseOrders.costCenterId,
+                })
+                .from(purchaseOrders)
+                .where(eq(purchaseOrders.id, purchaseOrderId))
+                .limit(1)
+            : [null];
+        const purchaseDepartmentId = purchaseOrder?.departmentId ?? null;
+        const purchaseCostCenterId = purchaseOrder?.costCenterId ?? null;
 
         for (const item of allocatedItems) {
             const quantity = item.quantity;
@@ -353,6 +366,8 @@ export async function recordBatchStockIn(
                 companyId,
                 productId: item.productId,
                 locationId: receivingLocation.id,
+                departmentId: purchaseDepartmentId,
+                costCenterId: purchaseCostCenterId,
                 supplierId: supplierId || null,
                                 type: "STOCK_IN",
                 quantity: quantity.toString(),
@@ -463,12 +478,7 @@ export async function recordBatchStockIn(
                 .where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId));
             const fullyReceived = poLines.length > 0 && poLines.every((line: any) =>
                 Number(line.quantityReceived || 0) + 0.01 >= Number(line.quantity || 0));
-            const [po] = await tx
-                .select({ status: purchaseOrders.status })
-                .from(purchaseOrders)
-                .where(eq(purchaseOrders.id, purchaseOrderId))
-                .limit(1);
-            if (po && po.status !== "CANCELLED") {
+            if (purchaseOrder && purchaseOrder.status !== "CANCELLED") {
                 await tx
                     .update(purchaseOrders)
                     .set({ status: fullyReceived ? "RECEIVED" : "SENT", updatedAt: new Date() })
@@ -497,6 +507,7 @@ export async function recordBatchStockIn(
                 baseAmount: amount,
                 currency: glCurrency,
                 exchangeRate: glExchangeRate,
+                costCenterId: purchaseCostCenterId,
             });
             const lines = [];
             

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
+import { storage } from "../storage.js";
 import { eq, and, isNull, ne, or, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { 
   salesOrders, 
@@ -41,7 +42,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
       const quote = await db.query.quotations.findFirst({
         where: eq(quotations.id, quotationId),
-        with: { items: true }
+        with: { items: { with: { product: true } } }
       });
 
       if (!quote) return res.status(404).json({ error: "Quotation not found" });
@@ -51,6 +52,10 @@ export function createCustomerFlowRouter(requireAuth: any) {
       if (["declined", "invoiced"].includes(quote.status || "")) {
         return res.status(400).json({ error: `Quotation is ${quote.status} and cannot be converted` });
       }
+
+      const firstCostedItem = quote.items.find((item: any) => item.product?.costCenterId);
+      const costCenterId = quote.costCenterId ?? firstCostedItem?.product?.costCenterId ?? null;
+      const departmentId = quote.departmentId ?? firstCostedItem?.product?.departmentId ?? null;
 
       // Return the existing order instead of creating a duplicate on retry.
       const existingOrder = await db.query.salesOrders.findFirst({
@@ -66,6 +71,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
         branchId: quote.branchId || undefined,
         customerId: quote.customerId,
         quotationId: quote.id,
+        departmentId,
+        costCenterId,
         orderNumber: `SO-${Date.now()}`,
         issueDate: new Date(),
         subtotal: quote.subtotal,
@@ -91,7 +98,13 @@ export function createCustomerFlowRouter(requireAuth: any) {
       })));
 
       await db.update(quotations)
-        .set({ status: "accepted", salesOrderId: newOrder.id, convertedAt: new Date() })
+        .set({
+          status: "accepted",
+          salesOrderId: newOrder.id,
+          convertedAt: new Date(),
+          departmentId,
+          costCenterId,
+        })
         .where(eq(quotations.id, quote.id));
 
       res.status(201).json(newOrder);
@@ -245,7 +258,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
       .orderBy(desc(salesPickLists.id))
       .limit(1);
 
-    const locationId = pickList?.locationId ?? await resolveDispatchLocationId(order.companyId);
+    const locationId = pickList?.locationId ?? order.locationId ?? await resolveDispatchLocationId(order.companyId);
     const pickListItems = pickList
       ? await db.select().from(salesPickListItems).where(eq(salesPickListItems.pickListId, pickList.id))
       : [];
@@ -486,6 +499,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
           companyId: data.order.companyId,
           branchId: data.order.branchId,
           locationId: data.locationId,
+          departmentId: data.order.departmentId ?? null,
+          costCenterId: data.order.costCenterId ?? null,
           productId: item.productId,
           type: "STOCK_OUT",
           quantity: (-quantity).toString(),
@@ -593,94 +608,152 @@ export function createCustomerFlowRouter(requireAuth: any) {
       const itemsToInvoice = linesToInvoice;
       const invoiceTotal = invoiceSubtotal + invoiceTax;
 
-      // Create invoice
-      const [newInvoice] = await db.insert(invoices).values({
-        companyId: order.companyId,
-        branchId: order.branchId,
-        customerId: (order.customerId || undefined) as any,
-        salesOrderId: order.id,
-        invoiceNumber: `INV-${Date.now()}`,
-        issueDate: new Date(),
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        subtotal: invoiceSubtotal.toString(),
-        taxAmount: invoiceTax.toString(),
-        total: invoiceTotal.toString(),
-        status: "draft",
-      }).returning();
+      // The invoice, GL postings and order status must form one atomic unit.
+      // A duplicate retry is handled by the active-invoice guard above and the
+      // partial unique index in the database.
+      let createdInvoice: any;
+      await db.transaction(async (tx) => {
+        // Create invoice
+        const [newInvoice] = await tx.insert(invoices).values({
+          companyId: order.companyId,
+          branchId: order.branchId,
+          customerId: (order.customerId || undefined) as any,
+          salesOrderId: order.id,
+          departmentId: order.departmentId ?? null,
+          costCenterId: order.costCenterId ?? null,
+          locationId: fulfillment.locationId ?? order.locationId ?? null,
+          invoiceNumber: `INV-${Date.now()}`,
+          issueDate: new Date(),
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          subtotal: invoiceSubtotal.toString(),
+          taxAmount: invoiceTax.toString(),
+          total: invoiceTotal.toString(),
+          status: "draft",
+        }).returning();
 
-      await db.insert(invoiceItems).values(
-        invoiceItemsData.map((item: any) => ({
-          ...item,
-          invoiceId: newInvoice.id
-        }))
-      );
+        await tx.insert(invoiceItems).values(
+          invoiceItemsData.map((item: any) => ({
+            ...item,
+            invoiceId: newInvoice.id
+          }))
+        );
 
-      // Deduct stock for each invoiced line
-      for (const reqItem of itemsToInvoice) {
-        const allocs = await db.query.stockAllocations.findMany({
-          where: and(
+        // Post the customer document with the originating department's cost centre.
+        try {
+          const costCenterId = newInvoice.costCenterId ?? order.costCenterId ?? null;
+          const [arAccountCode, salesAccountCode, vatAccountCode, cogsAccountCode, inventoryAccountCode] = await Promise.all([
+            storage.getSystemAccountCode(order.companyId, "accountsReceivableCode", tx),
+            storage.getSystemAccountCode(order.companyId, "salesRevenueAccountCode", tx),
+            storage.getSystemAccountCode(order.companyId, "vatOutputAccountCode", tx),
+            storage.getSystemAccountCode(order.companyId, "cogsAccountCode", tx),
+            storage.getSystemAccountCode(order.companyId, "inventoryAccountCode", tx),
+          ]);
+
+          const revenueLines: any[] = [
+            { accountCode: arAccountCode, type: "DEBIT", amount: invoiceTotal, costCenterId },
+            { accountCode: salesAccountCode, type: "CREDIT", amount: invoiceSubtotal, costCenterId },
+          ];
+          if (invoiceTax > 0) {
+            revenueLines.push({ accountCode: vatAccountCode, type: "CREDIT", amount: invoiceTax, costCenterId });
+          }
+          await storage.postToLedger(order.companyId, {
+            entryDate: newInvoice.issueDate || new Date(),
+            description: `Invoice ${newInvoice.invoiceNumber}`,
+            referenceType: "INVOICE",
+            referenceId: String(newInvoice.id),
+            createdBy: (req.user as any)?.id || undefined,
+            lines: revenueLines,
+          } as any, tx);
+
+          const cogs = itemsToInvoice.reduce((sum, item) => {
+            const picked = fulfillment.items.find((p: any) => p.salesOrderItemId === item.salesOrderItemId);
+            return sum + Number(picked?.costPrice || 0) * Number(item.quantityToInvoice);
+          }, 0);
+          if (cogs > 0) {
+            await storage.postToLedger(order.companyId, {
+              entryDate: newInvoice.issueDate || new Date(),
+              description: `COGS for Invoice ${newInvoice.invoiceNumber}`,
+              referenceType: "INVOICE",
+              referenceId: String(newInvoice.id),
+              createdBy: (req.user as any)?.id || undefined,
+              lines: [
+                { accountCode: cogsAccountCode, type: "DEBIT", amount: cogs, costCenterId },
+                { accountCode: inventoryAccountCode, type: "CREDIT", amount: cogs, costCenterId },
+              ],
+            } as any, tx);
+          }
+        } catch (postingError: any) {
+          console.error("[SALES_ORDER_INVOICE_POSTING]", postingError?.message || postingError);
+          throw new Error(`Invoice GL posting failed: ${postingError?.message || postingError}`);
+        }
+
+        // Deduct stock for each invoiced line
+        for (const reqItem of itemsToInvoice) {
+          const allocs = await tx.select().from(stockAllocations).where(and(
             eq(stockAllocations.salesOrderLineId, reqItem.salesOrderItemId),
             isNull(stockAllocations.releasedAt)
-          )
-        });
-        
-        let qtyToDeduct = Number(reqItem.quantityToInvoice);
-        for (const alloc of allocs) {
-           if (qtyToDeduct <= 0) break;
-           const allocQty = Number(alloc.quantityAllocated);
-           const deductFromAlloc = Math.min(allocQty, qtyToDeduct);
-           
-           if (deductFromAlloc === allocQty) {
-              await db.update(stockAllocations).set({ releasedAt: new Date() }).where(eq(stockAllocations.id, alloc.id));
-           } else {
-              await db.update(stockAllocations).set({ releasedAt: new Date() }).where(eq(stockAllocations.id, alloc.id));
-              await db.insert(stockAllocations).values({
-                 stockId: alloc.stockId,
-                 salesOrderLineId: alloc.salesOrderLineId,
-                 quantityAllocated: (allocQty - deductFromAlloc).toString()
+          ));
+
+          let qtyToDeduct = Number(reqItem.quantityToInvoice);
+          for (const alloc of allocs) {
+            if (qtyToDeduct <= 0) break;
+            const allocQty = Number(alloc.quantityAllocated);
+            const deductFromAlloc = Math.min(allocQty, qtyToDeduct);
+
+            if (deductFromAlloc === allocQty) {
+              await tx.update(stockAllocations).set({ releasedAt: new Date() }).where(eq(stockAllocations.id, alloc.id));
+            } else {
+              await tx.update(stockAllocations).set({ releasedAt: new Date() }).where(eq(stockAllocations.id, alloc.id));
+              await tx.insert(stockAllocations).values({
+                stockId: alloc.stockId,
+                salesOrderLineId: alloc.salesOrderLineId,
+                quantityAllocated: (allocQty - deductFromAlloc).toString()
               });
-           }
-           
-           await db.execute(sql`
-              UPDATE customer_stock 
-              SET quantity = quantity - ${deductFromAlloc} 
-              WHERE id = ${alloc.stockId}
-           `);
-           
-           qtyToDeduct -= deductFromAlloc;
+            }
+
+            await tx.execute(sql`
+               UPDATE customer_stock
+               SET quantity = quantity - ${deductFromAlloc}
+               WHERE id = ${alloc.stockId}
+            `);
+
+            qtyToDeduct -= deductFromAlloc;
+          }
         }
-      }
 
-      // Warehouse stock was posted out at dispatch; invoicing only creates the
-      // customer document and updates the ordered quantities.
+        // Warehouse stock was posted out at dispatch; invoicing only creates the
+        // customer document and updates the ordered quantities.
 
-      // Update sales order item invoiced quantities
-      for (const reqItem of itemsToInvoice) {
-        const orderLine = order.items.find(i => i.id === reqItem.salesOrderItemId)!;
-        const newInvoicedQty = Number(orderLine.invoicedQuantity) + Number(reqItem.quantityToInvoice);
-        
-        await db.update(salesOrderItems)
-          .set({ invoicedQuantity: newInvoicedQty.toString() })
-          .where(eq(salesOrderItems.id, orderLine.id));
-          
-        orderLine.invoicedQuantity = newInvoicedQty.toString(); // Update memory for check
-      }
+        // Update sales order item invoiced quantities
+        for (const reqItem of itemsToInvoice) {
+          const orderLine = order.items.find(i => i.id === reqItem.salesOrderItemId)!;
+          const newInvoicedQty = Number(orderLine.invoicedQuantity) + Number(reqItem.quantityToInvoice);
 
-      // Check if ALL lines on the order are fully invoiced
-      let fullyInvoiced = true;
-      for (const orderLine of order.items) {
-        if (Number(orderLine.invoicedQuantity) < Number(orderLine.quantity)) {
-          fullyInvoiced = false;
-          break;
+          await tx.update(salesOrderItems)
+            .set({ invoicedQuantity: newInvoicedQty.toString() })
+            .where(eq(salesOrderItems.id, orderLine.id));
+
+          orderLine.invoicedQuantity = newInvoicedQty.toString(); // Update memory for check
         }
-      }
 
-      // Update order status
-      await db.update(salesOrders)
-        .set({ status: fullyInvoiced ? "invoiced" : "partially_invoiced" })
-        .where(eq(salesOrders.id, order.id));
+        // Check if ALL lines on the order are fully invoiced
+        let fullyInvoiced = true;
+        for (const orderLine of order.items) {
+          if (Number(orderLine.invoicedQuantity) < Number(orderLine.quantity)) {
+            fullyInvoiced = false;
+            break;
+          }
+        }
 
-      res.json(newInvoice);
+        // Update order status
+        await tx.update(salesOrders)
+          .set({ status: fullyInvoiced ? "invoiced" : "partially_invoiced" })
+          .where(eq(salesOrders.id, order.id));
+
+        createdInvoice = newInvoice;
+      });
+
+      res.json(createdInvoice);
     } catch (error: any) {
       if (error?.code === "23505") {
         const [existingInvoice] = await db
@@ -1055,13 +1128,24 @@ export function createCustomerFlowRouter(requireAuth: any) {
         depositPaid,
         expectedArrival,
         layByDuration,
+        departmentId,
+        costCenterId,
+        locationId,
       } = req.body;
 
       let subtotal = 0;
       let taxAmount = 0;
+      let resolvedDepartmentId = departmentId ? Number(departmentId) : null;
+      let resolvedCostCenterId = costCenterId ? Number(costCenterId) : null;
 
       const newItems = [];
       for (const item of items) {
+        const productContext = item.productId
+          ? await db.query.products.findFirst({ where: eq(products.id, item.productId) })
+          : null;
+        if (!resolvedDepartmentId) resolvedDepartmentId = productContext?.departmentId ?? null;
+        if (!resolvedCostCenterId) resolvedCostCenterId = productContext?.costCenterId ?? null;
+
         let unitPrice = item.unitPrice;
         if (unitPrice === undefined || unitPrice === null) {
           let cp = null;
@@ -1073,10 +1157,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
           if (cp && (cp as any).negotiatedPrice) {
             unitPrice = (cp as any).negotiatedPrice;
           } else {
-            const prod = await db.query.products.findFirst({
-              where: eq(products.id, item.productId)
-            });
-            unitPrice = prod?.price || "0.00";
+            unitPrice = productContext?.price || "0.00";
           }
         }
 
@@ -1138,6 +1219,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
         branchId: branchId || undefined,
         customerId: customerId || null,
         quotationId: null,
+        departmentId: resolvedDepartmentId || null,
+        costCenterId: resolvedCostCenterId || null,
+        locationId: locationId ? Number(locationId) : null,
         orderNumber: `SO-${Date.now()}`,
         issueDate: new Date(),
         subtotal: subtotal.toString(),
@@ -1268,7 +1352,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
       // Handle Header Updates
       const {
         orderType, preorderType, depositPct, depositPaid, remainingBalance,
-        expectedArrival, layByDuration, approvalStatus
+        expectedArrival, layByDuration, approvalStatus,
+        departmentId, costCenterId, locationId
       } = req.body;
 
       const headerUpdates: any = {};
@@ -1282,6 +1367,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
       if (expectedArrival !== undefined) headerUpdates.expectedArrival = expectedArrival;
       if (layByDuration !== undefined) headerUpdates.layByDuration = layByDuration;
       if (approvalStatus !== undefined) headerUpdates.approvalStatus = approvalStatus;
+      if (departmentId !== undefined) headerUpdates.departmentId = departmentId || null;
+      if (costCenterId !== undefined) headerUpdates.costCenterId = costCenterId || null;
+      if (locationId !== undefined) headerUpdates.locationId = locationId || null;
 
       if (Object.keys(headerUpdates).length > 0) {
         if (zone === 2) {

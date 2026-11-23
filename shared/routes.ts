@@ -549,6 +549,11 @@ export const api = {
       }),
       responses: {
         201: z.object({ message: z.string() }),
+        202: z.object({
+          message: z.string(),
+          requiresApproval: z.literal(true),
+          approvalId: z.number(),
+        }),
       }
     },
     adjust: {

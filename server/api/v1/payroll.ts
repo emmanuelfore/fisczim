@@ -20,7 +20,7 @@ import {
   employeeIncomeHistory, employeeDeductionHistory, payrollCompanySettings,
   journalEntryDrafts
 } from "../../../shared/schema.js";
-import { eq, and, or, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull, isNull } from "drizzle-orm";
+import { eq, and, or, desc, asc, ne, sql, gte, lte, inArray, isNotNull, isNull } from "drizzle-orm";
 import { taxYearTotalsByEmployee, taxTableLabels, labelForSnapshot } from "../../lib/payslip-evidence.js";
 import {
   ZimbabwePayrollEngine,
@@ -39,6 +39,9 @@ import {
   staffFileStatus,
   EXPIRY_TRACKED_TYPES,
   nextStaffNumber,
+  normalizeStaffNumber,
+  isValidStaffNumber,
+  STAFF_NUMBER_PATTERN,
 } from "../../../shared/staff-file.js";
 import { displayCurrency } from "../../../shared/currency.js";
 import { computeProration, blendSalary, prorateAmount } from "../../../shared/proration.js";
@@ -141,245 +144,6 @@ export async function resolvePayrollRole(req: any, companyId: number): Promise<s
   return membership?.role || null;
 }
 
-// --- EMPLOYEE SELF-SERVICE (registered BEFORE the payroll.view permission
-// gate so employees without HR roles can access their own data) ---
-
-// GET /self-service - the authenticated user's own HR data (matched by email)
-router.get("/self-service", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const userEmail = (req.user?.email || "").toLowerCase();
-    if (!userEmail) return res.status(401).json({ error: "UNAUTHORIZED", message: "No user email on session" });
-
-    const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
-      .limit(1);
-    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
-
-    const balances = await db.select().from(leaveBalances)
-      .where(eq(leaveBalances.employeeId, emp.id));
-    const requests = await db.select().from(leaveRequests)
-      .where(eq(leaveRequests.employeeId, emp.id))
-      .orderBy(desc(leaveRequests.createdAt))
-      .limit(20);
-
-    const since = new Date();
-    since.setFullYear(since.getFullYear() - 2);
-    const payslips = await db.query.payrollRunEmployees.findMany({
-      where: and(
-        eq(payrollRunEmployees.employeeId, emp.id),
-        sql`${payrollRunEmployees.createdAt} >= ${since.toISOString()}`
-      ),
-      with: { payrollRun: true },
-      orderBy: [desc(payrollRunEmployees.createdAt)],
-      limit: 100,
-    });
-
-    res.json({
-      employee: emp,
-      leaveBalances: balances,
-      leaveRequests: requests,
-      payslips: payslips
-        .filter((p) => p.payrollRun && p.payrollRun.companyId === companyId && p.payrollRun.status === "LOCKED")
-        .map((p) => ({
-          runId: p.payrollRun.id,
-          periodStart: p.payrollRun.periodStart,
-          periodEnd: p.payrollRun.periodEnd,
-          currency: p.payrollRun.currency,
-          grossSalary: p.grossSalary,
-          paye: p.paye,
-          aidsLevy: p.aidsLevy,
-          nssaEmployee: p.nssaEmployee,
-          totalDeductions: p.totalDeductions,
-          netSalary: p.netSalary,
-        })),
-    });
-  } catch (err: any) {
-    respondPayrollError(res, err);
-  }
-});
-
-// POST /self-service/leave - employee submits their own leave request
-router.post("/self-service/leave", async (req, res) => {
-  const schema = z.object({
-    leaveType: z.string(),
-    startDate: z.string(),
-    endDate: z.string(),
-    reason: z.string().min(1),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
-
-  try {
-    const companyId = getTargetCompanyId(req);
-    const userEmail = (req.user?.email || "").toLowerCase();
-    const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
-      .limit(1);
-    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
-
-    const start = new Date(parsed.data.startDate);
-    const end = new Date(parsed.data.endDate);
-    const workingDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
-
-    const [balance] = await db.select().from(leaveBalances)
-      .where(and(eq(leaveBalances.employeeId, emp.id), eq(leaveBalances.leaveType, parsed.data.leaveType)))
-      .limit(1);
-    if (balance && parseFloat(balance.availableDays) < workingDays) {
-      return res.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: `Insufficient leave balance (${balance.availableDays} days available for ${parsed.data.leaveType})`,
-      });
-    }
-
-    // Labour Act: Paternity leave is 3 working days
-    if (parsed.data.leaveType === "PATERNITY" && workingDays > 3) {
-      return res.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: "Paternity leave is limited to 3 working days per the Zimbabwe Labour Act",
-      });
-    }
-
-    // Labour Act: Maternity leave is 98 consecutive days minimum
-    if (parsed.data.leaveType === "MATERNITY" && workingDays < 98) {
-      return res.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: "Maternity leave must be at least 98 consecutive days per the Zimbabwe Labour Act",
-      });
-    }
-
-    const [request] = await db.insert(leaveRequests).values({
-      companyId,
-      employeeId: emp.id,
-      leaveType: parsed.data.leaveType,
-      startDate: parsed.data.startDate,
-      endDate: parsed.data.endDate,
-      totalDays: workingDays,
-      reason: parsed.data.reason,
-      status: "PENDING",
-    }).returning();
-
-    await auditPayroll(req, "PAYROLL_LEAVE_REQUESTED", "leave_requests", request.id, {
-      leaveType: request.leaveType,
-      startDate: request.startDate,
-      endDate: request.endDate,
-      days: workingDays,
-    });
-    res.status(201).json(request);
-  } catch (err: any) {
-    respondPayrollError(res, err);
-  }
-});
-
-// DELETE /self-service/leave/:id - employee cancels their own pending leave request
-router.delete("/self-service/leave/:id", async (req, res) => {
-  const requestId = parseInt(req.params.id, 10);
-  try {
-    const companyId = getTargetCompanyId(req);
-    const userEmail = (req.user?.email || "").toLowerCase();
-    
-    // verify ownership
-    const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
-      .limit(1);
-    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
-
-    const [request] = await db.select().from(leaveRequests)
-      .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.employeeId, emp.id)))
-      .limit(1);
-
-    if (!request) return res.status(404).json({ error: "NOT_FOUND", message: "Request not found" });
-    if (request.status !== "PENDING") {
-      return res.status(400).json({ error: "STATE_ERROR", message: "Only PENDING requests can be cancelled" });
-    }
-
-    await db.delete(leaveRequests).where(eq(leaveRequests.id, requestId));
-    await auditPayroll(req, "PAYROLL_LEAVE_CANCELLED", "leave_requests", requestId, {
-      leaveType: request.leaveType,
-    });
-
-    res.json({ success: true });
-  } catch (err: any) {
-    respondPayrollError(res, err);
-  }
-});
-
-// PUT /self-service/profile - employee updates their own contact details
-router.put("/self-service/profile", async (req, res) => {
-  const schema = z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional().nullable(),
-    emergencyContactName: z.string().optional().nullable(),
-    emergencyContactPhone: z.string().optional().nullable(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
-
-  try {
-    const companyId = getTargetCompanyId(req);
-    const userEmail = (req.user?.email || "").toLowerCase();
-    const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
-      .limit(1);
-    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
-
-    const updates: Record<string, unknown> = {};
-    if (parsed.data.email) updates.email = parsed.data.email;
-    if (parsed.data.phone !== undefined) updates.phone = parsed.data.phone;
-    if (parsed.data.emergencyContactName !== undefined) updates.emergencyContactName = parsed.data.emergencyContactName;
-    if (parsed.data.emergencyContactPhone !== undefined) updates.emergencyContactPhone = parsed.data.emergencyContactPhone;
-
-    const [updated] = await db.update(employees)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(employees.id, emp.id))
-      .returning();
-
-    await auditPayroll(req, "PAYROLL_SELF_SERVICE_PROFILE_UPDATED", "employees", emp.id, {
-      changedFields: Object.keys(updates),
-    });
-    res.json(updated);
-  } catch (err: any) {
-    respondPayrollError(res, err);
-  }
-});
-
-// GET /self-service/payslip/:runId - employee downloads their own payslip PDF
-// (matches employee by login email, run must be LOCKED and contain the employee)
-router.get("/self-service/payslip/:runId", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const runId = parseInt(req.params.runId, 10);
-    const userEmail = (req.user?.email || "").toLowerCase();
-    if (!userEmail) return res.status(401).json({ error: "UNAUTHORIZED", message: "No user email on session" });
-    if (!Number.isInteger(runId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid run id" });
-
-    const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
-      .limit(1);
-    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
-
-    const [run] = await db.select().from(payrollRuns)
-      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
-      .limit(1);
-    if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
-    if (run.status !== "LOCKED") {
-      return res.status(403).json({ error: "FORBIDDEN", message: "Payslips are available after the run is locked" });
-    }
-
-    const [line] = await db.select().from(payrollRunEmployees)
-      .where(and(eq(payrollRunEmployees.payrollRunId, runId), eq(payrollRunEmployees.employeeId, emp.id)))
-      .limit(1);
-    if (!line) return res.status(404).json({ error: "NOT_FOUND", message: "No payslip for this employee in that run" });
-
-    const pdfData = await reportService.generatePayslip(companyId, emp.id, run.periodStart.slice(0, 7), runId);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="payslip_${run.periodStart.slice(0, 7)}.pdf"`);
-    res.send(Buffer.from(pdfData));
-  } catch (err: any) {
-    respondPayrollError(res, err);
-  }
-});
-
 // --- PROCEDURES (registered BEFORE the payroll.view gate) ---
 //
 // A read-and-sign procedure is aimed at the whole staff, not at the people who can see
@@ -400,7 +164,19 @@ router.use(async (req: any, res, next) => {
     const role = await resolvePayrollRole(req, companyId);
     const isLegacyAllowed = role && PAYROLL_READ_ROLES.has(role);
 
-    if (!hasRead && !isLegacyAllowed) {
+    // The availability check is part of the create-employee form. A custom role
+    // with payroll.write but not payroll.view must be able to use the wizard.
+    const isEmployeeNumberCheck = req.path === "/employees/check-number";
+    let canContinue = hasRead || Boolean(isLegacyAllowed);
+    if (!canContinue && isEmployeeNumberCheck) {
+      const hasWrite = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "payroll.write", false);
+      canContinue = hasWrite || Boolean(role && PAYROLL_WRITE_ROLES.has(role));
+      if (!canContinue) {
+        return res.status(403).json({ error: "FORBIDDEN", message: "Payroll write permission required" });
+      }
+    }
+
+    if (!canContinue) {
       return res.status(403).json({ error: "FORBIDDEN", message: "You do not have payroll access for this company" });
     }
     req.payrollRole = role;
@@ -722,10 +498,17 @@ function parseImportRows(body: any): ImportRow[] {
   throw new Error("Provide rows[] or csv text");
 }
 
+// Duplicate detection is deliberately case-insensitive: imported and legacy rows
+// may hold "emp001" while the wizard saves "EMP001", and ZIMRA reads them alike.
 async function findEmployeeByNumber(companyId: number, employeeNumber: unknown, tx: any = db) {
+  const normalized = normalizeStaffNumber(employeeNumber);
+  if (!normalized) return undefined;
   const [employee] = await tx.select()
     .from(employees)
-    .where(and(eq(employees.companyId, companyId), eq(employees.employeeNumber, String(employeeNumber ?? "").trim())))
+    .where(and(
+      eq(employees.companyId, companyId),
+      sql`upper(${employees.employeeNumber}) = ${normalized}`,
+    ))
     .limit(1);
   return employee;
 }
@@ -1268,13 +1051,19 @@ async function isTaxConfigReferenced(tx: any, id: number): Promise<boolean> {
 async function isStatutoryRuleReferenced(tx: any, rule: any): Promise<boolean> {
   const from = String(rule.effectiveFrom);
   const to = rule.effectiveTo || "9999-12-31";
+  const predicates: any[] = [
+    ne(payrollRuns.status, "DRAFT"),
+    sql`${payrollRuns.periodStart} <= ${to}`,
+    sql`${payrollRuns.periodEnd} >= ${from}`,
+  ];
+  // Tenant rules must only be blocked by that tenant's finalized runs.
+  // Global fallback rules have no company to scope against.
+  if (rule?.companyId !== null && rule?.companyId !== undefined) {
+    predicates.push(eq(payrollRuns.companyId, rule.companyId));
+  }
   const [hit] = await tx.select({ id: payrollRuns.id })
     .from(payrollRuns)
-    .where(and(
-      ne(payrollRuns.status, "DRAFT"),
-      sql`${payrollRuns.periodStart} <= ${to}`,
-      sql`${payrollRuns.periodEnd} >= ${from}`
-    ))
+    .where(and(...predicates))
     .limit(1);
   return !!hit;
 }
@@ -1993,6 +1782,27 @@ router.get("/employees", async (req, res) => {
   }
 });
 
+// Used by the employee wizard to validate a manually entered staff number
+// before submit (the DB unique index remains the final guard).
+router.get("/employees/check-number", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const value = normalizeStaffNumber(req.query.value);
+    if (!value) return res.json({ available: true, reason: "blank" });
+    if (!isValidStaffNumber(value)) {
+      return res.json({ available: false, reason: "format" });
+    }
+    const existing = await findEmployeeByNumber(companyId, value);
+    res.json({
+      available: !existing,
+      reason: existing ? "taken" : null,
+      employeeName: existing ? `${existing.firstName} ${existing.lastName}`.trim() : null,
+    });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
 router.post("/employees", requirePayrollWrite, async (req, res) => {
   // Helpers: the HR form submits "" for untouched optional fields. Normalize
   // those to null/undefined BEFORE validation so zod doesn't reject them
@@ -2030,8 +1840,11 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
 
   const schema = z.object({
     employeeNumber: z.preprocess(
-      blankToNull,
-      z.string().trim().min(1).nullable().optional()
+      normalizeStaffNumber,
+      z.string().trim()
+        .regex(STAFF_NUMBER_PATTERN, "Use 2-30 letters, numbers, hyphens or slashes")
+        .nullable()
+        .optional()
     ),
     title: optText,
     firstName: z.string().trim().min(1, "First name is required"),
@@ -2162,6 +1975,18 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
       const [grade] = await db.select({ id: payrollPayGrades.id }).from(payrollPayGrades)
         .where(and(eq(payrollPayGrades.id, contract.payGradeId), eq(payrollPayGrades.companyId, companyId))).limit(1);
       if (!grade) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Selected pay grade does not belong to this company." });
+    }
+
+    // Friendly duplicate handling before the insert; the unique index is still
+    // the final guard against concurrent submissions.
+    if (empData.employeeNumber) {
+      const duplicate = await findEmployeeByNumber(companyId, empData.employeeNumber);
+      if (duplicate) {
+        return res.status(409).json({
+          error: "CONFLICT",
+          message: `Employee number ${empData.employeeNumber} is already used by ${duplicate.firstName} ${duplicate.lastName}.`,
+        });
+      }
     }
 
     const result = await db.transaction(async (tx) => {
@@ -2364,6 +2189,9 @@ router.post("/employees/import", requirePayrollWrite, async (req, res) => {
 
         if (textOrNull(row.firstName) == null) errors.push("firstName is required");
         if (textOrNull(row.lastName) == null) errors.push("lastName is required");
+        if (textOrNull(row.employeeNumber) != null && !isValidStaffNumber(row.employeeNumber)) {
+          errors.push(`employeeNumber "${row.employeeNumber}" must be 2-30 letters, numbers, hyphens or slashes`);
+        }
         if (textOrNull(row.email) != null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.email).trim())) {
           errors.push(`email "${row.email}" is not a valid email address`);
         }
@@ -2378,11 +2206,8 @@ router.post("/employees/import", requirePayrollWrite, async (req, res) => {
           continue;
         }
 
-        const employeeNumber = textOrDefault(row.employeeNumber, `EMP-${Date.now().toString(36)}-${idx}`);
-        const [existing] = await tx.select({ id: employees.id })
-          .from(employees)
-          .where(and(eq(employees.companyId, companyId), eq(employees.employeeNumber, employeeNumber)))
-          .limit(1);
+        const employeeNumber = normalizeStaffNumber(row.employeeNumber) ?? `EMP-${Date.now().toString(36)}-${idx}`;
+        const existing = await findEmployeeByNumber(companyId, employeeNumber, tx);
 
         const departmentId = deptByCode.get(String(row.departmentCode ?? "").toLowerCase()) ?? null;
         const positionId = posByTitle.get(String(row.positionTitle ?? "").toLowerCase()) ?? null;
@@ -6293,7 +6118,7 @@ router.get("/settings", async (req, res) => {
 // settings decision rather than a data-entry one, so it needs payroll approval.
 router.patch("/settings", requirePayrollApproval, async (req, res) => {
   const schema = z.object({
-    staffNumberPrefix: z.string().trim().max(8).optional(),
+    staffNumberPrefix: z.string().trim().max(8).regex(/^[A-Za-z0-9\-/]*$/, "Use only letters, numbers, hyphens or slashes").optional(),
     staffNumberDigits: z.coerce.number().int().min(1).max(12).optional(),
     staffNumberNext: z.coerce.number().int().min(1).max(999_999_999).optional(),
     requiredDocumentTypes: z.array(z.string().trim().min(1)).max(EMPLOYEE_DOCUMENT_TYPES.length).optional(),
@@ -6333,6 +6158,17 @@ router.patch("/settings", requirePayrollApproval, async (req, res) => {
       reminderDaysBefore: parsed.data.reminderDaysBefore ?? current.reminderDaysBefore,
       updatedAt: new Date(),
     };
+    const nextNumber = nextStaffNumber(
+      values.staffNumberPrefix,
+      values.staffNumberDigits,
+      values.staffNumberNext,
+    );
+    if (!isValidStaffNumber(nextNumber)) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "That numbering scheme cannot produce a valid ZIMRA staff number (2-30 letters, numbers, hyphens or slashes).",
+      });
+    }
 
     const [row] = await db.insert(payrollCompanySettings)
       .values({ ...values, companyId })
@@ -6430,8 +6266,17 @@ async function allocateStaffNumber(
   let candidate = settings.staffNumberNext;
   for (let attempts = 0; attempts < 200; attempts++) {
     const number = nextStaffNumber(settings.staffNumberPrefix, settings.staffNumberDigits, candidate);
+    if (!isValidStaffNumber(number)) {
+      throw Object.assign(new Error("The payroll numbering scheme cannot produce a valid ZIMRA staff number."), {
+        status: 409,
+        code: "STAFF_NUMBER_FORMAT",
+      });
+    }
     const [taken] = await tx.select({ id: employees.id }).from(employees)
-      .where(and(eq(employees.companyId, companyId), eq(employees.employeeNumber, number)))
+      .where(and(
+        eq(employees.companyId, companyId),
+        sql`upper(${employees.employeeNumber}) = ${number}`,
+      ))
       .limit(1);
     if (!taken) return { number, next: candidate + 1 };
     candidate += 1;

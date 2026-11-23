@@ -181,6 +181,10 @@ export default function GrvDetailsPage() {
       }))
     }, {
       onSuccess: (data: any) => {
+        if (data?.requiresApproval) {
+          toast({ title: "Submitted for approval", description: "Stock will be posted once an approver confirms this receipt." });
+          return;
+        }
         toast({ title: "Success", description: "GRV has been posted and stock updated." });
         if (data && data.grvNumber) {
           setLocation(`/inventory/grvs/${data.grvNumber}`);

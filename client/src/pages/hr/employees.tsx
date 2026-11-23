@@ -19,7 +19,11 @@ import {
   BadgeDollarSign,
   History,
   FileCheck,
-  FolderCog
+  FolderCog,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle
 } from "lucide-react";
 import Papa from "papaparse";
 import { format } from "date-fns";
@@ -70,8 +74,21 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { jurisdictionForCountry } from "@shared/statutory/jurisdictions";
-import { nextStaffNumber } from "@shared/staff-file";
+import {
+  nextStaffNumber,
+  normalizeStaffNumber,
+  STAFF_NUMBER_PATTERN,
+} from "@shared/staff-file";
 import { PAY_FREQUENCIES } from "@shared/payroll-calendar";
+
+const EMPLOYEE_STEPS = [
+  { id: "personal", label: "Personal" },
+  { id: "contact", label: "Contact" },
+  { id: "kin", label: "Next of Kin" },
+  { id: "banking", label: "Banking" },
+  { id: "statutory", label: "Statutory" },
+  { id: "salary", label: "Contract" },
+] as const;
 
 export default function HREmployees() {
   const { user } = useAuth();
@@ -99,6 +116,8 @@ export default function HREmployees() {
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isElementRulesOpen, setIsElementRulesOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [activeTab, setActiveTab] = useState<string>("personal");
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [staffFileModal, setStaffFileModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
@@ -235,13 +254,62 @@ export default function HREmployees() {
     if (!payload.firstName || !payload.lastName) return "First name and last name are required.";
     // A blank staff number is the normal path now: cleanText() drops it from the
     // payload and the server allocates the next number in the company's scheme.
-    if (!payload.nationalId) return "National ID is required (Statutory tab).";
+    if (!payload.nationalId) return "National ID is required (Statutory step).";
     if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(payload.email))) return `"${payload.email}" is not a valid email address.`;
     const usd = Number(payload.contract.usdPercentage || 0);
     const zig = Number(payload.contract.zigPercentage || 0);
     if (Math.abs(usd + zig - 100) > 0.01) return "USD and ZiG salary split percentages must total 100.";
     if (Number.isNaN(Number(payload.contract.baseSalary))) return "Base salary must be a valid number.";
     return null;
+  };
+
+  const validateWizardStep = (step: number): string | null => {
+    switch (step) {
+      case 0:
+        if (!formData.firstName.trim() || !formData.lastName.trim()) return "First name and last name are required.";
+        if (normalizedEmployeeNumber && !employeeNumberFormatValid) {
+          return "Employee number must be 2-30 letters, numbers, hyphens or slashes.";
+        }
+        if (normalizedEmployeeNumber && isCheckingNumber) return "Still checking that employee number. Please wait.";
+        if (normalizedEmployeeNumber && employeeNumberFormatValid && numberCheckFailed) {
+          return "Could not check that employee number. Please retry or use a different number.";
+        }
+        if (normalizedEmployeeNumber && numberCheck?.available === false) {
+          return numberCheck.reason === "taken"
+            ? `Employee number ${normalizedEmployeeNumber} is already used by ${numberCheck.employeeName || "another employee"}.`
+            : "That employee number is not valid.";
+        }
+        return null;
+      case 1:
+        if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+          return "Enter a valid email address or leave it blank.";
+        }
+        return null;
+      case 4:
+        if (!statutoryData.nationalId.trim()) return "National ID is required for ZIMRA reporting.";
+        return null;
+      case 5: {
+        if (Number.isNaN(Number(contractData.baseSalary)) || Number(contractData.baseSalary) < 0) {
+          return "Base salary must be zero or a positive number.";
+        }
+        const usd = Number(contractData.usdPercentage || 0);
+        const zig = Number(contractData.zigPercentage || 0);
+        if (Math.abs(usd + zig - 100) > 0.01) return "USD and ZiG salary split percentages must total 100.";
+        return null;
+      }
+      default:
+        return null;
+    }
+  };
+
+  const goToWizardStep = (step: number) => {
+    const error = validateWizardStep(wizardStep);
+    if (error) {
+      toast({ title: "Check this step", description: error, variant: "destructive" });
+      return;
+    }
+    setWizardStep(step);
+    setActiveTab(EMPLOYEE_STEPS[step].id);
   };
 
   const { data: employees = [] as any[], isLoading } = useQuery<any[]>({
@@ -277,6 +345,31 @@ export default function HREmployees() {
       )
     : null;
 
+  // The wizard checks a typed staff number before the user can continue. The
+  // server repeats the check on submit, so stale UI state cannot create a
+  // duplicate even if two people type the same number at once.
+  const normalizedEmployeeNumber = normalizeStaffNumber(formData.employeeNumber) ?? "";
+  const employeeNumberFormatValid =
+    !normalizedEmployeeNumber || STAFF_NUMBER_PATTERN.test(normalizedEmployeeNumber);
+  const isCreatingEmployee = isEmployeeModalOpen && !selectedEmployeeId;
+  const {
+    data: numberCheck,
+    isFetching: isFetchingNumberCheck,
+    isPending: isNumberCheckPending,
+    isError: numberCheckFailed,
+    refetch: refetchNumberCheck,
+  } = useQuery<any>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees/check-number`, { value: normalizedEmployeeNumber }],
+    enabled:
+      isCreatingEmployee &&
+      !!companyId &&
+      !!normalizedEmployeeNumber &&
+      employeeNumberFormatValid,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const isCheckingNumber = isFetchingNumberCheck || isNumberCheckPending;
+
   const { data: payGrades = [] as any[] } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/pay-grades`],
     enabled: !!companyId,
@@ -289,13 +382,19 @@ export default function HREmployees() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/check-number`] });
       // Auto-allocation advances the company counter, so refresh the preview.
       queryClient.invalidateQueries({ queryKey: [payrollSettingsKey] });
       setIsEmployeeModalOpen(false);
+      setWizardStep(0);
+      setActiveTab("personal");
       setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "", terminationType: "", terminationReason: "" });
       toast({ title: "Employee created successfully" });
     },
     onError: (error: any) => {
+      if (error?.status === 409 || error?.code === "CONFLICT") {
+        queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/check-number`] });
+      }
       toast({ title: "Failed to create employee", description: parseApiError(error, "Could not create employee."), variant: "destructive" });
     }
   });
@@ -384,6 +483,7 @@ export default function HREmployees() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/check-number`] });
       setImportResult(data);
       toast({
         title: data.errors > 0 ? "Import completed with errors" : "Import Successful",
@@ -495,6 +595,17 @@ export default function HREmployees() {
 
   const handleSaveEmployee = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedEmployeeId) {
+      for (let step = 0; step < EMPLOYEE_STEPS.length; step++) {
+        const stepError = validateWizardStep(step);
+        if (stepError) {
+          setWizardStep(step);
+          setActiveTab(EMPLOYEE_STEPS[step].id);
+          toast({ title: `Check step ${step + 1}`, description: stepError, variant: "destructive" });
+          return;
+        }
+      }
+    }
     const payload = buildEmployeePayload();
     const validationError = validateEmployeePayload(payload);
     if (validationError) {
@@ -548,6 +659,8 @@ export default function HREmployees() {
   };
 
   const openEmployeeModal = (employee?: any) => {
+    setWizardStep(0);
+    setActiveTab("personal");
     if (employee) {
       setSelectedEmployeeId(employee.id);
       setFormData({
@@ -687,52 +800,111 @@ export default function HREmployees() {
             </div>
           </div>
         )}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Employee Directory</h1>
             <p className="text-sm text-slate-500 mt-1">Manage personnel, contracts, and banking details</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" onClick={handleExport}>
-              <Download className="h-4 w-4" /> Export CSV
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => openEmployeeModal()}
+              className="order-first w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md sm:order-none sm:w-auto"
+            >
+              <Plus className="h-4 w-4" /> Create Employee
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={handleExport} aria-label="Export employees as CSV">
+              <Download className="h-4 w-4" /> <span className="hidden sm:inline">Export CSV</span>
             </Button>
             <div>
-              <input type="file" accept=".csv" id="csv-upload" className="hidden" onChange={handleFileUpload} />
-              <Button variant="outline" className="gap-2" asChild disabled={importEmployeesMutation.isPending}>
+              <input
+                type="file"
+                accept=".csv"
+                id="csv-upload"
+                className="hidden"
+                disabled={importEmployeesMutation.isPending}
+                onChange={handleFileUpload}
+              />
+              <Button
+                variant="outline"
+                className={cn("gap-2", importEmployeesMutation.isPending && "pointer-events-none opacity-60")}
+                asChild
+                aria-label="Import employees from CSV"
+                aria-disabled={importEmployeesMutation.isPending}
+              >
                 <label htmlFor="csv-upload" className="cursor-pointer">
-                  {importEmployeesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} 
-                  Import CSV
+                  {importEmployeesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  <span className="hidden sm:inline">Import CSV</span>
                 </label>
               </Button>
             </div>
             {canApprovePayroll && (
-              <Button variant="outline" className="gap-2" onClick={() => setIsSettingsDialogOpen(true)}>
-                <FolderCog className="h-4 w-4" /> File & numbering settings
+              <Button variant="outline" className="gap-2" onClick={() => setIsSettingsDialogOpen(true)} aria-label="File and numbering settings">
+                <FolderCog className="h-4 w-4" /> <span className="hidden lg:inline">File & numbering settings</span>
               </Button>
             )}
             {canManagePayroll && (
-              <Button variant="outline" className="gap-2" onClick={() => setIsElementRulesOpen(true)}>
+              <Button variant="outline" className="gap-2" onClick={() => setIsElementRulesOpen(true)} aria-label={`Bulk pay items (${selectedEmployeeIds.length} selected)`}>
                 <BadgeDollarSign className="h-4 w-4" />
-                Bulk pay items{selectedEmployeeIds.length ? ` (${selectedEmployeeIds.length})` : ""}
+                <span className="hidden lg:inline">Bulk pay items{selectedEmployeeIds.length ? ` (${selectedEmployeeIds.length})` : ""}</span>
               </Button>
             )}
-            <Button onClick={() => openEmployeeModal()} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md">
-              <Plus className="h-4 w-4" /> Create Employee
-            </Button>
+          </div>
         </div>
-      </div>
 
       <Dialog open={isEmployeeModalOpen} onOpenChange={setIsEmployeeModalOpen}>
-        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedEmployeeId ? "Edit Employee Details" : "Create Employee"}</DialogTitle>
             <DialogDescription>
-              {selectedEmployeeId ? "Update comprehensive personnel records and contact details." : "Fill in the details for the new team member."}
+              {selectedEmployeeId
+                ? "Update comprehensive personnel records and contact details."
+                : "Work through the steps below. Required fields are checked before you continue."}
             </DialogDescription>
           </DialogHeader>
+
+          {!selectedEmployeeId && (
+            <nav aria-label="Create employee steps" className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 dark:border-blue-900/40 dark:bg-blue-950/20">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                  Step {wizardStep + 1} of {EMPLOYEE_STEPS.length}: {EMPLOYEE_STEPS[wizardStep].label}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">You can go back, but forward steps need validation.</p>
+              </div>
+              <ol className="mt-3 grid grid-cols-6 gap-1.5">
+                {EMPLOYEE_STEPS.map((step, index) => (
+                  <li key={step.id}>
+                    <button
+                      type="button"
+                      disabled={index > wizardStep}
+                      onClick={() => {
+                        setWizardStep(index);
+                        setActiveTab(EMPLOYEE_STEPS[index].id);
+                      }}
+                      aria-current={index === wizardStep ? "step" : undefined}
+                      aria-label={`Step ${index + 1}: ${step.label}`}
+                      className={cn(
+                        "flex w-full flex-col items-center gap-1 rounded-md px-1 py-2 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                        index === wizardStep
+                          ? "bg-blue-600 text-white"
+                          : index < wizardStep
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                            : "bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-500"
+                      )}
+                    >
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[10px]">
+                        {index < wizardStep ? <Check className="h-3 w-3" /> : index + 1}
+                      </span>
+                      <span className="truncate">{step.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
+
           <form onSubmit={handleSaveEmployee} className="space-y-4 pt-2">
-            <Tabs defaultValue="personal" className="w-full">
-              <TabsList className="grid w-full grid-cols-6 h-auto py-1">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList className={cn("grid w-full grid-cols-6 h-auto py-1", !selectedEmployeeId && "hidden")}>
                 <TabsTrigger value="personal" className="text-xs">Personal</TabsTrigger>
                 <TabsTrigger value="contact" className="text-xs">Contact</TabsTrigger>
                 <TabsTrigger value="kin" className="text-xs">Next of Kin</TabsTrigger>
@@ -758,19 +930,61 @@ export default function HREmployees() {
                     </Select>
                   </div>
                   <div className="space-y-2 md:col-span-3">
-                    <Label>Employee Number</Label>
+                    <Label htmlFor="employee-number">Employee Number</Label>
                     <Input
+                      id="employee-number"
                       disabled={!!selectedEmployeeId}
                       value={formData.employeeNumber}
-                      onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})}
+                      onChange={(e) => setFormData({...formData, employeeNumber: e.target.value.toUpperCase()})}
                       placeholder={nextStaffPreview ? `Blank = next in scheme (${nextStaffPreview})` : "Leave blank to auto-assign"}
-                      className="bg-slate-50 dark:bg-slate-900"
+                      aria-describedby={selectedEmployeeId ? "employee-number-help" : "employee-number-help employee-number-status"}
+                      aria-invalid={!!normalizedEmployeeNumber && (!employeeNumberFormatValid || numberCheckFailed || numberCheck?.available === false)}
+                      className={cn(
+                        "bg-slate-50 dark:bg-slate-900",
+                        !!normalizedEmployeeNumber && (!employeeNumberFormatValid || numberCheckFailed || numberCheck?.available === false) && "border-red-400 focus-visible:ring-red-400"
+                      )}
                     />
-                    <p className="text-xs text-slate-500">
-                      Leave blank to take the next number in your company's scheme
-                      {nextStaffPreview ? <> (next: <span className="font-mono font-semibold">{nextStaffPreview}</span>)</> : "."}
-                      {" "}A number you type here is always used as given.
+                    <p id="employee-number-help" className="text-xs text-slate-500">
+                      Printed on ZIMRA reports. Leave blank to use your company's next number
+                      {nextStaffPreview ? <> (<span className="font-mono font-semibold">{nextStaffPreview}</span>)</> : "."}
+                      {" "}Typed numbers are capitalised and checked for duplicates.
                     </p>
+                    {!selectedEmployeeId && (
+                      <p
+                        id="employee-number-status"
+                        role="status"
+                        aria-live="polite"
+                        className={cn(
+                          "flex items-center gap-1.5 text-xs",
+                          normalizedEmployeeNumber && (!employeeNumberFormatValid || numberCheckFailed || numberCheck?.available === false)
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        {normalizedEmployeeNumber && isCheckingNumber ? (
+                          <><Loader2 className="h-3 w-3 animate-spin" /> Checking availability…</>
+                        ) : normalizedEmployeeNumber && !employeeNumberFormatValid ? (
+                          <><AlertCircle className="h-3 w-3" /> Use 2-30 letters, numbers, hyphens or slashes.</>
+                        ) : normalizedEmployeeNumber && numberCheckFailed ? (
+                          <>
+                            <AlertCircle className="h-3 w-3" /> Could not check availability.
+                            <button
+                              type="button"
+                              onClick={() => refetchNumberCheck()}
+                              className="font-semibold underline underline-offset-2"
+                            >
+                              Retry
+                            </button>
+                          </>
+                        ) : normalizedEmployeeNumber && numberCheck?.available === false ? (
+                          <><AlertCircle className="h-3 w-3" /> {numberCheck.reason === "taken" ? `Already used by ${numberCheck.employeeName || "another employee"}.` : "This number is not valid."}</>
+                        ) : normalizedEmployeeNumber ? (
+                          <><Check className="h-3 w-3" /> Available</>
+                        ) : (
+                          <><Check className="h-3 w-3" /> {nextStaffPreview ? `Auto-assign ${nextStaffPreview}` : "Auto-assigned on save"}</>
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -868,16 +1082,18 @@ export default function HREmployees() {
               <TabsContent value="statutory" className="space-y-4 pt-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>National ID Number *</Label>
-                    <Input required value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} placeholder="12-345678X90" />
+                    <Label htmlFor="national-id">National ID Number *</Label>
+                    <Input id="national-id" required value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} placeholder="12-345678X90" aria-describedby="national-id-help" />
+                    <p id="national-id-help" className="text-xs text-slate-500">Required for payroll and ZIMRA statutory submissions.</p>
                   </div>
                   <div className="space-y-2">
                     <Label>NSSA Number</Label>
                     <Input value={statutoryData.nssaNumber} onChange={(e) => setStatutoryData({...statutoryData, nssaNumber: e.target.value})} placeholder="NSSA ID" />
                   </div>
                   <div className="space-y-2">
-                    <Label>{fa.authorityShortName} Tax Number</Label>
-                    <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="BP Number" />
+                    <Label htmlFor="tax-number">{fa.authorityShortName} Tax Number</Label>
+                    <Input id="tax-number" value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="BP Number" aria-describedby="tax-number-help" />
+                    <p id="tax-number-help" className="text-xs text-slate-500">Required before P2, P6 or ITF16 reports can be submitted.</p>
                   </div>
                 </div>
                 {selectedEmployeeId && (
@@ -978,12 +1194,45 @@ export default function HREmployees() {
                 )}
               </TabsContent>
             </Tabs>
-            <div className="flex justify-end pt-4 border-t border-slate-100">
-              <Button type="button" variant="outline" className="mr-2" onClick={() => setIsEmployeeModalOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={updateEmployeeMutation.isPending || createEmployeeMutation.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
-                {(updateEmployeeMutation.isPending || createEmployeeMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {selectedEmployeeId ? "Save Changes" : "Create Employee"}
-              </Button>
+            <div className="flex flex-col gap-3 pt-4 border-t border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+              {selectedEmployeeId ? (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setIsEmployeeModalOpen(false)}>Cancel</Button>
+                  <Button type="submit" disabled={updateEmployeeMutation.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
+                    {updateEmployeeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save Changes
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setIsEmployeeModalOpen(false)}>Cancel</Button>
+                  <div className="flex flex-wrap gap-2">
+                    {wizardStep > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const previous = wizardStep - 1;
+                          setWizardStep(previous);
+                          setActiveTab(EMPLOYEE_STEPS[previous].id);
+                        }}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" /> Back
+                      </Button>
+                    )}
+                    {wizardStep < EMPLOYEE_STEPS.length - 1 ? (
+                      <Button type="button" onClick={() => goToWizardStep(wizardStep + 1)}>
+                        Next: {EMPLOYEE_STEPS[wizardStep + 1].label} <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <Button type="submit" disabled={createEmployeeMutation.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
+                        {createEmployeeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Create Employee
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </form>
         </DialogContent>

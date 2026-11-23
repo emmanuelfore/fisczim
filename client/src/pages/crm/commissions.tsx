@@ -273,6 +273,20 @@ function CommissionsTab({
     }
   };
 
+  const submitCommission = async (id: number) => {
+    try {
+      const result: any = await submit.mutateAsync(id);
+      toast({
+        title: result?.requiresApproval ? "Submitted for approval" : "Commission approved",
+        description: result?.requiresApproval
+          ? "An approver has been notified."
+          : "Company policy allows this commission to post immediately.",
+      });
+    } catch (e: any) {
+      toast({ title: "Failed to submit", description: e.message, variant: "destructive" });
+    }
+  };
+
   const summary = data?.summary;
   const commissions = data?.commissions ?? [];
   const periods = useMemo(
@@ -389,7 +403,7 @@ function CommissionsTab({
                       canManage={canManage}
                       expanded={expanded === c.id}
                       onToggle={() => setExpanded(expanded === c.id ? null : c.id)}
-                      onSubmit={() => act(submit, c.id, "Submitted for approval", "Failed to submit")}
+                      onSubmit={() => submitCommission(c.id)}
                       onApprove={(notes) => act(approve, { id: c.id, reviewNotes: notes }, "Commission approved", "Failed to approve")}
                       onReject={(notes) => act(reject, { id: c.id, reviewNotes: notes }, "Commission rejected", "Failed to reject")}
                       onPay={() => act(pay, c.id, "Marked as paid", "Failed to mark paid")}

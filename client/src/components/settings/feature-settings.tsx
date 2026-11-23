@@ -12,9 +12,13 @@ import {
   Users, 
   ShieldCheck,
   UserRoundCheck,
-  Car
+  Car,
+  Utensils,
+  Bus
 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
+import { countEnabledFeatureModules, isFeatureModuleEnabled } from "@shared/feature-modules";
+import { resolveWorkspaceMode } from "@shared/app-mode";
 
 interface Props {
   formData: any;
@@ -25,6 +29,11 @@ export function FeatureSettings({ formData, setFormData }: Props) {
   const { t } = useI18n();
   const fa = useFiscalAuthority();
   const features = formData.featureSettings || {};
+  const featureContext = {
+    appMode: resolveWorkspaceMode(formData.appMode, Boolean(formData.busSettings?.enabled)),
+    busEnabled: Boolean(formData.busSettings?.enabled),
+  };
+  const enabledCount = countEnabledFeatureModules(features, featureContext);
 
   const toggleFeature = (key: string, value: boolean) => {
     setFormData((prev: any) => ({
@@ -96,6 +105,18 @@ export function FeatureSettings({ formData, setFormData }: Props) {
       label: t("Tax & Compliance"),
       description: `${fa.authorityShortName} integration logs, VAT returns, and audit trails.`,
       icon: ShieldCheck
+    },
+    {
+      key: "restaurant",
+      label: t("Restaurant"),
+      description: t("Live orders, kitchen display, floor plan and restaurant workspace."),
+      icon: Utensils
+    },
+    {
+      key: "bus",
+      label: t("Bus Ticketing"),
+      description: t("Trips, fleet, conductors, ticketing and bus reporting."),
+      icon: Bus
     }
   ];
 
@@ -104,7 +125,10 @@ export function FeatureSettings({ formData, setFormData }: Props) {
       <div>
         <h2 className="text-lg font-bold text-[#0F172A]">{t("Modules & Features")}</h2>
         <p className="mt-1 text-sm text-[#64748B]">
-          {t("Enable or disable specific modules for your organization. Disabled modules will be hidden from the sidebar.")}
+          {t("Choose the modules this company sees. Disabled modules are hidden from the sidebar. Use App Mode to change the primary workspace.")}
+        </p>
+        <p className="mt-2 text-xs font-medium text-blue-600">
+          {enabledCount} of {modules.length} modules visible
         </p>
       </div>
 
@@ -112,7 +136,7 @@ export function FeatureSettings({ formData, setFormData }: Props) {
         {modules.map((mod) => {
           const Icon = mod.icon;
           // By default, if a feature is not explicitly set to false, we consider it enabled.
-          const isEnabled = features[mod.key] !== false;
+          const isEnabled = isFeatureModuleEnabled(features, mod.key as any, featureContext);
 
           return (
             <Card key={mod.key} className="border border-[#E5E7EB] shadow-sm">

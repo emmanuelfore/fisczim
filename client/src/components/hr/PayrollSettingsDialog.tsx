@@ -15,7 +15,7 @@ import {
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { documentTypeLabel, nextStaffNumber } from "@shared/staff-file";
+import { documentTypeLabel, isValidStaffNumber, nextStaffNumber } from "@shared/staff-file";
 
 interface SettingsForm {
   staffNumberPrefix: string;
@@ -126,6 +126,14 @@ export function PayrollSettingsDialog({
     }
     if (!Number.isInteger(w) || w < 0 || w > 365) {
       toast({ title: "Check the warning window", description: "Expiry warnings must be between 0 and 365 days. Use 0 to keep expiry flags but silence the early radar.", variant: "destructive" });
+      return;
+    }
+    if (!/^[A-Za-z0-9\-/]*$/.test(form.staffNumberPrefix.trim())) {
+      toast({ title: "Check the prefix", description: "Use only letters, numbers, hyphens or slashes.", variant: "destructive" });
+      return;
+    }
+    if (!preview || !isValidStaffNumber(preview)) {
+      toast({ title: "Check the numbering", description: "This scheme cannot produce a valid ZIMRA staff number (2-30 letters, numbers, hyphens or slashes).", variant: "destructive" });
       return;
     }
     saveMutation.mutate({

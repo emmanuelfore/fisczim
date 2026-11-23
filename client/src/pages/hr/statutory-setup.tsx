@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -57,6 +58,24 @@ const CATEGORIES = [
   { value: "EMPLOYEE_DEDUCTION", label: "Employee deduction" },
   { value: "EMPLOYER_CONTRIBUTION", label: "Employer contribution / levy" },
   { value: "TAX_CREDIT", label: "Employee tax credit / exemption" },
+];
+
+const CATEGORY_SECTIONS = [
+  {
+    value: "EMPLOYEE_DEDUCTION",
+    title: "Employee deductions",
+    description: "Amounts withheld from the employee — PAYE, NSSA, AIDS levy, NEC and other deductions.",
+  },
+  {
+    value: "EMPLOYER_CONTRIBUTION",
+    title: "Employer contributions & levies",
+    description: "Costs borne by the employer rather than deducted from salary.",
+  },
+  {
+    value: "TAX_CREDIT",
+    title: "Tax credits & exemptions",
+    description: "Credits and exemptions applied against the employee's tax liability.",
+  },
 ];
 
 const RESPONSIBLE_PARTIES = [
@@ -324,7 +343,7 @@ export function StatutoryTab() {
                 Add Rule
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-[900px] max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
                   {editingId ? "Edit Statutory Rule" : "Create Statutory Rule"}
@@ -595,136 +614,146 @@ export function StatutoryTab() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader className="bg-slate-50 dark:bg-slate-800/50">
-            <TableRow>
-              <TableHead>Code</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Category / Party</TableHead>
-              <TableHead>Type / Basis</TableHead>
-              <TableHead>Rate</TableHead>
-              <TableHead>Cap / Ceiling</TableHead>
-              <TableHead>Effective</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                  <LoadingRows rows={4} />
-                </TableCell>
-              </TableRow>
-            ) : !rules?.length ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                  No statutory rules found.
-                </TableCell>
-              </TableRow>
-            ) : (
-              rules.map((rule: any) => {
-                const fixed = isFixedRateRule(rule);
-                const employeeRate = rule.employeeRate ?? rule.rate;
-                const employerRate = rule.employerRate;
-                const hasSplitRate =
-                  employerRate !== null &&
-                  employerRate !== undefined &&
-                  Number(employerRate) !== Number(employeeRate);
-                return (
-                  <TableRow key={rule.id}>
-                    <TableCell className="font-medium flex items-center gap-2">
-                      {rule.ruleCode}
-                      {rule.isSystemLocked && (
-                        <span title="System Locked (Required)"><Lock className="w-3.5 h-3.5 text-slate-400" /></span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{rule.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {rule.statutoryAuthority || "—"}
-                        {rule.sourceReference ? ` · ${rule.sourceReference}` : ""}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-xs">
-                        <div>{String(rule.category || "EMPLOYEE_DEDUCTION").replace(/_/g, " ")}</div>
-                        <div className="text-muted-foreground">{String(rule.responsibleParty || "EMPLOYEE")}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300">
-                        {rule.calculationType || ruleTypeLabel(rule)}
-                      </span>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {String(rule.calculationBasis || "—").replace(/_/g, " ")}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {hasSplitRate ? (
-                        <div className="space-y-0.5 text-xs">
-                          <div>Employee: <span className="font-medium">{formatRate(employeeRate, fixed)}</span></div>
-                          <div>Employer: <span className="font-medium">{formatRate(employerRate, fixed)}</span></div>
-                        </div>
-                      ) : (
-                        formatRate(employeeRate, fixed)
-                      )}
-                      {fixed && rule.annualAmount != null && (
-                        <div className="text-xs text-muted-foreground">Annual: {formatRate(rule.annualAmount, true)}</div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {rule.isCapped ? (
-                        <div className="text-xs">
-                          <div>Capped at {formatRate(rule.ceilingAmount, true)}</div>
-                          <div className="text-muted-foreground">{rule.ceilingPeriod || "period not set"}</div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Uncapped</span>
-                      )}
-                      {rule.requiresIndustryRate && (
-                        <div className="text-xs text-amber-600">Industry rate required</div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div>{rule.effectiveFrom ? format(new Date(rule.effectiveFrom), 'PP') : '-'}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {rule.effectiveTo ? `to ${format(new Date(rule.effectiveTo), 'PP')}` : "open ended"}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-slate-500 hover:text-rose-600"
-                          title="Edit rule"
-                          onClick={() => openEdit(rule)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-slate-500 hover:text-rose-600"
-                          title={
-                            rule.isSystemLocked
-                              ? "System-locked rules cannot be deleted"
-                              : "Delete rule"
-                          }
-                          disabled={!!rule.isSystemLocked || deleteMutation.isPending}
-                          onClick={() => setDeleteTarget(rule)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+      <div className="flex flex-col gap-5 w-full">
+        {isLoading ? (
+          <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
+            <CardContent className="p-6">
+              <LoadingRows rows={4} />
+            </CardContent>
+          </Card>
+        ) : !rules?.length ? (
+          <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
+            <CardContent className="p-10 text-center text-muted-foreground">
+              No statutory rules found.
+            </CardContent>
+          </Card>
+        ) : (
+          CATEGORY_SECTIONS.map((section) => {
+            const sectionRules = (rules || []).filter(
+              (rule: any) => String(rule.category || "EMPLOYEE_DEDUCTION") === section.value,
+            );
+            if (!sectionRules.length) return null;
+            return (
+              <Card
+                key={section.value}
+                className="border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden"
+              >
+                <CardHeader className="bg-slate-50/60 dark:bg-slate-900/30 border-b border-slate-100 dark:border-slate-800 pb-4">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    {section.title}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {sectionRules.length} rule{sectionRules.length === 1 ? "" : "s"}
+                    </span>
+                  </CardTitle>
+                  <CardDescription>{section.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader className="bg-slate-50 dark:bg-slate-800/50">
+                      <TableRow>
+                        <TableHead className="w-[26%] min-w-[220px]">Rule</TableHead>
+                        <TableHead className="w-[28%] min-w-[220px]">Rate &amp; basis</TableHead>
+                        <TableHead className="w-[18%] min-w-[150px]">Cap / ceiling</TableHead>
+                        <TableHead className="w-[16%] min-w-[140px]">Effective</TableHead>
+                        <TableHead className="w-[12%] min-w-[110px] text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sectionRules.map((rule: any) => {
+                        const fixed = isFixedRateRule(rule);
+                        const employeeRate = rule.employeeRate ?? rule.rate;
+                        const employerRate = rule.employerRate;
+                        const hasSplitRate =
+                          employerRate !== null &&
+                          employerRate !== undefined &&
+                          Number(employerRate) !== Number(employeeRate);
+                        return (
+                          <TableRow key={rule.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                            <TableCell className="align-top">
+                              <div className="flex items-center gap-2 font-medium">
+                                {rule.ruleCode}
+                                {rule.isSystemLocked && (
+                                  <span title="System Locked (Required)"><Lock className="w-3.5 h-3.5 text-slate-400" /></span>
+                                )}
+                              </div>
+                              <div className="mt-1 text-sm">{rule.name}</div>
+                              <div className="mt-0.5 text-xs text-muted-foreground">
+                                {rule.statutoryAuthority || "—"}
+                                {rule.sourceReference ? ` · ${rule.sourceReference}` : ""}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              {hasSplitRate ? (
+                                <div className="space-y-1 text-sm">
+                                  <div>Employee: <span className="font-semibold">{formatRate(employeeRate, fixed)}</span></div>
+                                  <div>Employer: <span className="font-semibold">{formatRate(employerRate, fixed)}</span></div>
+                                </div>
+                              ) : (
+                                <div className="text-sm font-semibold">{formatRate(employeeRate, fixed)}</div>
+                              )}
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {rule.calculationType || ruleTypeLabel(rule)} · {String(rule.calculationBasis || "—").replace(/_/g, " ")}
+                              </div>
+                              {fixed && rule.annualAmount != null && (
+                                <div className="mt-0.5 text-xs text-muted-foreground">Annual: {formatRate(rule.annualAmount, true)}</div>
+                              )}
+                            </TableCell>
+                            <TableCell className="align-top text-sm">
+                              {rule.isCapped ? (
+                                <>
+                                  <div>Capped at {formatRate(rule.ceilingAmount, true)}</div>
+                                  <div className="mt-0.5 text-xs text-muted-foreground">{rule.ceilingPeriod || "period not set"}</div>
+                                </>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Uncapped</span>
+                              )}
+                              {rule.requiresIndustryRate && (
+                                <div className="mt-1 text-xs text-amber-600">Industry rate required</div>
+                              )}
+                            </TableCell>
+                            <TableCell className="align-top text-sm">
+                              <div>{rule.effectiveFrom ? format(new Date(rule.effectiveFrom), "PP") : "-"}</div>
+                              <div className="mt-0.5 text-xs text-muted-foreground">
+                                {rule.effectiveTo ? `to ${format(new Date(rule.effectiveTo), "PP")}` : "open ended"}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-slate-500 hover:text-rose-600"
+                                  title="Edit rule"
+                                  onClick={() => openEdit(rule)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-slate-500 hover:text-rose-600"
+                                  title={
+                                    rule.isSystemLocked
+                                      ? "System-locked rules cannot be deleted"
+                                      : "Delete rule"
+                                  }
+                                  disabled={!!rule.isSystemLocked || deleteMutation.isPending}
+                                  onClick={() => setDeleteTarget(rule)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
       </div>
 
       <AlertDialog

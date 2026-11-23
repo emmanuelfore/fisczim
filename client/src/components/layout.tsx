@@ -56,7 +56,6 @@ import {
   Wrench,
   Settings2,
   AlertTriangle,
-  UserRound,
   CheckSquare,
   Navigation,
   Wallet,
@@ -89,7 +88,8 @@ import {
   isBusFeatureEnabled,
   normalizeBusSettings,
 } from "@shared/bus-settings";
-import { normalizeAppMode } from "@shared/app-mode";
+import { isBusWorkspace, resolveWorkspaceMode } from "@shared/app-mode";
+import { isFeatureModuleEnabled } from "@shared/feature-modules";
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -192,10 +192,14 @@ export function Layout({
   const selectedCompany = activeCompany;
 
   const activeRole = (activeCompany as any)?.role;
-  const appMode = normalizeAppMode((activeCompany as any)?.appMode);
   const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
+  const appMode = resolveWorkspaceMode((activeCompany as any)?.appMode, busSettings.enabled);
   const featureSettings = (activeCompany as any)?.featureSettings || {};
-  const isBusOnlyMode = busSettings.enabled || appMode === "bus_ticketing";
+  const featureContext = { appMode, busEnabled: busSettings.enabled };
+  const restaurantModuleVisible = isFeatureModuleEnabled(featureSettings, "restaurant", featureContext);
+  // Module visibility does not change the primary workspace. Only App Mode
+  // (and the legacy bus flag) does that.
+  const isBusOnlyMode = isBusWorkspace((activeCompany as any)?.appMode, busSettings.enabled);
   const busOperationsChildren = [
     ...(isBusFeatureEnabled(busSettings, "tripManagement")
       ? [{ icon: Clock, label: "Trip Scheduling", href: "/bus/trips" }]
@@ -295,7 +299,7 @@ export function Layout({
         },
       ],
     },
-    ...(featureSettings.procurement !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "procurement") ? [{
       icon: ClipboardList,
       label: "Procurement",
       children: [
@@ -327,7 +331,7 @@ export function Layout({
         { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
       ],
     }] : []),
-    ...(featureSettings.freight !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "freight") ? [{
       icon: Truck,
       label: "Freight & Logistics",
       children: [
@@ -338,7 +342,7 @@ export function Layout({
         { icon: BarChart3, label: "Reports", href: "/freight/reports" },
       ],
     }] : []),
-    ...(featureSettings.crm !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "crm") ? [{
       icon: UserRoundCheck,
       label: "CRM",
       children: [
@@ -347,7 +351,7 @@ export function Layout({
         { icon: Wallet, label: "Commissions & Penalties", href: "/crm/commissions" },
       ],
     }] : []),
-    ...(featureSettings.vehicles !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "vehicles") ? [{
       icon: Car,
       label: "Vehicle Imports",
       children: [
@@ -358,7 +362,7 @@ export function Layout({
         { icon: FileText, label: "Customer Statements", href: "/vehicles/statements" },
       ],
     }] : []),
-    ...(featureSettings.inventory !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "inventory") ? [{
       icon: Package,
       label: "Inventory",
       children: [
@@ -409,7 +413,7 @@ export function Layout({
         },
       ],
     }] : []),
-    ...(featureSettings.manufacturing !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "manufacturing") ? [{
       icon: Factory,
       label: "Manufacturing",
       children: [
@@ -429,7 +433,7 @@ export function Layout({
         },
       ],
     }] : []),
-    ...(featureSettings.finance !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "finance") ? [{
       icon: Calculator,
       label: "Finance",
       children: [
@@ -476,7 +480,7 @@ export function Layout({
             { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
           ],
         },
-        ...(featureSettings.fixedAssets !== false ? [{
+        ...(isFeatureModuleEnabled(featureSettings, "fixedAssets") ? [{
           icon: Briefcase,
           label: "Assets",
           children: [
@@ -486,16 +490,16 @@ export function Layout({
         }] : []),
       ],
     }] : []),
-    ...(featureSettings.hr !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "hr") ? [{
       icon: Briefcase,
       label: "HR & Payroll",
       href: "/hr",
     }] : []),
-    ...(featureSettings.tax !== false ? [{
+    ...(isFeatureModuleEnabled(featureSettings, "tax") ? [{
       icon: ShieldCheck,
       label: "Tax & Compliance",
       children: [
-        { icon: Server, label: `${fa.deviceLabel} Settings`, href: `/settings?tab=${fa.isLesotho ? "lekuka" : "zimra"}` },
+        { icon: Server, label: `${fa.deviceLabel} Settings`, href: "/settings?tab=zimra" },
         { icon: ShieldCheck, label: "Tax Configuration", href: "/tax-config" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
         { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
@@ -513,23 +517,25 @@ export function Layout({
         },
       ],
     }] : []),
-    {
-      icon: Utensils,
-      label: "Restaurant",
-      children: [
-        {
-          icon: LayoutDashboard,
-          label: "Live Orders",
-          href: "/restaurant/orders",
-        },
-        {
-          icon: MonitorCheck,
-          label: "Kitchen Display",
-          href: "/restaurant/kds",
-        },
-        { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
-      ],
-    },
+    ...(restaurantModuleVisible
+      ? [{
+          icon: Utensils,
+          label: "Restaurant",
+          children: [
+            {
+              icon: LayoutDashboard,
+              label: "Live Orders",
+              href: "/restaurant/orders",
+            },
+            {
+              icon: MonitorCheck,
+              label: "Kitchen Display",
+              href: "/restaurant/kds",
+            },
+            { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
+          ],
+        }]
+      : []),
     {
       icon: Settings,
       label: "Administration",
@@ -539,6 +545,11 @@ export function Layout({
           icon: ClipboardCheck,
           label: "Approvals",
           href: "/approvals",
+        },
+        {
+          icon: Settings,
+          label: "Approval Settings",
+          href: "/settings?tab=approval-policies",
         },
         {
           icon: UserCog,
@@ -576,36 +587,46 @@ export function Layout({
   const restaurantNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     { icon: MonitorCheck, label: "Restaurant POS", href: "/pos" },
-    {
-      icon: Utensils,
-      label: "Restaurant",
-      children: [
-        {
-          icon: LayoutDashboard,
-          label: "Live Orders",
-          href: "/restaurant/orders",
-        },
-        {
-          icon: MonitorCheck,
-          label: "Kitchen Display",
-          href: "/restaurant/kds",
-        },
-        { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
-      ],
-    },
-    { icon: Package, label: "Menu Items", href: "/products" },
-    { icon: Truck, label: "Suppliers", href: "/suppliers" },
-    { icon: Users, label: "Customers", href: "/customers" },
-    {
-      icon: BarChart3,
-      label: "Reports",
-      children: [
-        { icon: LayoutDashboard, label: "Sales Dashboard", href: "/sales-reports" },
-        { icon: LayoutDashboard, label: "Reports Dashboard", href: "/reports" },
-        { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
-        { icon: ShieldCheck, label: `Tax & ${fa.authorityShortName} Report`, href: "/reports/tax" },
-      ],
-    },
+    ...(restaurantModuleVisible
+      ? [{
+          icon: Utensils,
+          label: "Restaurant",
+          children: [
+            {
+              icon: LayoutDashboard,
+              label: "Live Orders",
+              href: "/restaurant/orders",
+            },
+            {
+              icon: MonitorCheck,
+              label: "Kitchen Display",
+              href: "/restaurant/kds",
+            },
+            { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
+          ],
+        }]
+      : []),
+    ...(isFeatureModuleEnabled(featureSettings, "inventory")
+      ? [{ icon: Package, label: "Menu Items", href: "/products" }]
+      : []),
+    ...(isFeatureModuleEnabled(featureSettings, "procurement")
+      ? [{ icon: Truck, label: "Suppliers", href: "/suppliers" }]
+      : []),
+    ...(isFeatureModuleEnabled(featureSettings, "crm")
+      ? [{ icon: Users, label: "Customers", href: "/customers" }]
+      : []),
+    ...(isFeatureModuleEnabled(featureSettings, "finance")
+      ? [{
+          icon: BarChart3,
+          label: "Reports",
+          children: [
+            { icon: LayoutDashboard, label: "Sales Dashboard", href: "/sales-reports" },
+            { icon: LayoutDashboard, label: "Reports Dashboard", href: "/reports" },
+            { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
+            { icon: ShieldCheck, label: `Tax & ${fa.authorityShortName} Report`, href: "/reports/tax" },
+          ],
+        }]
+      : []),
     { icon: UserCog, label: "User Management", href: "/team-settings" },
     { icon: Settings, label: "Settings", href: "/settings?tab=app-mode" },
   ];
@@ -662,7 +683,6 @@ export function Layout({
         { icon: Target, label: "Positions & Vacancies", href: "/hr/positions" },
         { icon: CalendarDays, label: "Leave", href: "/hr/leave" },
         { icon: CreditCard, label: "Loans & Advances", href: "/hr/loans" },
-        { icon: UserRound, label: "Employee Self-Service", href: "/hr/self-service" },
         { icon: ClipboardCheck, label: "Procedures & Sign-offs", href: "/hr/sop" },
       ],
     },
@@ -977,7 +997,7 @@ export function Layout({
           title: "Role Management",
           subtitle: "Define custom roles and permissions.",
         };
-      if (search.includes("tab=approvals"))
+      if (search.includes("tab=approval-policies"))
         return {
           title: "Approval Policies",
           subtitle: "Configure which actions need approval.",

@@ -33,7 +33,6 @@ describe("isHrSurfacePath", () => {
       "/hr/leave",
       "/hr/loans",
       "/hr/setup",
-      "/hr/self-service",
       "/hr/reports/zimra",
       "/hr/reports/remittances",
       "/payroll",

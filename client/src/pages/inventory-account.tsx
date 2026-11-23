@@ -112,8 +112,12 @@ function ConfirmGdnModal({
         landedCost: item.landedCost
       }))
     }, {
-      onSuccess: () => {
-        toast({ title: "Success", description: "GDN confirmed and converted to GRV." });
+      onSuccess: (data: any) => {
+        if (data?.requiresApproval) {
+          toast({ title: "Submitted for approval", description: "The GDN will be converted to a GRV once approved." });
+        } else {
+          toast({ title: "Success", description: "GDN confirmed and converted to GRV." });
+        }
         onClose();
       },
       onError: (err: any) => {

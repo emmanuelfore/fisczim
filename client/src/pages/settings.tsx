@@ -54,7 +54,7 @@ import { InventorySettings } from "@/components/settings/inventory-settings";
 import { BusTicketingSettings } from "@/components/settings/bus-ticketing-settings";
 import { DEFAULT_BUS_SETTINGS, normalizeBusSettings } from "@shared/bus-settings";
 import { AppModeSettings } from "@/components/settings/app-mode-settings";
-import { normalizeAppMode } from "@shared/app-mode";
+import { isBusWorkspace, normalizeAppMode } from "@shared/app-mode";
 import { SalesOrdersSettings } from "@/components/settings/sales-orders-settings";
 import { FeatureSettings } from "@/components/settings/feature-settings";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
@@ -173,9 +173,8 @@ export default function SettingsPage() {
   if (isLoadingActive) return <Layout><PageSkeleton stats={0} /></Layout>;
   if (!activeCompany) return <Layout><div className="p-8">No company details available. Please select a company from the sidebar.</div></Layout>;
 
-  const appMode = normalizeAppMode((activeCompany as any).appMode);
   const busSettings = normalizeBusSettings((activeCompany as any).busSettings);
-  const isBusOnlyMode = busSettings.enabled || appMode === "bus_ticketing";
+  const isBusOnlyMode = isBusWorkspace((activeCompany as any).appMode, busSettings.enabled);
 
   const standardMenuGroups = [
     {
@@ -183,7 +182,7 @@ export default function SettingsPage() {
       items: [
         { id: "profile", label: t("Profile") },
         { id: "branches", label: t("Branches") },
-        { id: "approval-policies", label: t("Approvals") },
+        { id: "approval-policies", label: t("Approval Settings") },
         { id: "partnerships", label: t("Partnerships") },
         { id: "security", label: t("Security") },
       ]

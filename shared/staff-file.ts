@@ -124,13 +124,40 @@ export function staffFileStatus(
 }
 
 /**
+ * ZIMRA-facing staff numbers must be short, readable identifiers. One shared
+ * rule keeps the hire wizard, duplicate check, CSV import and auto-allocation
+ * from disagreeing about what can be saved.
+ */
+export const STAFF_NUMBER_PATTERN = /^[A-Z0-9][A-Z0-9\-/]{1,29}$/;
+
+export function normalizeStaffNumber(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  return normalized || null;
+}
+
+export function isValidStaffNumber(value: unknown): boolean {
+  const normalized = normalizeStaffNumber(value);
+  return normalized !== null && STAFF_NUMBER_PATTERN.test(normalized);
+}
+
+/**
  * The next staff number for a company: prefix + zero-padded counter, e.g. "FS" + 7
  * becomes "FS0007". Employers read their own numbers out loud to fingerprint
  * machines and payslips, so the shape is a per-company setting rather than a constant.
+ * Legacy prefixes are cleaned here so an old setting cannot start producing numbers
+ * that the hire wizard would reject.
  */
 export function nextStaffNumber(prefix: string, digits: number, counter: number): string {
-  const cleanPrefix = String(prefix ?? "").trim().toUpperCase();
+  const cleanPrefix = String(prefix ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9\-/]/g, "")
+    .replace(/^[-/]+/, "")
+    .slice(0, 8);
   const width = Math.min(Math.max(Number(digits) || 1, 1), 12);
+  // With no prefix, one digit would yield "1", which is too short for a staff
+  // number. Pad to at least two characters so the generated value is valid.
+  const paddedWidth = cleanPrefix ? width : Math.max(width, 2);
   const value = Math.max(Number(counter) || 1, 1);
-  return `${cleanPrefix}${String(value).padStart(width, "0")}`;
+  return `${cleanPrefix}${String(value).padStart(paddedWidth, "0")}`;
 }

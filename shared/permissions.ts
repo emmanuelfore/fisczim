@@ -345,6 +345,56 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "users.view",
   ],
 
+  // Finance Director: owns financial control and final payroll approval.
+  // Can review and reverse postings but still works through approval policies
+  // for actions submitted by other users.
+  finance_director: [
+    "nav.dashboard", "nav.invoices", "nav.accounting", "nav.expenses",
+    "nav.reports", "nav.payroll", "nav.compliance", "nav.approvals", "nav.settings",
+    "invoices.view", "invoices.approve", "invoices.void", "invoices.credit_note",
+    "accounting.view", "accounting.journal.create", "accounting.journal.approve",
+    "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
+    "accounting.receipts", "accounting.payments", "accounting.bills.post",
+    "accounting.bills.waive", "accounting.periods",
+    "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
+    "payroll.view", "payroll.approve",
+    "compliance.logs",
+    "approvals.view", "approvals.action",
+    "settings.accounting",
+  ],
+
+  // HR Manager: manages employees and payroll preparation and approves leave.
+  hr_manager: [
+    "nav.dashboard", "nav.payroll", "nav.users",
+    "payroll.view", "payroll.write", "payroll.approve",
+    "users.view",
+  ],
+
+  // Payroll Clerk: prepares payroll runs but cannot approve or lock them.
+  payroll_clerk: [
+    "nav.dashboard", "nav.payroll",
+    "payroll.view", "payroll.write",
+  ],
+
+  // Tax Officer: focused on statutory compliance, returns and audit evidence.
+  tax_officer: [
+    "nav.dashboard", "nav.accounting", "nav.reports", "nav.compliance", "nav.settings",
+    "accounting.view",
+    "reports.sales", "reports.financial", "reports.tax",
+    "compliance.logs", "compliance.test", "compliance.manage",
+    "settings.zimra",
+  ],
+
+  // Report Viewer: read-only access to cross-module reporting.
+  report_viewer: [
+    "nav.dashboard", "nav.invoices", "nav.inventory", "nav.accounting",
+    "nav.reports", "nav.payroll", "nav.compliance", "nav.crm",
+    "invoices.view", "stock.view", "grn.view", "accounting.view",
+    "crm.pipeline.view", "crm.reports.view", "crm.commission.view",
+    "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
+    "payroll.view", "compliance.logs",
+  ],
+
   procurement: [
     "nav.dashboard", "nav.inventory",
     "stock.view", "stock.transfer",
@@ -365,8 +415,30 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
 
   restaurant: [
     "nav.restaurant",
-    "restaurant.orders", "restaurant.kds",
+    "restaurant.orders", "restaurant.kds", "restaurant.layout",
   ],
+};
+
+/** Human-readable names for the built-in role templates. */
+export const ROLE_LABELS: Record<string, string> = {
+  owner: "Owner",
+  admin: "Administrator",
+  member: "Member",
+  cashier: "Cashier",
+  manufacturing: "Manufacturing",
+  sales: "Sales",
+  accountant: "Accountant",
+  logistics: "Logistics",
+  manager: "Manager",
+  hr: "HR",
+  finance_director: "Finance Director",
+  hr_manager: "HR Manager",
+  payroll_clerk: "Payroll Clerk",
+  tax_officer: "Tax Officer",
+  report_viewer: "Report Viewer",
+  procurement: "Procurement",
+  auditor: "Auditor",
+  restaurant: "Restaurant",
 };
 
 /** Map nav hrefs to required permission.
@@ -512,7 +584,6 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/hr/loans": "nav.payroll",
   "/hr/setup": "nav.payroll",
   "/hr/reports": "nav.payroll",
-  "/hr/self-service": "nav.payroll",
   "/hr/reports/zimra": "nav.payroll",
   "/hr/reports/remittances": "nav.payroll",
 

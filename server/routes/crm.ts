@@ -35,7 +35,9 @@ import {
   linkCustomer,
 } from "../lib/lead-capture.js";
 import { userHasPermission } from "../lib/permissions.js";
+import { resolveActionAccess } from "../lib/approval-policies.js";
 import { approveRequest, createApprovalRequest, rejectRequest } from "../lib/approvals.js";
+import { APPROVAL_TYPES } from "../../shared/permissions.js";
 import {
   accrueVehicleCommission,
   applyCommissionDecision,
@@ -1872,11 +1874,40 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
         return res.status(409).json({ error: `A ${commission.status} statement cannot be resubmitted` });
       }
 
+      const access = await resolveActionAccess(
+        req.user.id,
+        companyId,
+        APPROVAL_TYPES.SALES_COMMISSION,
+        Boolean(req.user?.isSuperAdmin),
+        { amount: Number(commission.netAmount) }
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ error: "Commission request permission required" });
+      }
+
+      if (!access.requiresApproval) {
+        const [approved] = await db
+          .update(crmCommissions)
+          .set({
+            status: "approved",
+            approvalRequestId: null,
+            requestedBy: req.user.id,
+            requestedAt: new Date(),
+            reviewedBy: req.user.id,
+            reviewedAt: new Date(),
+            reviewNotes: "Approval not required by company policy",
+            updatedAt: new Date(),
+          })
+          .where(eq(crmCommissions.id, commission.id))
+          .returning();
+        return res.json({ ...approved, requiresApproval: false });
+      }
+
       const names = await userNameMap(companyId);
       const salespersonName = names.get(commission.salespersonId) ?? "Salesperson";
       const request = await createApprovalRequest({
         companyId,
-        type: "sales_commission",
+        type: APPROVAL_TYPES.SALES_COMMISSION,
         title: `Sales commission — ${salespersonName} — ${commission.periodMonth ?? new Date().toISOString().slice(0, 7)}`,
         description: `Gross ${Number(commission.grossAmount).toFixed(2)}, penalties ${Number(commission.penaltyAmount).toFixed(2)}, net ${Number(commission.netAmount).toFixed(2)}. ${commission.reference ?? ""}`.trim(),
         payload: {
@@ -1903,7 +1934,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
         .where(eq(crmCommissions.id, commission.id))
         .returning();
 
-      res.json(updated);
+      res.json({ ...updated, requiresApproval: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to submit commission for approval" });

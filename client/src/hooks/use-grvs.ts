@@ -193,9 +193,14 @@ export function useConfirmGdn(companyId: number) {
           items: data.items,
         }),
       });
-      return readJsonOrThrow(res, "Failed to confirm GDN");
+      const body: any = await readJsonOrThrow(res, "Failed to confirm GDN");
+      return {
+        ...(body && typeof body === "object" ? body : {}),
+        requiresApproval: res.status === 202 || Boolean(body?.requiresApproval),
+      };
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      if (result?.requiresApproval) return;
       queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "DRAFT"] });
       queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
       invalidateAccountingCache(queryClient);

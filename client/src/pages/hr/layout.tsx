@@ -9,7 +9,6 @@ import {
   Briefcase,
   FileBarChart2,
   Landmark,
-  UserRound,
   ClipboardCheck,
   ChevronDown,
   ChevronRight,
@@ -26,7 +25,6 @@ const hrNavigation = [
   { name: "Processing", href: "/hr/payroll", icon: FileSpreadsheet },
   { name: "Leave", href: "/hr/leave", icon: CalendarCheck },
   { name: "Loans & Advances", href: "/hr/loans", icon: Banknote },
-  { name: "Self-Service", href: "/hr/self-service", icon: UserRound },
   { name: "Procedures & Sign-offs", href: "/hr/sop", icon: ClipboardCheck },
 ];
 

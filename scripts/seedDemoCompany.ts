@@ -1,18 +1,25 @@
 import 'dotenv/config';
 import { db } from '../server/db.js';
-import { 
-  companies, employees, payrollRuns, payrollRunEmployees, 
+import {
+  companies, employees, payrollRuns, payrollRunEmployees,
   payrollEarningTypes, payrollDeductionTypes, payrollPayGrades, employeeContracts,
   branches, departments, positions, payrollStatutoryRules,
   employeeSalaryHistory, employeeEmploymentHistory, employeeIncomeHistory, employeeDeductionHistory,
   payrollRecurringItems
 } from '../shared/schema.js';
-import { reportService } from '../server/services/reportService.js';
 import { ZIMBABWE_STATUTORY_RULE_SEED } from '../shared/statutory/zimbabwe.js';
 import { eq } from 'drizzle-orm';
 import { addMonths, addDays, format, startOfMonth, subMonths } from 'date-fns';
 
 async function seedDemoCompany() {
+  // Demo seeding is destructive (it creates a brand-new tenant), and payroll runs
+  // are real payroll evidence. Require an explicit opt-in so an accidental
+  // `tsx scripts/seedDemoCompany.ts` can never create phantom runs in production.
+  if (process.env.ALLOW_DEMO_SEED !== 'true') {
+    throw new Error('Demo seeding is disabled. Set ALLOW_DEMO_SEED=true to run this script.');
+  }
+  const seedPayrollRuns = process.env.SEED_DEMO_PAYROLL_RUNS === 'true';
+
   console.log('Starting Demo Company seeding...');
   
   // 1. Create Demo Company with statutory details
@@ -240,9 +247,13 @@ async function seedDemoCompany() {
   }
   console.log(`Created 20 employees, their contracts, salary/employment/income/deduction history`);
 
-  // 6. Run 3 months of payroll (plus the current month to surface proration)
-  const currentDate = new Date();
-  for (let m = 3; m >= 0; m--) {
+  // 6. Payroll runs are OFF by default. A demo tenant with employees but no runs
+  //    matches a real onboarding state; pre-filled runs previously looked like
+  //    payroll the user had never executed.
+  if (seedPayrollRuns) {
+    const { reportService } = await import('../server/services/reportService.js');
+    const currentDate = new Date();
+    for (let m = 3; m >= 0; m--) {
     const runDate = startOfMonth(subMonths(currentDate, m));
     const periodStart = format(runDate, 'yyyy-MM-dd');
     const periodEnd = format(addMonths(runDate, 1), 'yyyy-MM-dd'); 
@@ -261,7 +272,6 @@ async function seedDemoCompany() {
 
     let totalGross = 0;
     let totalNet = 0;
-    let runTotalTaxes = 0;
     let runTotalDeductions = 0;
 
     for (const { emp, basePay } of insertedEmployees) {
@@ -279,7 +289,6 @@ async function seedDemoCompany() {
 
       totalGross += gross;
       totalNet += netPay;
-      runTotalTaxes += payeTax;
       runTotalDeductions += (nssaTax + aidsLevy);
 
       const [runEmp] = await db.insert(payrollRunEmployees).values({
@@ -323,6 +332,9 @@ async function seedDemoCompany() {
     }).where(eq(payrollRuns.id, run.id));
     
     console.log(`Generated payroll run for ${periodStart} with total gross $${totalGross.toFixed(2)}`);
+    }
+  } else {
+    console.log('Skipping demo payroll runs (set SEED_DEMO_PAYROLL_RUNS=true to generate them).');
   }
 
   console.log('Demo Company seeding complete!');

@@ -21,14 +21,26 @@ export function AppModeSettings({ formData, setFormData, onSave }: Props) {
   const [savingMode, setSavingMode] = useState<AppMode | null>(null);
 
   const setMode = (mode: AppMode) => {
-    const nextData = { ...formData, appMode: mode };
-    if (mode === "bus_ticketing") {
-      nextData.busSettings = { ...(formData.busSettings || {}), enabled: true };
-    }
-    if (mode === "restaurant") {
-      nextData.restaurantSettings = {
+    // App Mode owns the primary workspace. Clear the previous workspace flags
+    // so switching Bus → POS does not leave a bus-only sidebar behind.
+    const nextData = {
+      ...formData,
+      appMode: mode,
+      busSettings: {
+        ...(formData.busSettings || {}),
+        enabled: mode === "bus_ticketing",
+      },
+      restaurantSettings: {
         ...(formData.restaurantSettings || {}),
-        enabled: true,
+        enabled: mode === "restaurant",
+      },
+    };
+    // Make sure the chosen workspace's module is never hidden while selected.
+    const activeModule = mode === "bus_ticketing" ? "bus" : mode === "restaurant" ? "restaurant" : null;
+    if (activeModule) {
+      nextData.featureSettings = {
+        ...(formData.featureSettings || {}),
+        [activeModule]: true,
       };
     }
     setFormData(nextData);

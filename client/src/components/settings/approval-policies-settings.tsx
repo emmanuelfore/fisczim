@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ClipboardCheck, Save } from "lucide-react";
+import { Loader2, ClipboardCheck, Save, ShieldCheck, CircleSlash } from "lucide-react";
 import {
   APPROVAL_POLICY_MODES,
   DEFAULT_APPROVAL_POLICIES,
@@ -88,6 +88,7 @@ export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettings
     policy: policies[type],
     supportsAmountThreshold: type === APPROVAL_TYPES.INVOICE_ISSUE || type === APPROVAL_TYPES.JOURNAL_POST,
   }));
+  const approvalRequired = items.filter((item) => policies[item.type]?.mode !== "disabled");
 
   if (!can("roles.view")) {
     return (
@@ -101,6 +102,30 @@ export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettings
 
   return (
     <div className="space-y-4">
+      <Card className="border-blue-100 bg-blue-50/50 dark:border-blue-900/40 dark:bg-blue-950/20">
+        <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">What needs approval</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              These rules apply company-wide. Change a mode below to add or remove an approval step.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {approvalRequired.length ? (
+              approvalRequired.map((item) => (
+                <Badge key={item.type} variant="outline" className="border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300">
+                  <ShieldCheck className="mr-1 h-3 w-3" /> {item.label}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="outline" className="text-slate-500">
+                <CircleSlash className="mr-1 h-3 w-3" /> No approval steps configured
+              </Badge>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>

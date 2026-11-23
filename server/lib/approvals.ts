@@ -161,123 +161,42 @@ async function executeApprovalAction(
       return { message: "Stock adjustment applied" };
     }
     case "grn_confirm": {
+      // Reuse the interactive confirmation path so approval cannot bypass
+      // draft-line checks, PO limits, quantity caps, serials or added lines.
+      // That helper owns its own transaction for GDN-based receipts.
+      if (!payload.batchStockIn) {
+        const { confirmGdnReceipt } = await import("./gdn-confirmation.js");
+        return await confirmGdnReceipt(companyId, {
+          gdnId: Number(payload.gdnId),
+          items: payload.items as any[],
+          notes: typeof payload.notes === "string" ? payload.notes : undefined,
+          landedCosts: payload.landedCosts ? Number(payload.landedCosts) : 0,
+          allocationMethod: (payload.allocationMethod as "value" | "quantity" | "manual" | undefined) || "value",
+          grvNumber: typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
+          userId,
+        });
+      }
+
       const { recordBatchStockIn } = await import("./inventory.js");
       const { db } = await import("../db.js");
-      const { goodsDeliveryNotes, goodsDeliveryNoteItems } = await import("../../shared/schema.js");
-      const { eq, and, sql } = await import("drizzle-orm");
 
-      // One transaction covers stock movements, the GL posting and the GDN
-      // state change. A failure anywhere rolls the whole confirmation back.
+      // One transaction covers stock movements and the GL posting.
       return await db.transaction(async (tx) => {
-        if (payload.batchStockIn) {
-          const result = await recordBatchStockIn(
-            companyId,
-            payload.items as any[],
-            payload.supplierId ? Number(payload.supplierId) : undefined,
-            typeof payload.notes === "string" ? payload.notes : undefined,
-            payload.landedCosts ? Number(payload.landedCosts) : 0,
-            (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
-            typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
-            userId,
-            undefined,
-            undefined,
-            undefined,
-            tx
-          );
-          return { grvNumber: result.grvNumber, message: "Batch stock received" };
-        }
-
-        const gdnId = Number(payload.gdnId);
-        const items = payload.items as any[];
-        const [gdn] = await tx
-          .select()
-          .from(goodsDeliveryNotes)
-          .where(and(eq(goodsDeliveryNotes.id, gdnId), eq(goodsDeliveryNotes.companyId, companyId)))
-          .limit(1);
-
-        if (!gdn) throw new Error("GDN not found");
-        if (gdn.status !== "DRAFT") throw new Error("GDN already processed");
-
-        // Conditional claim inside the same transaction as the posting.
-        const [claimed] = await tx
-          .update(goodsDeliveryNotes)
-          .set({ status: "PROCESSING" })
-          .where(and(
-            eq(goodsDeliveryNotes.id, gdnId),
-            eq(goodsDeliveryNotes.companyId, companyId),
-            eq(goodsDeliveryNotes.status, "DRAFT"),
-          ))
-          .returning();
-        if (!claimed) throw new Error("GDN already processed");
-
-        const stockItems = items.map((raw: any) => ({
-          productId: raw.productId ? Number(raw.productId) : null,
-          accountCode: raw.accountCode || null,
-          description: raw.description || null,
-          quantity: Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived),
-          unitCost: Number(raw.unitCost),
-          landedCost: Number(raw.landedCost || 0),
-          taxTypeId: raw.taxTypeId ? Number(raw.taxTypeId) : null,
-          taxRate: Number(raw.taxRate || 0),
-          taxAmount: Number(raw.taxAmount || 0),
-          isRecoverable: raw.isRecoverable !== false,
-        }));
-
         const result = await recordBatchStockIn(
           companyId,
-          stockItems,
-          gdn.supplierId || undefined,
-          String(payload.notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`),
+          payload.items as any[],
+          payload.supplierId ? Number(payload.supplierId) : undefined,
+          typeof payload.notes === "string" ? payload.notes : undefined,
           payload.landedCosts ? Number(payload.landedCosts) : 0,
-          (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
+          (payload.allocationMethod as "value" | "quantity" | "manual" | undefined) || "value",
           typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
           userId,
-          gdn.purchaseOrderId || undefined,
-          gdn.id,
+          undefined,
+          undefined,
           undefined,
           tx
         );
-
-        for (const item of stockItems) {
-          if (item.productId) {
-            await tx
-              .update(goodsDeliveryNoteItems)
-              .set({
-                unitCost: item.unitCost.toString(),
-                quantityAccepted: item.quantity.toString(),
-                quantityRejected: "0",
-                taxTypeId: item.taxTypeId,
-                taxRate: item.taxRate.toString(),
-                taxAmount: item.taxAmount.toString(),
-                isRecoverable: item.isRecoverable
-              })
-              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
-          } else {
-            await tx
-              .update(goodsDeliveryNoteItems)
-              .set({
-                unitCost: item.unitCost.toString(),
-                quantityAccepted: item.quantity.toString(),
-                quantityRejected: "0",
-                taxTypeId: item.taxTypeId,
-                taxRate: item.taxRate.toString(),
-                taxAmount: item.taxAmount.toString(),
-                isRecoverable: item.isRecoverable
-              })
-              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), sql`${goodsDeliveryNoteItems.productId} IS NULL`, eq(goodsDeliveryNoteItems.description, item.description || "")));
-          }
-        }
-        await tx
-          .update(goodsDeliveryNotes)
-          .set({
-            status: "CONFIRMED",
-            confirmedBy: userId,
-            confirmedAt: new Date(),
-            confirmedGrvNumber: result.grvNumber,
-          })
-          .where(eq(goodsDeliveryNotes.id, gdnId));
-
-        return { grvNumber: result.grvNumber, message: "GDN confirmed and stock received" };
+        return { grvNumber: result.grvNumber, message: "Batch stock received" };
       });
     }
     case "journal_post": {

@@ -161,7 +161,6 @@ const HRSetup = lazy(() => import("@/pages/hr/setup"));
 const HrRunReport = lazy(() => import("@/pages/hr/run-report"));
 const HRZimraReports = lazy(() => import("@/pages/hr/zimra-reports"));
 const HRStatutoryRemittances = lazy(() => import("@/pages/hr/remittances"));
-const HRSelfService = lazy(() => import("@/pages/hr/self-service"));
 const HRSop = lazy(() => import("@/pages/hr/sop"));
 const SystemConfigPage = lazy(() => import("@/pages/mx-3f7a"));
 const MaterialDocumentLedger = lazy(() => import("@/pages/inventory/reports/ledger"));
@@ -975,9 +974,6 @@ function Router() {
       </Route>
       <Route path="/hr/positions">
         {() => <ProtectedRoute component={HRPositions} />}
-      </Route>
-      <Route path="/hr/self-service">
-        {() => <ProtectedRoute component={HRSelfService} />}
       </Route>
       <Route path="/hr/sop">
         {() => <ProtectedRoute component={HRSop} />}

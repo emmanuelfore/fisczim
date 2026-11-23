@@ -10,7 +10,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -19,10 +18,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "@/hooks/use-companies";
 import {
-  ArrowLeft, Printer, Package, FileText, User, FileEdit,
+  ArrowLeft, Printer, Package, FileText, User,
   Plane, Ship, Clock, AlertTriangle, CheckCircle2, DollarSign,
   ChevronRight, Truck, Box, Calendar
 } from "lucide-react";
@@ -41,9 +40,11 @@ export default function SalesOrderDetailsPage() {
   const approveMutation = useApproveSalesOrder();
   const recordPaymentMutation = useRecordLayByPayment();
   const receiveGoodsMutation = useReceiveGoods();
-  const [isAllocating, setIsAllocating] = useState(false);
-  const [stockId, setStockId] = useState("");
-  const [allocQty, setAllocQty] = useState("");
+  const [isPicking, setIsPicking] = useState(false);
+  const [pickQuantities, setPickQuantities] = useState<Record<number, string>>({});
+  const [pickLocationId, setPickLocationId] = useState<string>("");
+  const [deliveryNumber, setDeliveryNumber] = useState("");
+  const [recipientName, setRecipientName] = useState("");
   const [isInvoicing, setIsInvoicing] = useState(false);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
   const [isApproving, setIsApproving] = useState(false);
@@ -57,6 +58,20 @@ export default function SalesOrderDetailsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+
+  const {
+    data: fulfillment,
+    isLoading: isFulfillmentLoading,
+    refetch: refetchFulfillment,
+  } = useQuery<any>({
+    queryKey: ["/api/sales-orders", id, "pick-list"],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/sales-orders/${id}/pick-list`);
+      if (!res.ok) throw new Error("Failed to load picking worksheet");
+      return res.json();
+    },
+    enabled: !!id,
+  });
 
   if (isLoading) return <Layout><PageSkeleton stats={0} rows={6} /></Layout>;
   if (error) return <Layout><div className="p-8 text-center text-slate-500">Error loading sales order: {error.message}</div></Layout>;
@@ -96,20 +111,95 @@ export default function SalesOrderDetailsPage() {
     }
   };
 
-  const handleAllocate = async () => {
+  const refreshOrder = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/sales-orders", id] }),
+      refetchFulfillment(),
+    ]);
+  };
+
+  const openPickList = async () => {
+    const result = await refetchFulfillment();
+    const data = result.data as any;
+    const quantities: Record<number, string> = {};
+    for (const item of data?.items || []) {
+      quantities[item.salesOrderItemId] = String(item.pickedQuantity || item.remainingQuantity || 0);
+    }
+    setPickQuantities(quantities);
+    setPickLocationId(data?.locationId ? String(data.locationId) : "");
+    setIsPicking(true);
+  };
+
+  const openInvoiceDialog = () => {
+    const defaults = (fulfillment?.items || [])
+      .filter((item: any) => Number(item.pickedQuantity) > 0)
+      .map((item: any) => ({
+        id: item.salesOrderItemId,
+        qty: String(Math.max(Number(item.pickedQuantity) - Number(item.invoicedQuantity), 0)),
+      }));
+    setInvoiceItems(defaults);
+    setIsInvoicing(true);
+  };
+
+  const handlePreparePickList = async () => {
     try {
-      const res = await apiFetch(`/api/sales-orders/${id}/allocate`, {
+      const items = Object.entries(pickQuantities).map(([salesOrderItemId, quantity]) => ({
+        salesOrderItemId: Number(salesOrderItemId),
+        quantity: Number(quantity || 0),
+      }));
+      const res = await apiFetch(`/api/sales-orders/${id}/pick-list`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stockId: parseInt(stockId), quantity: parseFloat(allocQty) })
+        body: JSON.stringify({ locationId: Number(pickLocationId) || undefined, items }),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Failed to allocate");
+        throw new Error(err.error || "Failed to prepare pick list");
       }
-      toast({ title: "Stock Allocated Successfully" });
-      setIsAllocating(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/sales-orders", id] });
+      toast({ title: "Pick List Prepared", description: "All order lines are ready for picking." });
+      await refreshOrder();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleConfirmPick = async () => {
+    try {
+      const items = Object.entries(pickQuantities).map(([salesOrderItemId, quantity]) => ({
+        salesOrderItemId: Number(salesOrderItemId),
+        quantity: Number(quantity || 0),
+      }));
+      const res = await apiFetch(`/api/sales-orders/${id}/pick-list/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to confirm picking");
+      }
+      toast({ title: "Picking Confirmed" });
+      setIsPicking(false);
+      await refreshOrder();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleDispatch = async () => {
+    try {
+      const res = await apiFetch(`/api/sales-orders/${id}/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveryNumber, recipientName }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to dispatch order");
+      }
+      toast({ title: "Order Dispatched", description: "Delivery document recorded. You can now invoice." });
+      setIsPicking(false);
+      await refreshOrder();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -117,14 +207,11 @@ export default function SalesOrderDetailsPage() {
 
   const handleInvoice = async () => {
     try {
-      const itemsToInvoice = order.items
-        .filter((item: any) => {
-           const qty = parseFloat(invoiceItems.find(i => i.id === item.id)?.qty || "0");
-           return qty > 0;
-        })
+      const itemsToInvoice = (fulfillment?.items || [])
+        .filter((item: any) => Number(invoiceItems.find(i => i.id === item.salesOrderItemId)?.qty || 0) > 0)
         .map((item: any) => ({
-          salesOrderItemId: item.id,
-          quantityToInvoice: invoiceItems.find(i => i.id === item.id)?.qty
+          salesOrderItemId: item.salesOrderItemId,
+          quantityToInvoice: Number(invoiceItems.find(i => i.id === item.salesOrderItemId)?.qty || 0),
         }));
 
       if (itemsToInvoice.length === 0) throw new Error("Select at least one item to invoice.");
@@ -134,13 +221,16 @@ export default function SalesOrderDetailsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ salesOrderId: order.id, itemsToInvoice })
       });
-      
-      if (!res.ok) throw new Error("Failed to invoice");
+
       const invoice = await res.json();
-      
-      toast({ title: "Invoice Generated" });
+      if (!res.ok) throw new Error(invoice.error || "Failed to invoice");
+
+      toast({
+        title: invoice.alreadyExists ? "Existing Invoice Opened" : "Invoice Generated",
+        description: invoice.alreadyExists ? "This sales order already had an invoice, so no duplicate was created." : undefined,
+      });
       setIsInvoicing(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/sales-orders", id] });
+      await refreshOrder();
       setLocation(`/invoices/${invoice.id}`);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -179,113 +269,261 @@ export default function SalesOrderDetailsPage() {
               </Button>
             )}
             
-            {order.status !== "invoiced" && order.status !== "closed" && order.status !== "cancelled" && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => setLocation(`/invoices/new?salesOrderId=${id}`)} 
-                className="h-9 gap-1.5 font-medium border-indigo-300 text-indigo-700 hover:bg-indigo-50"
-              >
-                <FileEdit className="h-4 w-4" />
-                Convert to Invoice
-              </Button>
-            )}
-            
             {order.status !== "closed" && order.status !== "invoiced" && (
               <Button variant="outline" size="sm" onClick={() => setLocation(`/sales-orders/${id}/edit`)} className="h-9 gap-1.5 font-medium border-slate-300 text-slate-700 hover:bg-slate-50">
                 Edit Order
               </Button>
             )}
 
-            <Dialog open={isAllocating} onOpenChange={setIsAllocating}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium border-slate-300 text-slate-700 hover:bg-slate-50">
-                  <Package className="h-4 w-4 text-amber-500" />
-                  Allocate Stock
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
+            {fulfillment?.activeInvoice ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLocation(`/invoices/${fulfillment.activeInvoice.id}`)}
+                className="h-9 gap-1.5 font-medium border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              >
+                <FileText className="h-4 w-4" />
+                View Invoice {fulfillment.activeInvoice.invoiceNumber}
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openPickList}
+                disabled={isFulfillmentLoading}
+                className="h-9 gap-1.5 font-medium border-amber-300 text-amber-700 hover:bg-amber-50"
+              >
+                <Package className="h-4 w-4 text-amber-500" />
+                {fulfillment?.pickList?.status === "DRAFT"
+                  ? "Continue Picking"
+                  : fulfillment?.pickList?.status === "DISPATCHED"
+                    ? "View Pick List"
+                    : "Order Picking"}
+              </Button>
+            )}
+
+            {!fulfillment?.activeInvoice && fulfillment?.pickList?.status !== "DISPATCHED" && (
+              <Button variant="default" size="sm" disabled className="h-9 gap-1.5 font-medium opacity-50" title="Dispatch the order before invoicing">
+                <FileText className="h-4 w-4" />
+                Generate Invoice
+              </Button>
+            )}
+
+            <Dialog open={isPicking} onOpenChange={setIsPicking}>
+              <DialogContent className="max-w-3xl">
                 <DialogHeader>
-                  <DialogTitle>Allocate Stock to Order</DialogTitle>
-                  <p className="text-sm text-slate-500 mt-2">
-                    Allocating stock permanently deducts physical inventory from your warehouse and assigns it to this order. This ensures the items cannot be sold to anyone else.
+                  <DialogTitle>Order Picking — {order.orderNumber}</DialogTitle>
+                  <p className="text-sm text-slate-500 mt-1">
+                    All order lines are shown. Confirm how many units were picked, then dispatch before invoicing.
                   </p>
                 </DialogHeader>
+
+                {fulfillment?.pickList && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-3 text-xs">
+                    <Badge className="bg-blue-100 text-blue-700 border-blue-200">
+                      {fulfillment.pickList.pickNumber}
+                    </Badge>
+                    <Badge className="bg-slate-200 text-slate-700 border-slate-300">
+                      {fulfillment.pickList.status}
+                    </Badge>
+                    {fulfillment.pickList.deliveryNumber && (
+                      <span className="text-slate-600">Delivery: {fulfillment.pickList.deliveryNumber}</span>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label>Stock ID (Lot Number)</Label>
-                    <Input value={stockId} onChange={(e) => setStockId(e.target.value)} placeholder="e.g. 1" />
+                    <Label>Pick from warehouse</Label>
+                    <Select value={pickLocationId} onValueChange={setPickLocationId}>
+                      <SelectTrigger><SelectValue placeholder="Select warehouse" /></SelectTrigger>
+                      <SelectContent>
+                        {(fulfillment?.locations || []).map((location: any) => (
+                          <SelectItem key={location.id} value={String(location.id)}>
+                            {location.code ? `${location.code} — ` : ""}{location.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label>Quantity to Allocate</Label>
-                    <QuantityInput type="number" value={allocQty} onChange={(e) => setAllocQty(e.target.value)} />
+
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="py-2 px-3 font-semibold">Item</th>
+                          <th className="py-2 px-3 font-semibold text-center">Ordered</th>
+                          <th className="py-2 px-3 font-semibold text-center">Invoiced</th>
+                          <th className="py-2 px-3 font-semibold text-center">Stock</th>
+                          <th className="py-2 px-3 font-semibold text-right">Qty to Pick</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(fulfillment?.items || []).map((item: any) => (
+                          <tr key={item.salesOrderItemId} className="border-t border-slate-100">
+                            <td className="py-2 px-3">
+                              <div className="font-medium text-slate-900">{item.description}</div>
+                              {item.sku && <div className="text-xs text-slate-400">SKU: {item.sku}</div>}
+                            </td>
+                            <td className="py-2 px-3 text-center">{item.orderedQuantity}</td>
+                            <td className="py-2 px-3 text-center text-slate-500">{item.invoicedQuantity}</td>
+                            <td className="py-2 px-3 text-center text-slate-500">{item.availableQuantity}</td>
+                            <td className="py-2 px-3 text-right">
+                              <QuantityInput
+                                type="number"
+                                className="ml-auto h-8 w-24 text-right"
+                                min="0"
+                                max={item.remainingQuantity}
+                                value={pickQuantities[item.salesOrderItemId] ?? "0"}
+                                onChange={(e) => setPickQuantities(prev => ({
+                                  ...prev,
+                                  [item.salesOrderItemId]: e.target.value,
+                                }))}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                        {!fulfillment?.items?.length && (
+                          <tr><td colSpan={5} className="p-6 text-center text-slate-500">No order lines found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
+
+                  {fulfillment?.pickList?.status === "PICKED" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg bg-emerald-50 p-3">
+                      <div className="grid gap-2">
+                        <Label>Delivery Note Number</Label>
+                        <Input value={deliveryNumber} onChange={(e) => setDeliveryNumber(e.target.value)} placeholder="DN-..." />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Received By</Label>
+                        <Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="Recipient name" />
+                      </div>
+                    </div>
+                  )}
                 </div>
+
                 <DialogFooter>
-                  <Button onClick={handleAllocate}>Confirm Allocation</Button>
+                  <Button variant="outline" onClick={() => setIsPicking(false)}>Close</Button>
+                  {(!fulfillment?.pickList || fulfillment.pickList.status === "DRAFT") && (
+                    <Button onClick={handlePreparePickList}>Save Pick List</Button>
+                  )}
+                  {fulfillment?.pickList?.status === "DRAFT" && (
+                    <Button onClick={handleConfirmPick}>Save & Confirm Picking</Button>
+                  )}
+                  {fulfillment?.pickList?.status === "PICKED" && (
+                    <Button onClick={handleConfirmPick} disabled>Confirmed</Button>
+                  )}
+                  {fulfillment?.pickList?.status === "PICKED" && (
+                    <Button onClick={handleDispatch}>Dispatch Order</Button>
+                  )}
                 </DialogFooter>
               </DialogContent>
             </Dialog>
 
-            <Dialog open={isInvoicing} onOpenChange={setIsInvoicing}>
-              <DialogTrigger asChild>
-                <Button variant="default" size="sm" className="h-9 gap-1.5 font-medium bg-primary hover:bg-primary/90">
-                  <FileText className="h-4 w-4" />
-                  Generate Invoice
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-xl">
-                <DialogHeader>
-                  <DialogTitle>Generate Invoice</DialogTitle>
-                  <p className="text-sm text-slate-500 mt-1">Convert ordered lines into a formal invoice for the customer.</p>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <table className="w-full text-sm text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200">
-                        <th className="py-2 text-slate-500 font-semibold">Item</th>
-                        <th className="py-2 text-slate-500 font-semibold text-center">Ordered</th>
-                        <th className="py-2 text-slate-500 font-semibold text-center">Invoiced</th>
-                        <th className="py-2 text-slate-500 font-semibold text-right">Qty to Invoice</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {order.items.map((item: any) => (
-                        <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                          <td className="py-3 font-medium text-slate-900">{item.description}</td>
-                          <td className="py-3 text-center">{item.quantity}</td>
-                          <td className="py-3 text-center text-slate-500">{item.invoicedQuantity}</td>
-                          <td className="py-3 text-right">
-                            <QuantityInput 
-                              type="number" 
-                              className=" ml-auto text-right h-8"
-                              defaultValue="0"
-                              max={item.quantity - item.invoicedQuantity}
-                              min="0"
-                              onChange={(e) => {
-                                setInvoiceItems(prev => {
-                                  const existing = prev.filter(i => i.id !== item.id);
-                                  return [...existing, { id: item.id, qty: e.target.value }];
-                                });
-                              }}
-                            />
-                          </td>
+            {!fulfillment?.activeInvoice && fulfillment?.pickList?.status === "DISPATCHED" && (
+              <>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={openInvoiceDialog}
+                className="h-9 gap-1.5 font-medium bg-primary hover:bg-primary/90"
+              >
+                <FileText className="h-4 w-4" />
+                Generate Invoice
+              </Button>
+              <Dialog open={isInvoicing} onOpenChange={setIsInvoicing}>
+                <DialogContent className="max-w-xl">
+                  <DialogHeader>
+                    <DialogTitle>Generate Invoice</DialogTitle>
+                    <p className="text-sm text-slate-500 mt-1">Invoice only the quantities that were picked and dispatched.</p>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200">
+                          <th className="py-2 text-slate-500 font-semibold">Item</th>
+                          <th className="py-2 text-slate-500 font-semibold text-center">Picked</th>
+                          <th className="py-2 text-slate-500 font-semibold text-center">Invoiced</th>
+                          <th className="py-2 text-slate-500 font-semibold text-right">Qty to Invoice</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsInvoicing(false)}>Cancel</Button>
-                  <Button onClick={handleInvoice}>Generate Invoice</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                      </thead>
+                      <tbody>
+                        {(fulfillment?.items || []).filter((item: any) => Number(item.pickedQuantity) > 0).map((item: any) => (
+                          <tr key={item.salesOrderItemId} className="border-b border-slate-100 last:border-0">
+                            <td className="py-3 font-medium text-slate-900">{item.description}</td>
+                            <td className="py-3 text-center">{item.pickedQuantity}</td>
+                            <td className="py-3 text-center text-slate-500">{item.invoicedQuantity}</td>
+                            <td className="py-3 text-right">
+                              <QuantityInput
+                                type="number"
+                                className="ml-auto h-8 w-24 text-right"
+                                defaultValue={String(Math.max(Number(item.pickedQuantity) - Number(item.invoicedQuantity), 0))}
+                                max={Number(item.pickedQuantity) - Number(item.invoicedQuantity)}
+                                min="0"
+                                onChange={(e) => {
+                                  setInvoiceItems(prev => {
+                                    const existing = prev.filter(i => i.id !== item.salesOrderItemId);
+                                    return [...existing, { id: item.salesOrderItemId, qty: e.target.value }];
+                                  });
+                                }}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsInvoicing(false)}>Cancel</Button>
+                    <Button onClick={handleInvoice}>Generate Invoice</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              </>
+            )}
 
             <Button variant="outline" size="sm" onClick={() => window.print()} className="h-9 gap-1.5 font-medium border-slate-300 text-slate-700 hover:bg-slate-50 ml-2">
               <Printer className="h-4 w-4" />
               Print / PDF
             </Button>
+          </div>
+        </div>
+
+        {/* Fulfilment progress — standard ERP order-to-invoice flow */}
+        <div className="px-6 py-4 border-b border-slate-100 bg-white print:hidden">
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { key: "confirmed", label: "Order Confirmed" },
+              { key: "picked", label: "Order Picked" },
+              { key: "dispatched", label: "Dispatched" },
+              { key: "invoiced", label: "Invoiced" },
+            ].map((step, idx, arr) => {
+              const pickStatus = fulfillment?.pickList?.status;
+              const currentIndex =
+                fulfillment?.activeInvoice ? 3
+                : pickStatus === "DISPATCHED" || order.status === "dispatched" ? 2
+                : pickStatus === "PICKED" || order.status === "picked" ? 1
+                : 0;
+              const isDone = idx < currentIndex;
+              const isCurrent = idx === currentIndex;
+              return (
+                <div key={step.key} className="flex items-center gap-2">
+                  <div className={cn(
+                    "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+                    isDone ? "bg-emerald-500 text-white" : isCurrent ? "bg-blue-500 text-white" : "bg-slate-200 text-slate-400"
+                  )}>
+                    {isDone ? <CheckCircle2 className="w-3 h-3" /> : idx + 1}
+                  </div>
+                  <span className={cn(
+                    "text-xs font-medium",
+                    isDone ? "text-emerald-700" : isCurrent ? "text-blue-700" : "text-slate-400"
+                  )}>{step.label}</span>
+                  {idx < arr.length - 1 && <ChevronRight className="w-3 h-3 text-slate-300 ml-1" />}
+                </div>
+              );
+            })}
           </div>
         </div>
 

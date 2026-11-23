@@ -11914,6 +11914,26 @@ export async function registerRoutes(
       const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const requestBranchId = getBranchId(req);
 
+      // One sales order may only have one active invoice, regardless of which
+      // invoice screen or API path is used.
+      if ((input as any).salesOrderId) {
+        const [existingSalesOrderInvoice] = await db
+          .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, status: invoices.status })
+          .from(invoices)
+          .where(and(
+            eq(invoices.companyId, companyId),
+            eq(invoices.salesOrderId, Number((input as any).salesOrderId)),
+            ne(invoices.status, "cancelled")
+          ))
+          .limit(1);
+        if (existingSalesOrderInvoice) {
+          return res.status(409).json({
+            message: "An active invoice already exists for this sales order",
+            invoice: existingSalesOrderInvoice,
+          });
+        }
+      }
+
       if (input.isPos) {
         const canSell = isSuperAdmin || await userHasPermission(userId, companyId, "pos.sell", false);
         if (!canSell) {

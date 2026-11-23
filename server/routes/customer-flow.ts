@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, ne, or, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { 
   salesOrders, 
   salesOrderItems, 
@@ -19,22 +19,47 @@ import {
   compoundProducts,
   compoundProductItems,
   salesOrderSettings,
-  payments
+  payments,
+  salesPickLists,
+  salesPickListItems,
+  inventoryLocationStocks,
+  inventoryLocations,
+  inventoryTransactions
 } from "../../shared/schema.js";
 
 export function createCustomerFlowRouter(requireAuth: any) {
   const router = Router();
 
-  // 1. Convert Quotation -> Sales Order
+  // 1. Convert Quotation -> Sales Order. Quotations are real quotation records,
+  // never invoices with a "quote" status. Conversion is idempotent.
   router.post("/sales-orders/from-quotation", requireAuth, async (req, res) => {
     try {
-      const { quotationId } = req.body;
-      const quote = await db.query.invoices.findFirst({
-        where: eq(invoices.id, quotationId),
+      const quotationId = Number(req.body?.quotationId);
+      if (!Number.isFinite(quotationId)) {
+        return res.status(400).json({ error: "quotationId is required" });
+      }
+
+      const quote = await db.query.quotations.findFirst({
+        where: eq(quotations.id, quotationId),
         with: { items: true }
       });
 
       if (!quote) return res.status(404).json({ error: "Quotation not found" });
+      if (!quote.items?.length) {
+        return res.status(400).json({ error: "Quotation has no lines to convert" });
+      }
+      if (["declined", "invoiced"].includes(quote.status || "")) {
+        return res.status(400).json({ error: `Quotation is ${quote.status} and cannot be converted` });
+      }
+
+      // Return the existing order instead of creating a duplicate on retry.
+      const existingOrder = await db.query.salesOrders.findFirst({
+        where: and(
+          eq(salesOrders.companyId, quote.companyId),
+          eq(salesOrders.quotationId, quote.id)
+        )
+      });
+      if (existingOrder) return res.json({ ...existingOrder, alreadyExists: true });
 
       const [newOrder] = await db.insert(salesOrders).values({
         companyId: quote.companyId,
@@ -48,29 +73,28 @@ export function createCustomerFlowRouter(requireAuth: any) {
         total: quote.total,
         status: "confirmed",
         currency: quote.currency || undefined,
+        notes: quote.notes || undefined,
       }).returning();
 
-      const orderItemsToInsert = quote.items.map((item: any) => ({
+      await db.insert(salesOrderItems).values(quote.items.map((item: any) => ({
         salesOrderId: newOrder.id,
         quotationItemId: item.id,
         productId: item.productId,
         description: item.description,
         quantity: item.quantity,
         invoicedQuantity: "0.00",
+        pickedQuantity: "0.00",
         unitPrice: item.unitPrice,
         taxRate: item.taxRate,
         lineTotal: item.lineTotal,
         taxTypeId: item.taxTypeId,
-      }));
+      })));
 
-      await db.insert(salesOrderItems).values(orderItemsToInsert);
-      
-      // Update quotation status and link
-      await db.update(invoices)
-        .set({ status: "converted", salesOrderId: newOrder.id })
-        .where(eq(invoices.id, quote.id));
+      await db.update(quotations)
+        .set({ status: "accepted", salesOrderId: newOrder.id, convertedAt: new Date() })
+        .where(eq(quotations.id, quote.id));
 
-      res.json(newOrder);
+      res.status(201).json(newOrder);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -169,38 +193,388 @@ export function createCustomerFlowRouter(requireAuth: any) {
         quantityAllocated: quantity.toString()
       });
 
-      // Update line status
-      await db.update(salesOrderItems).set({ status: "allocated" } as any).where(eq(salesOrderItems.id, orderLineId));
-
-      res.json({ message: "Stock allocated successfully" });
+      res.json({ message: "Stock allocated successfully", salesOrderItemId: orderLineId });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // 4. Invoice a Sales Order
+  const resolveDispatchLocationId = async (companyId: number): Promise<number | null> => {
+    const [defaultLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(and(
+        eq(inventoryLocations.companyId, companyId),
+        eq(inventoryLocations.isDefaultDispatch, true),
+        eq(inventoryLocations.isActive, true)
+      ))
+      .orderBy(desc(inventoryLocations.id))
+      .limit(1);
+    if (defaultLocation) return defaultLocation.id;
+
+    const [anyLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(and(
+        eq(inventoryLocations.companyId, companyId),
+        eq(inventoryLocations.isActive, true)
+      ))
+      .orderBy(desc(inventoryLocations.id))
+      .limit(1);
+    return anyLocation?.id ?? null;
+  };
+
+  const loadPickList = async (orderId: number) => {
+    const order = await db.query.salesOrders.findFirst({
+      where: eq(salesOrders.id, orderId),
+      with: { items: { with: { product: true } } }
+    });
+    if (!order) return null;
+
+    const [activeInvoice] = await db
+      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, status: invoices.status })
+      .from(invoices)
+      .where(and(eq(invoices.salesOrderId, orderId), ne(invoices.status, "cancelled")))
+      .orderBy(desc(invoices.id))
+      .limit(1);
+
+    const [pickList] = await db
+      .select()
+      .from(salesPickLists)
+      .where(and(eq(salesPickLists.salesOrderId, orderId), ne(salesPickLists.status, "CANCELLED")))
+      .orderBy(desc(salesPickLists.id))
+      .limit(1);
+
+    const locationId = pickList?.locationId ?? await resolveDispatchLocationId(order.companyId);
+    const pickListItems = pickList
+      ? await db.select().from(salesPickListItems).where(eq(salesPickListItems.pickListId, pickList.id))
+      : [];
+
+    const productIds = order.items
+      .map((item: any) => item.productId)
+      .filter((id: any): id is number => Number.isFinite(id));
+    const stockRows = productIds.length && locationId
+      ? await db
+          .select({
+            productId: inventoryLocationStocks.productId,
+            availableQuantity: inventoryLocationStocks.availableQuantity,
+            stockLevel: inventoryLocationStocks.stockLevel,
+          })
+          .from(inventoryLocationStocks)
+          .where(and(
+            eq(inventoryLocationStocks.locationId, locationId),
+            inArray(inventoryLocationStocks.productId, productIds)
+          ))
+      : [];
+    const stockByProduct = new Map<number, { available: number; onHand: number }>();
+    for (const row of stockRows) {
+      stockByProduct.set(row.productId, {
+        available: Number(row.availableQuantity ?? row.stockLevel ?? 0),
+        onHand: Number(row.stockLevel ?? 0),
+      });
+    }
+
+    const items = order.items.map((item: any) => {
+      const remaining = Math.max(Number(item.quantity || 0) - Number(item.invoicedQuantity || 0), 0);
+      const saved = pickListItems.find((p: any) => p.salesOrderItemId === item.id);
+      const stock = stockByProduct.get(item.productId) || { available: 0, onHand: 0 };
+      return {
+        salesOrderItemId: item.id,
+        productId: item.productId,
+        description: item.description,
+        sku: item.product?.sku ?? null,
+        costPrice: item.product?.costPrice ?? null,
+        orderedQuantity: Number(item.quantity || 0),
+        invoicedQuantity: Number(item.invoicedQuantity || 0),
+        remainingQuantity: remaining,
+        pickedQuantity: saved ? Number(saved.pickedQuantity || 0) : Number(item.pickedQuantity || 0),
+        availableQuantity: stock.available,
+        onHandQuantity: stock.onHand,
+        pickListItemId: saved?.id ?? null,
+      };
+    });
+
+    const locations = await db
+      .select({
+        id: inventoryLocations.id,
+        code: inventoryLocations.code,
+        name: inventoryLocations.name,
+        type: inventoryLocations.type,
+        isDefaultDispatch: inventoryLocations.isDefaultDispatch,
+      })
+      .from(inventoryLocations)
+      .where(and(eq(inventoryLocations.companyId, order.companyId), eq(inventoryLocations.isActive, true)))
+      .orderBy(desc(inventoryLocations.isDefaultDispatch), desc(inventoryLocations.id));
+
+    return { order, pickList: pickList ?? null, activeInvoice: activeInvoice ?? null, locationId, items, locations };
+  };
+
+  // 4a. Read the picking worksheet for a sales order. Always returns every
+  // order line, even when no pick list has been prepared yet.
+  router.get("/sales-orders/:id/pick-list", requireAuth, async (req, res) => {
+    try {
+      const data = await loadPickList(Number(req.params.id));
+      if (!data) return res.status(404).json({ error: "Sales Order not found" });
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 4b. Create or update the pick list. Quantities default to the remaining
+  // quantity on each order line, so warehouse staff see the full worksheet.
+  router.post("/sales-orders/:id/pick-list", requireAuth, async (req, res) => {
+    try {
+      const orderId = Number(req.params.id);
+      const data = await loadPickList(orderId);
+      if (!data) return res.status(404).json({ error: "Sales Order not found" });
+
+      const requestedLocationId = Number(req.body?.locationId);
+      const locationId = Number.isFinite(requestedLocationId) && requestedLocationId > 0
+        ? requestedLocationId
+        : data.locationId;
+
+      let pickListId = data.pickList?.id;
+      if (!pickListId) {
+        const [created] = await db.insert(salesPickLists).values({
+          companyId: data.order.companyId,
+          salesOrderId: orderId,
+          pickNumber: `PICK-${Date.now()}`,
+          status: "DRAFT",
+          locationId: locationId ?? null,
+          notes: req.body?.notes || null,
+        }).returning();
+        pickListId = created.id;
+      } else if (locationId && locationId !== data.pickList?.locationId) {
+        await db.update(salesPickLists)
+          .set({ locationId, updatedAt: new Date() })
+          .where(eq(salesPickLists.id, pickListId));
+      }
+
+      const requestedItems = Array.isArray(req.body?.items) ? req.body.items : [];
+      for (const item of data.items) {
+        const requested = requestedItems.find((r: any) => Number(r.salesOrderItemId) === item.salesOrderItemId);
+        const pickedQuantity = requested
+          ? Math.max(0, Math.min(Number(requested.quantity ?? requested.pickedQuantity ?? 0), item.remainingQuantity))
+          : item.pickedQuantity || item.remainingQuantity;
+
+        if (item.pickListItemId) {
+          await db.update(salesPickListItems)
+            .set({ pickedQuantity: pickedQuantity.toString() })
+            .where(eq(salesPickListItems.id, item.pickListItemId));
+        } else {
+          await db.insert(salesPickListItems).values({
+            pickListId,
+            salesOrderItemId: item.salesOrderItemId,
+            productId: item.productId ?? null,
+            description: item.description,
+            orderedQuantity: item.orderedQuantity.toString(),
+            pickedQuantity: pickedQuantity.toString(),
+          });
+        }
+      }
+
+      res.json(await loadPickList(orderId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 4c. Confirm picking. Picked quantities are copied onto the order lines and
+  // the order moves to PICKED so invoicing can be gated on fulfilment.
+  router.post("/sales-orders/:id/pick-list/confirm", requireAuth, async (req, res) => {
+    try {
+      const orderId = Number(req.params.id);
+      const data = await loadPickList(orderId);
+      if (!data) return res.status(404).json({ error: "Sales Order not found" });
+      if (!data.pickList) return res.status(400).json({ error: "Prepare the pick list first" });
+      if (data.pickList.status !== "DRAFT") {
+        return res.json(await loadPickList(orderId));
+      }
+
+      // Accept the latest worksheet values so the user can save and confirm in
+      // one step. Quantities are clamped to the uninvoiced balance per line.
+      const requestedItems = Array.isArray(req.body?.items) ? req.body.items : [];
+      for (const item of data.items) {
+        const requested = requestedItems.find((r: any) => Number(r.salesOrderItemId) === item.salesOrderItemId);
+        if (!requested || !item.pickListItemId) continue;
+        const pickedQuantity = Math.max(
+          0,
+          Math.min(Number(requested.quantity ?? requested.pickedQuantity ?? 0), item.remainingQuantity)
+        );
+        await db.update(salesPickListItems)
+          .set({ pickedQuantity: pickedQuantity.toString() })
+          .where(eq(salesPickListItems.id, item.pickListItemId));
+      }
+
+      const confirmed = await loadPickList(orderId);
+      if (!confirmed?.items.some((item: any) => Number(item.pickedQuantity) > 0)) {
+        return res.status(400).json({ error: "Pick at least one item" });
+      }
+
+      const userId = (req.user as any)?.id ?? null;
+      for (const item of confirmed.items) {
+        await db.update(salesOrderItems)
+          .set({ pickedQuantity: Number(item.pickedQuantity || 0).toString() })
+          .where(eq(salesOrderItems.id, item.salesOrderItemId));
+      }
+      await db.update(salesPickLists)
+        .set({ status: "PICKED", pickedBy: userId, pickedAt: new Date(), updatedAt: new Date() })
+        .where(eq(salesPickLists.id, data.pickList.id));
+      await db.update(salesOrders)
+        .set({ status: "picked" })
+        .where(eq(salesOrders.id, orderId));
+
+      res.json(await loadPickList(orderId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 4d. Dispatch creates the delivery reference and moves the order ready for
+  // invoicing. Partial dispatch is supported by picking fewer than ordered.
+  router.post("/sales-orders/:id/dispatch", requireAuth, async (req, res) => {
+    try {
+      const orderId = Number(req.params.id);
+      const data = await loadPickList(orderId);
+      if (!data) return res.status(404).json({ error: "Sales Order not found" });
+      if (!data.pickList || data.pickList.status !== "PICKED") {
+        return res.status(400).json({ error: "Confirm picking before dispatch" });
+      }
+
+      const userId = (req.user as any)?.id ?? null;
+      const deliveryNumber = req.body?.deliveryNumber || data.pickList.deliveryNumber || `DN-${Date.now()}`;
+      await db.update(salesPickLists)
+        .set({
+          status: "DISPATCHED",
+          dispatchedBy: userId,
+          dispatchedAt: new Date(),
+          deliveryNumber,
+          recipientName: req.body?.recipientName || null,
+          deliveryNotes: req.body?.deliveryNotes || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(salesPickLists.id, data.pickList.id));
+      await db.update(salesOrders)
+        .set({ status: "dispatched" })
+        .where(eq(salesOrders.id, orderId));
+
+      for (const item of data.items) {
+        const quantity = Number(item.pickedQuantity || 0);
+        if (quantity <= 0 || !item.productId || !data.locationId) continue;
+
+        const [stockRow] = await db
+          .select({ id: inventoryLocationStocks.id })
+          .from(inventoryLocationStocks)
+          .where(and(
+            eq(inventoryLocationStocks.locationId, data.locationId),
+            eq(inventoryLocationStocks.productId, item.productId)
+          ))
+          .limit(1);
+        if (!stockRow) continue;
+
+        await db.execute(sql`
+          UPDATE inventory_location_stocks
+          SET stock_level = GREATEST(stock_level - ${quantity}, 0),
+              available_quantity = GREATEST(available_quantity - ${quantity}, 0),
+              updated_at = now()
+          WHERE id = ${stockRow.id}
+        `);
+
+        const unitCost = Number(item.costPrice || 0);
+        await db.insert(inventoryTransactions).values({
+          companyId: data.order.companyId,
+          branchId: data.order.branchId,
+          locationId: data.locationId,
+          productId: item.productId,
+          type: "STOCK_OUT",
+          quantity: (-quantity).toString(),
+          unitCost: unitCost ? unitCost.toString() : null,
+          totalCost: unitCost ? (unitCost * quantity).toString() : null,
+          referenceType: "SALES_PICK_LIST",
+          referenceId: String(data.pickList.id),
+          notes: `${deliveryNumber} — dispatched for ${data.order.orderNumber}`,
+          createdBy: userId,
+          remainingQuantity: "0",
+        });
+      }
+
+      res.json(await loadPickList(orderId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 4. Invoice a Sales Order. Idempotent: repeated calls return the existing
+  // active invoice instead of creating a second one.
   router.post("/invoices/from-sales-order", requireAuth, async (req, res) => {
     try {
-      const { salesOrderId, itemsToInvoice } = req.body; 
-      // itemsToInvoice = [{ salesOrderItemId, quantityToInvoice }]
+      const salesOrderId = Number(req.body?.salesOrderId);
+      if (!Number.isFinite(salesOrderId)) {
+        return res.status(400).json({ error: "salesOrderId is required" });
+      }
 
       const order = await db.query.salesOrders.findFirst({
         where: eq(salesOrders.id, salesOrderId),
         with: { items: true }
       });
-
       if (!order) return res.status(404).json({ error: "Sales order not found" });
+
+      // One active invoice per sales order. Return the existing document on a
+      // retry instead of silently creating a duplicate.
+      const [existingInvoice] = await db
+        .select()
+        .from(invoices)
+        .where(and(
+          eq(invoices.salesOrderId, salesOrderId),
+          ne(invoices.status, "cancelled")
+        ))
+        .orderBy(desc(invoices.id))
+        .limit(1);
+      if (existingInvoice) {
+        return res.json({ ...existingInvoice, alreadyExists: true });
+      }
+
+      const fulfillment = await loadPickList(salesOrderId);
+      if (!fulfillment?.pickList || fulfillment.pickList.status !== "DISPATCHED") {
+        return res.status(400).json({
+          error: "Prepare, pick and dispatch the order before generating an invoice"
+        });
+      }
+
+      const requestedItems = Array.isArray(req.body?.itemsToInvoice) ? req.body.itemsToInvoice : [];
+      const linesToInvoice = (requestedItems.length
+        ? requestedItems.map((r: any) => {
+            const picked = fulfillment.items.find((p: any) => p.salesOrderItemId === Number(r.salesOrderItemId));
+            const qty = Number(r.quantityToInvoice ?? r.quantity ?? 0);
+            if (!picked) throw new Error(`Order line ${r.salesOrderItemId} is not on the pick list`);
+            if (qty <= 0) return null;
+            if (qty > picked.pickedQuantity) {
+              throw new Error(`Cannot invoice ${qty} for ${picked.description}; only ${picked.pickedQuantity} was picked`);
+            }
+            return { salesOrderItemId: picked.salesOrderItemId, quantityToInvoice: qty };
+          }).filter(Boolean)
+        : fulfillment.items
+            .filter((p: any) => Number(p.pickedQuantity) > 0)
+            .map((p: any) => ({ salesOrderItemId: p.salesOrderItemId, quantityToInvoice: p.pickedQuantity }))) as Array<{
+              salesOrderItemId: number;
+              quantityToInvoice: number;
+            }>;
+
+      if (!linesToInvoice.length) {
+        return res.status(400).json({ error: "No picked items available to invoice" });
+      }
 
       let invoiceSubtotal = 0;
       let invoiceTax = 0;
 
-      const invoiceItemsData = itemsToInvoice.map((reqItem: any) => {
+      const invoiceItemsData = linesToInvoice.map((reqItem) => {
         const orderLine = order.items.find(i => i.id === reqItem.salesOrderItemId);
         if (!orderLine) throw new Error(`Order line ${reqItem.salesOrderItemId} not found`);
-        
+
         const lineTotal = Number(orderLine.unitPrice) * Number(reqItem.quantityToInvoice);
         const taxAmt = lineTotal * (Number(orderLine.taxRate) / 100);
-        
+
         invoiceSubtotal += lineTotal;
         invoiceTax += taxAmt;
 
@@ -216,6 +590,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
         };
       });
 
+      const itemsToInvoice = linesToInvoice;
       const invoiceTotal = invoiceSubtotal + invoiceTax;
 
       // Create invoice
@@ -276,6 +651,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
         }
       }
 
+      // Warehouse stock was posted out at dispatch; invoicing only creates the
+      // customer document and updates the ordered quantities.
+
       // Update sales order item invoiced quantities
       for (const reqItem of itemsToInvoice) {
         const orderLine = order.items.find(i => i.id === reqItem.salesOrderItemId)!;
@@ -304,6 +682,19 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
       res.json(newInvoice);
     } catch (error: any) {
+      if (error?.code === "23505") {
+        const [existingInvoice] = await db
+          .select()
+          .from(invoices)
+          .where(and(
+            eq(invoices.salesOrderId, Number(req.body?.salesOrderId)),
+            ne(invoices.status, "cancelled")
+          ))
+          .limit(1);
+        if (existingInvoice) {
+          return res.json({ ...existingInvoice, alreadyExists: true });
+        }
+      }
       res.status(500).json({ error: error.message });
     }
   });

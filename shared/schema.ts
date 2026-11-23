@@ -6145,6 +6145,7 @@ export const salesOrderItems = pgTable("sales_order_items", {
   description: text("description").notNull(),
   quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
   invoicedQuantity: decimal("invoiced_quantity", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  pickedQuantity: decimal("picked_quantity", { precision: 10, scale: 2 }).default("0.00").notNull(),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).notNull(),
   lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
@@ -6165,6 +6166,67 @@ export const salesOrderItemsRelations = relations(salesOrderItems, ({ one }) => 
   salesOrder: one(salesOrders, { fields: [salesOrderItems.salesOrderId], references: [salesOrders.id] }),
   product: one(products, { fields: [salesOrderItems.productId], references: [products.id] }),
 }));
+
+// Sales order picking / dispatch. One active pick list per sales order is
+// enforced in the database with a partial unique index (see migration).
+export const salesPickLists = pgTable("sales_pick_lists", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id).notNull(),
+  pickNumber: text("pick_number").notNull(),
+  status: text("status").default("DRAFT").notNull(), // DRAFT, PICKED, DISPATCHED, CANCELLED
+  locationId: integer("location_id").references(() => inventoryLocations.id),
+  deliveryNumber: text("delivery_number"),
+  recipientName: text("recipient_name"),
+  deliveryNotes: text("delivery_notes"),
+  pickedBy: uuid("picked_by").references(() => users.id),
+  pickedAt: timestamp("picked_at"),
+  dispatchedBy: uuid("dispatched_by").references(() => users.id),
+  dispatchedAt: timestamp("dispatched_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("sales_pick_lists_company_idx").on(table.companyId),
+  salesOrderIdx: index("sales_pick_lists_sales_order_idx").on(table.salesOrderId),
+  companyNumberUnique: unique("sales_pick_lists_company_number_unique").on(table.companyId, table.pickNumber),
+}));
+
+export const salesPickListItems = pgTable("sales_pick_list_items", {
+  id: serial("id").primaryKey(),
+  pickListId: integer("pick_list_id").references(() => salesPickLists.id, { onDelete: "cascade" }).notNull(),
+  salesOrderItemId: integer("sales_order_item_id").references(() => salesOrderItems.id).notNull(),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  orderedQuantity: decimal("ordered_quantity", { precision: 10, scale: 2 }).notNull(),
+  pickedQuantity: decimal("picked_quantity", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  notes: text("notes"),
+}, (table) => ({
+  pickListIdx: index("sales_pick_list_items_pick_list_idx").on(table.pickListId),
+  orderItemIdx: index("sales_pick_list_items_order_item_idx").on(table.salesOrderItemId),
+}));
+
+export const salesPickListsRelations = relations(salesPickLists, ({ one, many }) => ({
+  company: one(companies, { fields: [salesPickLists.companyId], references: [companies.id] }),
+  salesOrder: one(salesOrders, { fields: [salesPickLists.salesOrderId], references: [salesOrders.id] }),
+  location: one(inventoryLocations, { fields: [salesPickLists.locationId], references: [inventoryLocations.id] }),
+  picker: one(users, { fields: [salesPickLists.pickedBy], references: [users.id] }),
+  dispatcher: one(users, { fields: [salesPickLists.dispatchedBy], references: [users.id] }),
+  items: many(salesPickListItems),
+}));
+
+export const salesPickListItemsRelations = relations(salesPickListItems, ({ one }) => ({
+  pickList: one(salesPickLists, { fields: [salesPickListItems.pickListId], references: [salesPickLists.id] }),
+  salesOrderItem: one(salesOrderItems, { fields: [salesPickListItems.salesOrderItemId], references: [salesOrderItems.id] }),
+  product: one(products, { fields: [salesPickListItems.productId], references: [products.id] }),
+}));
+
+export const insertSalesPickListSchema = createInsertSchema(salesPickLists).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSalesPickListItemSchema = createInsertSchema(salesPickListItems).omit({ id: true });
+export type SalesPickList = typeof salesPickLists.$inferSelect;
+export type InsertSalesPickList = z.infer<typeof insertSalesPickListSchema>;
+export type SalesPickListItem = typeof salesPickListItems.$inferSelect;
+export type InsertSalesPickListItem = z.infer<typeof insertSalesPickListItemSchema>;
 
 // Customer Exclusive Products
 export const customerProducts = pgTable("customer_products", {

@@ -3781,9 +3781,13 @@ async function insertTaxBands(tx: any, taxTableId: number, brackets: TaxBracket[
 router.get("/tax-config", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
+    // This is the tenant's configuration page: show only this company's tables.
+    // Global rows (companyId IS NULL) are a payroll-calculation fallback and must
+    // not be listed here — doing so exposed every other tenant's table (and a
+    // stale 2025 global table) as if they belonged to the current company.
     const tables = await db.select()
       .from(payrollTaxTables)
-      .where(or(eq(payrollTaxTables.companyId, companyId), isNull(payrollTaxTables.companyId)))
+      .where(eq(payrollTaxTables.companyId, companyId))
       .orderBy(desc(payrollTaxTables.effectiveFrom), desc(payrollTaxTables.version));
     const results: any[] = [];
     for (const table of tables) results.push(await taxConfigView(db, table));

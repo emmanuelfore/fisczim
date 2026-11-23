@@ -1631,13 +1631,41 @@ router.post("/pay-grades", requirePayrollWrite, async (req, res) => {
       ...parsed.data,
       effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
     };
-    const [grade] = await db.insert(payrollPayGrades)
-      .values({ ...gradeData, companyId, isActive: true })
-      .onConflictDoUpdate({
-        target: [payrollPayGrades.companyId, payrollPayGrades.code],
-        set: { ...gradeData, updatedAt: new Date(), isActive: true },
-      })
-      .returning();
+    let grade: typeof payrollPayGrades.$inferSelect;
+    try {
+      [grade] = await db.insert(payrollPayGrades)
+        .values({ ...gradeData, companyId, isActive: true })
+        .onConflictDoUpdate({
+          target: [payrollPayGrades.companyId, payrollPayGrades.code],
+          set: { ...gradeData, updatedAt: new Date(), isActive: true },
+        })
+        .returning();
+    } catch (err: any) {
+      // Some deployed databases predate the UNIQUE(company_id, code) declared in
+      // shared/schema.ts, so PostgreSQL rejects the ON CONFLICT target with 42P10.
+      // Keep saving work: fall back to an explicit read/update/insert for those
+      // databases. The repair migration restores the constraint and the fast path.
+      if (err?.code !== "42P10") throw err;
+
+      const [existing] = await db.select({ id: payrollPayGrades.id })
+        .from(payrollPayGrades)
+        .where(and(
+          eq(payrollPayGrades.companyId, companyId),
+          eq(payrollPayGrades.code, gradeData.code)
+        ))
+        .limit(1);
+
+      if (existing) {
+        [grade] = await db.update(payrollPayGrades)
+          .set({ ...gradeData, updatedAt: new Date(), isActive: true })
+          .where(eq(payrollPayGrades.id, existing.id))
+          .returning();
+      } else {
+        [grade] = await db.insert(payrollPayGrades)
+          .values({ ...gradeData, companyId, isActive: true })
+          .returning();
+      }
+    }
 
     await auditPayroll(req, "PAYROLL_PAY_GRADE_UPSERTED", "payroll_pay_grades", grade.id, {
       code: grade.code,
@@ -3365,17 +3393,39 @@ router.patch("/statutory-rules/:id", requirePayrollApproval, async (req, res) =>
       });
     }
 
+    // The editor sends a UI-friendly shape (ruleType + a single rate), but the
+    // table stores `formula` and employee/employer rates. Map those here and
+    // whitelist real columns: spreading req.body would emit UPDATE clauses for
+    // columns that do not exist.
+    const raw = req.body || {};
+    const updates: Partial<typeof payrollStatutoryRules.$inferInsert> = {};
+    const editableColumns = [
+      "name", "currency", "payFrequency", "employeeRate", "employerRate",
+      "ceilingAmount", "floorAmount", "calculationBasis", "formula",
+      "metadata", "effectiveFrom", "effectiveTo", "version", "isActive",
+    ] as const;
+    for (const key of editableColumns) {
+      if (raw[key] !== undefined) (updates as any)[key] = raw[key];
+    }
+    if (!existing.isSystemLocked && raw.ruleCode !== undefined) {
+      updates.ruleCode = raw.ruleCode;
+    }
+    if (raw.ruleType !== undefined) updates.formula = raw.ruleType;
+    if (raw.rate !== undefined) {
+      updates.employeeRate = raw.employeeRate ?? raw.rate;
+      updates.employerRate = raw.employerRate ?? raw.rate;
+    }
+
     const [updated] = await db.update(payrollStatutoryRules)
       .set({
-        ...req.body,
-        ruleCode: existing.isSystemLocked ? existing.ruleCode : (req.body.ruleCode || existing.ruleCode),
+        ...updates,
         companyId: existing.companyId, // ensure it doesn't change
-        isSystemLocked: existing.isSystemLocked // ensure it cannot be unlocked via API
+        isSystemLocked: existing.isSystemLocked, // ensure it cannot be unlocked via API
       })
       .where(eq(payrollStatutoryRules.id, id))
       .returning();
 
-    await auditPayroll(req, "PAYROLL_STATUTORY_RULE_UPDATED", "payroll_statutory_rules", id, { updatedFields: Object.keys(req.body) });
+    await auditPayroll(req, "PAYROLL_STATUTORY_RULE_UPDATED", "payroll_statutory_rules", id, { updatedFields: Object.keys(updates) });
     res.json(updated);
   } catch (err: any) {
     respondPayrollError(res, err);

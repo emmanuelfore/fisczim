@@ -239,6 +239,13 @@
       "when": 1795399115340,
       "tag": "0103_accounting_integrity_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1795405000000,
+      "tag": "0105_pay_grade_company_code_unique",
+      "breakpoints": true
     }
   ]
 }

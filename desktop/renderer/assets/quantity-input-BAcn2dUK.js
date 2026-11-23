@@ -1,0 +1,1 @@
+import{a as s,j as o}from"./vendor-DGnf-lJo.js";import{N as m,_ as p}from"./index-BmYHtdIO.js";const e=s.forwardRef(({className:t,type:a="number",...r},n)=>o.jsx(m,{type:a,className:p("min-w-[140px] w-full max-w-[180px] font-mono text-right",t),ref:n,...r}));e.displayName="QuantityInput";export{e as Q};

@@ -4131,6 +4131,41 @@ export const payrollRecurringItems = pgTable("payroll_recurring_items", {
   employeeRecurIdx: index("payroll_recurring_employee_idx").on(table.employeeId),
 }));
 
+/**
+ * Company-scoped allowance/deduction rules.
+ *
+ * Unlike payroll_recurring_items (one row per employee), these rules can apply
+ * to every current and future employee of a company. When appliesToAll is
+ * false, the selected employees live in payrollElementRuleEmployees.
+ */
+export const payrollElementRules = pgTable("payroll_element_rules", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(), // ALLOWANCE, DEDUCTION
+  name: text("name").notNull(),
+  calculationMethod: text("calculation_method").default("FIXED").notNull(), // FIXED, PERCENTAGE
+  amount: decimal("amount", { precision: 15, scale: 2 }),
+  percentageRate: decimal("percentage_rate", { precision: 7, scale: 4 }), // 5.0000 = 5%
+  isTaxable: boolean("is_taxable").default(true).notNull(),
+  isTaxDeductible: boolean("is_tax_deductible").default(false).notNull(),
+  appliesToAll: boolean("applies_to_all").default(false).notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyElementRuleIdx: index("payroll_element_rules_company_idx").on(table.companyId, table.isActive, table.startDate, table.endDate),
+}));
+
+export const payrollElementRuleEmployees = pgTable("payroll_element_rule_employees", {
+  ruleId: integer("rule_id").references(() => payrollElementRules.id, { onDelete: "cascade" }).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id, { onDelete: "cascade" }).notNull(),
+}, (table) => ({
+  elementRuleEmployeePk: primaryKey({ columns: [table.ruleId, table.employeeId] }),
+  elementRuleEmployeeIdx: index("payroll_element_rule_employees_employee_idx").on(table.employeeId, table.ruleId),
+}));
+
 // 8. Payroll Processing Runs (The monthly or weekly batch container)
 export const payrollRuns = pgTable("payroll_runs", {
   id: serial("id").primaryKey(),
@@ -5164,6 +5199,13 @@ export type InsertEmployeePayrollProfile = z.infer<typeof insertEmployeePayrollP
 export const insertPayrollRecurringItemSchema = createInsertSchema(payrollRecurringItems).omit({ id: true });
 export type PayrollRecurringItem = typeof payrollRecurringItems.$inferSelect;
 export type InsertPayrollRecurringItem = z.infer<typeof insertPayrollRecurringItemSchema>;
+
+export const insertPayrollElementRuleSchema = createInsertSchema(payrollElementRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollElementRule = typeof payrollElementRules.$inferSelect;
+export type InsertPayrollElementRule = z.infer<typeof insertPayrollElementRuleSchema>;
+
+export const insertPayrollElementRuleEmployeeSchema = createInsertSchema(payrollElementRuleEmployees);
+export type PayrollElementRuleEmployee = typeof payrollElementRuleEmployees.$inferSelect;
 
 export const insertEmployeeSalaryHistorySchema = createInsertSchema(employeeSalaryHistory).omit({ id: true, createdAt: true });
 export type EmployeeSalaryHistory = typeof employeeSalaryHistory.$inferSelect;

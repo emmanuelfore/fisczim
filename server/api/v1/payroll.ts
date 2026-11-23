@@ -5,7 +5,8 @@ import { db } from "../../db.js";
 import { 
   branches, employees, employeeContracts, departments, positions, 
   necSectorsConfig, payrollTaxTables, payrollTaxBrackets, payrollRuns, payrollRunEmployees,
-  payrollAllowances, payrollDeductions, payrollRecurringItems, leaveRequests, leaveBalances,
+  payrollAllowances, payrollDeductions, payrollRecurringItems,
+  payrollElementRules, payrollElementRuleEmployees, leaveRequests, leaveBalances,
   employeeLoans, loanInstallments, tenantIntegrationCredentials,
   accounts, companyUsers, auditLogs, payrollAttendanceImports,
   employeeDocuments, payslipDocuments, payrollPayGrades,
@@ -18,7 +19,7 @@ import {
   employeeIncomeHistory, employeeDeductionHistory, payrollCompanySettings,
   journalEntryDrafts
 } from "../../../shared/schema.js";
-import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, asc, ne, sql, gte, lte, inArray, ilike, isNotNull } from "drizzle-orm";
 import { taxYearTotalsByEmployee, taxTableLabels, labelForSnapshot } from "../../lib/payslip-evidence.js";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
 import { validateBrackets, canonicalizeBrackets } from "../../../shared/statutory/brackets.js";
@@ -806,6 +807,89 @@ async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart
     }, { joinDate: options.joinDate, terminationDate: options.terminationDate });
     return { ...item, amount: prorated.toFixed(2), fullAmount, prorated: prorated !== fullAmount };
   });
+}
+
+type ElementRuleProrationOptions = {
+  basis?: "CALENDAR_DAYS" | "WORKING_DAYS" | "PAYABLE_DAYS" | "HOURS_WORKED";
+  prorate?: boolean;
+  joinDate?: string | null;
+  terminationDate?: string | null;
+};
+
+/**
+ * Company-scoped allowance/deduction rules that are live for this employee and
+ * period. `appliesToAll` rules cover future hires too; the join table limits
+ * the rest to explicitly selected employees.
+ */
+async function loadActiveElementRules(
+  tx: any,
+  companyId: number,
+  employeeId: number,
+  periodStart: string,
+  periodEnd: string,
+  options?: ElementRuleProrationOptions,
+) {
+  const targeted = await tx.select({ ruleId: payrollElementRuleEmployees.ruleId })
+    .from(payrollElementRuleEmployees)
+    .where(eq(payrollElementRuleEmployees.employeeId, employeeId));
+  const targetedIds = targeted.map((row: any) => row.ruleId);
+
+  const targetCondition = targetedIds.length > 0
+    ? or(
+        eq(payrollElementRules.appliesToAll, true),
+        inArray(payrollElementRules.id, targetedIds),
+      )!
+    : eq(payrollElementRules.appliesToAll, true);
+
+  const rules = await tx.select()
+    .from(payrollElementRules)
+    .where(and(
+      eq(payrollElementRules.companyId, companyId),
+      eq(payrollElementRules.isActive, true),
+      sql`${payrollElementRules.startDate} <= ${periodEnd}`,
+      sql`(${payrollElementRules.endDate} IS NULL OR ${payrollElementRules.endDate} >= ${periodStart})`,
+      targetCondition,
+    ));
+
+  if (!options?.prorate) return rules;
+  return rules.map((rule: any) => {
+    if (rule.calculationMethod !== "FIXED") return rule;
+    const fullAmount = toMoney(rule.amount);
+    const prorated = prorateAmount(fullAmount, rule.startDate, rule.endDate, periodStart, periodEnd, {
+      basis: options.basis,
+    }, { joinDate: options.joinDate, terminationDate: options.terminationDate });
+    return { ...rule, amount: prorated.toFixed(2), fullAmount, prorated: prorated !== fullAmount };
+  });
+}
+
+function elementRuleValidationMessage(data: any): string | null {
+  if (!["ALLOWANCE", "DEDUCTION"].includes(data.type)) {
+    return "Type must be ALLOWANCE or DEDUCTION.";
+  }
+  if (typeof data.name !== "string" || data.name.trim().length === 0) {
+    return "Name is required.";
+  }
+  if (!["FIXED", "PERCENTAGE"].includes(data.calculationMethod)) {
+    return "Calculation method must be FIXED or PERCENTAGE.";
+  }
+  if (data.calculationMethod === "FIXED") {
+    const amount = Number(data.amount);
+    if (data.amount === null || data.amount === undefined || String(data.amount).trim() === "" || !Number.isFinite(amount) || amount < 0) {
+      return "Enter a fixed amount of zero or more.";
+    }
+  } else {
+    const rate = Number(data.percentageRate);
+    if (data.percentageRate === null || data.percentageRate === undefined || String(data.percentageRate).trim() === "" || !Number.isFinite(rate) || rate <= 0 || rate > 100) {
+      return "Percentage must be greater than 0 and at most 100.";
+    }
+  }
+  if (!data.appliesToAll && (!Array.isArray(data.employeeIds) || data.employeeIds.length === 0)) {
+    return "Select at least one employee, or choose all employees.";
+  }
+  if (data.endDate && data.endDate < data.startDate) {
+    return "End date cannot be before the start date.";
+  }
+  return null;
 }
 
 // payroll_tax_tables + payroll_tax_brackets are the single source of tax truth.
@@ -2982,6 +3066,280 @@ router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
   }
 });
 
+// --- 4C. COMPANY-SCOPED ALLOWANCE / DEDUCTION RULES ---
+// These rules apply to all current and future employees (or to a selected
+// list) without writing one recurring row per employee. They are merged into
+// payroll runs by loadActiveElementRules().
+
+const elementRuleWriteSchema = z.object({
+  type: z.enum(["ALLOWANCE", "DEDUCTION"]),
+  name: z.string().trim().min(1),
+  calculationMethod: z.enum(["FIXED", "PERCENTAGE"]).default("FIXED"),
+  amount: z.union([z.string(), z.number()]).optional().nullable(),
+  percentageRate: z.union([z.string(), z.number()]).optional().nullable(),
+  isTaxable: z.boolean().default(true),
+  isTaxDeductible: z.boolean().default(false),
+  appliesToAll: z.boolean().default(false),
+  employeeIds: z.array(z.coerce.number().int()).default([]),
+  startDate: z.string().min(1),
+  endDate: z.string().optional().nullable(),
+});
+
+// No defaults here: omitted fields must stay untouched on a PATCH.
+const elementRulePatchSchema = z.object({
+  type: z.enum(["ALLOWANCE", "DEDUCTION"]).optional(),
+  name: z.string().trim().min(1).optional(),
+  calculationMethod: z.enum(["FIXED", "PERCENTAGE"]).optional(),
+  amount: z.union([z.string(), z.number()]).optional().nullable(),
+  percentageRate: z.union([z.string(), z.number()]).optional().nullable(),
+  isTaxable: z.boolean().optional(),
+  isTaxDeductible: z.boolean().optional(),
+  appliesToAll: z.boolean().optional(),
+  employeeIds: z.array(z.coerce.number().int()).optional(),
+  startDate: z.string().min(1).optional(),
+  endDate: z.string().optional().nullable(),
+  isActive: z.boolean().optional(),
+});
+
+async function assertEmployeesBelongToCompany(companyId: number, employeeIds: number[]): Promise<number[]> {
+  const uniqueIds = Array.from(new Set(employeeIds));
+  if (uniqueIds.length === 0) return uniqueIds;
+  const found = await db.select({ id: employees.id })
+    .from(employees)
+    .where(and(
+      eq(employees.companyId, companyId),
+      inArray(employees.id, uniqueIds),
+    ));
+  if (found.length !== uniqueIds.length) {
+    throw new PayrollHttpError(404, "One or more selected employees were not found in this company.", "EMPLOYEE_NOT_FOUND");
+  }
+  return uniqueIds;
+}
+
+router.get("/element-rules", async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  try {
+    const rules = await db.select()
+      .from(payrollElementRules)
+      .where(eq(payrollElementRules.companyId, companyId))
+      .orderBy(desc(payrollElementRules.isActive), asc(payrollElementRules.type), asc(payrollElementRules.name));
+
+    const links = rules.length
+      ? await db.select()
+          .from(payrollElementRuleEmployees)
+          .where(inArray(payrollElementRuleEmployees.ruleId, rules.map((rule) => rule.id)))
+      : [];
+    const byRule = new Map<number, number[]>();
+    for (const link of links) {
+      const list = byRule.get(link.ruleId) || [];
+      list.push(link.employeeId);
+      byRule.set(link.ruleId, list);
+    }
+
+    res.json(rules.map((rule) => ({ ...rule, employeeIds: byRule.get(rule.id) || [] })));
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.post("/element-rules", requirePayrollWrite, async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  const parsed = elementRuleWriteSchema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  const data = parsed.data;
+  const validationError = elementRuleValidationMessage(data);
+  if (validationError) return res.status(400).json({ error: "VALIDATION_ERROR", message: validationError });
+
+  try {
+    const employeeIds = await assertEmployeesBelongToCompany(companyId, data.employeeIds);
+
+    const [rule] = await db.insert(payrollElementRules).values({
+      companyId,
+      type: data.type,
+      name: data.name,
+      calculationMethod: data.calculationMethod,
+      amount: data.calculationMethod === "FIXED" ? String(data.amount) : null,
+      percentageRate: data.calculationMethod === "PERCENTAGE" ? String(data.percentageRate) : null,
+      isTaxable: data.isTaxable,
+      isTaxDeductible: data.isTaxDeductible,
+      appliesToAll: data.appliesToAll,
+      startDate: data.startDate,
+      endDate: data.endDate || null,
+      isActive: true,
+    }).returning();
+
+    if (!data.appliesToAll && employeeIds.length > 0) {
+      await db.insert(payrollElementRuleEmployees).values(
+        employeeIds.map((employeeId) => ({ ruleId: rule.id, employeeId })),
+      );
+    }
+
+    await auditPayroll(req, "PAYROLL_ELEMENT_RULE_CREATED", "payroll_element_rules", rule.id, {
+      type: rule.type,
+      name: rule.name,
+      appliesToAll: rule.appliesToAll,
+      employeeCount: employeeIds.length,
+    });
+    res.status(201).json({ ...rule, employeeIds: data.appliesToAll ? [] : employeeIds });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.patch("/element-rules/:id", requirePayrollWrite, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const companyId = getTargetCompanyId(req);
+  const parsed = elementRulePatchSchema.safeParse(req.body);
+  if (!parsed.success) return respondValidationErrors(res, parsed.error.errors);
+
+  try {
+    const [existing] = await db.select()
+      .from(payrollElementRules)
+      .where(and(eq(payrollElementRules.id, id), eq(payrollElementRules.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ message: "Element rule not found" });
+
+    const existingLinks = await db.select({ employeeId: payrollElementRuleEmployees.employeeId })
+      .from(payrollElementRuleEmployees)
+      .where(eq(payrollElementRuleEmployees.ruleId, id));
+    const currentEmployeeIds = existingLinks.map((link) => link.employeeId);
+
+    const merged = {
+      ...existing,
+      ...parsed.data,
+      employeeIds: parsed.data.employeeIds ?? currentEmployeeIds,
+    };
+    const validationError = elementRuleValidationMessage(merged);
+    if (validationError) return res.status(400).json({ error: "VALIDATION_ERROR", message: validationError });
+
+    const data = parsed.data;
+    let validatedEmployeeIds: number[] | undefined;
+    if (data.employeeIds !== undefined) {
+      validatedEmployeeIds = await assertEmployeesBelongToCompany(companyId, data.employeeIds);
+    }
+
+    const updates: Record<string, any> = { updatedAt: new Date() };
+    const fields = [
+      "type", "name", "calculationMethod", "isTaxable", "isTaxDeductible",
+      "appliesToAll", "startDate", "endDate", "isActive",
+    ] as const;
+    for (const field of fields) {
+      if (data[field] !== undefined) updates[field] = data[field];
+    }
+    // Keep the unused value column null so the DB value check stays satisfied,
+    // including when the calculation method itself is being switched.
+    if (merged.calculationMethod === "PERCENTAGE") {
+      updates.amount = null;
+      updates.percentageRate = data.percentageRate !== undefined ? String(data.percentageRate) : merged.percentageRate;
+    } else {
+      updates.percentageRate = null;
+      updates.amount = data.amount !== undefined ? String(data.amount) : merged.amount;
+    }
+
+    const [rule] = await db.update(payrollElementRules)
+      .set(updates)
+      .where(eq(payrollElementRules.id, id))
+      .returning();
+
+    const nextEmployeeIds = data.appliesToAll === true ? [] : (validatedEmployeeIds ?? undefined);
+    if (nextEmployeeIds !== undefined) {
+      await db.delete(payrollElementRuleEmployees).where(eq(payrollElementRuleEmployees.ruleId, id));
+      if (nextEmployeeIds.length > 0) {
+        await db.insert(payrollElementRuleEmployees).values(
+          nextEmployeeIds.map((employeeId) => ({ ruleId: id, employeeId })),
+        );
+      }
+    }
+
+    await auditPayroll(req, "PAYROLL_ELEMENT_RULE_UPDATED", "payroll_element_rules", id, {
+      changedFields: Object.keys(updates),
+    });
+    res.json({ ...rule, employeeIds: nextEmployeeIds ?? currentEmployeeIds });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+router.delete("/element-rules/:id", requirePayrollWrite, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const companyId = getTargetCompanyId(req);
+  try {
+    const [existing] = await db.select({ id: payrollElementRules.id })
+      .from(payrollElementRules)
+      .where(and(eq(payrollElementRules.id, id), eq(payrollElementRules.companyId, companyId)))
+      .limit(1);
+    if (!existing) return res.status(404).json({ message: "Element rule not found" });
+
+    await db.delete(payrollElementRuleEmployees).where(eq(payrollElementRuleEmployees.ruleId, id));
+    await db.delete(payrollElementRules).where(eq(payrollElementRules.id, id));
+    await auditPayroll(req, "PAYROLL_ELEMENT_RULE_DELETED", "payroll_element_rules", id, {});
+    res.json({ success: true });
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
+/** Personal recurring items plus the company rules that cover this employee. */
+router.get("/employees/:id/effective-elements", async (req, res) => {
+  const employeeId = parseInt(req.params.id, 10);
+  const companyId = getTargetCompanyId(req);
+  try {
+    const [emp] = await db.select({ id: employees.id })
+      .from(employees)
+      .where(and(eq(employees.id, employeeId), eq(employees.companyId, companyId)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    const personal = await db.select()
+      .from(payrollRecurringItems)
+      .where(eq(payrollRecurringItems.employeeId, employeeId))
+      .orderBy(desc(payrollRecurringItems.isActive), asc(payrollRecurringItems.name));
+
+    const today = new Date().toISOString().slice(0, 10);
+    const rules = await loadActiveElementRules(db, companyId, employeeId, today, today);
+
+    const items = [
+      ...personal.map((item) => ({
+        id: `personal-${item.id}`,
+        source: "PERSONAL",
+        recurringItemId: item.id,
+        type: item.type,
+        name: item.name,
+        calculationMethod: "FIXED",
+        amount: item.amount,
+        percentageRate: null,
+        isTaxable: item.isTaxable,
+        isTaxDeductible: item.isTaxDeductible,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        isActive: item.isActive,
+        appliesToAll: false,
+      })),
+      ...rules.map((rule: any) => ({
+        id: `rule-${rule.id}`,
+        source: "COMPANY_RULE",
+        ruleId: rule.id,
+        type: rule.type,
+        name: rule.name,
+        calculationMethod: rule.calculationMethod,
+        amount: rule.amount,
+        percentageRate: rule.percentageRate,
+        isTaxable: rule.isTaxable,
+        isTaxDeductible: rule.isTaxDeductible,
+        startDate: rule.startDate,
+        endDate: rule.endDate,
+        isActive: rule.isActive,
+        appliesToAll: rule.appliesToAll,
+      })),
+    ].sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name));
+
+    res.json(items);
+  } catch (err: any) {
+    respondPayrollError(res, err);
+  }
+});
+
 // --- 5. LEAVE REQUESTS & ACCRUALS ENDPOINTS ---
 router.get("/leave/requests", async (req, res) => {
   try {
@@ -4147,6 +4505,16 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           terminationDate: emp.terminationDate,
         });
 
+        // Company-wide/selected-employee rules are merged with the personal
+        // recurring rows above. They are not expanded into rows, so an employee
+        // hired after the rule was created is covered automatically.
+        const elementRules = isBonusRun ? [] : await loadActiveElementRules(tx, companyId, emp.id, parsed.data.periodStart, parsed.data.periodEnd, {
+          basis: parsed.data.prorationBasis,
+          prorate: parsed.data.prorate,
+          joinDate: emp.joiningDate,
+          terminationDate: emp.terminationDate,
+        });
+
         // Fetch outstanding loan repayment defaults
         const [activeLoan] = await tx.select()
           .from(employeeLoans)
@@ -4186,6 +4554,16 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               isTaxDeductible: !!item.isTaxDeductible,
               isRecurring: true,
             })),
+          ...elementRules.map((rule: any) => ({
+            type: rule.type === "ALLOWANCE" ? "EARNING" as const : "DEDUCTION" as const,
+            name: rule.name,
+            calculationMethod: rule.calculationMethod as "FIXED" | "PERCENTAGE",
+            amount: rule.calculationMethod === "FIXED" ? toMoney(rule.amount) : undefined,
+            percentageRate: rule.calculationMethod === "PERCENTAGE" ? toNumber(rule.percentageRate) : undefined,
+            isTaxable: !!rule.isTaxable,
+            isTaxDeductible: !!rule.isTaxDeductible,
+            isRecurring: true,
+          })),
         ];
         if (loanDeduction > 0 && !isBonusRun) {
           elements.push({
@@ -4310,6 +4688,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               loanId: activeLoan?.id || null,
               loanDeduction: isBonusRun ? 0 : loanDeduction,
               recurringItemIds: recurringItems.map((item: any) => item.id),
+              elementRuleIds: elementRules.map((rule: any) => rule.id),
               taxableAllowances,
               nontaxableAllowances,
               recurringDeductionTotal,

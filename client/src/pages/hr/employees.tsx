@@ -26,6 +26,7 @@ import { format } from "date-fns";
 import { HRLayout } from "./layout";
 import { StaffFileDialog } from "@/components/hr/StaffFileDialog";
 import { PayrollSettingsDialog } from "@/components/hr/PayrollSettingsDialog";
+import { PayrollElementRulesDialog } from "@/components/hr/PayrollElementRulesDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { jurisdictionForCountry } from "@shared/statutory/jurisdictions";
@@ -87,6 +89,7 @@ export default function HREmployees() {
   // (same gate the Payroll Processing page uses).
   const { can } = usePermissions();
   const canApprovePayroll = can("payroll.approve");
+  const canManagePayroll = can("payroll.write");
 
   const [search, setSearch] = useState("");
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
@@ -94,6 +97,8 @@ export default function HREmployees() {
   const [isStatutoryModalOpen, setIsStatutoryModalOpen] = useState(false);
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [isElementRulesOpen, setIsElementRulesOpen] = useState(false);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const [staffFileModal, setStaffFileModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   
@@ -334,8 +339,10 @@ export default function HREmployees() {
     }
   });
 
+  const effectiveElementsKey = [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/effective-elements`];
+  const personalItemsKey = [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`];
   const { data: recurringItems = [], isLoading: isLoadingRecurring } = useQuery<any[]>({
-    queryKey: [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`],
+    queryKey: effectiveElementsKey,
     enabled: !!companyId && !!selectedEmployeeId && isRecurringModalOpen,
   });
 
@@ -345,7 +352,8 @@ export default function HREmployees() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`] });
+      queryClient.invalidateQueries({ queryKey: personalItemsKey });
+      queryClient.invalidateQueries({ queryKey: effectiveElementsKey });
       toast({ title: "Item added successfully" });
     },
     onError: (error: any) => {
@@ -359,7 +367,8 @@ export default function HREmployees() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`] });
+      queryClient.invalidateQueries({ queryKey: personalItemsKey });
+      queryClient.invalidateQueries({ queryKey: effectiveElementsKey });
       toast({ title: "Status updated" });
     }
   });
@@ -694,6 +703,12 @@ export default function HREmployees() {
             {canApprovePayroll && (
               <Button variant="outline" className="gap-2" onClick={() => setIsSettingsDialogOpen(true)}>
                 <FolderCog className="h-4 w-4" /> File & numbering settings
+              </Button>
+            )}
+            {canManagePayroll && (
+              <Button variant="outline" className="gap-2" onClick={() => setIsElementRulesOpen(true)}>
+                <BadgeDollarSign className="h-4 w-4" />
+                Bulk pay items{selectedEmployeeIds.length ? ` (${selectedEmployeeIds.length})` : ""}
               </Button>
             )}
             <Button onClick={() => openEmployeeModal()} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md">
@@ -1094,6 +1109,17 @@ export default function HREmployees() {
               <Table>
                 <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
                   <TableRow className="hover:bg-transparent">
+                    {canManagePayroll && (
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={filteredEmployees.length > 0 && filteredEmployees.every((e: any) => selectedEmployeeIds.includes(e.id))}
+                          onCheckedChange={(checked) =>
+                            setSelectedEmployeeIds(checked ? filteredEmployees.map((e: any) => e.id) : [])
+                          }
+                          aria-label="Select all employees"
+                        />
+                      </TableHead>
+                    )}
                     <TableHead>Employee</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Role & Branch</TableHead>
@@ -1105,19 +1131,32 @@ export default function HREmployees() {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-48 text-center">
+                      <TableCell colSpan={canManagePayroll ? 7 : 6} className="h-48 text-center">
                         <LoadingRows rows={4} />
                       </TableCell>
                     </TableRow>
                   ) : filteredEmployees.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-48 text-center text-slate-500">
+                      <TableCell colSpan={canManagePayroll ? 7 : 6} className="h-48 text-center text-slate-500">
                         No employees found matching your search.
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredEmployees.map((employee: any) => (
                       <TableRow key={employee.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
+                        {canManagePayroll && (
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedEmployeeIds.includes(employee.id)}
+                              onCheckedChange={(checked) =>
+                                setSelectedEmployeeIds((prev) =>
+                                  checked ? Array.from(new Set([...prev, employee.id])) : prev.filter((id) => id !== employee.id)
+                                )
+                              }
+                              aria-label={`Select ${employee.firstName} ${employee.lastName}`}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/40 flex items-center justify-center text-blue-700 dark:text-blue-400 font-semibold shadow-inner">
@@ -1402,7 +1441,7 @@ export default function HREmployees() {
             <DialogHeader>
               <DialogTitle>Employee Incomes & Deductions</DialogTitle>
               <DialogDescription>
-                Manage individual recurring allowances and deductions assigned specifically to this employee.
+                Personal recurring items plus company-wide rules that currently apply to this employee.
               </DialogDescription>
             </DialogHeader>
             
@@ -1458,40 +1497,50 @@ export default function HREmployees() {
               <div className="space-y-4">
                 <div className="bg-white dark:bg-slate-950 p-0 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col h-full overflow-hidden">
                   <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
-                    <h3 className="text-sm font-semibold">Current Assigned Items</h3>
+                    <h3 className="text-sm font-semibold">Effective Items</h3>
                   </div>
                   <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-[300px]">
                     {isLoadingRecurring ? (
                       <LoadingRows rows={4} />
                     ) : recurringItems.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center py-4">No custom items assigned to this employee.</p>
+                      <p className="text-xs text-slate-500 text-center py-4">No allowances or deductions apply to this employee.</p>
                     ) : (
-                      recurringItems.map(item => (
-                        <div key={item.id} className={cn("flex items-center justify-between p-2.5 rounded-lg border text-sm transition-colors", item.isActive ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-60")}>
-                          <div>
-                            <div className="font-medium flex items-center gap-2">
-                              {item.name} 
-                              <Badge variant="outline" className={item.type === "ALLOWANCE" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : "text-rose-600 border-rose-200 bg-rose-50"}>
-                                {item.type === "ALLOWANCE" ? "+" : "-"}{money(item.amount)}
-                              </Badge>
+                      recurringItems.map(item => {
+                        const isCompanyRule = item.source === "COMPANY_RULE";
+                        const displayValue = item.calculationMethod === "PERCENTAGE"
+                          ? `${item.percentageRate}% of basic`
+                          : money(item.amount);
+                        return (
+                          <div key={item.id} className={cn("flex items-center justify-between p-2.5 rounded-lg border text-sm transition-colors", item.isActive ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-60")}>
+                            <div>
+                              <div className="font-medium flex items-center gap-2">
+                                {item.name}
+                                <Badge variant="outline" className={item.type === "ALLOWANCE" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : "text-rose-600 border-rose-200 bg-rose-50"}>
+                                  {item.type === "ALLOWANCE" ? "+" : "-"}{displayValue}
+                                </Badge>
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-1 flex flex-wrap gap-2">
+                                <span className="font-medium">{isCompanyRule ? "Company rule" : "Personal"}</span>
+                                {isCompanyRule && <span>• {item.appliesToAll ? "All employees" : "Selected employees"}</span>}
+                                {item.isTaxable && <span>• Taxable</span>}
+                                {item.isTaxDeductible && <span>• Tax Deductible</span>}
+                                <span>• From {format(new Date(item.startDate), 'MMM yyyy')}</span>
+                              </div>
                             </div>
-                            <div className="text-[10px] text-slate-500 mt-1 flex gap-2">
-                              {item.isTaxable && <span>• Taxable</span>}
-                              {item.isTaxDeductible && <span>• Tax Deductible</span>}
-                              <span>• From {format(new Date(item.startDate), 'MMM yyyy')}</span>
-                            </div>
+                            {!isCompanyRule && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className={item.isActive ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50" : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"}
+                                onClick={() => toggleRecurringItemMutation.mutate({ id: item.recurringItemId, isActive: !item.isActive })}
+                                disabled={toggleRecurringItemMutation.isPending}
+                              >
+                                {item.isActive ? "Disable" : "Enable"}
+                              </Button>
+                            )}
                           </div>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className={item.isActive ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50" : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"}
-                            onClick={() => toggleRecurringItemMutation.mutate({ id: item.id, isActive: !item.isActive })}
-                            disabled={toggleRecurringItemMutation.isPending}
-                          >
-                            {item.isActive ? "Disable" : "Enable"}
-                          </Button>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1504,6 +1553,12 @@ export default function HREmployees() {
           companyId={companyId}
           open={isSettingsDialogOpen}
           onOpenChange={setIsSettingsDialogOpen}
+        />
+        <PayrollElementRulesDialog
+          companyId={companyId}
+          open={isElementRulesOpen}
+          onOpenChange={setIsElementRulesOpen}
+          selectedEmployeeIds={selectedEmployeeIds}
         />
         <StaffFileDialog
           companyId={companyId}

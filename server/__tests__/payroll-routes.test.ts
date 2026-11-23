@@ -785,3 +785,171 @@ describe("positions and vacancies", () => {
     expect(state.writes.filter((w: any) => w.table === "employees")).toHaveLength(0);
   });
 });
+
+describe("company payroll element rules", () => {
+  const basePath = "/api/companies/12/payroll/element-rules";
+
+  test("rejects a fixed rule with no amount", async () => {
+    const res = await call("POST", basePath, {
+      type: "ALLOWANCE",
+      name: "Transport",
+      calculationMethod: "FIXED",
+      appliesToAll: true,
+      startDate: "2026-01-01",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/fixed amount/i);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("rejects a percentage above 100", async () => {
+    const res = await call("POST", basePath, {
+      type: "DEDUCTION",
+      name: "Savings",
+      calculationMethod: "PERCENTAGE",
+      percentageRate: "150",
+      appliesToAll: true,
+      startDate: "2026-01-01",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/at most 100/i);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("requires a target when the rule is not for all employees", async () => {
+    const res = await call("POST", basePath, {
+      type: "ALLOWANCE",
+      name: "Transport",
+      calculationMethod: "FIXED",
+      amount: "25.00",
+      appliesToAll: false,
+      employeeIds: [],
+      startDate: "2026-01-01",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/select at least one employee/i);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("creates an all-employee percentage rule with only the rate stored", async () => {
+    script("payroll_element_rules", [{
+      id: 7,
+      companyId: 12,
+      type: "ALLOWANCE",
+      name: "Cost of living adjustment",
+      calculationMethod: "PERCENTAGE",
+      amount: null,
+      percentageRate: "5.0000",
+      appliesToAll: true,
+      startDate: "2026-01-01",
+      endDate: null,
+      isActive: true,
+    }]);
+
+    const res = await call("POST", basePath, {
+      type: "ALLOWANCE",
+      name: "Cost of living adjustment",
+      calculationMethod: "PERCENTAGE",
+      percentageRate: "5",
+      appliesToAll: true,
+      employeeIds: [],
+      startDate: "2026-01-01",
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.appliesToAll).toBe(true);
+    const write = state.writes.find((w: any) => w.table === "payroll_element_rules" && w.op === "insert");
+    expect(write?.values.amount).toBeNull();
+    expect(write?.values.percentageRate).toBe("5");
+    expect(state.writes.some((w: any) => w.table === "payroll_element_rule_employees")).toBe(false);
+  });
+
+  test("requires payroll.write before creating a rule", async () => {
+    state.permissions.clear();
+
+    const res = await call("POST", basePath, {
+      type: "ALLOWANCE",
+      name: "Transport",
+      calculationMethod: "FIXED",
+      amount: "25.00",
+      appliesToAll: true,
+      startDate: "2026-01-01",
+    });
+
+    expect(res.status).toBe(403);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("refuses employees that belong to another company", async () => {
+    script("employees", []);
+
+    const res = await call("POST", basePath, {
+      type: "ALLOWANCE",
+      name: "Transport",
+      calculationMethod: "FIXED",
+      amount: "25.00",
+      appliesToAll: false,
+      employeeIds: [99],
+      startDate: "2026-01-01",
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/not found in this company/i);
+    expect(state.writes.some((w: any) => w.table === "payroll_element_rules")).toBe(false);
+  });
+
+  test("does not update or delete another company's rule", async () => {
+    script("payroll_element_rules", []);
+    const patch = await call("PATCH", `${basePath}/7`, { name: "Changed" });
+    expect(patch.status).toBe(404);
+
+    script("payroll_element_rules", []);
+    const deleted = await call("DELETE", `${basePath}/7`);
+    expect(deleted.status).toBe(404);
+
+    expect(state.writes.some((w: any) => w.table === "payroll_element_rules")).toBe(false);
+  });
+
+  test("shows personal items and company rules on the employee profile", async () => {
+    script("employees", [{ id: 5, companyId: 12 }]);
+    script("payroll_recurring_items", [{
+      id: 3,
+      employeeId: 5,
+      type: "ALLOWANCE",
+      name: "Personal transport",
+      amount: "10.00",
+      isTaxable: true,
+      isTaxDeductible: false,
+      startDate: "2026-01-01",
+      endDate: null,
+      isActive: true,
+    }]);
+    script("payroll_element_rule_employees", [{ ruleId: 8, employeeId: 5 }]);
+    script("payroll_element_rules", [{
+      id: 8,
+      companyId: 12,
+      type: "DEDUCTION",
+      name: "Savings",
+      calculationMethod: "PERCENTAGE",
+      amount: null,
+      percentageRate: "5.0000",
+      isTaxable: false,
+      isTaxDeductible: true,
+      startDate: "2026-01-01",
+      endDate: null,
+      isActive: true,
+      appliesToAll: false,
+    }]);
+
+    const res = await call("GET", "/api/companies/12/payroll/employees/5/effective-elements");
+
+    expect(res.status).toBe(200);
+    expect(res.body.map((item: any) => item.source)).toEqual(
+      expect.arrayContaining(["PERSONAL", "COMPANY_RULE"])
+    );
+    const rule = res.body.find((item: any) => item.source === "COMPANY_RULE");
+    expect(rule.calculationMethod).toBe("PERCENTAGE");
+    expect(rule.percentageRate).toBe("5.0000");
+    expect(rule.appliesToAll).toBe(false);
+  });
+});

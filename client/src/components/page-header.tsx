@@ -19,7 +19,7 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "mb-4 flex w-full flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center",
+        "mb-4 flex w-full flex-col items-stretch justify-end gap-2 sm:flex-row sm:flex-wrap sm:items-center",
         className,
       )}
       aria-label={`${title}${subtitle ? ` - ${subtitle}` : ""} actions`}

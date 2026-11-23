@@ -307,10 +307,10 @@ export default function ProductsPage() {
               }}
             />
             {companyId > 0 && (
-              <Link href="/products/bulk-adjust">
+              <Link href="/products/bulk-adjust" className="w-full sm:w-auto">
                 <Button
                   variant="outline"
-                  className="rounded-xl flex-1 sm:flex-none gap-2"
+                  className="w-full gap-2 rounded-xl sm:w-auto"
                 >
                   <TrendingUp className="w-4 h-4 text-emerald-600" />
                   Bulk Adjust Prices

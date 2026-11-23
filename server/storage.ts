@@ -400,7 +400,7 @@ export interface IStorage {
   getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string, drillDown?: boolean, ownerGroup?: string): Promise<any>;
   getARAgingReport(companyId: number, asOfDate?: Date): Promise<any[]>;
   getAPAgingReport(companyId: number, asOfDate?: Date): Promise<any[]>;
-  getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]>;
+  getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date, costCenterId?: number): Promise<any[]>;
 
   // Fixed Assets
   getFixedAssets(companyId: number): Promise<FixedAsset[]>;
@@ -546,8 +546,8 @@ export interface IStorage {
   getJournalEntryDrafts(companyId: number): Promise<any[]>;
   createJournalEntryDraft(companyId: number, data: InsertJournalEntryDraft & { lines: LedgerPostLine[] }): Promise<any>;
   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
-  getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date, branchId?: number): Promise<any[]>;
-  getTrialBalance(companyId: number, date?: Date, branchId?: number): Promise<any[]>;
+  getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date, branchId?: number, costCenterId?: number): Promise<any[]>;
+  getTrialBalance(companyId: number, date?: Date, branchId?: number, costCenterId?: number): Promise<any[]>;
   getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; outputVatByCurrency: Record<string, number>; inputVatByCurrency: Record<string, number>; netVatByCurrency: Record<string, number>; dailyBreakdown: any[]; inputVatBreakdown?: any[]; outputVatBreakdown?: any[]; includedInvoiceCount: number; availableCurrencies: string[]; }>;
   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
@@ -4754,11 +4754,15 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
+  async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date, costCenterId?: number): Promise<any[]> {
     // Cost-centre profitability is a GL report: it groups POSTED ledger lines by
     // ledger_entries.cost_center_id. The old branch/subledger aggregation could
     // not see manually tagged lines (or lines posted from other modules).
-    const centers = await db.select().from(costCenters).where(eq(costCenters.companyId, companyId));
+    const centers = await db.select().from(costCenters).where(
+      costCenterId
+        ? and(eq(costCenters.companyId, companyId), eq(costCenters.id, costCenterId))
+        : eq(costCenters.companyId, companyId)
+    );
     const cogsCode = await this.getSystemAccountCode(companyId, "cogsAccountCode");
 
     const conditions = [
@@ -4767,6 +4771,7 @@ export class DatabaseStorage implements IStorage {
     ];
     if (startDate) conditions.push(gte(journalEntries.entryDate, startDate));
     if (endDate) conditions.push(lte(journalEntries.entryDate, throughEndOfDay(new Date(endDate))));
+    if (costCenterId) conditions.push(eq(ledgerEntries.costCenterId, costCenterId));
 
     const lines = await db
       .select({
@@ -4826,7 +4831,7 @@ export class DatabaseStorage implements IStorage {
     });
 
     const unassigned = buckets.get(0);
-    if (unassigned && unassigned.journals.size > 0) {
+    if (!costCenterId && unassigned && unassigned.journals.size > 0) {
       const revenue = this.roundMoney(unassigned.revenue);
       const cogs = this.roundMoney(unassigned.cogs);
       const expenses = this.roundMoney(unassigned.expenses);
@@ -8753,9 +8758,10 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date, branchId?: number): Promise<any[]> {
+  async getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date, branchId?: number, costCenterId?: number): Promise<any[]> {
     const filters: any[] = [eq(accounts.companyId, companyId)];
     if (branchId) filters.push(eq(journalEntries.branchId, branchId));
+    if (costCenterId) filters.push(eq(ledgerEntries.costCenterId, costCenterId));
     if (accountId) filters.push(eq(ledgerEntries.accountId, accountId));
     if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
     if (dateTo) filters.push(lte(journalEntries.entryDate, throughEndOfDay(dateTo)));
@@ -8777,10 +8783,11 @@ export class DatabaseStorage implements IStorage {
     .orderBy(journalEntries.entryDate);
   }
 
-  async getTrialBalance(companyId: number, date?: Date, branchId?: number): Promise<any[]> {
+  async getTrialBalance(companyId: number, date?: Date, branchId?: number, costCenterId?: number): Promise<any[]> {
     const filters: any[] = [eq(accounts.companyId, companyId)];
     const entriesFilters: any[] = [];
     if (branchId) entriesFilters.push(eq(journalEntries.branchId, branchId));
+    if (costCenterId) entriesFilters.push(eq(ledgerEntries.costCenterId, costCenterId));
     if (date) entriesFilters.push(lte(journalEntries.entryDate, throughEndOfDay(date)));
 
     const allAccounts = await db.select().from(accounts).where(and(...filters));

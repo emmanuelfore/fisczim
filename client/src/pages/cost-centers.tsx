@@ -21,6 +21,8 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { ALL_COST_CENTERS, CostCenterFilter } from "@/components/reports/cost-center-filter";
 
 export default function CostCentersPage() {
   const [fromDate, setFromDate] = useState(
@@ -30,11 +32,14 @@ export default function CostCentersPage() {
     ),
   );
   const [toDate, setToDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const { activeCompanyId: companyId } = useActiveCompany();
+  const [selectedCostCenterId, setSelectedCostCenterId] = useState<string>(ALL_COST_CENTERS);
+  const costCenterId = selectedCostCenterId !== ALL_COST_CENTERS ? Number(selectedCostCenterId) : undefined;
 
   const { data: costCenters, isLoading, isError, refetch } = useQuery<any[]>({
     queryKey: [
       "/api/accounting/reports/cost-centers",
-      { from: fromDate, to: toDate },
+      { from: fromDate, to: toDate, costCenterId },
     ],
   });
 
@@ -67,6 +72,11 @@ export default function CostCentersPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <CostCenterFilter
+              companyId={companyId}
+              value={selectedCostCenterId}
+              onChange={setSelectedCostCenterId}
+            />
             <div className=" font-semibold text-slate-600">From:</div>
             <Input
               type="date"

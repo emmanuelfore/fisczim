@@ -18,6 +18,7 @@ interface CashFlowViewProps {
   consolidatedSymbol: string;
   consolidatedRate: number;
   branchId?: number;
+  costCenterId?: number;
 }
 
 type CfLine = {
@@ -54,19 +55,21 @@ export function CashFlowView({
   consolidatedSymbol,
   consolidatedRate,
   branchId,
+  costCenterId,
 }: CashFlowViewProps) {
   const fromQuery = format(dateRange.from, "yyyy-MM-dd");
   const toQuery = format(dateRange.to, "yyyy-MM-dd");
   const branchParam = branchId ? `&branchId=${branchId}` : "";
+  const costCenterParam = costCenterId ? `&costCenterId=${costCenterId}` : "";
 
   const { data, isLoading, isError, refetch } = useQuery<CashFlowReport>({
     queryKey: [
       `/api/accounting/reports/cash-flow`,
-      { from: fromQuery, to: toQuery, branchId },
+      { from: fromQuery, to: toQuery, branchId, costCenterId },
     ],
     queryFn: async () => {
       const res = await apiFetch(
-        `/api/accounting/reports/cash-flow?from=${fromQuery}&to=${toQuery}${branchParam}`
+        `/api/accounting/reports/cash-flow?from=${fromQuery}&to=${toQuery}${branchParam}${costCenterParam}`
       );
       if (!res.ok) throw new Error("Failed to load cash flow report");
       return res.json();

@@ -752,6 +752,23 @@ export async function registerRoutes(
     return isNaN(bid) ? undefined : bid;
   };
 
+  /**
+   * Cost-center report filter. Accepts `costCenterId` (and the `costCenter`
+   * alias used by the daily sales screens). The ID is validated against the
+   * resolved company so a crafted query cannot read another tenant's centers.
+   */
+  const getCostCenterId = async (req: any, companyId: number): Promise<number | undefined> => {
+    const raw = req.query?.costCenterId ?? req.query?.costCenter;
+    if (raw === undefined || raw === null || raw === "" || raw === "all") return undefined;
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) return undefined;
+    const [center] = await db.select({ id: costCenters.id })
+      .from(costCenters)
+      .where(and(eq(costCenters.id, id), eq(costCenters.companyId, companyId)))
+      .limit(1);
+    return center?.id;
+  };
+
   const getUserOwnerGroupScope = async (userId?: string): Promise<string | undefined> => {
     if (!userId) return undefined;
     const user = await storage.getUser(userId);
@@ -15544,7 +15561,8 @@ export async function registerRoutes(
       const asOfDate = date ? new Date(date as string) : undefined;
       
       const branchId = getBranchId(req);
-      const lines = await storage.getTrialBalance(companyId, asOfDate, branchId);
+      const costCenterId = await getCostCenterId(req, companyId);
+      const lines = await storage.getTrialBalance(companyId, asOfDate, branchId, costCenterId);
       res.json({
         asOfDate: asOfDate || new Date(),
         lines,
@@ -15590,7 +15608,8 @@ export async function registerRoutes(
       const dateTo = to ? new Date(to as string) : undefined;
       
       const branchId = getBranchId(req);
-      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo, branchId);
+      const costCenterId = await getCostCenterId(req, companyId);
+      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo, branchId, costCenterId);
       res.json(entries);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15635,6 +15654,15 @@ export async function registerRoutes(
       const companyId = await resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       if (!(await requireAccountingPermission(req, res, companyId, "accounting.view"))) return;
+      const costCenterId = await getCostCenterId(req, companyId);
+      const entryFilters: any[] = [eq(cashbookEntries.companyId, companyId)];
+      if (costCenterId) {
+        const taggedEntries = db.select({ id: cashbookEntryLines.cashbookEntryId })
+          .from(cashbookEntryLines)
+          .where(eq(cashbookEntryLines.costCenterId, costCenterId));
+        entryFilters.push(inArray(cashbookEntries.id, taggedEntries));
+      }
+
       const rows = await db
         .select({
           entry: cashbookEntries,
@@ -15711,7 +15739,8 @@ export async function registerRoutes(
       const range = parseOptionalRange(req.query, { startKey: "from", endKey: "to" });
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
-      const report = await storage.getCostCenterReport(companyId, startDate, endDate);
+      const costCenterId = await getCostCenterId(req, companyId);
+      const report = await storage.getCostCenterReport(companyId, startDate, endDate, costCenterId);
       res.json(report);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -15727,11 +15756,18 @@ export async function registerRoutes(
       if (!asOf.ok) return res.status(400).json({ message: asOf.message });
       const asOfDate = asOf.date;
       const branchId = getBranchId(req);
-      
-      // Use trial balance as the base data — if branchId is specified, filter ledger entries to that branch
+      const costCenterId = await getCostCenterId(req, companyId);
+
+      // Use trial balance as the base data, narrowed by branch and/or cost center
+      // when either filter is supplied.
       let tb: any[];
       if (branchId) {
-        // Fetch only ledger entries for this branch
+        const tbFilters: any[] = [
+          eq(journalEntries.companyId, companyId),
+          eq(ledgerEntries.branchId, branchId),
+          lte(journalEntries.entryDate, throughEndOfDay(asOfDate)),
+        ];
+        if (costCenterId) tbFilters.push(eq(ledgerEntries.costCenterId, costCenterId));
         const rows = await db
           .select({
             accountId: accounts.id,
@@ -15763,7 +15799,7 @@ export async function registerRoutes(
           balance: Number(row.debit || 0) - Number(row.credit || 0),
         }));
       } else {
-        tb = await storage.getTrialBalance(companyId, asOfDate);
+        tb = await storage.getTrialBalance(companyId, asOfDate, undefined, costCenterId);
       }
       
       const reportLines = tb.map((line: any) => ({
@@ -16334,6 +16370,7 @@ export async function registerRoutes(
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
       const branchId = getBranchId(req);
+      const costCenterId = await getCostCenterId(req, companyId);
 
       const filters: any[] = [
         eq(journalEntries.companyId, companyId),
@@ -16342,6 +16379,7 @@ export async function registerRoutes(
       if (startDate) filters.push(gte(journalEntries.entryDate, startDate));
       if (endDate) filters.push(lte(journalEntries.entryDate, endDate));
       if (branchId) filters.push(eq(ledgerEntries.branchId, branchId));
+      if (costCenterId) filters.push(eq(ledgerEntries.costCenterId, costCenterId));
 
       const rows = await db
         .select({
@@ -16397,6 +16435,7 @@ export async function registerRoutes(
         startDate,
         endDate,
         branchId: branchId || null,
+        costCenterId: costCenterId || null,
         sections: {
           revenue,
           costOfSales,
@@ -16431,12 +16470,14 @@ export async function registerRoutes(
       if (!range.ok) return res.status(400).json({ message: range.message });
       const { start: startDate, end: endDate } = range;
       const branchId = getBranchId(req);
+      const costCenterId = await getCostCenterId(req, companyId);
 
       // Build filters for journal entries in the period
       const jeFilters: any[] = [eq(journalEntries.companyId, companyId)];
       if (startDate) jeFilters.push(gte(journalEntries.entryDate, startDate));
       if (endDate) jeFilters.push(lte(journalEntries.entryDate, endDate));
       if (branchId) jeFilters.push(eq(journalEntries.branchId, branchId));
+      if (costCenterId) jeFilters.push(eq(ledgerEntries.costCenterId, costCenterId));
 
       // Query ledger entries joined to accounts — classify by cashFlowCategory
       const rows = await db

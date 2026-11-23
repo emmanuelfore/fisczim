@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
+import { ALL_COST_CENTERS, CostCenterFilter } from "@/components/reports/cost-center-filter";
 
 type TrialBalanceLine = {
   accountId: number;
@@ -46,13 +47,16 @@ export default function TrialBalancePage() {
   const currency = activeCompany?.currency || "USD";
   const [collapsedTypes, setCollapsedTypes] = useState<string[]>([]);
   const [asOfDate, setAsOfDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [selectedCostCenterId, setSelectedCostCenterId] = useState<string>(ALL_COST_CENTERS);
+  const costCenterId = selectedCostCenterId !== ALL_COST_CENTERS ? Number(selectedCostCenterId) : undefined;
 
   const { data: report, isLoading, isError, refetch } = useQuery<TrialBalanceReport>({
-    queryKey: accountingKey("trial-balance", companyId, asOfDate),
+    queryKey: accountingKey("trial-balance", companyId, asOfDate, selectedCostCenterId),
     enabled: !!companyId,
     queryFn: () =>
       fetchAccounting<TrialBalanceReport>("/api/accounting/trial-balance", {
         date: asOfDate,
+        ...(costCenterId ? { costCenterId } : {}),
       }),
   });
 
@@ -157,6 +161,16 @@ export default function TrialBalancePage() {
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Cost Center
+              </Label>
+              <CostCenterFilter
+                companyId={companyId}
+                value={selectedCostCenterId}
+                onChange={setSelectedCostCenterId}
+              />
+            </div>
             <div className="space-y-1">
               <Label htmlFor="trial-balance-date" className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 As of

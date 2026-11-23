@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { accountingKey, fetchAccounting } from "@/lib/accounting-query";
+import { ALL_COST_CENTERS, CostCenterFilter } from "@/components/reports/cost-center-filter";
 
 type FullLedgerEntry = {
   id: number;
@@ -51,6 +52,8 @@ export default function GeneralLedgerPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [selectedCostCenterId, setSelectedCostCenterId] = useState<string>(ALL_COST_CENTERS);
+  const costCenterId = selectedCostCenterId !== ALL_COST_CENTERS ? Number(selectedCostCenterId) : undefined;
 
   const { data: accounts } = useQuery<Account[]>({
     queryKey: accountingKey("accounts", companyId),
@@ -59,13 +62,14 @@ export default function GeneralLedgerPage() {
   });
 
   const { data: ledgerEntries, isLoading, isError, refetch } = useQuery<FullLedgerEntry[]>({
-    queryKey: accountingKey("ledger", companyId, selectedAccountId, fromDate, toDate),
+    queryKey: accountingKey("ledger", companyId, selectedAccountId, fromDate, toDate, selectedCostCenterId),
     enabled: !!companyId && !!selectedAccountId,
     queryFn: () =>
       fetchAccounting<FullLedgerEntry[]>("/api/accounting/ledger", {
         accountId: selectedAccountId,
         from: fromDate,
         to: toDate,
+        ...(costCenterId ? { costCenterId } : {}),
       }),
   });
 
@@ -119,6 +123,16 @@ export default function GeneralLedgerPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Cost Center
+              </Label>
+              <CostCenterFilter
+                companyId={companyId}
+                value={selectedCostCenterId}
+                onChange={setSelectedCostCenterId}
+              />
             </div>
             <div className="flex items-end gap-2">
               <div className="space-y-1">

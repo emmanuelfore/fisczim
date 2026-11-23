@@ -31,6 +31,7 @@ import { isLesothoInstance } from "@/lib/country-detect";
 import { ProfitAndLossView } from "@/components/reports/profit-and-loss-view";
 import { BalanceSheetView } from "@/components/reports/balance-sheet-view";
 import { CashFlowView } from "@/components/reports/cash-flow-view";
+import { ALL_COST_CENTERS, CostCenterFilter } from "@/components/reports/cost-center-filter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { downloadExcel } from "@/lib/export-utils";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
@@ -50,6 +51,7 @@ export default function FinancialReportsPage() {
   });
   const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
   const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
+  const [selectedCostCenterId, setSelectedCostCenterId] = useState<string>(ALL_COST_CENTERS);
 
   const defaultStatementTab = location.includes("balance-sheet")
     ? "bs"
@@ -63,12 +65,15 @@ export default function FinancialReportsPage() {
   const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
   const consolidatedSymbol = consolidatedCurrency?.symbol || currencySign(consolidatedCode);
   const branchIdNum = selectedBranchId !== "all" ? Number(selectedBranchId) : undefined;
+  const costCenterIdNum =
+    selectedCostCenterId !== ALL_COST_CENTERS ? Number(selectedCostCenterId) : undefined;
 
   const handleExportExcel = () => {
     const params = new URLSearchParams({
       startDate: format(dateRange.from, "yyyy-MM-dd"),
       endDate: format(dateRange.to, "yyyy-MM-dd"),
     });
+    if (costCenterIdNum) params.set("costCenterId", String(costCenterIdNum));
     downloadExcel(
       `/api/reports/export/financial/${companyId}?${params.toString()}`,
       `Financial_Report_${format(new Date(), "yyyyMMdd")}.xlsx`,
@@ -163,6 +168,15 @@ export default function FinancialReportsPage() {
             </>
           )}
 
+          {/* Cost center filter */}
+          <CostCenterFilter
+            companyId={companyId}
+            value={selectedCostCenterId}
+            onChange={setSelectedCostCenterId}
+            compact
+          />
+          <div className="h-6 w-px bg-slate-200" />
+
           {/* Date range picker */}
           <Popover>
             <PopoverTrigger asChild>
@@ -251,6 +265,7 @@ export default function FinancialReportsPage() {
             consolidatedSymbol={consolidatedSymbol}
             consolidatedRate={consolidatedRate}
             branchId={branchIdNum}
+            costCenterId={costCenterIdNum}
           />
         </TabsContent>
 
@@ -261,6 +276,7 @@ export default function FinancialReportsPage() {
             consolidatedSymbol={consolidatedSymbol}
             consolidatedRate={consolidatedRate}
             branchId={branchIdNum}
+            costCenterId={costCenterIdNum}
           />
         </TabsContent>
 
@@ -271,6 +287,7 @@ export default function FinancialReportsPage() {
             consolidatedSymbol={consolidatedSymbol}
             consolidatedRate={consolidatedRate}
             branchId={branchIdNum}
+            costCenterId={costCenterIdNum}
           />
         </TabsContent>
       </Tabs>

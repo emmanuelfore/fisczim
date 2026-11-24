@@ -760,9 +760,6 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
 
                 {!isAgencyFeeInvoice && vehicleCostLines.length ? (() => {
                     const landed = vehicleCostLines.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
-                    const saleRate = Number(invoice.exchangeRate || 1) || 1;
-                    const sale = invoice.currency === "USD" ? Number(invoice.total || 0) : (Number(invoice.total || 0) / saleRate);
-                    const profit = sale - landed;
                     return <View style={{ marginTop: 14, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
                         <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: "uppercase" }}>Vehicle costing summary</Text>
                         {invoice.vehicle ? (
@@ -771,7 +768,6 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             </Text>
                         ) : null}
                         <View style={{ flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: borderColor, marginTop: 3, paddingTop: 4, fontWeight: 700 }}><Text>Landed cost</Text><Text>{formatCurrencyAmount(landed, invoice.currency || "USD")}</Text></View>
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 3, fontWeight: 700 }}><Text>Estimated margin</Text><Text>{formatCurrencyAmount(profit, invoice.currency || "USD")} ({sale > 0 ? ((profit / sale) * 100).toFixed(1) : "0.0"}%)</Text></View>
                         <Text style={{ fontSize: 7, color: "#94a3b8", marginTop: 4 }}>Cost lines above are informational and are not included in the invoice total.</Text>
                     </View>;
                 })() : null}

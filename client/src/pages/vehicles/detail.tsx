@@ -241,7 +241,7 @@ function CustomerAccountTab({ v, companyId, editable }: { v: any; companyId: num
       <Card><CardHeader><CardTitle className="text-sm">Funds & obligations</CardTitle></CardHeader><CardContent className="space-y-2 text-sm">
         <MoneyLine label="Cost sheet" value={t.costSheetTotal} />
         <MoneyLine label="Allocated to costs" value={t.allocatedToCosts} />
-        <MoneyLine label="Held for suppliers" value={t.fundsHeld} tone="text-sky-700" />
+        <MoneyLine label={t.fundsHeld < 0 ? "Advanced by Prime Imports" : "Held for suppliers"} value={Math.abs(t.fundsHeld)} tone={t.fundsHeld < 0 ? "text-amber-600" : "text-sky-700"} />
         <MoneyLine label="Still owing to suppliers" value={t.supplierOutstanding} tone="text-amber-600" />
       </CardContent></Card>
       <Card><CardHeader><CardTitle className="text-sm">Prime Imports earnings</CardTitle></CardHeader><CardContent className="space-y-2 text-sm">
@@ -316,7 +316,7 @@ function SupplierSettlementsTab({ v, companyId, editable }: { v: any; companyId:
     }
   }, [data, costId]);
   const selected = data?.costSheet.find((c: any) => String(c.id) === costId);
-  useEffect(() => { if (selected) setAmount(Math.max(selected.held, 0).toFixed(2)); }, [costId]);
+  useEffect(() => { if (selected) setAmount(Math.max(Number(selected.supplierOutstanding ?? 0), 0).toFixed(2)); }, [costId]);
 
   const submit = async () => {
     if (!selected) return;
@@ -356,7 +356,12 @@ function SupplierSettlementsTab({ v, companyId, editable }: { v: any; companyId:
       <Field label="Payment date" type="date" value={paymentDate} onChange={setPaymentDate} />
       <Field label="Reference" type="text" value={reference} onChange={setReference} />
       <div className="md:col-span-2 flex items-end"><Button onClick={submit} disabled={pending || !selected || bankAccountId === "none"}>{pending ? "Saving…" : "Record settlement"}</Button></div>
-      {selected && <p className="md:col-span-4 text-xs text-slate-500">Available to settle from customer funds: {fmtMoney(selected.held)}. Supplier settlement cannot exceed this amount.</p>}
+      {selected && <p className="md:col-span-4 text-xs text-slate-500">
+        Outstanding supplier obligation: <strong className="text-slate-700">{fmtMoney(selected.supplierOutstanding)}</strong>
+        {Number(selected.held) < Number(selected.supplierOutstanding) && (
+          <> · Only {fmtMoney(selected.held)} is funded by the customer so far. Settling the balance means Prime Imports advances {fmtMoney(Number(selected.supplierOutstanding) - Number(selected.held))}, carried as a receivable from the customer.</>
+        )}
+      </p>}
     </CardContent></Card>}
 
     <Card><CardHeader><CardTitle>Settlement history</CardTitle></CardHeader><CardContent>

@@ -2476,9 +2476,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         }
 
         const amountBase = round2(Number(body.amount) / (Number(body.exchangeRate) || 1));
-        const outstanding = round2(Number(cost.customerAllocatedAmount || 0) - Number(cost.thirdPartyPaidAmount || 0));
+        // Prime Imports can settle the full supplier obligation even before the
+        // customer has funded that cost line. Anything paid beyond allocated
+        // customer funds is carried as a debit balance in Customer Funds Held
+        // (money advanced by Prime Imports), never as company revenue or COGS.
+        const actualCost = round2(Number(cost.baseAmount || 0));
+        const settled = round2(Number(cost.thirdPartyPaidAmount || 0));
+        const outstanding = round2(actualCost - settled);
+        if (outstanding <= 0) {
+          throw Object.assign(new Error("This cost line has no outstanding supplier obligation"), { status: 400 });
+        }
         if (amountBase > outstanding + 0.01) {
-          throw Object.assign(new Error("Settlement exceeds the customer funds allocated to this cost line"), { status: 400 });
+          throw Object.assign(new Error(`Settlement exceeds the outstanding cost of ${outstanding.toFixed(2)}`), { status: 400 });
         }
 
         const [created] = await tx.insert(vehicleThirdPartyPayments).values({

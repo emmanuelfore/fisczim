@@ -577,6 +577,27 @@ describe("a pay period is a real date range, in the currency the market pays", (
   });
 });
 
+describe("payroll approval segregation", () => {
+  test("the preparer cannot approve the same payroll run", async () => {
+    script("payroll_runs", [{
+      id: 40,
+      companyId: 12,
+      status: "PENDING_APPROVAL",
+      currency: "USD",
+      runType: "REGULAR",
+      periodStart: "2025-09-01",
+      periodEnd: "2025-09-30",
+    }]);
+    script("audit_logs", [{ userId: "user-1", action: "PAYROLL_RUN_SUBMITTED" }]);
+
+    const { status, body } = await call("POST", "/api/companies/12/payroll/runs/40/approve");
+
+    expect(status).toBe(409);
+    expect(body.error).toBe("PAYROLL_SELF_APPROVAL_BLOCKED");
+    expect(state.writes.filter((write) => write.table === "payroll_runs")).toHaveLength(0);
+  });
+});
+
 describe("payslip adjustments", () => {
   test("a locked run is closed to adjustment", async () => {
     script("companies", [{ country: "Zimbabwe" }]);

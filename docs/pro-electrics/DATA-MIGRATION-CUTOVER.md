@@ -26,7 +26,7 @@
 | PC-01 | Final legal company name, TIN/VAT, currency, country = Zimbabwe confirmed. | General Manager | ☐ | Company profile |
 | PC-02 | Final department, cost-centre and warehouse codes confirmed; provisional codes replaced in load files. | Finance Manager / Department Manager | ☐ | Signed mapping sheet |
 | PC-03 | Department manager assignments and named approvers confirmed. | General Manager | ☐ | Approval matrix |
-| PC-04 | For the actual PRO ELECTRICS company id (currently 154), all 14 approval policies are loaded into `companies.approval_settings` with `mode`, `amountThreshold`, `ownerBypass`, `allowSelfApproval:false`, `approverUserIds` and `approverRoleIds`; thresholds confirmed. | General Manager / Finance Manager | ☐ | Settings export + SQL |
+| PC-04 | For the actual PRO ELECTRICS company id (currently 154), all 15 approval policies are loaded into `companies.approval_settings` with `mode`, `amountThreshold`, `ownerBypass`, `allowSelfApproval:false`, `approverUserIds` and `approverRoleIds`; thresholds confirmed. | General Manager / Finance Manager | ☐ | Settings export + SQL |
 | PC-05 | Opening stock, damaged/obsolete stock and per-location balances confirmed. | Warehouse Officer / Finance Manager | ☐ | Signed stock sheet |
 | PC-06 | COA, opening balances and control accounts reconciled. | Accountant | ☐ | TB/opening balance report |
 | PC-07 | Customer/supplier master deduplicated; opening balances agreed. | Accountant | ☐ | AR/AP ageing |
@@ -103,7 +103,7 @@ Record backup file name, checksum, restore duration and the validation result. C
 | Picking/dispatch | `sales_pick_lists`, `sales_pick_list_items`, `sales_order_items.picked_quantity` | Only one active pick list per SO. Migrate picked/dispatched quantities and delivery/POD references where available. |
 | Invoices | `invoices` | One active invoice per SO. Cancel duplicates rather than delete; preserve `notes`, journal links and FiscalInvoice history. Set department/cost centre/location. |
 | Payments/reconciliation | Payments, payment allocations, cashbook | Preserve allocation to invoices and bank/cashbook references; reconcile AR/AP after load. |
-| Purchase requisitions/quotes | Applicable procurement/CRM records | Map requester, manager approval, supplier quotes and selected quote. If no target field/module exists, document as pending requirement. |
+| Purchase requisitions/quotes | `purchase_requisitions`, `purchase_requisition_items`, `supplier_quotes`, `supplier_quote_items` | Map requester, department/cost centre/location, manager approval, supplier quotes and selected quote. Preserve source IDs in `notes` when legacy records exist. |
 | Purchase orders | `purchase_orders` | Preserve PO number/status; set department/cost centre/location; link supplier and source quotes where available. |
 | GDN/GRN | `goods_delivery_notes`, inventory receipts/transactions | Link GDN → PO → GRN; preserve receipt quantities, GRV numbers and department/cost centre from PO. |
 | Supplier bills / three-way match | `supplier_invoices`, `supplier_bill_matches` | Preserve PO/GRN/invoice values, status, variance, waiver and approval evidence. Do not create new duplicate active supplier invoice numbers. |
@@ -112,7 +112,7 @@ Record backup file name, checksum, restore duration and the validation result. C
 | Payroll employees/contracts | `employees`, `employee_contracts`, salary history tables | Preserve employee number, department, position, effective dates, salary history and contract currency. |
 | Payroll statutory config | `payroll_statutory_rules`, tax tables, `payroll_employee_tax_credits` | ZW rules: PAYE, AIDS_LEVY, NSSA_POBS, NEC, ZIMDEF, APWCS, PENSION. Only approved credits apply. |
 | APWCS rate | `payroll_industry_codes`, `payroll_industry_premium_rates` | Client/industry code and effective-dated premium rate required. Never invent a rate; missing rate must raise a warning/block. |
-| Approval settings | `companies.approval_settings` | Load all 14 types with `mode`, `amountThreshold`, `ownerBypass`, `allowSelfApproval`, `approverUserIds` and `approverRoleIds`. Eight types support amount thresholds; `0` means no threshold. Thresholds and named approvers are client-confirmed. |
+| Approval settings | `companies.approval_settings` | Load all 15 types with `mode`, `amountThreshold`, `ownerBypass`, `allowSelfApproval`, `approverUserIds` and `approverRoleIds`. Eight types support amount thresholds; `0` means no threshold. Thresholds and named approvers are client-confirmed. |
 | Users and roles | `users`, `company_users`, `company_roles`, `company_role_permissions` | One company membership per user; least privilege; no shared accounts. Named approvers from client matrix. |
 
 ## 6. Validation SQL (Postgres)

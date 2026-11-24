@@ -27,6 +27,87 @@ export async function getCompanyApprovalPolicies(companyId: number): Promise<Com
   return normalizeApprovalPolicies(company?.approvalSettings);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function firstFinite(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const n = finiteNumber(value);
+    if (n != null) return n;
+  }
+  return undefined;
+}
+
+function sumField(rows: unknown, field: string): number | undefined {
+  if (!Array.isArray(rows)) return undefined;
+  let total = 0;
+  let found = false;
+  for (const row of rows) {
+    const record = asRecord(row);
+    const n = record ? finiteNumber(record[field]) : undefined;
+    if (n != null) {
+      total += n;
+      found = true;
+    }
+  }
+  return found ? total : undefined;
+}
+
+/**
+ * Approval amounts must come from the stored source document, never from a
+ * free-form `amount` supplied by the client. This is used both by the gate and
+ * by the generic approval endpoint so a low declared amount cannot slip a high
+ * value transaction past a monetary threshold.
+ */
+export function deriveApprovalAmount(type: ApprovalType, payload: Record<string, unknown>): number | undefined {
+  const invoice = asRecord(payload.invoiceData);
+  const order = asRecord(payload.orderData);
+  const purchaseOrder = asRecord(payload.purchaseOrderData);
+  const payment = asRecord(payload.paymentData);
+  const supplierPayment = asRecord(payload.supplierPaymentData);
+  const expense = asRecord(payload.expenseData);
+  const journal = asRecord(payload.manualEntry);
+
+  switch (type) {
+    case "invoice_issue":
+    case "credit_note":
+      return firstFinite(invoice?.total, payload.total);
+    case "discount":
+      return firstFinite(
+        invoice?.discountAmount,
+        sumField(payload.items, "discountAmount"),
+        sumField(invoice?.items, "discountAmount"),
+        payload.discountAmount,
+      );
+    case "sales_order":
+      return firstFinite(order?.total, payload.total);
+    case "purchase_order":
+      return firstFinite(purchaseOrder?.total, payload.total);
+    case "payment_execution":
+      return firstFinite(payment?.amount, supplierPayment?.amount, payload.amount);
+    case "expense":
+      return firstFinite(expense?.amount, payload.amount);
+    case "journal_post":
+      return firstFinite(
+        sumField(journal?.lines, "debit"),
+        sumField(journal?.lines, "amount"),
+        sumField(payload.lines, "amount"),
+        payload.amount,
+      );
+    default:
+      return finiteNumber(payload.amount);
+  }
+}
+
 export async function resolveActionAccess(
   userId: string,
   companyId: number,

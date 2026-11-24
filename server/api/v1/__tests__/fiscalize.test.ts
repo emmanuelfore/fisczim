@@ -25,6 +25,7 @@ vi.mock("../../../storage.js", () => ({
     updateInvoice: vi.fn(),
     updateProduct: vi.fn(),
     syncLekukaTaxes: vi.fn(),
+    createAuditLog: vi.fn(async () => ({} as any)),
   },
 }));
 
@@ -32,6 +33,38 @@ vi.mock("../../../lib/fiscalization.js", () => ({
   processInvoiceFiscalization: vi.fn(),
   getCompanyZimraConfig: vi.fn(),
 }));
+
+vi.mock("../../../lib/approval-gate.js", () => ({
+  requireApprovalOrContinue: vi.fn(async () => ({ requiresApproval: false, request: null })),
+}));
+
+vi.mock("../../../lib/departmental.js", () => ({
+  resolveInvoiceAnalytics: vi.fn(async () => null),
+  requireDepartmentalDimensions: vi.fn(async () => null),
+}));
+
+const { mockDbChain } = vi.hoisted(() => {
+  const mockDbChain = {
+    _result: [] as any[],
+    select() { return this; },
+    from() { return this; },
+    where() { return this; },
+    orderBy() { return this; },
+    insert() { return this; },
+    values() { return this; },
+    returning() { return Promise.resolve([{ id: 1 }]); },
+    update() { return this; },
+    set() { return this; },
+    // Drizzle queries are awaited directly and, for the fiscalization job
+    // lookup, also chained through `.orderBy()`. Stay chainable and thenable.
+    then(resolve: (value: any[]) => any) {
+      return Promise.resolve(this._result).then(resolve);
+    },
+  };
+  return { mockDbChain };
+});
+
+vi.mock("../../../db.js", () => ({ db: mockDbChain }));
 
 import { storage } from "../../../storage.js";
 import { processInvoiceFiscalization, getCompanyZimraConfig } from "../../../lib/fiscalization.js";
@@ -73,6 +106,7 @@ function setupDefaultMocks(
   tenantCurrencies: Array<string | { code: string; isActive?: boolean }> = ["USD", "ZWG"],
   taxTypes: Array<Record<string, any>> = []
 ) {
+  mockDbChain._result = [];
   vi.mocked(storage.createCustomer).mockResolvedValue({
     id: 1,
     companyId: authCompanyId,
@@ -163,6 +197,7 @@ async function dispatchFiscalize(
     headers: { "content-type": "application/json" },
     body,
     company: authCompany,
+    user: { id: "test-user", isSuperAdmin: true },
     params: {},
     query: {},
     app: { get: () => undefined },
@@ -1473,7 +1508,7 @@ describe("Pass-Through Handler — the caller's invoice number is the stored num
     expect(createInvoiceArgs).toBeNull();
   });
 
-  test("a document that cannot be renamed is not left half-written", async () => {
+  test("a document that cannot be renamed is retained, not deleted", async () => {
     const authCompanyId = 63;
     setupDefaultMocks(authCompanyId);
     vi.mocked(storage.updateInvoice).mockRejectedValue(new Error("sequence locked"));
@@ -1485,8 +1520,10 @@ describe("Pass-Through Handler — the caller's invoice number is the stored num
 
     expect(statusCode).toBe(500);
     expect(responseBody.message).toContain("could not rename");
+    expect(responseBody.fiscalizationStatus).toBe("not_started");
     expect(createInvoiceArgs).not.toBeNull();
-    expect(vi.mocked(storage.deleteInvoice)).toHaveBeenCalledWith(1);
+    // Never delete here: storage.deleteInvoice removes payments and GL history.
+    expect(vi.mocked(storage.deleteInvoice)).not.toHaveBeenCalled();
     expect(vi.mocked(processInvoiceFiscalization)).not.toHaveBeenCalled();
   });
 });

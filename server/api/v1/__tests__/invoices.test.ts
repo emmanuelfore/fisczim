@@ -24,6 +24,7 @@ vi.mock("../../../storage.js", () => ({
     getInvoicesPaginated: vi.fn(),
     getNextInvoiceNumber: vi.fn(),
     getProduct: vi.fn(),
+    createAuditLog: vi.fn(async () => ({} as any)),
   },
 }));
 
@@ -31,14 +32,34 @@ vi.mock("../../../lib/fiscalization.js", () => ({
   processInvoiceFiscalization: vi.fn(),
 }));
 
-// Mock db with a chainable select/from/where that returns [] by default.
+vi.mock("../../../lib/approval-gate.js", () => ({
+  requireApprovalOrContinue: vi.fn(async () => ({ requiresApproval: false, request: null })),
+}));
+
+vi.mock("../../../lib/departmental.js", () => ({
+  resolveInvoiceAnalytics: vi.fn(async () => null),
+  requireDepartmentalDimensions: vi.fn(async () => null),
+}));
+
+// Mock db with a chainable select/insert/update facade that returns [] by default.
 // We use vi.hoisted so the variable is available inside the vi.mock factory.
 const { mockDbChain } = vi.hoisted(() => {
   const mockDbChain = {
     _result: [] as any[],
     select() { return this; },
     from() { return this; },
-    where() { return Promise.resolve(this._result); },
+    where() { return this; },
+    orderBy() { return this; },
+    insert() { return this; },
+    values() { return this; },
+    returning() { return Promise.resolve([{ id: 1 }]); },
+    update() { return this; },
+    set() { return this; },
+    // Drizzle queries are awaited directly and, for the fiscalization job
+    // lookup, also chained through `.orderBy()`. Stay chainable and thenable.
+    then(resolve: (value: any[]) => any) {
+      return Promise.resolve(this._result).then(resolve);
+    },
   };
   return { mockDbChain };
 });
@@ -113,6 +134,7 @@ async function dispatch(
     headers: { "content-type": "application/json" },
     body,
     company: authCompany,
+    user: { id: "test-user", isSuperAdmin: true },
     params: {},
     query,
     app: { get: () => undefined },

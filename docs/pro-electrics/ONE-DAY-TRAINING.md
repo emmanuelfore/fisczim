@@ -60,10 +60,10 @@ Prepare before the session in the training company only.
 
 - **Reset the training company** before each session or use a new training dataset; do not reuse posted payroll runs or fiscalized documents.
 - **Permissions:** log in with each role at least once. Use two approver-enabled users for Exercise 7 so self-approval can be tested safely.
-- **Pending functionality:** where a step is not implemented in the current build (for example a POD attachment field or requisition module), demonstrate the intended control, state clearly that it is pending, and log a training/UAT gap. Do not imply the feature exists.
-- **Approval submissions:** many actions now return HTTP `202` and create an approval request instead of a business record. This applies to quotations, sales orders, purchase orders, supplier registration, expenses, credit notes, payments, leave and discounts. Trainees must check `/approvals` before assuming the document was saved.
+- **Pending functionality:** where a step is not implemented in the current build (for example a POD attachment field), demonstrate the intended control, state clearly that it is pending, and log a training/UAT gap. Do not imply the feature exists.
+- **Approval submissions:** many actions now return HTTP `202` and create an approval request instead of a business record. This applies to requisitions, quotations, sales orders, purchase orders, supplier registration, expenses, credit notes, payments, leave and discounts. Trainees must check `/approvals` before assuming the document was saved.
 - **Approval settings:** display the configured policy screen and explicitly state that monetary limits and approver names are client-confirmed inputs. Explain that a threshold of `0` means no threshold.
-- **Migration awareness:** explain that 0109 created picking records and the one-active-invoice rule; 0110 added department/cost-centre/warehouse links; 0111 added GL/source-document department fields, indexes and approval-policy seeds; 0112 added vehicle-agency accounting where applicable. Migration success does not prove the tenant was seeded — verify the actual company id and settings export.
+- **Migration awareness:** explain that 0109 created picking records and the one-active-invoice rule; 0110 added department/cost-centre/warehouse links; 0111 added GL/source-document department fields, indexes and approval-policy seeds; 0112 added vehicle-agency accounting where applicable; 0113–0114 added price lists and budgets; 0115 added requisitions and supplier quotes. Migration success does not prove the tenant was seeded — verify the actual company id and settings export.
 - **FiscalPrinter training mode:** use the offline commands below. They make no API call, write no invoice and consume no fiscal counter. Copies carry `TRAINING — NOT A VALID FISCAL INVOICE` and a training QR.
 
 ```bash
@@ -129,16 +129,16 @@ npm run training:stamp:samples    # stamp a training QR on bundled PDFs
 
 ### Exercise 5 — Requisition, supplier quotes, PO, GDN/GRN and three-way match
 
-1. Log in as the **Procurement Officer** and create requisition `REQ-TRAIN-001` for department `HW`.
-2. Attach two fictitious supplier quotes from `SUP-TRAIN-001` and `SUP-TRAIN-002`.
-3. Submit the requisition to the training **Department Manager** for approval.
-4. After manager approval, obtain management approval for the PO at/above the provisional limit.
-5. Create the PO in `/inventory/purchase-orders`; confirm department, cost centre and receiving warehouse `WH-HW`.
+1. Log in as the **Procurement Officer** and `POST /api/companies/:companyId/procurement/requisitions` for department `HW`.
+2. `POST .../requisitions/:id/submit` and confirm the manager receives the approval request.
+3. As the manager, approve the requisition in `/approvals`; as Procurement Officer, capture two fictitious quotes from `SUP-TRAIN-001` and `SUP-TRAIN-002` via `POST .../requisitions/:id/quotes`.
+4. Select the successful quote via `POST .../quotes/:id/select`, then `POST .../requisitions/:id/create-po`.
+5. As management, approve the PO at/above the provisional limit in `/approvals`; confirm department, cost centre and receiving warehouse `WH-HW` on the resulting PO.
 6. Create a GDN for a partial receipt, then confirm the GRN in `/inventory/grvs`.
 7. Verify stock increases in `WH-HW` and the GRN carries PO department/cost-centre values.
 8. Enter a supplier invoice in `/supplier-invoices` matching PO and GRN; observe a `MATCHED` result.
 9. Enter a second bill with a quantity or price variance; observe it is blocked or routed for waiver approval.
-10. If the requisition or PO approval UI is not available in the build, record the exact step as a pending requirement rather than inventing a screen.
+10. If a dedicated requisition/quote screen is not available in the build, use the documented API paths and record the UI gap rather than inventing a screen.
 11. **Checkpoint:** describe the three-way match: PO quantity/price vs GRN receipt vs supplier invoice.
 
 ### Exercise 6 — Transfers, counts, adjustments and damaged stock

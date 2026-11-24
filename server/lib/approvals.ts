@@ -10,7 +10,12 @@ import { sendApprovalRequestEmail } from "../email.js";
 import { sanitizeManualJournalPayload } from "./accounting-guards.js";
 import { assertCanApproveType, assertNotSelfApproval, canUserApproveType } from "./approval-policies.js";
 import { logAction } from "../audit.js";
-import { executeDeferredApprovalAction } from "./approval-executors.js";
+import {
+  createInvoiceFromApproval,
+  executeDeferredApprovalAction,
+  rejectPurchaseRequisition,
+  resetRequisitionAfterPoRejection,
+} from "./approval-executors.js";
 
 export interface CreateApprovalInput {
   companyId: number;
@@ -172,7 +177,21 @@ export async function rejectRequest(
   if (!claimed) throw new Error("This request has already been processed");
 
   try {
-    if (request.type === "sales_commission" && request.referenceType === "crm_commission" && request.referenceId) {
+    if (request.type === "requisition") {
+      await rejectPurchaseRequisition(
+        companyId,
+        request.payload as Record<string, unknown>,
+        request.referenceId || undefined,
+        reviewerId,
+        reviewNotes,
+      );
+    } else if (request.type === "purchase_order" && request.referenceType === "purchase_requisition") {
+      await resetRequisitionAfterPoRejection(
+        companyId,
+        request.payload as Record<string, unknown>,
+        reviewNotes,
+      );
+    } else if (request.type === "sales_commission" && request.referenceType === "crm_commission" && request.referenceId) {
       const { applyCommissionDecision } = await import("./commissions.js");
       await applyCommissionDecision(companyId, Number(request.referenceId), "reject", reviewerId, reviewNotes);
     }
@@ -275,17 +294,8 @@ async function executeApprovalAction(
       return { journalEntryId: entry.id, message: "Journal entry posted" };
     }
     case "invoice_issue": {
-      const invoiceData = payload.invoiceData as Record<string, unknown>;
-      const items = (payload.items as any[]) || (invoiceData.items as any[]) || [];
-      const invoice = await storage.createInvoice({
-        ...invoiceData,
-        issueDate: invoiceData.issueDate ? new Date(invoiceData.issueDate as string) : undefined,
-        dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate as string) : undefined,
-        companyId,
-        status: "issued",
-        items,
-      } as any);
-      return { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, message: "Invoice issued" };
+      const result = await createInvoiceFromApproval(companyId, payload, userId);
+      return { ...result, message: "Invoice issued and queued for fiscalization" };
     }
     case "sales_commission": {
       const commissionId = Number(payload.commissionId);

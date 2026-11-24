@@ -1,6 +1,6 @@
 import { type ApprovalType } from "../../shared/permissions.js";
 import { createApprovalRequest } from "./approvals.js";
-import { resolveActionAccess } from "./approval-policies.js";
+import { deriveApprovalAmount, resolveActionAccess } from "./approval-policies.js";
 
 export interface ApprovalGateInput {
   userId: string;
@@ -21,12 +21,16 @@ export interface ApprovalGateInput {
  * action after a different user approves it.
  */
 export async function requireApprovalOrContinue(input: ApprovalGateInput) {
+  // Prefer the amount derived from the stored payload over the caller's
+  // declared amount; the latter is client input and can understate a sale.
+  const derivedAmount = deriveApprovalAmount(input.type, input.payload);
+  const amount = derivedAmount ?? input.amount;
   const access = await resolveActionAccess(
     input.userId,
     input.companyId,
     input.type,
     input.isSuperAdmin,
-    { amount: input.amount },
+    { amount },
   );
 
   if (!access.allowed) {

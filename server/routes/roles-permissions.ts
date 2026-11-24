@@ -10,7 +10,7 @@ import {
   APPROVAL_POLICY_MODES,
   type CompanyApprovalPolicies,
 } from "../../shared/approval-policies.js";
-import { getCompanyApprovalPolicies } from "../lib/approval-policies.js";
+import { deriveApprovalAmount, getCompanyApprovalPolicies, resolveActionAccess } from "../lib/approval-policies.js";
 import { logAction } from "../audit.js";
 
 export function createRolesPermissionsRouter(
@@ -222,19 +222,38 @@ export function createRolesPermissionsRouter(
         await assertPermission(req, companyId, requestPerm);
       }
 
+      // Re-evaluate monetary authority from the stored source document rather
+      // than any amount the caller declared. A client cannot understate a
+      // transaction to keep it below a configured threshold.
+      const derivedAmount = deriveApprovalAmount(body.type, body.payload);
+      const access = await resolveActionAccess(
+        req.user!.id,
+        companyId,
+        body.type,
+        !!req.user?.isSuperAdmin,
+        { amount: derivedAmount },
+      );
+      if (!access.allowed) {
+        throw Object.assign(new Error("You do not have permission to submit this approval"), { statusCode: 403 });
+      }
+
+      const trustedPayload = { ...body.payload };
+      delete trustedPayload.__approvalAmount;
+      if (derivedAmount != null) trustedPayload.__approvalAmount = derivedAmount;
+
       const request = await createApprovalRequest({
         companyId,
         type: body.type,
         title: body.title,
         description: body.description,
-        payload: body.payload,
+        payload: trustedPayload,
         referenceType: body.referenceType,
         referenceId: body.referenceId,
         requestedBy: req.user!.id,
       });
       res.status(201).json(request);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err.statusCode || 400).json({ message: err.message });
     }
   });
 

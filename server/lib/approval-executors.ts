@@ -1,5 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import {
+  invoices,
   insertExpenseSchema,
   insertPaymentSchema,
   insertPurchaseOrderSchema,
@@ -12,6 +13,7 @@ import {
   leaveRequests,
   purchaseOrderItems,
   purchaseOrders,
+  purchaseRequisitions,
   quotations,
   salesOrderItems,
   salesOrders,
@@ -20,6 +22,7 @@ import { type ApprovalType } from "../../shared/permissions.js";
 import { db } from "../db.js";
 import { storage } from "../storage.js";
 import { requireDepartmentalDimensions } from "./departmental.js";
+import { enqueueApprovedInvoiceFiscalization } from "./approved-invoice-fiscalization.js";
 
 type Payload = Record<string, unknown>;
 
@@ -79,6 +82,11 @@ async function finalizeSalesOrder(companyId: number, payload: Payload, reference
   const orderData = obj(payload.orderData, "orderData");
   const items = arr(payload.items, "items");
   const analytics = await requireDepartmentalDimensions(companyId, orderData);
+  const orderCustomerId = orderData.customerId ? Number(orderData.customerId) : undefined;
+  const orderTotal = Number(orderData.total || 0);
+  if (Number.isFinite(orderCustomerId) && orderTotal > 0) {
+    await storage.assertCustomerCreditWithinLimit(companyId, orderCustomerId!, orderTotal);
+  }
   const created = await db.transaction(async (tx) => {
     const [order] = await tx.insert(salesOrders).values({
       ...orderData,
@@ -98,13 +106,30 @@ async function finalizeSalesOrder(companyId: number, payload: Payload, reference
   return { salesOrderId: created.id, orderNumber: created.orderNumber, message: "Sales order created" };
 }
 
+async function markRequisitionConverted(
+  companyId: number,
+  requisitionId: unknown,
+  purchaseOrderId: number,
+) {
+  const id = Number(requisitionId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  await db.update(purchaseRequisitions)
+    .set({ status: "CONVERTED", purchaseOrderId, updatedAt: new Date() })
+    .where(and(eq(purchaseRequisitions.id, id), eq(purchaseRequisitions.companyId, companyId)));
+}
+
 async function finalizePurchaseOrder(companyId: number, payload: Payload, referenceId?: string, userId?: string) {
-  if (referenceId) {
+  // A requisition-originated PO carries a symbolic reference id so the approval
+  // inbox can link it back; only a numeric reference means an existing PO is
+  // being approved after the fact.
+  const purchaseOrderId = Number(referenceId);
+  if (referenceId && Number.isInteger(purchaseOrderId) && purchaseOrderId > 0) {
     const [updated] = await db.update(purchaseOrders)
       .set({ status: "SENT", updatedAt: new Date() })
-      .where(and(eq(purchaseOrders.id, Number(referenceId)), eq(purchaseOrders.companyId, companyId)))
+      .where(and(eq(purchaseOrders.id, purchaseOrderId), eq(purchaseOrders.companyId, companyId)))
       .returning();
     if (!updated) throw new Error("Purchase order not found");
+    await markRequisitionConverted(companyId, payload.requisitionId, updated.id);
     return { purchaseOrderId: updated.id, poNumber: updated.poNumber, message: "Purchase order approved" };
   }
 
@@ -126,6 +151,7 @@ async function finalizePurchaseOrder(companyId: number, payload: Payload, refere
     })));
     return order;
   });
+  await markRequisitionConverted(companyId, payload.requisitionId, created.id);
   return { purchaseOrderId: created.id, poNumber: created.poNumber, message: "Purchase order created" };
 }
 
@@ -135,7 +161,7 @@ async function registerSupplier(companyId: number, payload: Payload) {
   return { supplierId: supplier.id, message: "Supplier registered" };
 }
 
-async function createInvoiceFromApproval(
+export async function createInvoiceFromApproval(
   companyId: number,
   payload: Payload,
   userId?: string,
@@ -145,6 +171,30 @@ async function createInvoiceFromApproval(
   const items = Array.isArray(payload.items) && payload.items.length > 0
     ? payload.items as Payload[]
     : Array.isArray(data.items) ? data.items as Payload[] : [];
+
+  const isImmediateCashSale = data.isPos === true && String(data.paymentMethod || "").toUpperCase() !== "CREDIT";
+  const customerId = data.customerId ? Number(data.customerId) : undefined;
+  const invoiceTotal = Number(data.total || 0);
+  if (!isImmediateCashSale && Number.isFinite(customerId) && invoiceTotal > 0) {
+    await storage.assertCustomerCreditWithinLimit(companyId, customerId!, invoiceTotal);
+  }
+
+  const salesOrderId = data.salesOrderId ? Number(data.salesOrderId) : undefined;
+  if (Number.isFinite(salesOrderId)) {
+    const [existing] = await db
+      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber })
+      .from(invoices)
+      .where(and(
+        eq(invoices.companyId, companyId),
+        eq(invoices.salesOrderId, salesOrderId!),
+        ne(invoices.status, "cancelled"),
+      ))
+      .limit(1);
+    if (existing) {
+      throw new Error(`An active invoice (${existing.invoiceNumber}) already exists for this sales order`);
+    }
+  }
+
   const analytics = await requireDepartmentalDimensions(companyId, data);
   const invoice = await storage.createInvoice({
     ...data,
@@ -157,7 +207,14 @@ async function createInvoiceFromApproval(
     dueDate: dateOrNull(data.dueDate) || new Date(),
     items,
   } as any);
-  return { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber };
+
+  await enqueueApprovedInvoiceFiscalization(invoice.id, companyId, userId);
+
+  return {
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    message: "Invoice issued and queued for fiscalization",
+  };
 }
 
 async function createCreditNote(companyId: number, payload: Payload, userId?: string) {
@@ -231,6 +288,71 @@ async function approveLeave(companyId: number, payload: Payload, referenceId?: s
   });
 }
 
+async function requisitionIdFrom(payload: Payload, referenceId?: string): Promise<number> {
+  const id = Number(referenceId || payload.requisitionId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Purchase requisition not found in approval payload");
+  return id;
+}
+
+async function decidePurchaseRequisition(
+  companyId: number,
+  payload: Payload,
+  referenceId: string | undefined,
+  userId: string,
+  decision: "APPROVED" | "REJECTED",
+  reviewNotes?: string,
+) {
+  const id = await requisitionIdFrom(payload, referenceId);
+  const [updated] = await db.update(purchaseRequisitions)
+    .set({
+      status: decision,
+      approvedBy: decision === "APPROVED" ? userId : null,
+      approvedAt: decision === "APPROVED" ? new Date() : null,
+      rejectionReason: decision === "REJECTED" ? reviewNotes || "Rejected by approver" : null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(purchaseRequisitions.id, id), eq(purchaseRequisitions.companyId, companyId)))
+    .returning();
+  if (!updated) throw new Error("Purchase requisition not found");
+  return {
+    requisitionId: updated.id,
+    requisitionNumber: updated.requisitionNumber,
+    status: updated.status,
+    message: decision === "APPROVED" ? "Purchase requisition approved" : "Purchase requisition rejected",
+  };
+}
+
+export async function approvePurchaseRequisition(
+  companyId: number,
+  payload: Payload,
+  referenceId: string | undefined,
+  userId: string,
+) {
+  return decidePurchaseRequisition(companyId, payload, referenceId, userId, "APPROVED");
+}
+
+export async function rejectPurchaseRequisition(
+  companyId: number,
+  payload: Payload,
+  referenceId: string | undefined,
+  userId: string,
+  reviewNotes?: string,
+) {
+  return decidePurchaseRequisition(companyId, payload, referenceId, userId, "REJECTED", reviewNotes);
+}
+
+export async function resetRequisitionAfterPoRejection(
+  companyId: number,
+  payload: Payload,
+  reviewNotes?: string,
+) {
+  const id = Number(payload.requisitionId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  await db.update(purchaseRequisitions)
+    .set({ status: "QUOTE_SELECTED", rejectionReason: reviewNotes || "Purchase order approval rejected", updatedAt: new Date() })
+    .where(and(eq(purchaseRequisitions.id, id), eq(purchaseRequisitions.companyId, companyId)));
+}
+
 /**
  * Executes the side effect for approval types that are not handled by the
  * original workflow executors in approvals.ts.
@@ -254,6 +376,8 @@ export async function executeDeferredApprovalAction(
       return finalizePurchaseOrder(companyId, payload, referenceId, userId);
     case "supplier_registration":
       return registerSupplier(companyId, payload);
+    case "requisition":
+      return approvePurchaseRequisition(companyId, payload, referenceId, userId);
     case "credit_note":
       return createCreditNote(companyId, payload, userId);
     case "payment_execution":

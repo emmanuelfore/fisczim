@@ -48,7 +48,7 @@ import {
   type FinancialPeriod, type InsertFinancialPeriod,
   type BankStatement, type InsertBankStatement,
   type BankStatementLine, type InsertBankStatementLine,
-  supplierInvoices, supplierInvoiceItems, supplierBillMatches, supplierPayments,
+  supplierInvoices, supplierInvoiceItems, supplierBillMatches, supplierPayments, paymentAllocations,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierInvoiceItem, type InsertSupplierInvoiceItem,
   type SupplierPayment, type InsertSupplierPayment,
@@ -83,6 +83,11 @@ import { promisify } from "util";
 import { format } from "date-fns";
 
 const scryptAsync = promisify(scrypt);
+
+// Only these invoice states may be changed or removed. Anything issued,
+// posted, paid or handed to the fiscal device is immutable; corrections must
+// be made with credit notes, debit notes or explicit reversals.
+const MUTABLE_INVOICE_STATUSES = new Set(["draft", "quote"]);
 
 // Codes the postings above resolve to that many live charts were seeded without.
 // Created on first use so a missing default cannot abort a posting.
@@ -601,6 +606,68 @@ export class DatabaseStorage implements IStorage {
 
   private roundMoney(value: number): number {
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  }
+
+  /**
+   * Defence in depth for posted-document immutability. Route guards are still
+   * required, but storage must never let a caller quietly rewrite or remove a
+   * document that already has accounting or fiscal consequences.
+   */
+  private async requireMutableInvoice(id: number) {
+    const [invoice] = await db
+      .select({
+        id: invoices.id,
+        status: invoices.status,
+        fiscalCode: invoices.fiscalCode,
+        syncedWithFdms: invoices.syncedWithFdms,
+        fdmsStatus: invoices.fdmsStatus,
+      })
+      .from(invoices)
+      .where(eq(invoices.id, id))
+      .limit(1);
+
+    if (!invoice) throw new Error("Invoice not found");
+
+    const status = String(invoice.status || "").toLowerCase();
+    const fdmsStatus = String(invoice.fdmsStatus || "").toLowerCase();
+    const hasFiscalEvidence = Boolean(
+      invoice.fiscalCode ||
+      invoice.syncedWithFdms ||
+      ["issued", "fiscalized", "submitted", "accepted"].includes(fdmsStatus),
+    );
+
+    if (!MUTABLE_INVOICE_STATUSES.has(status) || hasFiscalEvidence) {
+      throw new Error("Issued, posted or fiscalized invoices are immutable. Use a credit note, debit note or reversal instead.");
+    }
+
+    return invoice;
+  }
+
+  private async requireDeletablePayment(id: number) {
+    const [payment] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.id, id))
+      .limit(1);
+
+    if (!payment) throw new Error("Payment not found");
+    if (payment.journalEntryId || payment.clearingJournalEntryId || payment.clearedAt || payment.isDeposit) {
+      throw new Error("Posted, cleared or deposit receipts cannot be deleted. Use a reversal instead.");
+    }
+
+    const [activeAllocation] = await db
+      .select({ id: paymentAllocations.id })
+      .from(paymentAllocations)
+      .where(and(
+        eq(paymentAllocations.paymentId, id),
+        isNull(paymentAllocations.reversedAt),
+      ))
+      .limit(1);
+    if (activeAllocation) {
+      throw new Error("This receipt is allocated to an invoice and cannot be deleted. Reverse the allocation first.");
+    }
+
+    return payment;
   }
 
   private async normalizeLedgerLines(
@@ -1783,22 +1850,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteInvoice(id: number): Promise<void> {
+    await this.requireMutableInvoice(id);
+
     await db.transaction(async (tx) => {
+      // Receipts are financial records in their own right. Never cascade-delete
+      // them from an invoice delete path; require an explicit reversal instead.
+      const [attachedPayment] = await tx
+        .select({ id: payments.id })
+        .from(payments)
+        .where(eq(payments.invoiceId, id))
+        .limit(1);
+      if (attachedPayment) {
+        throw new Error("This draft invoice already has a receipt. Reverse the receipt before deleting the invoice.");
+      }
+
       // 1. Delete items (Foreign Key Constraint)
       await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
 
       // 2. Delete validation errors
       await tx.delete(validationErrors).where(eq(validationErrors.invoiceId, id));
 
-      // 3. Delete payments
-      await tx.delete(payments).where(eq(payments.invoiceId, id));
-
-      // 4. Nullify zimra_logs references (preserve logs for audit, but break the link to deleted invoice)
+      // 3. Nullify zimra_logs references (preserve logs for audit, but break the link to deleted invoice)
       await tx.update(zimraLogs)
         .set({ invoiceId: null })
         .where(eq(zimraLogs.invoiceId, id));
 
-      // 5. Finally delete the invoice
+      // 4. Finally delete the invoice
       await tx.delete(invoices).where(eq(invoices.id, id));
     });
   }
@@ -2336,6 +2413,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateInvoice(id: number, data: Partial<InsertInvoice> & { items?: any[] }): Promise<Invoice> {
+    // A posted invoice may still receive payment status and fiscal-device
+    // lifecycle updates. Anything that changes the commercial terms or line
+    // items must go through the immutability guard.
+    const POSTED_INVOICE_UPDATES = new Set([
+      "status", "paidAmount", "fiscalCode", "fiscalSignature", "qrCodeData",
+      "verificationCode", "syncedWithFdms", "fdmsStatus", "submissionId",
+      "fiscalDayNo", "receiptCounter", "receiptGlobalNo", "validationStatus",
+      "lastValidationAttempt", "lockedBy", "lockedAt", "orderStatus",
+    ]);
+    const unsafeFields = Object.keys(data).filter((key) => !POSTED_INVOICE_UPDATES.has(key));
+    if (unsafeFields.length > 0) {
+      await this.requireMutableInvoice(id);
+    } else {
+      // Even a whitelisted update must not resurrect or rewrite a cancelled
+      // document. The full guard handles that; this lightweight check keeps
+      // payment/fiscalization updates working.
+      const [current] = await db
+        .select({ status: invoices.status, fiscalCode: invoices.fiscalCode, fdmsStatus: invoices.fdmsStatus })
+        .from(invoices)
+        .where(eq(invoices.id, id))
+        .limit(1);
+      if (!current) throw new Error("Invoice not found");
+      const currentStatus = String(current.status || "").toLowerCase();
+      if (currentStatus === "cancelled") {
+        throw new Error("Cancelled invoices are immutable.");
+      }
+      const nextStatus = data.status == null ? undefined : String(data.status).toLowerCase();
+      if (!MUTABLE_INVOICE_STATUSES.has(currentStatus) && (nextStatus === "draft" || nextStatus === "quote")) {
+        throw new Error("A posted invoice cannot be reverted to draft.");
+      }
+      if (current.fiscalCode && (nextStatus === "draft" || nextStatus === "quote")) {
+        throw new Error("A fiscalized invoice cannot be reverted to draft.");
+      }
+    }
+
     return await db.transaction(async (tx) => {
       // 1. Update invoice details
       const { items, ...invoiceData } = data;
@@ -2347,12 +2459,11 @@ export class DatabaseStorage implements IStorage {
 
       if (!updated) throw new Error("Invoice not found");
 
-      // 2. If items provided, replace them
+      // 2. If items provided, replace them (draft invoices only)
       if (data.items) {
-        // Delete existing items
+        await this.requireMutableInvoice(id);
         await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
 
-        // Insert new items
         await tx.insert(invoiceItems).values(
           data.items.map(item => ({
             ...item,
@@ -4224,7 +4335,57 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deletePayment(id: number): Promise<void> {
+    await this.requireDeletablePayment(id);
     await db.delete(payments).where(eq(payments.id, id));
+  }
+
+  /** Outstanding credit exposure for a customer, scoped to one company. */
+  async getCustomerCreditExposure(companyId: number, customerId: number) {
+    const [customer] = await db
+      .select({
+        id: customers.id,
+        creditLimit: customers.creditLimit,
+        creditDays: customers.creditDays,
+      })
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)))
+      .limit(1);
+    if (!customer) throw new Error("Customer not found");
+
+    const openInvoices = await db
+      .select({ id: invoices.id, total: invoices.total, paidAmount: invoices.paidAmount })
+      .from(invoices)
+      .where(and(
+        eq(invoices.companyId, companyId),
+        eq(invoices.customerId, customerId),
+        inArray(invoices.status, ["issued", "sent", "pending", "partially_paid", "overdue"]),
+      ));
+
+    const exposure = openInvoices.reduce(
+      (sum, invoice) => sum + Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0)),
+      0,
+    );
+    const creditLimit = Number(customer.creditLimit || 0);
+    const roundedExposure = this.roundMoney(exposure);
+
+    return {
+      customerId,
+      creditLimit,
+      creditDays: customer.creditDays ?? null,
+      exposure: roundedExposure,
+      available: creditLimit > 0 ? this.roundMoney(Math.max(0, creditLimit - exposure)) : null,
+      exceeded: creditLimit > 0 && exposure > creditLimit,
+    };
+  }
+
+  async assertCustomerCreditWithinLimit(companyId: number, customerId: number, additionalAmount: number) {
+    const credit = await this.getCustomerCreditExposure(companyId, customerId);
+    if (credit.creditLimit > 0 && credit.exposure + Number(additionalAmount || 0) > credit.creditLimit) {
+      throw new Error(
+        `Customer credit limit exceeded: limit ${credit.creditLimit.toFixed(2)}, current exposure ${credit.exposure.toFixed(2)}, requested ${Number(additionalAmount || 0).toFixed(2)}. An approved credit-limit override is required.`,
+      );
+    }
+    return credit;
   }
 
   // Reports - Customer Statement

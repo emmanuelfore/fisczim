@@ -1566,6 +1566,92 @@ export const priceAdjustmentsRelations = relations(priceAdjustments, ({ one }) =
   user: one(users, { fields: [priceAdjustments.createdBy], references: [users.id] }),
 }));
 
+// Department/customer-specific selling prices. A null department or customer
+// means the list applies to every department/customer in that company.
+export const priceLists = pgTable("price_lists", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  departmentId: integer("department_id").references((): AnyPgColumn => departments.id),
+  customerId: integer("customer_id").references((): AnyPgColumn => customers.id),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  currency: text("currency"),
+  priority: integer("priority").default(0).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyCodeIdx: unique("price_lists_company_code_idx").on(table.companyId, table.code),
+  companyIdx: index("price_lists_company_idx").on(table.companyId),
+  scopeIdx: index("price_lists_scope_idx").on(table.companyId, table.departmentId, table.customerId),
+}));
+
+export const priceListItems = pgTable("price_list_items", {
+  id: serial("id").primaryKey(),
+  priceListId: integer("price_list_id").references(() => priceLists.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  variationId: integer("variation_id").references(() => productVariations.id),
+  unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(),
+  minQuantity: decimal("min_quantity", { precision: 12, scale: 3 }).default("1").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  priceListIdx: index("price_list_items_list_idx").on(table.priceListId),
+  productIdx: index("price_list_items_product_idx").on(table.productId),
+}));
+
+export const priceListsRelations = relations(priceLists, ({ one, many }) => ({
+  company: one(companies, { fields: [priceLists.companyId], references: [companies.id] }),
+  department: one(departments, { fields: [priceLists.departmentId], references: [departments.id] }),
+  customer: one(customers, { fields: [priceLists.customerId], references: [customers.id] }),
+  items: many(priceListItems),
+}));
+
+export const priceListItemsRelations = relations(priceListItems, ({ one }) => ({
+  priceList: one(priceLists, { fields: [priceListItems.priceListId], references: [priceLists.id] }),
+  product: one(products, { fields: [priceListItems.productId], references: [products.id] }),
+  variation: one(productVariations, { fields: [priceListItems.variationId], references: [productVariations.id] }),
+}));
+
+export const insertPriceListSchema = createInsertSchema(priceLists).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPriceListItemSchema = createInsertSchema(priceListItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type PriceList = typeof priceLists.$inferSelect;
+export type InsertPriceList = z.infer<typeof insertPriceListSchema>;
+export type PriceListItem = typeof priceListItems.$inferSelect;
+export type InsertPriceListItem = z.infer<typeof insertPriceListItemSchema>;
+
+// Departmental and cost-centre budgets. Actuals are derived from posted
+// ledger entries rather than stored here so a budget cannot drift from the GL.
+export const budgets = pgTable("budgets", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  departmentId: integer("department_id").references((): AnyPgColumn => departments.id),
+  costCenterId: integer("cost_center_id").references((): AnyPgColumn => costCenters.id),
+  accountId: integer("account_id").references(() => accounts.id).notNull(),
+  name: text("name").notNull(),
+  fiscalYear: integer("fiscal_year").notNull(),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  status: text("status").default("DRAFT").notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyPeriodIdx: index("budgets_company_period_idx").on(table.companyId, table.periodStart, table.periodEnd),
+  scopeIdx: index("budgets_scope_idx").on(table.companyId, table.departmentId, table.costCenterId, table.accountId),
+}));
+
+export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true, createdAt: true, updatedAt: true });
+export type Budget = typeof budgets.$inferSelect;
+export type InsertBudget = z.infer<typeof insertBudgetSchema>;
+
 export const insertProductVariationSchema = createInsertSchema(productVariations).omit({ id: true, createdAt: true });
 export const insertProductBatchSchema = createInsertSchema(productBatches).omit({ id: true, createdAt: true });
 export const insertPriceAdjustmentSchema = createInsertSchema(priceAdjustments).omit({ id: true, createdAt: true });
@@ -2751,6 +2837,87 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one 
   product: one(products, { fields: [purchaseOrderItems.productId], references: [products.id] }),
   segment: one(accountingSegments, { fields: [purchaseOrderItems.segmentId], references: [accountingSegments.id] }),
 }));
+
+// Departmental purchase requisitions with manager approval, supplier quote
+// comparison and a controlled conversion into an approved purchase order.
+export const purchaseRequisitions = pgTable("purchase_requisitions", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  requisitionNumber: text("requisition_number").notNull(),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
+  status: text("status").default("DRAFT").notNull(),
+  requestedBy: uuid("requested_by").references(() => users.id).notNull(),
+  neededBy: date("needed_by"),
+  currency: text("currency").default("USD").notNull(),
+  estimatedTotal: decimal("estimated_total", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  notes: text("notes"),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  selectedQuoteId: integer("selected_quote_id"),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyIdx: index("purchase_requisitions_company_idx").on(table.companyId),
+  companyNumberUnique: unique("purchase_requisitions_company_number_idx").on(table.companyId, table.requisitionNumber),
+}));
+
+export const purchaseRequisitionItems = pgTable("purchase_requisition_items", {
+  id: serial("id").primaryKey(),
+  requisitionId: integer("requisition_id").references(() => purchaseRequisitions.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 3 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  notes: text("notes"),
+}, (table) => ({
+  requisitionIdx: index("purchase_requisition_items_requisition_idx").on(table.requisitionId),
+}));
+
+export const supplierQuotes = pgTable("supplier_quotes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  requisitionId: integer("requisition_id").references(() => purchaseRequisitions.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id).notNull(),
+  quoteNumber: text("quote_number").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  status: text("status").default("RECEIVED").notNull(),
+  total: decimal("total", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  receivedDate: date("received_date"),
+  notes: text("notes"),
+  selectedBy: uuid("selected_by").references(() => users.id),
+  selectedAt: timestamp("selected_at"),
+  createdBy: uuid("created_by").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  companyIdx: index("supplier_quotes_company_idx").on(table.companyId),
+  requisitionIdx: index("supplier_quotes_requisition_idx").on(table.requisitionId),
+  companyNumberUnique: unique("supplier_quotes_company_number_idx").on(table.companyId, table.quoteNumber),
+}));
+
+export const supplierQuoteItems = pgTable("supplier_quote_items", {
+  id: serial("id").primaryKey(),
+  quoteId: integer("quote_id").references(() => supplierQuotes.id, { onDelete: "cascade" }).notNull(),
+  requisitionItemId: integer("requisition_item_id").references(() => purchaseRequisitionItems.id).notNull(),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 3 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }).notNull(),
+  leadTimeDays: integer("lead_time_days"),
+  notes: text("notes"),
+}, (table) => ({
+  quoteIdx: index("supplier_quote_items_quote_idx").on(table.quoteId),
+}));
+
+export const insertPurchaseRequisitionSchema = createInsertSchema(purchaseRequisitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPurchaseRequisitionItemSchema = createInsertSchema(purchaseRequisitionItems).omit({ id: true });
+export const insertSupplierQuoteSchema = createInsertSchema(supplierQuotes).omit({ id: true, createdAt: true });
+export const insertSupplierQuoteItemSchema = createInsertSchema(supplierQuoteItems).omit({ id: true });
+export type PurchaseRequisition = typeof purchaseRequisitions.$inferSelect;
+export type SupplierQuote = typeof supplierQuotes.$inferSelect;
 
 export const purchaseReturns = pgTable("purchase_returns", {
   id: serial("id").primaryKey(),

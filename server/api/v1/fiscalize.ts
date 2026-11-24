@@ -1,8 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../../storage.js";
-import { processInvoiceFiscalization, getCompanyZimraConfig } from "../../lib/fiscalization.js";
+import { getCompanyZimraConfig } from "../../lib/fiscalization.js";
 import { baseCurrencyOf, canonicalCurrency, isLotiFiscalAccount } from "../../../shared/currency.js";
+import { logAction } from "../../audit.js";
+import {
+  assertDeclaredTotals,
+  assertUserCompanyAccess,
+  createAuthoritativeInvoice,
+  fiscalizeIssuedInvoice,
+  resolveInvoiceContext,
+  toErrorBody,
+} from "./invoice-authority.js";
 
 const router = Router();
 
@@ -82,6 +91,15 @@ export const passThroughFiscalizeSchema = z.object({
   // Any ISO-4217 code. Which codes a device actually accepts is the fiscal
   // authority's call, not ours — an unknown code comes back as a readable 422.
   currency: z.string().trim().regex(/^[A-Za-z]{3}$/, "currency must be a 3-letter ISO 4217 code, e.g. USD").optional(),
+
+  // Accepted only so the server can reject amounts that disagree with the items.
+  subtotal: z.number().nonnegative().optional(),
+  taxAmount: z.number().nonnegative().optional(),
+  total: z.number().nonnegative().optional(),
+  salesOrderId: z.number().int().positive().optional(),
+  departmentId: z.number().int().positive().optional(),
+  costCenterId: z.number().int().positive().optional(),
+  locationId: z.number().int().positive().optional(),
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  OPTIONAL — server computes or defaults from company profile
@@ -199,8 +217,16 @@ router.post("/", async (req, res) => {
     });
   }
 
-  const body    = parsed.data;
-  const company = req.company as any;
+  const body = parsed.data;
+  let context;
+  try {
+    context = resolveInvoiceContext(req, (req.body as any)?.companyId);
+    await assertUserCompanyAccess(context, req);
+  } catch (err: any) {
+    const errorBody = toErrorBody(err);
+    return res.status(errorBody.statusCode).json(errorBody);
+  }
+  const company = context.company;
   const isCorrectionNote = body.transactionType === "CreditNote" || body.transactionType === "DebitNote";
 
   // ── 2. Credit/Debit note early field validation ───────────────────────────
@@ -472,6 +498,18 @@ router.post("/", async (req, res) => {
   }
   const total = parseFloat((subtotal + taxAmount).toFixed(2));
 
+  // Client-supplied totals are never trusted; they are only checked here before
+  // any approval request or business record is created.
+  try {
+    assertDeclaredTotals(
+      { subtotal: body.subtotal, taxAmount: body.taxAmount, total: body.total },
+      { subtotal, taxAmount, total },
+    );
+  } catch (err: any) {
+    const errorBody = toErrorBody(err);
+    return res.status(errorBody.statusCode).json(errorBody);
+  }
+
   // ── 6. Resolve related invoice (Credit/Debit Notes) ──────────────────────
   let relatedInvoiceId: number | undefined;
   if (isCorrectionNote && body.relatedInvoiceNumber) {
@@ -650,83 +688,138 @@ router.post("/", async (req, res) => {
         .filter(Boolean).join(", ")
     : null;
 
-  // ── 12. Persist invoice ──────────────────────────────────────────────────
-  let invoice: any;
+  // ── 12. Approve, de-duplicate, dimension-resolve and persist invoice ─────
+  // No invoice row, product or approval side effect is created until the
+  // invoice_issue (and any discount) gate allows the action.
+  let created;
   try {
-    invoice = await storage.createInvoice({
-      companyId:        company.id,
-      customerId,
-      invoiceNumber,
-      issueDate,
-      dueDate:          dueDate,
-      currency:         companyCurrency,
-      taxInclusive:     false, // always store tax-exclusive after normalisation
-      paymentMethod:    body.paymentMethod,
-      splitPayments:    body.splitPayments ?? null,
-      transactionType:  body.transactionType,
-      subtotal:         subtotal.toFixed(2),
-      taxAmount:        taxAmount.toFixed(2),
-      total:            total.toFixed(2),
-      status:           "pending",
-      notes:            body.creditNoteReason ?? null,
-      relatedInvoiceId: relatedInvoiceId ?? null,
-      customerName:     buyerDisplayName,
-      buyerVat:         body.buyer?.vatNumber ?? null,
-      buyerTin:         body.buyer?.tin       ?? null,
-      fiscalSignature:      body.offlineSignature ?? null,
-      receiptCounter:       body.offlineReceiptCounter ?? null,
-      receiptGlobalNo:      body.offlineGlobalReceiptCounter ?? null,
-      fiscalDayNo:          body.offlineFiscalDay ?? null,
-      offlinePreviousHash:  body.offlinePreviousHash ?? null,
-      offlineDate:          body.offlineDate ?? null,
-      items: processedItems.map((item) => ({
-        description: item.name,
-        quantity:    item.quantity.toString(),
-        unitPrice:   item.unitPrice.toString(),
-        taxRate:     item.taxRate.toString(),
-        lineTotal:   item.lineTotal.toFixed(2),
-        hsCode:      item.hsCode,
-        // Only an RSL document carries a product and a gateway tax type; a
-        // Zimbabwe line is stored exactly as before, rate on the line.
-        ...(item.productId ? { productId: item.productId, taxTypeId: item.taxTypeId } : {}),
-        modifiers:   item.additionalTaxes ? { additionalTaxes: item.additionalTaxes } : undefined,
-      })),
-    } as any);
+    created = await createAuthoritativeInvoice(
+      context,
+      {
+        customerId,
+        invoiceNumber,
+        issueDate,
+        dueDate,
+        currency: companyCurrency,
+        taxInclusive: false, // stored tax-exclusive after normalisation
+        paymentMethod: body.paymentMethod,
+        splitPayments: body.splitPayments ?? null,
+        transactionType: body.transactionType,
+        subtotal,
+        taxAmount,
+        total,
+        discountAmount: body.items.reduce((sum, item) => sum + Number(item.discount ?? 0), 0),
+        notes: body.creditNoteReason ?? null,
+        relatedInvoiceId: relatedInvoiceId ?? null,
+        salesOrderId: body.salesOrderId,
+        departmentId: body.departmentId,
+        costCenterId: body.costCenterId,
+        locationId: body.locationId,
+        extra: {
+          customerName: buyerDisplayName,
+          buyerVat: body.buyer?.vatNumber ?? null,
+          buyerTin: body.buyer?.tin ?? null,
+          fiscalSignature: body.offlineSignature ?? null,
+          receiptCounter: body.offlineReceiptCounter ?? null,
+          receiptGlobalNo: body.offlineGlobalReceiptCounter ?? null,
+          fiscalDayNo: body.offlineFiscalDay ?? null,
+          offlinePreviousHash: body.offlinePreviousHash ?? null,
+          offlineDate: body.offlineDate ?? null,
+        },
+        items: processedItems.map((item) => ({
+          description: item.name,
+          quantity: item.quantity.toString(),
+          unitPrice: item.unitPrice.toString(),
+          taxRate: item.taxRate.toString(),
+          lineTotal: item.lineTotal.toFixed(2),
+          hsCode: item.hsCode,
+          ...(item.productId ? { productId: item.productId, taxTypeId: item.taxTypeId } : {}),
+          modifiers: item.additionalTaxes ? { additionalTaxes: item.additionalTaxes } : undefined,
+        })),
+      },
+      { subtotal: body.subtotal, taxAmount: body.taxAmount, total: body.total },
+      // Storage draws its own number; rename it before the receipt is signed.
+      { deferFiscalization: true },
+    );
   } catch (err: any) {
-    return res.status(500).json({
-      error: "INTERNAL_ERROR",
-      message: "Failed to save invoice: " + err.message,
-      statusCode: 500,
+    const errorBody = toErrorBody(err);
+    return res.status(errorBody.statusCode).json(errorBody);
+  }
+
+  if (created.kind === "approval") {
+    return res.status(202).json({
+      status: "pending_approval",
+      requiresApproval: true,
+      approvalType: created.type,
+      approvalId: created.approval?.id ?? null,
+      approval: created.approval ?? null,
+      message:
+        created.type === "discount"
+          ? "Discount submitted for approval; no invoice was created"
+          : "Invoice issuance submitted for approval; no invoice was created",
     });
   }
 
-  // The number a till sends is the one already printed on its customer's receipt,
-  // and it is what a later correction will be filed under. Storage keeps its own
-  // sequence for every other caller, so the document takes the requested number
-  // before anything is signed or submitted.
+  let invoice = created.invoice;
+  let renameError: Error | null = null;
   if (body.invoiceNumber) {
     if (invoice.invoiceNumber !== invoiceNumber) {
       try {
         invoice = await storage.updateInvoice(invoice.id, { invoiceNumber } as any);
       } catch (err: any) {
-        try { await storage.deleteInvoice(invoice.id); } catch { /* already unreachable */ }
-        return res.status(500).json({
-          error: "INTERNAL_ERROR",
-          message: `Saved the document as '${invoice.invoiceNumber}' but could not rename it to '${invoiceNumber}': ${err.message}`,
-          statusCode: 500,
-        });
+        // Never delete here: storage.deleteInvoice would remove payments/GL links.
+        renameError = new Error(
+          `Saved the document as '${invoice.invoiceNumber}' but could not rename it to '${invoiceNumber}': ${err.message}`,
+        );
       }
     }
   } else {
-    // Nothing was asked for, so the number storage drew from the company sequence
-    // is the document's — the receipt, the response and the ledger must agree.
     invoiceNumber = invoice.invoiceNumber;
   }
 
-  // ── 13. Fiscalize ────────────────────────────────────────────────────────
-  try {
-    const fiscal = await processInvoiceFiscalization(invoice.id, company.id, undefined, false, undefined, false);
+  // A receipt must never be issued under a number the printer did not use.
+  // Keep the issued invoice for correction/retry — storage.deleteInvoice would
+  // also remove payments and GL history, so this path never deletes it.
+  if (renameError) {
+    await logAction(
+      context.companyId,
+      context.principal.userId || "system",
+      "INVOICE_NUMBER_RENAME_FAILED",
+      "invoice",
+      String(invoice.id),
+      { error: renameError.message, fiscalizationStatus: "not_started" },
+    );
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: renameError.message,
+      statusCode: 500,
+      invoiceId: invoice.id,
+      fiscalizationStatus: "not_started",
+    });
+  }
 
+  // ── 13. Fiscalize (shared engine + durable retry job) ────────────────────
+  const outcome = await fiscalizeIssuedInvoice(context, invoice.id);
+
+  if (outcome.status === "retry_pending") {
+    const hint = /device|ZIMRA|fiscal day/i.test(outcome.error)
+      ? "Ensure your fiscal device is registered and a fiscal day is open."
+      : "Check your item data and retry.";
+    return res.status(422).json({
+      error: "FISCALIZATION_FAILED",
+      message: outcome.error,
+      statusCode: 422,
+      hint,
+      retryable: true,
+      fiscalizationStatus: "retry_pending",
+      invoiceId: invoice.id,
+      ...(outcome.jobId ? { jobId: outcome.jobId } : {}),
+    });
+  }
+
+  const fiscal = outcome.result;
+
+  try {
     // Build ZIMRA-aligned receipt lines for response
     const receiptLineType = body.transactionType === "CreditNote" ? "Refund" : "Sale";
     const receiptLines = processedItems.map((item, idx) => ({
@@ -836,9 +929,8 @@ router.post("/", async (req, res) => {
     });
 
   } catch (err: any) {
-    // Clean up orphaned invoice so client can retry safely
-    try { await storage.deleteInvoice(invoice.id); } catch { /* ignore */ }
-
+    // The issued invoice and its fiscalization job are retained deliberately:
+    // deleting it would also remove payments/GL links via storage.deleteInvoice.
     if (err.issues && Array.isArray(err.issues) && err.issues.length > 0) {
       return res.status(422).json({
         error:      "FISCALIZATION_FAILED",

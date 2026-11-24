@@ -95,6 +95,53 @@ async function safeNotifyRun(
   }
 }
 
+/**
+ * Payroll preparation and payroll approval must be performed by different
+ * people. The run table has no preparer column, so use the durable audit trail
+ * written when the run was created/submitted. If the submitter cannot be
+ * determined from the audit trail, record the gap rather than silently
+ * pretending the control passed.
+ */
+async function assertPayrollRunNotSelfPrepared(
+  companyId: number,
+  runId: number,
+  approverId?: string | null,
+) {
+  if (!approverId) return;
+  const [lastPreparation] = await db
+    .select({ userId: auditLogs.userId, action: auditLogs.action })
+    .from(auditLogs)
+    .where(and(
+      eq(auditLogs.companyId, companyId),
+      eq(auditLogs.entityType, "payroll_runs"),
+      eq(auditLogs.entityId, String(runId)),
+      inArray(auditLogs.action, ["PAYROLL_RUN_CREATED", "PAYROLL_RUN_SUBMITTED"]),
+      isNotNull(auditLogs.userId),
+    ))
+    .orderBy(desc(auditLogs.id))
+    .limit(1);
+
+  if (!lastPreparation) {
+    await logAction(companyId, approverId, "PAYROLL_SOD_EVIDENCE_MISSING", "payroll_runs", String(runId), {
+      approverId,
+      reason: "No preparation or submission audit entry was found for this run",
+    });
+    return;
+  }
+
+  if (lastPreparation.userId === approverId) {
+    await logAction(companyId, approverId, "PAYROLL_SELF_APPROVAL_BLOCKED", "payroll_runs", String(runId), {
+      approverId,
+      preparationAction: lastPreparation.action,
+    });
+    throw new PayrollHttpError(
+      409,
+      "Segregation of duties: the person who prepared or submitted a payroll run cannot approve it.",
+      "PAYROLL_SELF_APPROVAL_BLOCKED",
+    );
+  }
+}
+
 /** Durable keys so a retried GL approval cannot create a second payroll journal. */
 function payrollLockPostingKey(runId: number) {
   return `payroll-lock:${runId}`;
@@ -5659,6 +5706,8 @@ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
     if (run.status === "LOCKED") return res.status(409).json({ error: "RUN_LOCKED", message: "Locked payroll runs cannot be approved again" });
     if (run.status === "APPROVED") return res.status(409).json({ error: "RUN_APPROVED", message: "Payroll run is already approved" });
     if (run.status === "REVERSED") return res.status(409).json({ error: "RUN_REVERSED", message: "A reversed payroll run cannot be approved. Create a replacement run." });
+
+    await assertPayrollRunNotSelfPrepared(companyId, runId, userId);
 
     const [updated] = await db.update(payrollRuns)
       .set({

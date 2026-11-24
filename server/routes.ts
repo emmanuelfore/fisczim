@@ -69,12 +69,16 @@ import { createFreightRouter } from "./routes/freight.js";
 import { createCrmRouter, createPublicLeadRouter } from "./routes/crm.js";
 import { createSocialRouter } from "./routes/social.js";
 import { createVehiclesRouter } from "./routes/vehicles.js";
+import { createBudgetsRouter } from "./routes/budgets.js";
+import { createPriceListsRouter } from "./routes/price-lists.js";
+import { createProcurementRouter } from "./routes/procurement.js";
 import rateLimit from "express-rate-limit";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { requireApprovalOrContinue } from "./lib/approval-gate.js";
 import { requireDepartmentalDimensions, resolveInvoiceAnalytics } from "./lib/departmental.js";
+import { resolveSalesUnitPrice } from "./lib/pricing.js";
 import { confirmGdnReceipt } from "./lib/gdn-confirmation.js";
 import { APPROVAL_TYPES, ALL_PERMISSION_KEYS, LEGACY_ROLE_PERMISSIONS } from "../shared/permissions.js";
 import { db, withDbRetry } from "./db";
@@ -345,6 +349,280 @@ export async function registerRoutes(
       .limit(1);
 
     return shift || null;
+  };
+
+  /**
+   * Server-owned invoice state. Commercial edits are only allowed while the
+   * document is still a draft/quote with no fiscal or ledger consequences.
+   */
+  const SERVER_EDITABLE_INVOICE_STATUSES = new Set(["draft", "quote"]);
+  const INVOICE_SERVER_OWNED_FIELDS = new Set([
+    "id", "companyId", "createdAt", "createdBy", "updatedBy", "updatedAt",
+    "isFiscalized", "fiscalCode", "fiscalSignature", "qrCodeData",
+    "verificationCode", "syncedWithFdms", "fdmsStatus", "submissionId",
+    "fiscalDayNo", "receiptCounter", "receiptGlobalNo", "validationStatus",
+    "lastValidationAttempt", "paidAmount", "journalEntryId", "shiftId",
+    "salesOrderId", "lockedBy", "lockedAt", "orderStatus", "orderNumber",
+    "partnerId", "partnerSnapshot", "revenueSharePercent", "partnerShareAmount",
+    "issuerShareAmount", "externalRef", "offlinePreviousHash", "offlineDate",
+    "isPos", "tableId", "waiterId", "items",
+  ]);
+
+  const invoiceImmutabilityReasons = (invoice: any): string[] => {
+    const reasons: string[] = [];
+    const status = String(invoice?.status || "").toLowerCase();
+    if (!SERVER_EDITABLE_INVOICE_STATUSES.has(status)) {
+      reasons.push(`status is ${invoice?.status || "unknown"}`);
+    }
+    if (invoice?.fiscalCode != null) reasons.push("a fiscal code is present");
+    if (invoice?.fiscalSignature != null) reasons.push("a fiscal signature is present");
+    if (invoice?.qrCodeData != null) reasons.push("fiscal QR data is present");
+    if (invoice?.verificationCode != null) reasons.push("a verification code is present");
+    if (invoice?.submissionId != null) reasons.push("a fiscal submission is present");
+    if (invoice?.syncedWithFdms === true) reasons.push("the invoice was synced to FDMS");
+    if (String(invoice?.fdmsStatus || "").toLowerCase() === "issued") {
+      reasons.push("the FDMS status is issued");
+    }
+    if (invoice?.isFiscalized === true) reasons.push("the invoice is marked fiscalized");
+    if (invoice?.journalEntryId != null) reasons.push("a journal entry is attached");
+    return reasons;
+  };
+
+  const validationFailure = (message: string, statusCode = 400): Error & { statusCode: number } =>
+    Object.assign(new Error(message), { statusCode });
+
+  const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+  type ResolvedLinePrice = {
+    productId: number;
+    variationId: number | null;
+    unitPrice: number;
+    source: "price_list" | "default";
+    priceListId: number | null;
+    priceListItemId: number | null;
+    priceListCode: string | null;
+  };
+
+  type ComputedInvoiceAmounts = {
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+    /** Total before any order-level discount — used for approval thresholds. */
+    grossTotal: number;
+    discountAmount: number;
+    lineDiscountAmount: number;
+    headerDiscountAmount: number;
+    items: any[];
+    /** Price-list provenance for approval payloads; not persisted as line columns. */
+    pricing: ResolvedLinePrice[];
+  };
+
+  /**
+   * Recomputes invoice money from line items and company-owned product/tax data.
+   * Client totals are only compared, never used to drive the approval amount.
+   */
+  const computeInvoiceAmountsServer = async (
+    companyId: number,
+    rawItems: any[],
+    options: {
+      taxInclusive?: boolean;
+      departmentId?: number | string | null;
+      customerId?: number | string | null;
+      asOf?: Date;
+      declared?: { subtotal?: unknown; taxAmount?: unknown; total?: unknown; discountAmount?: unknown };
+    } = {},
+  ): Promise<ComputedInvoiceAmounts> => {
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      throw validationFailure("At least one invoice line is required");
+    }
+
+    const productIds = rawItems
+      .map((item) => Number(item?.productId))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    const taxTypeIds = Array.from(new Set(rawItems
+      .map((item) => Number(item?.taxTypeId))
+      .filter((id) => Number.isInteger(id) && id > 0)));
+
+    const productRows = productIds.length
+      ? await db.select({
+          id: products.id,
+          price: products.price,
+          taxRate: products.taxRate,
+          taxTypeId: products.taxTypeId,
+        }).from(products).where(and(eq(products.companyId, companyId), inArray(products.id, productIds)))
+      : [];
+    const allTaxTypeIds = Array.from(new Set([
+      ...taxTypeIds,
+      ...productRows.map((product) => Number(product.taxTypeId)).filter((id) => Number.isInteger(id) && id > 0),
+    ]));
+    const taxTypeRows = allTaxTypeIds.length
+      ? await db.select({ id: taxTypes.id, rate: taxTypes.rate })
+          .from(taxTypes)
+          .where(and(or(eq(taxTypes.companyId, companyId), isNull(taxTypes.companyId)), inArray(taxTypes.id, allTaxTypeIds)))
+      : [];
+
+    const productById = new Map(productRows.map((row) => [Number(row.id), row]));
+    const taxRateById = new Map(taxTypeRows.map((row) => [Number(row.id), Number(row.rate || 0)]));
+
+    let subtotal = 0;
+    let taxAmount = 0;
+    let lineDiscountAmount = 0;
+    const serverItems: any[] = [];
+    const pricing: ResolvedLinePrice[] = [];
+    const asOf = options.asOf || new Date();
+
+    for (const raw of rawItems) {
+      const quantity = Number(raw?.quantity);
+      if (!Number.isFinite(quantity) || !Number.isFinite(Number(raw?.unitPrice))) {
+        throw validationFailure("Invoice lines must have a valid quantity and unit price");
+      }
+      const product = productById.get(Number(raw?.productId));
+      if (raw?.productId != null && !product) {
+        throw validationFailure(`Product ${raw.productId} does not belong to this company`);
+      }
+
+      // Department/customer price lists are authoritative. A client price that
+      // differs will fail the declared-total check below; the stored line uses
+      // the server-resolved price, never the caller's.
+      let unitPrice = roundMoney(Number(raw.unitPrice));
+      if (product) {
+        const resolved = await resolveSalesUnitPrice({
+          companyId,
+          productId: Number(product.id),
+          departmentId: options.departmentId,
+          customerId: options.customerId,
+          variationId: raw?.variationId,
+          quantity,
+          asOf,
+          fallbackUnitPrice: product.price,
+        });
+        unitPrice = resolved.unitPrice;
+        pricing.push({
+          productId: Number(product.id),
+          variationId: raw?.variationId != null ? Number(raw.variationId) : null,
+          unitPrice: resolved.unitPrice,
+          source: resolved.source,
+          priceListId: resolved.priceListId,
+          priceListItemId: resolved.priceListItemId,
+          priceListCode: resolved.priceListCode,
+        });
+      }
+
+      const taxTypeId = raw?.taxTypeId != null ? Number(raw.taxTypeId) : product?.taxTypeId ?? null;
+      // An explicit, company-valid tax type on the line wins; otherwise use
+      // the company product's tax data. Client-supplied rates are a last
+      // resort for freetext lines only.
+      let taxRate = taxTypeId != null && taxRateById.has(taxTypeId)
+        ? Number(taxRateById.get(taxTypeId))
+        : product ? Number(product.taxRate ?? 0)
+        : Number(raw?.taxRate ?? 0);
+      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+        throw validationFailure("Invoice line tax rate must be between 0 and 100");
+      }
+
+      const lineDiscount = Math.max(0, Number(raw?.discountAmount ?? 0));
+      if (!Number.isFinite(lineDiscount)) {
+        throw validationFailure("Invoice line discount must be a valid amount");
+      }
+      const grossLine = quantity * unitPrice;
+      if (lineDiscount > Math.abs(grossLine) + 0.01) {
+        throw validationFailure("A line discount cannot exceed the line value");
+      }
+
+      // Negative freetext lines are the existing client representation of a
+      // stand-alone discount. Count them as discount exposure; product lines
+      // already use the authoritative price above.
+      if (!product && grossLine < 0) lineDiscountAmount += Math.abs(grossLine);
+      lineDiscountAmount += lineDiscount;
+
+      const netLine = grossLine - lineDiscount;
+      if (options.taxInclusive) {
+        const net = netLine / (1 + taxRate / 100);
+        subtotal += net;
+        taxAmount += netLine - net;
+      } else {
+        subtotal += netLine;
+        taxAmount += netLine * (taxRate / 100);
+      }
+
+      serverItems.push({
+        ...raw,
+        productId: raw?.productId ?? null,
+        taxTypeId: taxTypeId ?? null,
+        taxRate: taxRate.toFixed(2),
+        quantity: String(quantity),
+        unitPrice: roundMoney(unitPrice).toFixed(2),
+        discountAmount: lineDiscount.toFixed(2),
+        lineTotal: roundMoney(netLine).toFixed(2),
+      });
+    }
+
+    subtotal = roundMoney(subtotal);
+    taxAmount = roundMoney(taxAmount);
+    const grossTotal = roundMoney(subtotal + taxAmount);
+    const declared = options.declared || {};
+    const check = (field: "subtotal" | "taxAmount" | "total", expected: number) => {
+      const received = declared[field];
+      if (received === undefined || received === null || received === "") return;
+      const value = Number(received);
+      if (!Number.isFinite(value) || Math.abs(value - expected) > 0.01) {
+        throw validationFailure(
+          `Client-supplied ${field} does not match the server-computed amount (expected ${expected.toFixed(2)})`,
+        );
+      }
+    };
+
+    // Only an explicit, validated header discount reduces the payable total.
+    // A mismatched total is an error, not an implicit discount: otherwise a
+    // caller could understate every amount and slip under approval limits.
+    let headerDiscountAmount = 0;
+    if (declared.discountAmount !== undefined && declared.discountAmount !== null && declared.discountAmount !== "") {
+      const declaredDiscount = Number(declared.discountAmount);
+      if (!Number.isFinite(declaredDiscount) || declaredDiscount < 0) {
+        throw validationFailure("Client-supplied discountAmount must be a non-negative amount");
+      }
+      if (declaredDiscount > grossTotal + 0.01) {
+        throw validationFailure("A discount cannot exceed the invoice total");
+      }
+      headerDiscountAmount = roundMoney(declaredDiscount);
+    }
+    check("subtotal", subtotal);
+    check("taxAmount", taxAmount);
+    const total = roundMoney(grossTotal - headerDiscountAmount);
+    check("total", total);
+
+    return {
+      subtotal,
+      taxAmount,
+      total,
+      grossTotal,
+      discountAmount: roundMoney(lineDiscountAmount + headerDiscountAmount),
+      lineDiscountAmount: roundMoney(lineDiscountAmount),
+      headerDiscountAmount,
+      items: serverItems,
+      pricing,
+    };
+  };
+
+  /** Picks a real company admin/owner to attribute API-initiated approvals to. */
+  const resolveApiApprovalPrincipal = async (companyId: number): Promise<string | null> => {
+    const rows = await db
+      .select({ userId: companyUsers.userId, role: companyUsers.role, legacyRole: companyRoles.legacyRole })
+      .from(companyUsers)
+      .leftJoin(companyRoles, eq(companyUsers.companyRoleId, companyRoles.id))
+      .where(eq(companyUsers.companyId, companyId))
+      .limit(100);
+    const isAdminRow = (row: (typeof rows)[number]) => {
+      const role = String(row.role || row.legacyRole || "").toLowerCase();
+      return role === "owner" || role === "admin";
+    };
+    const ranked = rows
+      .filter((row) => row.userId && isAdminRow(row))
+      .sort((a, b) => {
+        const role = (row: (typeof rows)[number]) => String(row.role || row.legacyRole || "").toLowerCase();
+        return (role(a) === "owner" ? 0 : 1) - (role(b) === "owner" ? 0 : 1);
+      });
+    return ranked[0]?.userId || null;
   };
 
   const getLocationLabel = (branchId?: number | null) =>
@@ -11900,6 +12178,7 @@ export async function registerRoutes(
       const userId = (req.user as any)?.id;
       const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const requestBranchId = getBranchId(req);
+      const company = await storage.getCompany(companyId);
 
       // Every posted invoice must carry analytical dimensions. Fast-entry POS
       // flows get them from the product or dispatch warehouse automatically.
@@ -11933,86 +12212,61 @@ export async function registerRoutes(
         }
       }
 
-      if (input.isPos) {
-        const canSell = isSuperAdmin || await userHasPermission(userId, companyId, "pos.sell", false);
-        if (!canSell) {
-          return res.status(403).json({ message: "You do not have permission to process POS sales." });
-        }
-      } else {
-        const targetStatus = input.status || "issued";
-        if (targetStatus === "draft") {
-          const canCreate = isSuperAdmin || await userHasPermission(userId, companyId, "invoices.create", false);
-          if (!canCreate) {
-            return res.status(403).json({ message: "You do not have permission to create invoices." });
-          }
+      // A client `isPos` flag is only a workflow hint. It is honoured when the
+      // server can establish a genuine POS principal: authenticated user with
+      // pos.sell plus an active/recovered/auto-opened server shift. Otherwise
+      // the sale falls through the normal invoice-issue approval gate.
+      const posRequested = !!input.isPos;
+      let activeShift: any = null;
+      let canSell = false;
+      let posContextReason = "";
+      if (posRequested) {
+        if (!userId) {
+          posContextReason = "no authenticated user";
         } else {
-          const invoiceTotal = Number(input.total || 0);
-          const issueAccess = await resolveActionAccess(
-            userId,
-            companyId,
-            APPROVAL_TYPES.INVOICE_ISSUE,
-            isSuperAdmin,
-            { amount: invoiceTotal }
-          );
-          if (!issueAccess.allowed) {
-            return res.status(403).json({ message: "You do not have permission to issue invoices." });
-          }
-          if (issueAccess.requiresApproval) {
-            const approval = await createApprovalRequest({
-              companyId,
-              type: APPROVAL_TYPES.INVOICE_ISSUE,
-              title: `Invoice issuance${input.invoiceNumber ? `: ${input.invoiceNumber}` : ""}`,
-              description: input.notes || undefined,
-              payload: { invoiceData: { ...input, status: "issued", companyId, createdBy: userId, branchId: requestBranchId }, items: input.items },
-              referenceType: "invoice_draft",
-              requestedBy: userId,
-            });
-            return sendIdempotent(req, res, idempotencyKey, 202, {
-              message: "Invoice issuance submitted for approval",
-              requiresApproval: true,
-              approvalId: approval.id,
-            });
+          canSell = isSuperAdmin || await userHasPermission(userId, companyId, "pos.sell", false);
+          if (!canSell) {
+            posContextReason = "missing pos.sell permission";
+          } else {
+            activeShift = await storage.getActivePosShift(companyId, userId, requestBranchId || undefined);
+            const saleDate = input.issueDate instanceof Date
+              ? input.issueDate
+              : new Date(input.issueDate || Date.now());
+            if (!activeShift) {
+              activeShift = await findOfflineSyncShift(companyId, userId, saleDate, requestBranchId);
+              if (activeShift) markPerf("offline_shift_recovered");
+            }
+            if (!activeShift) {
+              // The receipt is often already printed and fiscalised by the time
+              // this request lands, so opening a shift beats rejecting a real
+              // transaction for an authorised cashier.
+              activeShift = await storage.createPosShift(insertPosShiftSchema.parse({
+                companyId,
+                userId,
+                branchId: requestBranchId || null,
+                startTime: saleDate,
+                openingBalance: "0",
+                status: "open",
+                notes: "Auto-opened on first POS sale",
+              }));
+              markPerf("shift_auto_opened");
+            }
           }
         }
       }
-
-      // Discount overrides are a separate control from invoice issuance.
-      // A manager may have direct invoice authority but still be unable to
-      // self-approve a discount above the configured authority.
-      const discountAmount = Number((input as any).discountAmount || 0) +
-        (input.items || []).reduce((sum: number, line: any) => sum + Number(line.discountAmount || 0), 0);
-      if (discountAmount > 0) {
-        const discountGate = await requireApprovalOrContinue({
-          userId,
-          companyId,
-          isSuperAdmin,
-          type: APPROVAL_TYPES.DISCOUNT,
-          amount: discountAmount,
-          title: `Approve discount of ${discountAmount.toFixed(2)}`,
-          description: "A discount was applied and must be authorised before the invoice is issued.",
-          payload: {
-            invoiceData: { ...input, status: "issued", companyId, createdBy: userId, branchId: requestBranchId },
-            items: input.items,
-          },
-          referenceType: "discount",
+      const effectiveIsPos = posRequested && !!userId && canSell && !!activeShift;
+      if (posRequested && !effectiveIsPos) {
+        await logAction(companyId, userId || "system", "POS_WORKFLOW_REJECTED", "invoice", undefined, {
+          reason: posContextReason || "no active POS shift",
         });
-        if (discountGate.requiresApproval) {
-          return sendIdempotent(req, res, idempotencyKey, 202, {
-            message: "Discount submitted for approval",
-            requiresApproval: true,
-            approvalId: discountGate.request.id,
-          });
-        }
       }
+      (input as any).isPos = effectiveIsPos;
+      markPerf("pos_context_resolved");
 
-      // 1. Parallelize initial validation and data fetching
-      let activeShiftPromise: Promise<any> = Promise.resolve(null);
-      let companyPromise = storage.getCompany(companyId);
-
-      // Fallback to default POS customer if not provided
+      // Resolve the customer before building any approval payload so the
+      // deferred executor and the credit check see the same validated input.
       if (!input.customerId) {
-        const companyData = await companyPromise;
-        const posSettings = companyData?.posSettings as any;
+        const posSettings = (company as any)?.posSettings;
         if (posSettings?.defaultCustomerId) {
           input.customerId = Number(posSettings.defaultCustomerId);
         } else {
@@ -12029,51 +12283,28 @@ export async function registerRoutes(
         return res.status(400).json({ message: "A customer is required for this transaction. Please select a customer or configure a default POS customer." });
       }
 
-      let customerPromise = input.customerId ? storage.getCustomer(input.customerId) : Promise.resolve(null);
-
-      if (input.isPos) {
-        if (!userId) {
-          return res.status(401).json({ message: "User authentication required for POS sales" });
-        }
-        activeShiftPromise = storage.getActivePosShift(companyId, userId, requestBranchId || undefined);
+      const customer = await storage.getCustomer(Number(input.customerId));
+      if (!customer) {
+        return res.status(400).json({ message: "The selected customer was not found" });
       }
-
-      let [activeShift, company, customer] = await Promise.all([
-        activeShiftPromise,
-        companyPromise,
-        customerPromise
-      ]);
       markPerf("prefetch_done");
 
-      const saleDate = input.issueDate instanceof Date
-        ? input.issueDate
-        : new Date(input.issueDate || Date.now());
-
-      if (input.isPos && !activeShift && userId) {
-        activeShift = await findOfflineSyncShift(
-          companyId,
-          userId,
-          saleDate,
-          requestBranchId
-        );
-        if (activeShift) markPerf("offline_shift_recovered");
-      }
-
-      if (input.isPos && !activeShift && userId) {
-        // The receipt is often already printed and fiscalised by the time this
-        // request lands, so opening a shift beats rejecting a real transaction.
-        // Backdated to the sale so the shift window still contains it.
-        activeShift = await storage.createPosShift(insertPosShiftSchema.parse({
-          companyId,
-          userId,
-          branchId: requestBranchId || null,
-          startTime: saleDate,
-          openingBalance: "0",
-          status: "open",
-          notes: "Auto-opened on first POS sale",
-        }));
-        markPerf("shift_auto_opened");
-      }
+      // Money is recomputed after department/customer context is final: line
+      // prices come from company price lists, and client totals are only
+      // compared. Approval thresholds use the pre-discount gross total.
+      const computed = await computeInvoiceAmountsServer(companyId, input.items, {
+        taxInclusive: input.taxInclusive ?? (company as any)?.taxInclusive ?? false,
+        departmentId: (input as any).departmentId,
+        customerId: input.customerId,
+        asOf: input.issueDate instanceof Date ? input.issueDate : new Date(),
+        declared: input as any,
+      });
+      (input as any).items = computed.items;
+      (input as any).subtotal = computed.subtotal.toFixed(2);
+      (input as any).taxAmount = computed.taxAmount.toFixed(2);
+      (input as any).total = computed.total.toFixed(2);
+      (input as any).discountAmount = computed.discountAmount.toFixed(2);
+      markPerf("amounts_recomputed");
 
       // POS sales are paid upfront, so set status immediately.
       // Exception: CREDIT sales create an AR — invoice stays "issued" and no payment is recorded.
@@ -12091,6 +12322,105 @@ export async function registerRoutes(
           duplicateReplay: true,
           message: "Duplicate POS sale replay ignored; returning the original invoice.",
         });
+      }
+
+      // Credit exposure applies to issued/credit documents, including sales
+      // orders. A verified POS cash sale is paid immediately and is the only
+      // case we skip: a client-supplied isPos alone must not bypass this.
+      const immediatePosCashSale = effectiveIsPos && !isCreditSale;
+      const createsCustomerExposure = initialStatus !== "draft" &&
+        initialStatus !== "quote" &&
+        !immediatePosCashSale;
+      if (createsCustomerExposure) {
+        try {
+          await storage.assertCustomerCreditWithinLimit(companyId, Number(input.customerId), computed.total);
+          markPerf("credit_limit_checked");
+        } catch (creditError) {
+          const message = creditError instanceof Error ? creditError.message : "Customer credit limit exceeded";
+          await logAction(companyId, userId || "system", "INVOICE_CREDIT_LIMIT_BLOCKED", "invoice", undefined, {
+            customerId: Number(input.customerId),
+            total: computed.total,
+            reason: message,
+          });
+          throw validationFailure(message, 409);
+        }
+      }
+
+      const approvalInvoiceData = {
+        ...input,
+        status: "issued",
+        companyId,
+        createdBy: userId,
+        branchId: requestBranchId,
+        subtotal: computed.subtotal.toFixed(2),
+        taxAmount: computed.taxAmount.toFixed(2),
+        total: computed.total.toFixed(2),
+        discountAmount: computed.discountAmount.toFixed(2),
+        items: computed.items,
+      };
+
+      if (!effectiveIsPos) {
+        const targetStatus = input.status || "issued";
+        if (targetStatus === "draft" || targetStatus === "quote") {
+          const canCreate = isSuperAdmin || await userHasPermission(userId, companyId, "invoices.create", false);
+          if (!canCreate) {
+            return res.status(403).json({ message: "You do not have permission to create invoices." });
+          }
+        } else {
+          const issueAccess = await resolveActionAccess(
+            userId,
+            companyId,
+            APPROVAL_TYPES.INVOICE_ISSUE,
+            isSuperAdmin,
+            { amount: computed.grossTotal }
+          );
+          if (!issueAccess.allowed) {
+            return res.status(403).json({ message: "You do not have permission to issue invoices." });
+          }
+          if (issueAccess.requiresApproval) {
+            const approval = await createApprovalRequest({
+              companyId,
+              type: APPROVAL_TYPES.INVOICE_ISSUE,
+              title: `Invoice issuance${input.invoiceNumber ? `: ${input.invoiceNumber}` : ""}`,
+              description: input.notes || undefined,
+              payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing },
+              referenceType: "invoice_draft",
+              requestedBy: userId,
+            });
+            return sendIdempotent(req, res, idempotencyKey, 202, {
+              message: "Invoice issuance submitted for approval",
+              requiresApproval: true,
+              approvalId: approval.id,
+            });
+          }
+        }
+      }
+
+      // Discount overrides are a separate control from invoice issuance. The
+      // amount comes from server-validated lines, never the client header.
+      if (computed.discountAmount > 0) {
+        const discountGate = await requireApprovalOrContinue({
+          userId,
+          companyId,
+          isSuperAdmin,
+          type: APPROVAL_TYPES.DISCOUNT,
+          amount: computed.discountAmount,
+          title: `Approve discount of ${computed.discountAmount.toFixed(2)}`,
+          description: "A discount was applied and must be authorised before the invoice is issued.",
+          payload: {
+            invoiceData: approvalInvoiceData,
+            items: computed.items,
+            pricing: computed.pricing,
+          },
+          referenceType: "discount",
+        });
+        if (discountGate.requiresApproval) {
+          return sendIdempotent(req, res, idempotencyKey, 202, {
+            message: "Discount submitted for approval",
+            requiresApproval: true,
+            approvalId: discountGate.request.id,
+          });
+        }
       }
 
       let invoice = await db.transaction(async (tx) => {
@@ -12270,6 +12600,10 @@ export async function registerRoutes(
           details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`)
         });
       }
+      const statusCode = (err as any)?.statusCode;
+      if (statusCode === 400 || statusCode === 409) {
+        return res.status(statusCode).json({ message: err instanceof Error ? err.message : "Invalid invoice" });
+      }
       return res.status(500).json({ message: err instanceof Error ? err.message : "Failed to create invoice", error: String(err) });
     }
   });
@@ -12279,10 +12613,33 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Company ID is required" });
 
-      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
-      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
-        return res.status(403).json({ message: "You do not have permission to create samples for this company" });
+      // This endpoint creates and fiscalises real issued documents. It is a
+      // test fixture, never a general invoice-creation path: require a named
+      // superadmin with an explicit fiscalisation permission, and disable it
+      // entirely in production unless an operator opts in.
+      const samplesAllowedInProduction =
+        process.env.ENABLE_ZIMRA_SAMPLE_DOCUMENTS === "true" ||
+        process.env.ENABLE_FISCAL_SAMPLE_DOCUMENTS === "true";
+      if (process.env.NODE_ENV === "production" && !samplesAllowedInProduction) {
+        return res.status(403).json({ message: "Sample document creation is disabled in production" });
       }
+      const sampleActor = req.user as any;
+      if (!sampleActor?.id || sampleActor.isApiKey) {
+        return res.status(403).json({ message: "An interactive administrator is required to create samples" });
+      }
+      if (!sampleActor.isSuperAdmin) {
+        return res.status(403).json({ message: "Only superadmins may create sample documents" });
+      }
+      const canFiscalizeSamples = await userHasPermission(
+        sampleActor.id,
+        companyId,
+        "invoices.fiscalize",
+        !!sampleActor.isSuperAdmin,
+      );
+      if (!canFiscalizeSamples) {
+        return res.status(403).json({ message: "You do not have permission to fiscalize sample documents" });
+      }
+      await logAction(companyId, sampleActor.id, "SAMPLE_DOCUMENTS_CREATED", "company", String(companyId));
 
       await seedCompanyDefaults(companyId);
 
@@ -12695,41 +13052,206 @@ export async function registerRoutes(
     }
   });
 
-  app.get(api.invoices.get.path, requireAuth, async (req, res) => {
-    const invoice = await storage.getInvoice(Number(req.params.id));
-    if (!invoice) return res.status(404).json({ message: "Invoice not found" });
-    res.json(invoice);
-  });
-
   app.put(api.invoices.update.path, requireAuth, async (req, res) => {
     try {
+      const invoiceId = Number(req.params.id);
+      const existingInvoice: any = await storage.getInvoice(invoiceId);
+      if (!existingInvoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (!(await checkCompanyAccess(storage, req.user, existingInvoice.companyId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const blockReasons = invoiceImmutabilityReasons(existingInvoice);
+      const [postedEntry] = await db
+        .select({ id: journalEntries.id })
+        .from(journalEntries)
+        .where(and(
+          eq(journalEntries.referenceType, "INVOICE"),
+          eq(journalEntries.referenceId, String(invoiceId)),
+          ne(journalEntries.status, "VOID"),
+        ))
+        .limit(1);
+      if (postedEntry) blockReasons.push("posted to the general ledger");
+      if (blockReasons.length) {
+        await logAction(existingInvoice.companyId, (req as any).user?.id || "system", "INVOICE_UPDATE_BLOCKED", "invoice", String(invoiceId), {
+          reasons: blockReasons,
+        });
+        return res.status(409).json({
+          message: "Issued, posted or fiscalized invoices are immutable. Use a credit note, debit note or reversal instead.",
+          reasons: blockReasons,
+        });
+      }
+
+      const attemptedServerFields = Object.keys(req.body || {}).filter((key) =>
+        INVOICE_SERVER_OWNED_FIELDS.has(key) && key !== "items",
+      );
+      if (attemptedServerFields.length) {
+        await logAction(existingInvoice.companyId, (req as any).user?.id || "system", "INVOICE_UPDATE_BLOCKED", "invoice", String(invoiceId), {
+          reasons: ["client attempted to edit server-owned fields"],
+          fields: attemptedServerFields,
+        });
+        return res.status(400).json({
+          message: "The update contains server-owned fields that cannot be changed",
+          fields: attemptedServerFields,
+        });
+      }
+
       // Preprocess dates
       const body = {
         ...req.body,
         issueDate: req.body.issueDate ? new Date(req.body.issueDate) : undefined,
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
       };
-
       const input = api.invoices.update.input.parse(body);
-      const existingInvoice = await storage.getInvoice(Number(req.params.id));
-      if (!existingInvoice) return res.status(404).json({ message: "Invoice not found" });
       await assertOpenAccountingPeriod(existingInvoice.companyId, body.issueDate || existingInvoice.issueDate || new Date(), "Invoice editing");
-      
-      let updateData = { ...input };
-      const newStatus = input.status || existingInvoice.status;
-      if (existingInvoice.status?.toLowerCase() === 'draft' && newStatus?.toLowerCase() === 'issued' && existingInvoice.invoiceNumber?.startsWith('DRAFT')) {
+
+      const requestedStatus = input.status ? String(input.status).toLowerCase() : String(existingInvoice.status || "").toLowerCase();
+      const isIssueTransition = requestedStatus === "issued" &&
+        SERVER_EDITABLE_INVOICE_STATUSES.has(String(existingInvoice.status || "").toLowerCase());
+      if (!SERVER_EDITABLE_INVOICE_STATUSES.has(requestedStatus) && !isIssueTransition) {
+        await logAction(existingInvoice.companyId, (req as any).user?.id || "system", "INVOICE_UPDATE_BLOCKED", "invoice", String(invoiceId), {
+          reasons: [`requested status ${requestedStatus}`],
+        });
+        return res.status(409).json({
+          message: "Only draft/quote invoices can be edited. Use a credit note, debit note or reversal for posted documents.",
+        });
+      }
+
+      const lineSource = input.items || existingInvoice.items || [];
+      const computed = await computeInvoiceAmountsServer(existingInvoice.companyId, lineSource, {
+        taxInclusive: input.taxInclusive ?? existingInvoice.taxInclusive ?? false,
+        departmentId: input.departmentId ?? existingInvoice.departmentId,
+        customerId: input.customerId ?? existingInvoice.customerId,
+        asOf: input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || existingInvoice.issueDate || Date.now()),
+        declared: {
+          subtotal: input.subtotal,
+          taxAmount: input.taxAmount,
+          total: input.total,
+          discountAmount: input.discountAmount ?? existingInvoice.discountAmount,
+        },
+      });
+
+      const editableFields = [
+        "invoiceNumber", "issueDate", "dueDate", "customerId", "notes", "currency",
+        "paymentMethod", "splitPayments", "exchangeRate", "taxInclusive", "poNumber",
+        "invoiceTemplate", "transactionType", "relatedInvoiceId", "buyerVat", "buyerTin",
+        "customerName", "customerPhone", "deliveryAddress", "deliveryNotes", "diningOption",
+        "covers", "departmentId", "costCenterId", "locationId", "status",
+      ];
+      const updateData: Record<string, any> = {};
+      for (const key of editableFields) {
+        if ((input as any)[key] !== undefined) updateData[key] = (input as any)[key];
+      }
+      updateData.subtotal = computed.subtotal.toFixed(2);
+      updateData.taxAmount = computed.taxAmount.toFixed(2);
+      updateData.total = computed.total.toFixed(2);
+      updateData.discountAmount = computed.discountAmount.toFixed(2);
+      if (input.items) updateData.items = computed.items;
+
+      if (isIssueTransition && existingInvoice.invoiceNumber?.startsWith("DRAFT")) {
         updateData.invoiceNumber = await storage.getNextInvoiceNumber(existingInvoice.companyId);
       }
-      
-      const invoice = await storage.updateInvoice(Number(req.params.id), {
+
+      const userId = (req as any).user?.id;
+      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      const requestBranchId = getBranchId(req);
+      const approvalInvoiceData = {
+        ...existingInvoice,
         ...updateData,
-        items: input.items as any
+        id: undefined,
+        companyId: existingInvoice.companyId,
+        createdBy: existingInvoice.createdBy || userId,
+        status: "issued",
+        branchId: requestBranchId ?? existingInvoice.branchId,
+        issueDate: updateData.issueDate || existingInvoice.issueDate,
+        dueDate: updateData.dueDate || existingInvoice.dueDate,
+        items: computed.items,
+      };
+
+      if (isIssueTransition && approvalInvoiceData.customerId) {
+        try {
+          await storage.assertCustomerCreditWithinLimit(
+            existingInvoice.companyId,
+            Number(approvalInvoiceData.customerId),
+            computed.total,
+          );
+        } catch (creditError) {
+          const message = creditError instanceof Error ? creditError.message : "Customer credit limit exceeded";
+          await logAction(existingInvoice.companyId, userId || "system", "INVOICE_CREDIT_LIMIT_BLOCKED", "invoice", String(invoiceId), {
+            customerId: Number(approvalInvoiceData.customerId),
+            total: computed.total,
+            reason: message,
+          });
+          throw validationFailure(message, 409);
+        }
+      }
+
+      if (isIssueTransition) {
+        const issueAccess = await resolveActionAccess(
+          userId,
+          existingInvoice.companyId,
+          APPROVAL_TYPES.INVOICE_ISSUE,
+          isSuperAdmin,
+          { amount: computed.grossTotal },
+        );
+        if (!issueAccess.allowed) {
+          return res.status(403).json({ message: "You do not have permission to issue invoices." });
+        }
+        if (issueAccess.requiresApproval) {
+          const approval = await createApprovalRequest({
+            companyId: existingInvoice.companyId,
+            type: APPROVAL_TYPES.INVOICE_ISSUE,
+            title: `Invoice issuance${approvalInvoiceData.invoiceNumber ? `: ${approvalInvoiceData.invoiceNumber}` : ""}`,
+            description: input.notes || undefined,
+            payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing },
+            referenceType: "invoice_draft",
+            requestedBy: userId,
+          });
+          return res.status(202).json({
+            message: "Invoice issuance submitted for approval",
+            requiresApproval: true,
+            approvalId: approval.id,
+          });
+        }
+      }
+
+      if (isIssueTransition && computed.discountAmount > 0) {
+        const discountGate = await requireApprovalOrContinue({
+          userId,
+          companyId: existingInvoice.companyId,
+          isSuperAdmin,
+          type: APPROVAL_TYPES.DISCOUNT,
+          amount: computed.discountAmount,
+          title: `Approve discount of ${computed.discountAmount.toFixed(2)}`,
+          description: "A discount was applied and must be authorised before the invoice is issued.",
+          payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing },
+          referenceType: "discount",
+        });
+        if (discountGate.requiresApproval) {
+          return res.status(202).json({
+            message: "Discount submitted for approval",
+            requiresApproval: true,
+            approvalId: discountGate.request.id,
+          });
+        }
+      }
+
+      const invoice = await storage.updateInvoice(invoiceId, updateData as any);
+      await logAction(existingInvoice.companyId, userId || "system", "INVOICE_UPDATED", "invoice", String(invoiceId), {
+        status: invoice?.status,
+        total: invoice?.total,
       });
       res.json(invoice);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
+      const statusCode = (err as any)?.statusCode;
+      if (statusCode === 400 || statusCode === 409) {
+        return res.status(statusCode).json({ message: err instanceof Error ? err.message : "Invalid invoice update" });
+      }
+      console.error("[Invoice Update Error]", err);
       return res.status(500).json({ message: err instanceof Error ? err.message : "Failed to update invoice", error: String(err) });
     }
   });
@@ -12747,79 +13269,202 @@ export async function registerRoutes(
       }
 
       const input = api.invoices.onlineOrder.input.parse(req.body);
-      const companyProducts = await storage.getProducts(company.id);
-      const genericCustomerId = await storage.ensureGenericCustomer(company.id);
-
-      let subtotal = 0;
-      let taxAmount = 0;
-      const invoiceItemsInput: any[] = [];
-
-      for (const item of input.items) {
-        const product = companyProducts.find((p) => p.id === item.productId);
-        if (!product) throw new Error(`Product ${item.productId} not found`);
-
-        const price = parseFloat(product.price.toString());
-        const taxRate = parseFloat(product.taxRate?.toString() || "15.00");
-        const lineSubtotal = price * item.quantity;
-        const lineTax = lineSubtotal * (taxRate / 100);
-
-        subtotal += lineSubtotal;
-        taxAmount += lineTax;
-
-        invoiceItemsInput.push({
-          productId: product.id,
-          description: product.name,
-          quantity: item.quantity.toString(),
-          unitPrice: price.toString(),
-          taxRate: taxRate.toString(),
-          lineTotal: (lineSubtotal + lineTax).toFixed(2),
-          notes: item.notes,
-        });
+      // The tenant is fixed by the API key. A body-supplied company is only
+      // accepted when it agrees; it can never redirect the write.
+      const bodyCompanyId = (req.body as any)?.companyId;
+      if (bodyCompanyId != null && Number(bodyCompanyId) !== Number(company.id)) {
+        return res.status(403).json({ message: "The company in the request does not match the API key" });
       }
 
-      const total = subtotal + taxAmount;
-      const orderNumber = `#${(Math.floor(Math.random() * 900) + 100).toString()}`;
+      let salesOrderId: number | undefined;
+      const rawSalesOrderId = (req.body as any)?.salesOrderId;
+      if (rawSalesOrderId != null) {
+        salesOrderId = Number(rawSalesOrderId);
+        if (!Number.isInteger(salesOrderId) || salesOrderId <= 0) {
+          return res.status(400).json({ message: "salesOrderId must be a positive integer" });
+        }
+      }
 
-      const invoice = await storage.createInvoice({
+      const genericCustomerId = await storage.ensureGenericCustomer(company.id);
+      const companyProducts = await storage.getProducts(company.id);
+      const productsById = new Map(companyProducts.map((product) => [Number(product.id), product]));
+      const rawItems = input.items.map((item) => {
+        if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) {
+          throw validationFailure("Order item quantities must be greater than zero");
+        }
+        const product = productsById.get(Number(item.productId));
+        if (!product) throw validationFailure(`Product ${item.productId} not found for this company`);
+        return {
+          productId: product.id,
+          description: product.name,
+          quantity: String(item.quantity),
+          // Price and tax come from the company catalogue, not the caller.
+          unitPrice: String(product.price),
+          taxRate: String(product.taxRate ?? 0),
+          taxTypeId: (product as any).taxTypeId ?? null,
+          discountAmount: "0",
+          notes: item.notes,
+        };
+      });
+
+      const dimensions = await resolveInvoiceAnalytics(
+        company.id,
+        {
+          departmentId: (req.body as any)?.departmentId,
+          costCenterId: (req.body as any)?.costCenterId,
+          locationId: (req.body as any)?.locationId,
+        } as any,
+        rawItems as any,
+      );
+
+      const computed = await computeInvoiceAmountsServer(company.id, rawItems, {
+        taxInclusive: (company as any)?.taxInclusive ?? false,
+        departmentId: dimensions?.departmentId,
+        customerId: genericCustomerId,
+        asOf: new Date(),
+      });
+
+      if (salesOrderId) {
+        const [existingSalesOrderInvoice] = await db
+          .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, status: invoices.status })
+          .from(invoices)
+          .where(and(
+            eq(invoices.companyId, company.id),
+            eq(invoices.salesOrderId, salesOrderId),
+            ne(invoices.status, "cancelled")
+          ))
+          .limit(1);
+        if (existingSalesOrderInvoice) {
+          return res.status(409).json({
+            message: "An active invoice already exists for this sales order",
+            invoice: existingSalesOrderInvoice,
+          });
+        }
+      }
+
+      // Online orders are invoice/credit exposure: no verified POS context
+      // exists here, so the generic ordering customer must pass the same limit
+      // check as every other issued sales document.
+      try {
+        await storage.assertCustomerCreditWithinLimit(company.id, Number(genericCustomerId), computed.total);
+      } catch (creditError) {
+        const message = creditError instanceof Error ? creditError.message : "Customer credit limit exceeded";
+        await logAction(company.id, "system", "ONLINE_ORDER_CREDIT_LIMIT_BLOCKED", "invoice", undefined, {
+          customerId: Number(genericCustomerId),
+          total: computed.total,
+          salesOrderId,
+          reason: message,
+        });
+        throw validationFailure(message, 409);
+      }
+
+      const orderNumber = `#${(Math.floor(Math.random() * 900) + 100).toString()}`;
+      const issueDate = new Date();
+      const invoiceData: Record<string, any> = {
         companyId: company.id,
-                invoiceNumber: `EXT-${Date.now()}`,
-        issueDate: new Date(),
-        dueDate: new Date(),
-        subtotal: subtotal.toFixed(2),
-        taxAmount: taxAmount.toFixed(2),
-        total: total.toFixed(2),
-        status: input.paid ? "paid" : "issued",
+        invoiceNumber: `EXT-${Date.now()}`,
+        customerId: genericCustomerId,
+        issueDate,
+        dueDate: issueDate,
+        subtotal: computed.subtotal.toFixed(2),
+        taxAmount: computed.taxAmount.toFixed(2),
+        total: computed.total.toFixed(2),
+        discountAmount: computed.discountAmount.toFixed(2),
+        status: "issued",
+        isPos: false,
+        isFiscalized: false,
         orderStatus: "pending",
-        orderNumber: orderNumber,
+        orderNumber,
         customerName: input.customerName,
         customerPhone: input.customerPhone,
         deliveryAddress: input.customerAddress,
         deliveryNotes: input.deliveryNotes,
         diningOption: input.diningOption,
-        currency: company.currency || "USD",
-        items: invoiceItemsInput,
-      } as any);
+        currency: (company as any).currency || "USD",
+        salesOrderId: salesOrderId ?? null,
+        ...(dimensions || {}),
+        items: computed.items,
+      };
 
-      if (input.paid) {
-        await storage.createPayment({
-          companyId: company.id,
-          invoiceId: invoice.id,
-          amount: total.toFixed(2),
-          currency: company.currency || "USD",
-          paymentMethod: "ONLINE",
-          paymentDate: new Date(),
-          exchangeRate: "1.000000",
+      // API keys have no interactive principal. Defer the issued invoice to the
+      // central approval executor, attributed to a real company owner/admin.
+      // Payment is not written here: it must be recorded against the approved
+      // invoice, never alongside an unapproved one.
+      const approverId = await resolveApiApprovalPrincipal(company.id);
+      if (!approverId) {
+        await logAction(company.id, "system", "ONLINE_ORDER_APPROVAL_PRINCIPAL_MISSING", "company", String(company.id));
+        return res.status(409).json({
+          message: "Interactive approval is required but no company administrator could be resolved for this API key",
+          requiresApproval: true,
         });
       }
+      const issueAccess = await resolveActionAccess(
+        approverId,
+        company.id,
+        APPROVAL_TYPES.INVOICE_ISSUE,
+        false,
+        { amount: computed.grossTotal },
+      );
+      if (!issueAccess.allowed) {
+        return res.status(409).json({
+          message: "Interactive approval is required before this online order can be invoiced",
+          requiresApproval: true,
+        });
+      }
+      if (computed.discountAmount > 0) {
+        const discountAccess = await resolveActionAccess(
+          approverId,
+          company.id,
+          APPROVAL_TYPES.DISCOUNT,
+          false,
+          { amount: computed.discountAmount },
+        );
+        if (!discountAccess.allowed) {
+          return res.status(409).json({
+            message: "Interactive approval is required for the discount on this online order",
+            requiresApproval: true,
+          });
+        }
+      }
 
-      res.status(201).json({
+      const approval = await createApprovalRequest({
+        companyId: company.id,
+        type: APPROVAL_TYPES.INVOICE_ISSUE,
+        title: `Online order invoice${invoiceData.invoiceNumber ? `: ${invoiceData.invoiceNumber}` : ""}`,
+        description: `${input.customerName}${input.paid ? " (paid online)" : ""} — approval required before issue`,
+        payload: {
+          invoiceData: {
+            ...invoiceData,
+            issueDate: issueDate.toISOString(),
+            dueDate: issueDate.toISOString(),
+            notes: `${input.deliveryNotes || ""}${input.paid ? " [Online payment recorded by the ordering system; record receipt against this invoice after approval]" : ""}`.trim() || undefined,
+          },
+          items: computed.items,
+          pricing: computed.pricing,
+        },
+        referenceType: "online_order",
+        referenceId: orderNumber,
+        requestedBy: approverId,
+      });
+      await logAction(company.id, approverId, "ONLINE_ORDER_APPROVAL_REQUESTED", "invoice", undefined, {
+        approvalId: approval.id,
+        total: computed.grossTotal,
+        salesOrderId,
+      });
+      return res.status(202).json({
         success: true,
-        orderId: invoice.id,
-        orderNumber: orderNumber,
+        message: "Online order submitted for approval; no invoice or payment was created",
+        requiresApproval: true,
+        approvalId: approval.id,
+        orderId: null,
+        orderNumber,
       });
     } catch (error: any) {
       console.error("[External Order Error]", error);
-      res.status(400).json({ message: error.message });
+      const status = error?.statusCode === 400 || error?.statusCode === 409
+        ? error.statusCode
+        : 400;
+      res.status(status).json({ message: error instanceof z.ZodError ? error.errors[0]?.message : error.message });
     }
   });
 
@@ -13313,8 +13958,26 @@ export async function registerRoutes(
       const hasAccess = await checkCompanyAccess(storage, req.user, invoice.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
-      if (invoice.status !== "draft" && !req.user?.isSuperAdmin) {
-        return res.status(400).json({ message: "Only draft invoices can be deleted" });
+      const blockReasons = invoiceImmutabilityReasons(invoice);
+      const [postedEntry] = await db
+        .select({ id: journalEntries.id })
+        .from(journalEntries)
+        .where(and(
+          eq(journalEntries.referenceType, "INVOICE"),
+          eq(journalEntries.referenceId, String(invoice.id)),
+          ne(journalEntries.status, "VOID"),
+        ))
+        .limit(1);
+      if (postedEntry) blockReasons.push("posted to the general ledger");
+      if (blockReasons.length) {
+        await logAction(invoice.companyId, (req as any).user?.id || "system", "INVOICE_DELETE_BLOCKED", "invoice", String(invoice.id), {
+          reasons: blockReasons,
+          superadminAttempt: !!req.user?.isSuperAdmin,
+        });
+        return res.status(409).json({
+          message: "Issued, posted or fiscalized invoices cannot be deleted. Use a credit note or reversal instead.",
+          reasons: blockReasons,
+        });
       }
 
       await storage.deleteInvoice(Number(req.params.id));
@@ -13542,7 +14205,36 @@ export async function registerRoutes(
         if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       }
 
+      // A receipt with ledger, clearing or allocation history is a financial
+      // record. Only genuinely unposted drafts may be removed.
+      const blockReasons: string[] = [];
+      if (payment.journalEntryId != null) blockReasons.push("posted to the general ledger");
+      if (payment.clearingJournalEntryId != null) blockReasons.push("cleared through a journal entry");
+      if (payment.clearedAt != null) blockReasons.push("already cleared");
+      if (payment.isDeposit) blockReasons.push("deposit receipts are financial records");
+      const [activeAllocation] = await db
+        .select({ id: paymentAllocations.id })
+        .from(paymentAllocations)
+        .where(and(
+          eq(paymentAllocations.paymentId, Number(req.params.id)),
+          isNull(paymentAllocations.reversedAt),
+        ))
+        .limit(1);
+      if (activeAllocation) blockReasons.push("has active invoice allocations");
+
+      if (blockReasons.length) {
+        await logAction(payment.companyId || 0, (req as any).user?.id || "system", "PAYMENT_DELETE_BLOCKED", "payment", String(payment.id), {
+          reasons: blockReasons,
+          superadminAttempt: !!req.user?.isSuperAdmin,
+        });
+        return res.status(409).json({
+          message: "Posted, cleared or allocated payments cannot be deleted. Use a reversal or adjustment instead.",
+          reasons: blockReasons,
+        });
+      }
+
       await storage.deletePayment(Number(req.params.id));
+      await logAction(payment.companyId || 0, (req as any).user?.id || "system", "PAYMENT_DELETE", "payment", String(payment.id));
       res.status(204).end();
     } catch (err) {
       console.error(err);
@@ -15687,27 +16379,25 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/accounting/accounts", requireAuthOrApiKey, listAccountingAccounts);
   app.post("/api/companies/:companyId/accounting/accounts", requireAuthOrApiKey, createAccountingAccount);
 
-  app.get("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
-    try {
-      const companyId = await resolveAccountingCompanyId(req);
-      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
-      notImplemented(res, "Budgets");
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+  // Budget and price-list routers carry their own tenant and permission guards.
+  // The company access middleware is declared later in this file, so use an
+  // equivalent local guard for these mounts.
+  const budgetAndPricingCompanyAccess = async (req: any, res: any, next: any) => {
+    const requested =
+      req.params?.companyId ?? req.query?.companyId ?? req.body?.companyId ?? req.headers?.["x-company-id"];
+    const companyId = Number(requested ?? req.user?.companyId);
+    if (!Number.isInteger(companyId) || companyId <= 0) {
+      return res.status(400).json({ message: "Invalid company" });
     }
-  });
-
-  app.post("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
-    try {
-      const companyId = await resolveAccountingCompanyId(req);
-      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      if (!(await requireAccountingPermission(req, res, companyId, "accounting.budgets"))) return;
-      notImplemented(res, "Budgets");
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+    if (!(await checkCompanyAccess(storage as any, req.user, companyId))) {
+      return res.status(403).json({ message: "Forbidden: no access to this company" });
     }
-  });
+    req.params.companyId = String(companyId);
+    next();
+  };
+  app.use("/api", createBudgetsRouter(requireAuth, budgetAndPricingCompanyAccess));
+  app.use("/api", createPriceListsRouter(requireAuth, budgetAndPricingCompanyAccess));
+  app.use("/api", createProcurementRouter(requireAuth, budgetAndPricingCompanyAccess));
 
   app.get("/api/accounting/allocations", requireAuth, async (req: any, res: any) => {
     try {

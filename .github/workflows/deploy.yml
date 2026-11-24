@@ -23,7 +23,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            cd /var/www/fiszim
+            cd /var/www/fisczim
             chmod +x deploy.sh
             ./deploy.sh fiscalstack
             

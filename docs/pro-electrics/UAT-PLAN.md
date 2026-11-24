@@ -98,7 +98,6 @@ This plan defines the business acceptance tests for the PRO ELECTRICS implementa
 | TC-40 | HR field persistence | 1. Update an employee with termination type/reason and probation end date. 2. Create a contract with a probation end date. 3. Reload the employee and contract. | All values persist after save, including from the HR form; no accepted field is silently dropped. | ☐ Pass ☐ Fail | |
 | TC-41 | NHIF/WCIF configuration | 1. Confirm `NHIF` and `WCIF` statutory rule rows exist. 2. Run payroll before configuring rates. 3. Configure client rates and rerun. | Unconfigured rates produce zero with explicit warnings; configured NHIF reduces net pay and appears as an employee deduction; configured WCIF appears as an employer cost only. | ☐ Pass ☐ Fail | |
 | TC-42 | POD evidence capture | 1. Dispatch a picked order with a delivery number, recipient, POD reference and attachment URL. 2. Reopen the order. 3. Dispatch a legacy order without POD data. | All dispatch fields persist and are visible on the pick list; invalid attachment URLs are rejected; legacy dispatch without POD data still succeeds. | ☐ Pass ☐ Fail | |
-| TC-43 | Paynow IPN signature | 1. Set `PAYNOW_WEBHOOK_SECRET` in staging. 2. Post a signed IPN. 3. Post an unsigned and a tampered IPN. | Signed IPN is accepted; unsigned/tampered IPNs return HTTP 401 and do not trigger a status check. If Paynow supplies no signing key, record this as a client-blocked risk. | ☐ Pass ☐ Fail | |
 
 ## 5. Defect log template
 

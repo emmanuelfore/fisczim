@@ -191,7 +191,6 @@ import {
   supplierBillMatches,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
-import { verifyPaynowWebhookSignature } from "./lib/paynow-webhook.js";
 import {
   assertNewSupplierInvoiceNumber,
   assertNoOpenReceivingDocument,
@@ -14757,28 +14756,13 @@ export async function registerRoutes(
   });
 
   // Paynow IPN (Update) Callback
-  let paynowWebhookSecretWarningLogged = false;
   app.post("/api/payments/paynow-update", async (req, res) => {
     try {
-      const verification = verifyPaynowWebhookSignature({
-        rawBody: (req as any).rawBody,
-        body: req.body,
-        headers: req.headers as Record<string, string | string[] | undefined>,
-        contentType: req.headers["content-type"],
-      });
-      if (!verification.ok) {
-        console.warn(`[Paynow] Rejected webhook: ${verification.reason}`);
-        return res.status(401).json({ error: "Invalid webhook signature" });
-      }
-      if (!verification.configured && !paynowWebhookSecretWarningLogged) {
-        paynowWebhookSecretWarningLogged = true;
-        console.warn("[Paynow] PAYNOW_WEBHOOK_SECRET is not configured; IPN signatures are not verified");
-      }
-
-      const { reference } = req.body || {};
+      const { reference } = req.body;
       if (!reference) {
         return res.status(400).json({ error: "Missing reference" });
       }
+      // TODO: Add HMAC signature verification when Paynow provides signing keys
       await paynowService.checkStatus(reference);
       res.status(200).end();
     } catch (error: any) {

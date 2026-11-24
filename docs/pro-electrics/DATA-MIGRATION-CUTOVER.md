@@ -44,7 +44,6 @@
 | PC-13 | Full backup of production and staging completed and restore tested. | System Administrator | ☐ | Backup/restore log |
 | PC-14 | Migration rehearsal completed end-to-end with validation SQL attached. | System Administrator / Finance Manager | ☐ | Rehearsal evidence |
 | PC-15 | UAT exit criteria met or waivers approved. | General Manager | ☐ | UAT sign-off |
-| PC-16 | If Paynow issues a webhook signing secret, set `PAYNOW_WEBHOOK_SECRET` and confirm signed IPNs are accepted while unsigned ones are rejected (HTTP 401). | System Administrator | ☐ | Webhook verification evidence |
 
 ## 3. Backup and restore
 

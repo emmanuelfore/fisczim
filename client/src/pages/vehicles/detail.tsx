@@ -158,7 +158,7 @@ function AgreementTab({ v, companyId, editable }: { v: any; companyId: number; e
       <div><Label>Fee recognition</Label><Select value={form.feeRecognition} onValueChange={value => setForm({ ...form, feeRecognition: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_handover">On handover (default)</SelectItem><SelectItem value="on_collection">On collection</SelectItem></SelectContent></Select></div>
       <div><Label>Interest method</Label><Select value={form.interestType} onValueChange={value => setForm({ ...form, interestType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No interest</SelectItem><SelectItem value="percent_pa">Reducing balance (% p.a.)</SelectItem><SelectItem value="flat_rate">Flat rate (% p.a.)</SelectItem><SelectItem value="fixed_amount">Fixed amount</SelectItem></SelectContent></Select></div>
       <Field label="Interest rate / amount" value={form.interestRate} onChange={value => setForm({ ...form, interestRate: value })} /><Field label="Admin fee (financing)" value={form.adminFee} onChange={value => setForm({ ...form, adminFee: value })} /><Field label="Late fee per instalment" value={form.lateFee} onChange={value => setForm({ ...form, lateFee: value })} />
-      <div className="md:col-span-4 flex flex-wrap gap-2">{editable && <Button onClick={save} disabled={saving || (data?.agreement?.status !== undefined && data.agreement.status !== "draft")}>{saving ? "Saving…" : data?.agreement ? "Update draft terms" : "Create agreement"}</Button>}{editable && data?.agreement && data.agreement.status !== "completed" && <Button variant="outline" onClick={handover} disabled={handoverPending}>{handoverPending ? "Completing…" : "Complete handover"}</Button>}{data && company && <PDFDownloadLink document={<VehicleAgreementPDF agreement={data.agreement} vehicle={v} customer={v.customer} company={company} schedule={data.schedule} />} fileName={`Sales-Agreement-${data.agreement.agreementNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : "Print agreement"}</Button>}</PDFDownloadLink>}{v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicleCosts: v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : (form.accountingModel === "agent" ? "Print fee invoice" : "Print invoice with costing")}</Button>}</PDFDownloadLink>}</div>
+      <div className="md:col-span-4 flex flex-wrap gap-2">{editable && <Button onClick={save} disabled={saving || (data?.agreement?.status !== undefined && data.agreement.status !== "draft")}>{saving ? "Saving…" : data?.agreement ? "Update draft terms" : "Create agreement"}</Button>}{editable && data?.agreement && data.agreement.status !== "completed" && <Button variant="outline" onClick={handover} disabled={handoverPending}>{handoverPending ? "Completing…" : "Complete handover"}</Button>}{data && company && <PDFDownloadLink document={<VehicleAgreementPDF agreement={data.agreement} vehicle={v} customer={v.customer} company={company} schedule={data.schedule} />} fileName={`Sales-Agreement-${data.agreement.agreementNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : "Print agreement"}</Button>}</PDFDownloadLink>}{v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicle: v, accountingModel: v.accountingModel || (form.accountingModel === "principal" ? "principal" : "agent"), vehicleCosts: v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : (form.accountingModel === "agent" ? "Print fee invoice" : "Print invoice with costing")}</Button>}</PDFDownloadLink>}</div>
     </CardContent></Card>
     {data && <Card><CardHeader><CardTitle>Payment schedule</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Due date</TableHead><TableHead>Amount</TableHead><TableHead>Paid</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{data.schedule.map((line: any) => <TableRow key={line.id}><TableCell className="capitalize">{line.type}</TableCell><TableCell>{line.dueDate}</TableCell><TableCell>{fmtMoney(Number(line.amount))}</TableCell><TableCell>{fmtMoney(Number(line.paidAmount))}</TableCell><TableCell className="capitalize">{line.status}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>}
     {data?.payments?.length ? <Card><CardHeader><CardTitle>Receipts</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{data.payments.map((payment: any) => <VehicleReceiptLink key={payment.id} companyId={companyId} vehicleId={v.id} paymentId={payment.id} company={company} />)}</CardContent></Card> : null}
@@ -371,7 +371,7 @@ function SupplierSettlementsTab({ v, companyId, editable }: { v: any; companyId:
 function DocumentsTab({ v, companyId }: { v: any; companyId: number }) {
   const { data: company } = useCompany(companyId);
   return <Card><CardHeader><CardTitle>Vehicle documents</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">
-    {v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicleCosts: v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : (v.accountingModel === "agent" ? "Processing fee invoice" : "Sales invoice")}</Button>}</PDFDownloadLink>}
+    {v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicle: v, vehicleCosts: v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : (v.accountingModel === "agent" ? "Processing fee invoice" : "Sales invoice")}</Button>}</PDFDownloadLink>}
     {v.payments.map((p: any) => <VehicleReceiptLink key={p.id} companyId={companyId} vehicleId={v.id} paymentId={p.id} company={company} />)}
     {!v.invoice && !v.payments.length && <p className="text-sm text-slate-400">No documents have been generated for this vehicle.</p>}
   </CardContent></Card>;
@@ -949,7 +949,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                           <span className="text-amber-600">Not posted</span>
                         )}
                       </div>
-                      {!v.cogsJournalEntryId && (
+                      {!v.cogsJournalEntryId && !isAgencyDeal && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -959,6 +959,11 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                         >
                           <Landmark className="w-3.5 h-3.5 mr-1" />Post COGS
                         </Button>
+                      )}
+                      {isAgencyDeal && (
+                        <p className="text-[11px] leading-snug text-slate-400">
+                          Agency deal — customer-funded costs are disbursements, not Prime Imports COGS.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -1006,28 +1011,32 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
           <DialogHeader>
             <DialogTitle>Create sales invoice</DialogTitle>
             <DialogDescription>
-              Invoice {v.stockNumber} · {v.year} {v.make} {v.model} for the agreed sale price.
+              Invoice {v.stockNumber} · {v.year} {v.make} {v.model} — {isAgencyDeal
+                ? "Prime Imports processing fee only. The vehicle cost sheet is a customer obligation, not company revenue."
+                : "for the agreed sale price."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg bg-slate-50 p-3 text-sm space-y-1.5">
+              {isAgencyDeal && (
+                <div className="flex justify-between text-slate-500">
+                  <span>Customer deal value (not invoiced)</span>
+                  <span>{Number(v.salePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
+                </div>
+              )}
               <div className="flex justify-between">
-                <span className="text-slate-600">Agreed sale price</span>
-                <span>{Number(v.salePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
+                <span className="text-slate-600">{isAgencyDeal ? "Processing fee (invoice subtotal)" : "Agreed sale price"}</span>
+                <span>{(isAgencyDeal ? processingFee : Number(v.salePrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
-              {saleRate !== 1 && (
+              {saleRate !== 1 && !isAgencyDeal && (
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>Converted at {saleRate} USD per 1 {invoiceCurrency}</span>
                   <span>{fmtMoney(invoiceSubtotal * saleRate)}</span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-slate-600">Invoice subtotal</span>
-                <span>{invoiceSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
-              </div>
-              <div className="flex justify-between">
                 <span className="text-slate-600">
-                  Tax {selectedInvoiceTaxType ? `(${selectedInvoiceTaxType.name} ${invoiceTaxRate}%)` : "(none)"}
+                  Tax {isAgencyDeal ? "(agency fee — no sales VAT)" : selectedInvoiceTaxType ? `(${selectedInvoiceTaxType.name} ${invoiceTaxRate}%)` : "(none)"}
                 </span>
                 <span>{invoiceTax.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
@@ -1036,7 +1045,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                 <span>{invoiceTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={isAgencyDeal ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
               <div className="space-y-1.5">
                 <Label htmlFor="vehicle-invoice-due">Due date</Label>
                 <Input
@@ -1046,21 +1055,23 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                   onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="vehicle-invoice-tax">Tax type</Label>
-                <Select
-                  value={invoiceForm.taxTypeId}
-                  onValueChange={(x) => setInvoiceForm({ ...invoiceForm, taxTypeId: x })}
-                >
-                  <SelectTrigger id="vehicle-invoice-tax"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No tax</SelectItem>
-                    {invoiceTaxTypes.map((t) => (
-                      <SelectItem key={t.id} value={String(t.id)}>{t.name} · {Number(t.rate)}%</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {!isAgencyDeal && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="vehicle-invoice-tax">Tax type</Label>
+                  <Select
+                    value={invoiceForm.taxTypeId}
+                    onValueChange={(x) => setInvoiceForm({ ...invoiceForm, taxTypeId: x })}
+                  >
+                    <SelectTrigger id="vehicle-invoice-tax"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No tax</SelectItem>
+                      {invoiceTaxTypes.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>{t.name} · {Number(t.rate)}%</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="vehicle-invoice-notes">Invoice notes</Label>
@@ -1073,13 +1084,15 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
               />
             </div>
             <p className="text-xs text-slate-400">
-              The invoice is raised in {invoiceCurrency} and goes through the normal sales VAT path, so it appears on the VAT return.
+              {isAgencyDeal
+                ? "Set the processing fee on the Sales Agreement before invoicing. The fee is booked to deferred income and recognised on collection or handover; customer-funded costs are never added to invoice VAT."
+                : `The invoice is raised in ${invoiceCurrency} and goes through the normal sales VAT path, so it appears on the VAT return.`}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setInvoiceOpen(false)}>Cancel</Button>
             <Button id="vehicle-invoice-create-submit" onClick={createInvoice} disabled={pending || invoiceTotal <= 0}>
-              <FileText className="w-4 h-4 mr-1" />Create invoice
+              <FileText className="w-4 h-4 mr-1" />{isAgencyDeal && processingFee <= 0 ? "Set processing fee first" : "Create invoice"}
             </Button>
           </DialogFooter>
         </DialogContent>

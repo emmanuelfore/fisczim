@@ -54,6 +54,8 @@ type CostingRow = {
   importCosts: number;
   sellingPrice: number;
   isProjected: boolean;
+  accountingModel?: "agent" | "principal";
+  processingFee?: number;
   profit: number;
   marginPercent: number;
   costsByCategory: Record<string, number>;
@@ -120,20 +122,20 @@ export default function VehicleCostingPage() {
   const items = data?.items ?? [];
   const totals = data?.totals;
   const alerts = useMemo(
-    () => items.filter((i) => i.negativeMargin || i.lowMargin || i.hasUnpaidCosts),
+    () => items.filter((i) => (i.accountingModel !== "agent" && (i.negativeMargin || i.lowMargin)) || i.hasUnpaidCosts),
     [items],
   );
 
   const exportCsv = () => {
     const head = [
-      "Stock #", "Vehicle", "VIN", "Status", "Stage", "Customer",
+      "Stock #", "Vehicle", "VIN", "Status", "Stage", "Customer", "Model",
       ...COST_CATEGORIES.map((c) => c.label),
-      "Landed cost", "Pending costs", "Paid costs", "Selling price", "Projected", "Profit", "Margin %", "Alerts",
+      "Landed cost", "Pending costs", "Paid costs", "Selling price", "Processing fee", "Projected", "Profit / fee", "Margin %", "Alerts",
     ];
     const rows = items.map((i) => [
-      i.stockNumber, i.description, i.vin ?? "", i.status, stageLabel(i.stage), i.customerName ?? "",
+      i.stockNumber, i.description, i.vin ?? "", i.status, stageLabel(i.stage), i.customerName ?? "", i.accountingModel ?? "agent",
       ...COST_CATEGORIES.map((c) => i.costsByCategory?.[c.value] ?? 0),
-      i.landedCost, i.pendingCosts, i.paidCosts, i.sellingPrice, i.isProjected ? "yes" : "no", i.profit, i.marginPercent,
+      i.landedCost, i.pendingCosts, i.paidCosts, i.sellingPrice, i.processingFee ?? 0, i.isProjected ? "yes" : "no", i.profit, i.marginPercent,
       [i.negativeMargin ? "negative margin" : "", i.lowMargin ? "low margin" : "", i.hasUnpaidCosts ? "unpaid costs" : ""].filter(Boolean).join("; "),
     ]);
     const csv = [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
@@ -173,7 +175,8 @@ export default function VehicleCostingPage() {
             </Link>
             <h1 className="text-2xl font-bold text-slate-900 mt-1">Vehicle Costing</h1>
             <p className="text-sm text-slate-500">
-              Full landed cost per vehicle — purchase price, logistics, admin fees, bank charges, clearing and delivery (USD)
+              Estimated, actual and customer-charge costs per vehicle. On agency deals the customer funds third-party costs;
+              Prime Imports&apos; revenue is the processing fee only. On principal deals sale less landed cost is profit.
             </p>
           </div>
           <Button variant="outline" onClick={exportCsv} disabled={!items.length}>
@@ -188,9 +191,11 @@ export default function VehicleCostingPage() {
           </TabsList>
 
           <TabsContent value="costing" className="space-y-6 pt-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               <SummaryStatCard label={`Landed cost (${totals?.vehicles ?? 0} vehicles)`} value={fmtMoney(totals?.landedCost)} icon={Package} tone="blue" />
               <SummaryStatCard label="Import costs" value={fmtMoney(totals?.importCosts)} icon={Wallet} tone="violet" />
+              <SummaryStatCard label="Customer-funded costs (agent)" value={fmtMoney(items.filter((i) => i.accountingModel !== "principal").reduce((s, i) => s + i.landedCost, 0))} icon={Wallet} tone="blue" />
+              <SummaryStatCard label="Processing fee revenue" value={fmtMoney(items.reduce((s, i) => s + (i.processingFee ?? 0), 0))} icon={Banknote} tone="emerald" />
               <SummaryStatCard label="Pending / unpaid costs" value={fmtMoney(totals?.pendingCosts)} icon={Banknote} tone="amber" />
               <SummaryStatCard label="Paid costs" value={fmtMoney(totals?.paidCosts)} icon={TrendingUp} tone="emerald" />
             </div>
@@ -275,16 +280,17 @@ export default function VehicleCostingPage() {
                       <TableHead className="whitespace-nowrap">Import costs</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Landed cost</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Selling price</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Profit</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Processing fee</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Profit / fee</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Margin</TableHead>
                       <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoading ? (
-                      <TableRow><TableCell colSpan={10}><LoadingRows rows={5} /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={11}><LoadingRows rows={5} /></TableCell></TableRow>
                     ) : items.length === 0 ? (
-                      <TableRow><TableCell colSpan={10} className="text-center py-12 text-slate-500">No vehicles match these filters.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={11} className="text-center py-12 text-slate-500">No vehicles match these filters.</TableCell></TableRow>
                     ) : (
                       <>
                         {items.map((i) => {
@@ -306,7 +312,8 @@ export default function VehicleCostingPage() {
                                     <span className="font-mono">{i.stockNumber}</span>
                                     <Badge className={`${statusTone[i.status] ?? ""} border-0 capitalize text-[10px] py-0`}>{i.status}</Badge>
                                     <span className="text-[10px] text-slate-400">{stageLabel(i.stage)}</span>
-                                    {(i.negativeMargin || i.lowMargin) && <AlertTriangle className={`w-3.5 h-3.5 ${i.negativeMargin ? "text-rose-500" : "text-amber-500"}`} />}
+                                    <Badge variant="outline" className="text-[10px] py-0 capitalize">{(i.accountingModel ?? "agent") === "agent" ? "agent" : "principal"}</Badge>
+                                    {(i.accountingModel !== "agent" && (i.negativeMargin || i.lowMargin)) && <AlertTriangle className={`w-3.5 h-3.5 ${i.negativeMargin ? "text-rose-500" : "text-amber-500"}`} />}
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-right text-sm whitespace-nowrap">{purchase ? fmtMoney(purchase) : <span className="text-slate-300">—</span>}</TableCell>
@@ -327,6 +334,7 @@ export default function VehicleCostingPage() {
                                   {fmtMoney(i.sellingPrice)}
                                   {i.isProjected && <span className="block text-[10px] text-slate-400">target</span>}
                                 </TableCell>
+                                <TableCell className="text-right whitespace-nowrap">{i.accountingModel === "agent" ? fmtMoney(i.processingFee ?? 0) : <span className="text-slate-300">—</span>}</TableCell>
                                 <TableCell className={`text-right font-bold whitespace-nowrap ${i.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(i.profit)}</TableCell>
                                 <TableCell className={`text-right whitespace-nowrap ${i.marginPercent < 0 ? "text-rose-600" : ""}`}>{i.marginPercent}%</TableCell>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
@@ -379,6 +387,7 @@ export default function VehicleCostingPage() {
                           <TableCell className="whitespace-nowrap">{fmtMoney(totals?.importCosts)}</TableCell>
                           <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.landedCost)}</TableCell>
                           <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.sellingPrice)}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">{fmtMoney(items.reduce((s, i) => s + (i.processingFee ?? 0), 0))}</TableCell>
                           <TableCell className={`text-right whitespace-nowrap ${(totals?.profit ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(totals?.profit)}</TableCell>
                           <TableCell />
                           <TableCell />

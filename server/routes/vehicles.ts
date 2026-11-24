@@ -87,6 +87,12 @@ type AgencyLedgerInput = {
  */
 async function postAgencyLedger(companyId: number, data: AgencyLedgerInput, tx: any) {
   const [company] = await tx.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+  // A 100%-fee receipt produces a zero Customer Funds Held credit. Zero-value
+  // lines carry no accounting meaning and some ledgers reject them outright.
+  const lines = data.lines
+    .map((line) => ({ ...line, amount: Math.round((Number(line.amount) + Number.EPSILON) * 100) / 100 }))
+    .filter((line) => line.amount !== 0);
+  if (!lines.length) return { id: null } as any;
   return storage.postToLedger(companyId, {
     entryDate: data.entryDate,
     description: data.description,
@@ -96,16 +102,13 @@ async function postAgencyLedger(companyId: number, data: AgencyLedgerInput, tx: 
     createdBy: data.createdBy,
     currency: baseCurrencyOf(company),
     exchangeRate: 1,
-    lines: data.lines.map((line) => {
-      const amount = Math.round((Number(line.amount) + Number.EPSILON) * 100) / 100;
-      return {
-        accountCode: line.accountCode,
-        type: line.type,
-        amount,
-        baseAmount: amount,
-        memo: line.memo,
-      };
-    }),
+    lines: lines.map((line) => ({
+      accountCode: line.accountCode,
+      type: line.type,
+      amount: line.amount,
+      baseAmount: line.amount,
+      memo: line.memo,
+    })),
   }, tx);
 }
 
@@ -614,6 +617,14 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       updatedAt: new Date(),
     }).where(eq(vehicleCustomerAccounts.id, accountId)).returning();
     return updated;
+  }
+
+  async function refreshAccountForVehicle(tx: any, companyId: number, vehicleId: number) {
+    const [account] = await tx.select().from(vehicleCustomerAccounts).where(and(
+      eq(vehicleCustomerAccounts.companyId, companyId),
+      eq(vehicleCustomerAccounts.vehicleId, vehicleId),
+    ));
+    if (account) await refreshCustomerAccountTotals(tx, account.id);
   }
 
   async function buildAgencyAllocations(
@@ -1555,6 +1566,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           createdBy: req.user?.id,
         })
         .returning();
+      await refreshAccountForVehicle(db, companyId, v.id);
       res.status(201).json(created);
     } catch (error) {
       console.error(error);
@@ -1630,6 +1642,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (status === "pending" && body.paidAt === undefined) updates.paidAt = null;
 
       const [updated] = await db.update(vehicleCosts).set(updates).where(eq(vehicleCosts.id, existing.id)).returning();
+      await refreshAccountForVehicle(db, companyId, v.id);
       res.json(updated);
     } catch (error) {
       console.error(error);
@@ -1935,6 +1948,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           .where(eq(vehicleCosts.id, cost.id))
           .returning();
 
+        await refreshAccountForVehicle(tx, companyId, v.id);
         return { cost: updated };
       });
 
@@ -1966,6 +1980,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return res.status(409).json({ error: "This cost has journal entries. Reverse it before deleting it." });
       }
       await db.delete(vehicleCosts).where(and(eq(vehicleCosts.id, parseInt(req.params.costId)), eq(vehicleCosts.vehicleId, v.id)));
+      await refreshAccountForVehicle(db, companyId, v.id);
       res.status(204).end();
     } catch (error) {
       console.error(error);
@@ -2528,9 +2543,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     // on_collection deals have already recognised the fee but their invoice AR
     // still has to be cleared against the fee the customer paid.
     const available = round2(Number(account.amountAllocatedToFee || 0) - Number(account.feeInvoiceSettledAmount || 0));
-    // storage.createInvoice posts invoice.total into the base-currency GL, so
-    // the same numeric total is the amount of AR to clear here.
-    const amount = round2(Math.min(Number(invoice.total || 0), available));
+    // Only the net fee was reclassified into deferred income. Never debit that
+    // account more than the net fee, even if the invoice carries VAT, and never
+    // settle the same invoice twice.
+    const netFee = round2(Number(invoice.subtotal ?? invoice.total ?? 0));
+    const alreadySettled = round2(Number(account.feeInvoiceSettledAmount || 0));
+    if (alreadySettled + 0.01 >= netFee) return null;
+    const amount = round2(Math.min(netFee - alreadySettled, available));
     if (amount <= 0) return null;
     const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
     const arCode = await storage.getSystemAccountCode(companyId, "accountsReceivableCode", tx);
@@ -2744,6 +2763,11 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         if (v.invoiceId) throw Object.assign(new Error("Vehicle already has an invoice"), { status: 409 });
         if (!v.customerId) throw Object.assign(new Error("Assign a customer to this vehicle first"), { status: 400 });
         if (v.salePrice == null) throw Object.assign(new Error("Set an agreed sale price before attaching an invoice"), { status: 400 });
+        const [agreement] = await tx.select().from(vehicleSalesAgreements).where(and(
+          eq(vehicleSalesAgreements.companyId, companyId),
+          eq(vehicleSalesAgreements.vehicleId, vehicleId),
+        ));
+        const isAgency = isAgencyVehicle(v) || isAgencyVehicle(agreement);
 
         const [invoice] = await tx.select().from(invoices).where(and(
           eq(invoices.companyId, companyId),
@@ -2761,14 +2785,17 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         if (invoiceCurrency !== saleCurrency) {
           throw Object.assign(new Error(`The invoice currency (${invoiceCurrency}) does not match the agreed sale currency (${saleCurrency})`), { status: 400 });
         }
-        // Accept either a net (subtotal) or tax-inclusive invoice amount equal
-        // to the agreed sale. Anything else is a different deal.
-        const agreed = round2(Number(v.salePrice));
+        // Agency invoices carry only the processing fee; principal invoices
+        // carry the whole sale. Accept either net subtotal or tax-inclusive total.
+        const expected = round2(isAgency ? Number(agreement?.processingFeeAmount ?? 0) : Number(v.salePrice));
+        if (isAgency && expected <= 0) {
+          throw Object.assign(new Error("Set a processing fee on the sales agreement before attaching a fee invoice"), { status: 400 });
+        }
         const matchesAgreed =
-          Math.abs(round2(Number(invoice.subtotal)) - agreed) <= 0.01 ||
-          Math.abs(round2(Number(invoice.total)) - agreed) <= 0.01;
+          Math.abs(round2(Number(invoice.subtotal)) - expected) <= 0.01 ||
+          Math.abs(round2(Number(invoice.total)) - expected) <= 0.01;
         if (!matchesAgreed) {
-          throw Object.assign(new Error("The invoice total does not match the agreed sale price"), { status: 400 });
+          throw Object.assign(new Error(isAgency ? "The invoice total does not match the processing fee" : "The invoice total does not match the agreed sale price"), { status: 400 });
         }
         if (Number(invoice.taxAmount) > 0) {
           const itemRows = await tx
@@ -2793,8 +2820,39 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           updatedAt: new Date(),
         }).where(eq(vehicles.id, v.id));
 
-        const paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, invoice, req.user?.id);
-        const cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
+        // Agency: the fee invoice is settled from the fee allocation already
+        // held on the customer account; there is no AR cash receipt or COGS.
+        let paymentResult: any = null;
+        let cogs: any = { posted: false, journalEntryId: null, amount: 0 };
+        if (isAgency) {
+          // An invoice created outside the vehicle flow credited sales revenue.
+          // On an agency deal reclassify the net fee to deferred income first.
+          const netFee = round2(Number(invoice.subtotal || 0));
+          if (netFee > 0) {
+            const salesCode = await storage.getSystemAccountCode(companyId, "salesRevenueAccountCode", tx);
+            const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
+            await postAgencyLedger(companyId, {
+              entryDate: new Date(),
+              description: `Reclassify agency fee invoice ${invoice.invoiceNumber} to deferred revenue`,
+              referenceType: "VEHICLE_FEE_INVOICE_RECLASS",
+              referenceId: String(invoice.id),
+              postingKey: `vehicle-fee-invoice-reclass:${invoice.id}`,
+              createdBy: req.user?.id,
+              lines: [
+                { accountCode: salesCode, type: "DEBIT", amount: netFee },
+                { accountCode: deferredCode, type: "CREDIT", amount: netFee },
+              ],
+            }, tx);
+          }
+          const [account] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, v.id));
+          if (account) {
+            paymentResult = { feeSettlement: await clearAgencyFeeInvoice(tx, companyId, invoice, account, req.user?.id) };
+            await refreshCustomerAccountTotals(tx, account.id);
+          }
+        } else {
+          paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, invoice, req.user?.id);
+          cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
+        }
         const enquiry = v.enquiryId
           ? await markEnquiryWon(
               tx,
@@ -2839,6 +2897,80 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       res.status(error.status || 400).json({ error: error.message || "Failed to attach invoice" });
     }
   });
+
+  /**
+   * Agency deals move customer money through several internal journals. On
+   * cancellation the fee/reclassification journals are reversed and every
+   * active allocation gets an append-only negative row, leaving the customer's
+   * cash unallocated for refund. Third-party settlements stay posted because
+   * those suppliers have already been paid; the receipt journals likewise stay
+   * in place so held funds remain a customer credit.
+   */
+  async function unwindAgencyOnCancellation(tx: any, companyId: number, v: any, invoice: any, reason: string | null | undefined, userId?: string) {
+    if (!isAgencyVehicle(v)) return;
+    const targets: Array<{ type: string; refId: string; description: string }> = [];
+    if (invoice) {
+      targets.push({ type: "VEHICLE_FEE_INVOICE_SETTLEMENT", refId: String(invoice.id), description: `Reverse fee invoice settlement ${invoice.invoiceNumber}` });
+      targets.push({ type: "VEHICLE_FEE_INVOICE_RECLASS", refId: String(invoice.id), description: `Reverse fee invoice reclassification ${invoice.invoiceNumber}` });
+    }
+    const [agreement] = await tx.select().from(vehicleSalesAgreements).where(and(
+      eq(vehicleSalesAgreements.companyId, companyId),
+      eq(vehicleSalesAgreements.vehicleId, v.id),
+    ));
+    if (agreement) targets.push({ type: "VEHICLE_FEE_RECOGNITION", refId: String(agreement.id), description: `Reverse fee recognition for ${agreement.agreementNumber}` });
+    const receipts = await tx.select({ id: payments.id }).from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, v.id)));
+    for (const p of receipts) {
+      targets.push({ type: "VEHICLE_FEE_RECOGNITION", refId: String(p.id), description: `Reverse fee recognition for receipt ${p.id}` });
+      targets.push({ type: "VEHICLE_FEE_ALLOCATION", refId: String(p.id), description: `Reverse fee allocation for receipt ${p.id}` });
+    }
+    for (const target of targets) {
+      const entries = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(
+        eq(journalEntries.companyId, companyId),
+        eq(journalEntries.referenceType, target.type),
+        eq(journalEntries.referenceId, target.refId),
+      ));
+      for (const entry of entries) {
+        await reverseJournalIfPosted(
+          tx, companyId, entry.id, target.description, userId,
+          `vehicle-cancel:${v.id}:${target.type.toLowerCase().replace(/_/g, "-")}:${entry.id}`,
+        );
+      }
+    }
+
+    const [account] = await tx.select().from(vehicleCustomerAccounts).where(and(
+      eq(vehicleCustomerAccounts.companyId, companyId),
+      eq(vehicleCustomerAccounts.vehicleId, v.id),
+    ));
+    if (!account) return;
+    const active = await tx.select().from(vehicleCustomerPaymentAllocations).where(and(
+      eq(vehicleCustomerPaymentAllocations.accountId, account.id),
+      isNull(vehicleCustomerPaymentAllocations.reversedAt),
+      isNull(vehicleCustomerPaymentAllocations.reversesAllocationId),
+    ));
+    for (const allocation of active) {
+      await tx.update(vehicleCustomerPaymentAllocations).set({
+        reversedAt: new Date(),
+        reversalReason: reason || "Vehicle sale cancelled",
+      }).where(eq(vehicleCustomerPaymentAllocations.id, allocation.id));
+      await tx.insert(vehicleCustomerPaymentAllocations).values({
+        companyId,
+        accountId: account.id,
+        paymentId: allocation.paymentId,
+        costId: allocation.costId,
+        allocationType: allocation.allocationType,
+        amount: (-Math.abs(Number(allocation.amount || 0))).toFixed(2),
+        reversesAllocationId: allocation.id,
+        reversalReason: reason || "Vehicle sale cancelled",
+        createdBy: userId,
+      });
+    }
+    await tx.update(vehicleCustomerAccounts).set({
+      feeRecognisedAmount: "0.00",
+      feeInvoiceSettledAmount: "0.00",
+      updatedAt: new Date(),
+    }).where(eq(vehicleCustomerAccounts.id, account.id));
+    await refreshCustomerAccountTotals(tx, account.id);
+  }
 
   /**
    * Cancel a sold vehicle and unwind the accounting in one transaction:
@@ -2951,6 +3083,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
               notes: sql`COALESCE(${invoices.notes} || E'\n', '') || ${`Cancelled with vehicle ${v.stockNumber}${body.reason ? `: ${body.reason}` : ""}`}`,
             }).where(and(eq(invoices.id, invoice.id), eq(invoices.companyId, companyId)));
           }
+
+          await unwindAgencyOnCancellation(tx, companyId, v, invoice, body.reason, req.user?.id);
 
           const [updated] = await tx.update(vehicles).set({
             status: "cancelled",
@@ -3347,7 +3481,23 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     const [agreement] = await db.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId));
     // Normalise base receipts to the sale/agreement currency before comparing balances.
     const paid = history.reduce((sum, p) => sum + fromBase(baseAmountOf(p), row.vehicle.saleExchangeRate), 0);
-    res.json({ receiptNumber: `VR-${row.payment.id}`, payment: row.payment, vehicle: row.vehicle, customer: row.customer, agreementNumber: agreement?.agreementNumber ?? null, remainingBalance: round2(Number(agreement?.agreedPrice ?? row.vehicle.salePrice ?? 0) - paid) });
+    const allocationRows = await db
+      .select({ allocation: vehicleCustomerPaymentAllocations, cost: vehicleCosts })
+      .from(vehicleCustomerPaymentAllocations)
+      .leftJoin(vehicleCosts, eq(vehicleCosts.id, vehicleCustomerPaymentAllocations.costId))
+      .where(eq(vehicleCustomerPaymentAllocations.paymentId, paymentId))
+      .orderBy(asc(vehicleCustomerPaymentAllocations.id));
+    const allocations = allocationRows.map((r: any) => ({
+      id: r.allocation.id,
+      allocationType: r.allocation.allocationType,
+      amount: Number(r.allocation.amount),
+      reversed: Boolean(r.allocation.reversedAt),
+      reversesAllocationId: r.allocation.reversesAllocationId,
+      label: r.allocation.allocationType === "fee"
+        ? "Processing fee (Prime Imports revenue)"
+        : `${r.cost?.category ?? "cost"}${r.cost?.description ? ` · ${r.cost.description}` : ""}`,
+    }));
+    res.json({ receiptNumber: `VR-${row.payment.id}`, payment: row.payment, vehicle: row.vehicle, customer: row.customer, agreementNumber: agreement?.agreementNumber ?? null, remainingBalance: round2(Number(agreement?.agreedPrice ?? row.vehicle.salePrice ?? 0) - paid), allocations });
   });
 
   /**

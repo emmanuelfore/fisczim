@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,14 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useSuppliers } from "@/hooks/use-suppliers";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { Car, CircleDollarSign, Mail, MessageCircle, Plus, Search, Ship, TrendingUp, AlertTriangle } from "lucide-react";
+import { Car, ChevronDown, ChevronRight, CircleDollarSign, Mail, MessageCircle, Plus, Search, Ship, TrendingUp, AlertTriangle } from "lucide-react";
 import {
   VEHICLE_STAGES,
   fmtMoney,
   stageLabel,
   useCompanyStaff,
   useVehicleAction,
+  useVehicleCustomerAccount,
   useVehicleReport,
   useVehicles,
 } from "@/hooks/use-vehicles";
@@ -56,6 +57,7 @@ export default function VehiclesPage() {
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState("all");
   const [creating, setCreating] = useState(false);
+  const [expandedBalance, setExpandedBalance] = useState<number | null>(null);
 
   const { data: vehicles = [], isLoading } = useVehicles(companyId, { stage: stage === "all" ? undefined : stage, search: search || undefined });
   const { data: outstanding = [] } = useVehicleReport<any[]>(companyId, "outstanding");
@@ -208,6 +210,7 @@ export default function VehiclesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-8" />
                     <TableHead>Customer</TableHead>
                     <TableHead>Vehicle</TableHead>
                     <TableHead className="text-right">Sale price</TableHead>
@@ -220,37 +223,54 @@ export default function VehiclesPage() {
                 </TableHeader>
                 <TableBody>
                   {outstanding.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="text-center py-12 text-slate-500">No outstanding balances.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center py-12 text-slate-500">No outstanding balances.</TableCell></TableRow>
                   ) : (
-                    outstanding.map((r: any) => (
-                      <TableRow key={r.vehicleId} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/vehicles/${r.vehicleId}`)}>
-                        <TableCell>
-                          <div className="font-medium">{r.customerName}</div>
-                          <div className="text-xs text-slate-500">{r.customerPhone || r.customerEmail}</div>
-                        </TableCell>
-                        <TableCell>{r.stockNumber} · {r.description}</TableCell>
-                        <TableCell className="text-right">{fmtMoney(r.salePrice)}</TableCell>
-                        <TableCell className="text-right">{fmtMoney(r.paid)}</TableCell>
-                        <TableCell className="text-right font-semibold">{fmtMoney(r.balance)}</TableCell>
-                        <TableCell className={`text-right ${r.overdue > 0 ? "text-rose-600 font-semibold" : "text-slate-400"}`}>{r.overdue > 0 ? fmtMoney(r.overdue) : "—"}</TableCell>
-                        <TableCell>
-                          {r.nextDue ? `${r.nextDue.dueDate} · ${fmtMoney(r.nextDue.amount)}` : "—"}
-                          {r.lastReminderAt && <span className="block text-[10px] text-slate-400">reminded {format(new Date(r.lastReminderAt), "d MMM")}</span>}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            id={`remind-${r.vehicleId}`}
-                            disabled={!canRemind || action.isPending || (!r.customerPhone && !r.customerEmail)}
-                            onClick={(e) => { e.stopPropagation(); remind(r); }}
-                          >
-                            {r.customerPhone ? <MessageCircle className="w-4 h-4 mr-1" /> : <Mail className="w-4 h-4 mr-1" />}
-                            Remind
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    outstanding.map((r: any) => {
+                      const expanded = expandedBalance === r.vehicleId;
+                      return (
+                        <Fragment key={r.vehicleId}>
+                          <TableRow className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/vehicles/${r.vehicleId}`)}>
+                            <TableCell>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                aria-label="Toggle customer funding detail"
+                                onClick={(e) => { e.stopPropagation(); setExpandedBalance(expanded ? null : r.vehicleId); }}
+                              >
+                                {expanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                              </Button>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">{r.customerName}</div>
+                              <div className="text-xs text-slate-500">{r.customerPhone || r.customerEmail}</div>
+                            </TableCell>
+                            <TableCell>{r.stockNumber} · {r.description}</TableCell>
+                            <TableCell className="text-right">{fmtMoney(r.salePrice)}</TableCell>
+                            <TableCell className="text-right">{fmtMoney(r.paid)}</TableCell>
+                            <TableCell className="text-right font-semibold">{fmtMoney(r.balance)}</TableCell>
+                            <TableCell className={`text-right ${r.overdue > 0 ? "text-rose-600 font-semibold" : "text-slate-400"}`}>{r.overdue > 0 ? fmtMoney(r.overdue) : "—"}</TableCell>
+                            <TableCell>
+                              {r.nextDue ? `${r.nextDue.dueDate} · ${fmtMoney(r.nextDue.amount)}` : "—"}
+                              {r.lastReminderAt && <span className="block text-[10px] text-slate-400">reminded {format(new Date(r.lastReminderAt), "d MMM")}</span>}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                id={`remind-${r.vehicleId}`}
+                                disabled={!canRemind || action.isPending || (!r.customerPhone && !r.customerEmail)}
+                                onClick={(e) => { e.stopPropagation(); remind(r); }}
+                              >
+                                {r.customerPhone ? <MessageCircle className="w-4 h-4 mr-1" /> : <Mail className="w-4 h-4 mr-1" />}
+                                Remind
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {expanded && <VehicleFundingDetail companyId={companyId} vehicleId={r.vehicleId} />}
+                        </Fragment>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -261,6 +281,35 @@ export default function VehiclesPage() {
 
       <NewVehicleDialog companyId={companyId} open={creating} onOpenChange={setCreating} onCreated={(id) => navigate(`/vehicles/${id}`)} />
     </Layout>
+  );
+}
+
+function VehicleFundingDetail({ companyId, vehicleId }: { companyId: number; vehicleId: number }) {
+  const { data, isLoading } = useVehicleCustomerAccount(companyId, vehicleId);
+  const t = data?.totals;
+  return (
+    <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+      <TableCell />
+      <TableCell colSpan={8}>
+        {isLoading ? (
+          <p className="py-2 text-xs text-slate-400">Loading customer funding…</p>
+        ) : !t ? (
+          <p className="py-2 text-xs text-slate-400">Customer funding detail is unavailable for this vehicle.</p>
+        ) : (
+          <div className="space-y-1.5 py-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Customer funds &amp; supplier obligations</p>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-600">
+              <span>Collected <strong className="text-slate-900">{fmtMoney(t.collected)}</strong></span>
+              <span>Allocated to costs <strong className="text-slate-900">{fmtMoney(t.allocatedToCosts)}</strong></span>
+              <span>Held for suppliers <strong className="text-sky-700">{fmtMoney(t.fundsHeld)}</strong></span>
+              <span>Still owing to suppliers <strong className="text-amber-700">{fmtMoney(t.supplierOutstanding)}</strong></span>
+              <span>Unallocated cash <strong>{fmtMoney(t.unallocatedCollected)}</strong></span>
+            </div>
+            <Link href={`/vehicles/${vehicleId}`} className="inline-block text-xs text-blue-600 hover:underline">Open vehicle →</Link>
+          </div>
+        )}
+      </TableCell>
+    </TableRow>
   );
 }
 

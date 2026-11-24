@@ -1164,6 +1164,23 @@ export default function InvoiceDetailsPage() {
                             const saleRate = Number(inv.exchangeRate || 1) || 1;
                             const sale = inv.currency === "USD" ? Number(inv.total || 0) : (Number(inv.total || 0) / saleRate);
                             const profit = sale - landed;
+                            const isAgency = String(inv.vehicle?.accountingModel || "") === "agent";
+                            if (isAgency) return (
+                              <div className="rounded-xl border border-slate-200 p-4 space-y-2 bg-slate-50/50">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                  <Car className="w-3.5 h-3.5 text-blue-600" />
+                                  Agency arrangement
+                                </p>
+                                <p className="text-xs text-slate-600">
+                                  This invoice covers Prime Imports&apos; processing fee only. Purchase price, shipping, duty and other third-party costs are customer-funded disbursements and are shown on the Vehicle Account Statement / Cost Sheet, not on this invoice total.
+                                </p>
+                                {inv.vehicle?.id && (
+                                  <Link href={`/vehicles/${inv.vehicle.id}`} className="text-[11px] text-blue-600 hover:underline font-semibold">
+                                    Open vehicle statement →
+                                  </Link>
+                                )}
+                              </div>
+                            );
                             return (
                               <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
                                 <div className="flex items-center justify-between">

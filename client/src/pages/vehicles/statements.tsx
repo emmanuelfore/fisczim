@@ -17,13 +17,15 @@ import { Badge } from "@/components/ui/badge";
 import { CustomerStatementPDF } from "@/components/reports/customer-statement-pdf";
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { cn } from "@/lib/utils";
-import { fmtMoney, useVehicles } from "@/hooks/use-vehicles";
+import { fmtMoney, useVehicleCustomerAccount, useVehicles } from "@/hooks/use-vehicles";
 import { useCustomers } from "@/hooks/use-customers";
 import { useCompany } from "@/hooks/use-companies";
 import { format } from "date-fns";
 import { Download, FileText, Loader2, Printer, Search, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
+import { VehicleAccountStatementPDF } from "@/components/vehicles/vehicle-account-statement-pdf";
+import { Link } from "wouter";
 
 /* ── helpers ── */
 function fmt(value: any, decimals = 2): string {
@@ -53,6 +55,111 @@ type VehicleRow = {
   status: string;
   summary?: { sellingPrice?: number; paid?: number; balance?: number; isProjected?: boolean };
 };
+
+function VehicleAllocationRow({ companyId, vehicle }: { companyId: number; vehicle: VehicleRow }) {
+  const { data, isLoading } = useVehicleCustomerAccount(companyId, vehicle.id);
+  const t = data?.totals;
+  return (
+    <div className="rounded-md border border-slate-200 p-2.5 text-xs">
+      <div className="mb-1.5 font-semibold text-slate-800">
+        {vehicle.stockNumber} · {vehicle.year ? `${vehicle.year} ` : ""}{vehicle.make} {vehicle.model}
+      </div>
+      {isLoading ? (
+        <p className="text-slate-400">Loading allocation…</p>
+      ) : !t ? (
+        <p className="text-slate-400">No allocation detail available.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-600">
+          <span>Collected <strong className="text-slate-900">{fmtMoney(t.collected)}</strong></span>
+          <span>Allocated to costs <strong className="text-slate-900">{fmtMoney(t.allocatedToCosts)}</strong></span>
+          <span>Held for suppliers <strong className="text-sky-700">{fmtMoney(t.fundsHeld)}</strong></span>
+          <span>Still owing <strong className="text-amber-700">{fmtMoney(t.supplierOutstanding)}</strong></span>
+          <span>Unallocated cash <strong>{fmtMoney(t.unallocatedCollected)}</strong></span>
+          <span>Fee outstanding <strong>{fmtMoney(t.feeOutstanding)}</strong></span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Customer-facing vehicle account statement, shareable from the statements desk. */
+function VehicleStatementDownload({ companyId, vehicles, company, companyName }: { companyId: number; vehicles: VehicleRow[]; company: any; companyName: string }) {
+  const [vehicleId, setVehicleId] = useState<string>("");
+  const selected = vehicles.find((v) => String(v.id) === vehicleId) ?? vehicles[0];
+  const { data, isLoading } = useVehicleCustomerAccount(companyId, selected?.id ?? 0);
+
+  if (!vehicles.length) return null;
+  return (
+    <Card className="no-print border-slate-200/80 shadow-sm">
+      <CardContent className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Vehicle account statement</p>
+          <p className="text-xs text-slate-500">Cost sheet, funds received and supplier settlements for one vehicle.</p>
+        </div>
+        <Select value={selected ? String(selected.id) : ""} onValueChange={setVehicleId}>
+          <SelectTrigger className="h-9">
+            <SelectValue placeholder="Choose a vehicle…" />
+          </SelectTrigger>
+          <SelectContent>
+            {vehicles.map((v) => (
+              <SelectItem key={v.id} value={String(v.id)}>
+                {v.stockNumber} · {v.make} {v.model}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {selected && data && !isLoading ? (
+          <div className="flex gap-2">
+            <PDFDownloadLink
+              document={
+                <VehicleAccountStatementPDF
+                  data={data}
+                  vehicle={data.vehicle || selected}
+                  company={{ ...(company || {}), tradingName: companyName || company?.tradingName }}
+                />
+              }
+              fileName={`Vehicle-Account-Statement-${selected.stockNumber}.pdf`}
+              className="flex-1"
+            >
+              {({ loading, error }) => (
+                <Button variant="default" disabled={loading} className="w-full gap-2" title={error ? String(error) : undefined}>
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {error ? "PDF error" : "Download vehicle statement"}
+                </Button>
+              )}
+            </PDFDownloadLink>
+            <Link href={`/vehicles/${selected.id}`} className="flex-1">
+              <Button variant="outline" className="w-full gap-2">
+                <FileText className="h-4 w-4" /> Open vehicle
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">{isLoading ? "Preparing statement…" : "Select a vehicle to prepare its statement."}</p>
+        )}
+        <p className="text-[10px] leading-snug text-slate-400">
+          Agency deals show third-party costs as customer-funded disbursements; Prime Imports&apos; revenue is the processing fee only.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function VehicleAllocationSummary({ companyId, vehicles }: { companyId: number; vehicles: VehicleRow[] }) {
+  return (
+    <Card className="no-print border-slate-200/80 shadow-sm">
+      <CardContent className="space-y-2 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer funds &amp; supplier obligations by vehicle</p>
+        <div className="grid gap-2 md:grid-cols-2">
+          {vehicles.map((v) => <VehicleAllocationRow key={v.id} companyId={companyId} vehicle={v} />)}
+        </div>
+        <p className="text-[11px] text-slate-400">
+          These amounts are shown for reference only. The statement above remains the invoice-and-payment ledger view.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function VehicleStatementsPage() {
   const { activeCompanyId } = useActiveCompany();
@@ -281,6 +388,15 @@ export default function VehicleStatementsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {selectedCustomerId && selectedCustomerVehicles.length > 0 && (
+            <VehicleStatementDownload
+              companyId={activeCompanyId || 0}
+              vehicles={selectedCustomerVehicles}
+              company={company}
+              companyName={companyName}
+            />
+          )}
         </div>
 
         {/* ── Right: statement ── */}
@@ -325,6 +441,10 @@ export default function VehicleStatementsPage() {
                     ))}
                   </CardContent>
                 </Card>
+              )}
+
+              {selectedCustomerVehicles.length > 0 && (
+                <VehicleAllocationSummary companyId={activeCompanyId || 0} vehicles={selectedCustomerVehicles} />
               )}
 
               <div

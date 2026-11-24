@@ -263,6 +263,10 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
     // Vehicle cost lines are informational only: they are shown on the invoice
     // document but never added to the invoice items, subtotal, VAT or total.
     const vehicleCostLines = (invoice.vehicleCosts || []).filter((c: any) => c.status !== "cancelled");
+    // On an agency deal the invoice is only for the processing fee. Third-party
+    // cost lines belong on the Vehicle Account Statement, never on this invoice.
+    const isAgencyFeeInvoice = String(invoice.accountingModel || invoice.vehicle?.accountingModel || "") === "agent";
+    const shownVehicleCostLines = isAgencyFeeInvoice ? [] : vehicleCostLines;
     const hasDesignerPartnership = designerSettings.showPartnership;
     const partner = (invoice.partnerSnapshot || (hasDesignerPartnership ? {
         id: 1,
@@ -613,7 +617,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         );
                     })}
 
-                    {vehicleCostLines.map((cost: any, i: number) => {
+                    {shownVehicleCostLines.map((cost: any, i: number) => {
                         const label = String(cost.category || "Other").replace(/_/g, " ");
                         const amount = Number(cost.baseAmount ?? cost.amount ?? 0);
                         const description = [label, cost.description].filter(Boolean).join(" — ");
@@ -745,7 +749,16 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     </View>
                 </View>
 
-                {vehicleCostLines.length ? (() => {
+                {isAgencyFeeInvoice && vehicleCostLines.length ? (
+                    <View style={{ marginTop: 14, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: "uppercase" }}>Agency arrangement</Text>
+                        <Text style={{ fontSize: 7, color: "#64748b", lineHeight: 1.5 }}>
+                            This invoice covers Prime Imports&apos; processing fee only. Purchase price, shipping, duty and other third-party costs are funded by the customer and reported on the separate Vehicle Account Statement / Cost Sheet. Those amounts are not included in this invoice total.
+                        </Text>
+                    </View>
+                ) : null}
+
+                {!isAgencyFeeInvoice && vehicleCostLines.length ? (() => {
                     const landed = vehicleCostLines.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
                     const saleRate = Number(invoice.exchangeRate || 1) || 1;
                     const sale = invoice.currency === "USD" ? Number(invoice.total || 0) : (Number(invoice.total || 0) / saleRate);

@@ -293,6 +293,7 @@ export function useVehicleAction(companyId: number) {
       qc.invalidateQueries({ queryKey: ["vehicle", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicle-customer-account", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicle-agreement", companyId] });
+      qc.invalidateQueries({ queryKey: ["vehicle-agreements", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicles-report", companyId] });
       qc.invalidateQueries({ queryKey: ["/api/invoices"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });

@@ -196,32 +196,32 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   }
 
   /** Reject customer/enquiry ids that belong to another company. */
-  async function assertOwnedRefs(companyId: number, body: { customerId?: number | null; enquiryId?: number | null; invoiceId?: number | null; consignmentId?: number | null; supplierId?: number | null; salespersonId?: string | null }) {
+  async function assertOwnedRefs(companyId: number, body: { customerId?: number | null; enquiryId?: number | null; invoiceId?: number | null; consignmentId?: number | null; supplierId?: number | null; salespersonId?: string | null }, executor: Pick<typeof db, "select"> = db) {
     if (body.invoiceId) {
-      const [i] = await db.select({ id: invoices.id }).from(invoices).where(and(eq(invoices.id, body.invoiceId), eq(invoices.companyId, companyId)));
+      const [i] = await executor.select({ id: invoices.id }).from(invoices).where(and(eq(invoices.id, body.invoiceId), eq(invoices.companyId, companyId)));
       if (!i) return "Invoice not found";
     }
     if (body.consignmentId) {
-      const [c] = await db.select({ id: consignments.id }).from(consignments).where(and(eq(consignments.id, body.consignmentId), eq(consignments.companyId, companyId)));
+      const [c] = await executor.select({ id: consignments.id }).from(consignments).where(and(eq(consignments.id, body.consignmentId), eq(consignments.companyId, companyId)));
       if (!c) return "Consignment not found";
     }
     if (body.supplierId) {
-      const [s] = await db.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, body.supplierId), eq(suppliers.companyId, companyId)));
+      const [s] = await executor.select({ id: suppliers.id }).from(suppliers).where(and(eq(suppliers.id, body.supplierId), eq(suppliers.companyId, companyId)));
       if (!s) return "Supplier not found";
     }
     if (body.salespersonId) {
-      const [u] = await db
+      const [u] = await executor
         .select({ id: users.id })
         .from(users)
         .where(and(eq(users.id, body.salespersonId), sql`EXISTS (SELECT 1 FROM company_users cu WHERE cu.user_id = ${body.salespersonId} AND cu.company_id = ${companyId})`));
       if (!u) return "Staff member not found";
     }
     if (body.customerId) {
-      const [c] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, body.customerId), eq(customers.companyId, companyId)));
+      const [c] = await executor.select({ id: customers.id }).from(customers).where(and(eq(customers.id, body.customerId), eq(customers.companyId, companyId)));
       if (!c) return "Customer not found";
     }
     if (body.enquiryId) {
-      const [e] = await db.select({ id: enquiries.id }).from(enquiries).where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)));
+      const [e] = await executor.select({ id: enquiries.id }).from(enquiries).where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)));
       if (!e) return "Enquiry not found";
     }
     return null;
@@ -1335,11 +1335,6 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   router.post("/companies/:companyId/vehicles/:id/reserve", ...need("vehicles.manage"), async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const v = await loadVehicle(companyId, parseInt(req.params.id));
-      if (!v) return res.status(404).json({ error: "Vehicle not found" });
-      if (v.invoiceId || ["sold", "delivered", "cancelled"].includes(v.status)) {
-        return res.status(409).json({ error: "This vehicle is already sold, delivered or cancelled and cannot be reserved" });
-      }
 
       const body = z
         .object({
@@ -1349,23 +1344,29 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           saleCurrency: z.string().min(1).max(8).optional(),
           saleExchangeRate: z.coerce.number().positive().optional(),
           salespersonId: z.string().uuid().nullable().optional(),
+          amendReservation: z.boolean().default(false),
         })
         .parse(req.body ?? {});
 
-      const enquiry = body.enquiryId
-        ? await db
-            .select()
-            .from(enquiries)
-            .where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)))
-            .then((r) => r[0] ?? null)
-        : null;
-      if (body.enquiryId && !enquiry) return res.status(404).json({ error: "Enquiry not found" });
-      if (!enquiry && !body.customerId && !v.customerId) {
-        return res.status(400).json({ error: "Choose a customer or a CRM enquiry to reserve this vehicle" });
-      }
-
       const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, parseInt(req.params.id));
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (v.invoiceId || v.status !== (body.amendReservation ? "reserved" : "available")) {
+          throw Object.assign(new Error("The vehicle deal has changed. Reload it before saving."), { status: 409 });
+        }
+        const [enquiry] = body.enquiryId
+          ? await tx.select().from(enquiries)
+              .where(and(eq(enquiries.id, body.enquiryId), eq(enquiries.companyId, companyId)))
+              .for("update")
+          : [];
+        if (body.enquiryId && !enquiry) throw Object.assign(new Error("Enquiry not found"), { status: 404 });
+
         let customerId = body.customerId ?? v.customerId ?? enquiry?.customerId ?? null;
+        const salespersonId = body.salespersonId !== undefined
+          ? body.salespersonId
+          : enquiry?.assignedTo ?? v.salespersonId ?? null;
+        const refError = await assertOwnedRefs(companyId, { customerId, salespersonId }, tx);
+        if (refError) throw new Error(refError);
         let customerCreated = false;
         if (!customerId && enquiry) {
           const ensured = await ensureEnquiryCustomer(tx, companyId, enquiry);
@@ -1374,17 +1375,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         }
         if (!customerId) throw new Error("A customer is required to reserve this vehicle");
 
-        const salespersonId = body.salespersonId !== undefined
-          ? body.salespersonId
-          : enquiry?.assignedTo ?? v.salespersonId ?? null;
         const salePrice = body.salePrice ?? Number(v.salePrice ?? v.targetPrice ?? 0);
         const saleCurrency = body.saleCurrency ?? v.saleCurrency ?? "USD";
         const saleExchangeRate = body.saleExchangeRate ?? Number(v.saleExchangeRate ?? 1);
 
-        // Conditional UPDATE: only change status to reserved if currently
-        // available. A vehicle already reserved may have its deal terms amended
-        // before invoicing, but the state transition itself stays conditional so
-        // two salespeople cannot reserve the same unit.
         const [updated] = await tx
           .update(vehicles)
           .set({
@@ -1397,15 +1391,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             saleExchangeRate: saleExchangeRate.toFixed(6),
             updatedAt: new Date(),
           })
-          .where(and(
-            eq(vehicles.id, v.id),
-            inArray(vehicles.status, ["available", "reserved"]),
-          ))
+          .where(eq(vehicles.id, v.id))
           .returning();
-
-        if (!updated) {
-          throw new Error("Vehicle is no longer available and cannot be reserved");
-        }
 
         if (enquiry) {
           await tx
@@ -1433,7 +1420,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-      res.status(400).json({ error: error.message || "Failed to reserve vehicle" });
+      res.status(error.status || 400).json({ error: error.message || "Failed to reserve vehicle" });
     }
   });
 
@@ -1990,11 +1977,68 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
   // ── import tracking ────────────────────────────────────────────────────────
 
+  async function completeHandover(
+    tx: any,
+    companyId: number,
+    vehicle: typeof vehicles.$inferSelect,
+    details: { notes?: string | null; eventDate?: Date; notifyCustomer?: boolean; notifiedVia?: string | null; createdBy?: string },
+    requireAgreement = false,
+  ) {
+    const [existing] = await tx.select().from(vehicleSalesAgreements).where(and(
+      eq(vehicleSalesAgreements.companyId, companyId),
+      eq(vehicleSalesAgreements.vehicleId, vehicle.id),
+    ));
+    if (requireAgreement && !existing) throw Object.assign(new Error("Sales agreement not found"), { status: 404 });
+    if (vehicle.status === "cancelled" || existing?.status === "cancelled") {
+      throw Object.assign(new Error("A cancelled deal cannot be handed over"), { status: 409 });
+    }
+    // Agency services can finish before the processing-fee invoice is raised.
+    if ((!existing || !isAgencyVehicle(vehicle)) && !vehicle.invoiceId && vehicle.status !== "delivered") {
+      throw Object.assign(new Error("Create or attach an invoice before marking the vehicle as delivered"), { status: 400 });
+    }
+
+    let agreement = existing;
+    if (existing && existing.status !== "completed") {
+      [agreement] = await tx.update(vehicleSalesAgreements).set({
+        handoverAt: details.eventDate ?? new Date(),
+        handoverBy: details.createdBy,
+        handoverNotes: details.notes ?? null,
+        status: "completed",
+        updatedAt: new Date(),
+      }).where(eq(vehicleSalesAgreements.id, existing.id)).returning();
+      if (isAgencyVehicle(agreement) && agreement.feeRecognition === "on_handover") {
+        const journal = await recogniseAgencyFee(tx, companyId, agreement, details.createdBy);
+        if (journal) agreement.feeRecognitionJournalEntryId = journal.id;
+      }
+    }
+
+    const [priorEvent] = vehicle.stage === "delivered" && vehicle.status === "delivered"
+      ? await tx.select().from(vehicleStageEvents).where(and(
+          eq(vehicleStageEvents.vehicleId, vehicle.id),
+          eq(vehicleStageEvents.stage, "delivered"),
+        )).orderBy(desc(vehicleStageEvents.id)).limit(1)
+      : [];
+    if (priorEvent) return { agreement, event: priorEvent };
+
+    const notified = details.notifyCustomer && details.notifiedVia;
+    const [event] = await tx.insert(vehicleStageEvents).values({
+      vehicleId: vehicle.id,
+      stage: "delivered",
+      eventDate: agreement?.handoverAt ?? details.eventDate ?? new Date(),
+      notes: details.notes ?? agreement?.handoverNotes ?? null,
+      notifyCustomer: !!details.notifyCustomer,
+      notifiedAt: notified ? new Date() : null,
+      notifiedVia: notified ? details.notifiedVia : null,
+      createdBy: details.createdBy,
+    }).returning();
+    await tx.update(vehicles).set({ stage: "delivered", status: "delivered", updatedAt: new Date() })
+      .where(eq(vehicles.id, vehicle.id));
+    return { agreement, event };
+  }
+
   router.post("/companies/:companyId/vehicles/:id/stage", ...need("vehicles.manage"), async (req: any, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const v = await loadVehicle(companyId, parseInt(req.params.id));
-      if (!v) return res.status(404).json({ error: "Vehicle not found" });
       const body = z
         .object({
           stage: z.enum(VEHICLE_STAGES),
@@ -2005,13 +2049,16 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         })
         .parse(req.body);
       
-      // Require invoice before marking as delivered
-      if (body.stage === "delivered" && !v.invoiceId) {
-        return res.status(400).json({ error: "Create or attach an invoice before marking the vehicle as delivered" });
-      }
-      
       const notified = body.notifyCustomer && body.notifiedVia ? new Date() : null;
       const event = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, parseInt(req.params.id));
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (body.stage === "delivered") {
+          return (await completeHandover(tx, companyId, v, { ...body, createdBy: req.user?.id })).event;
+        }
+        if (v.status === "delivered") {
+          throw Object.assign(new Error("Import tracking is complete for this vehicle"), { status: 409 });
+        }
         const [saved] = await tx
           .insert(vehicleStageEvents)
           .values({
@@ -2025,16 +2072,16 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             createdBy: req.user?.id,
           })
           .returning();
-        const statusPatch = body.stage === "delivered" ? { status: "delivered" } : {};
-        await tx.update(vehicles).set({ stage: body.stage, ...statusPatch, updatedAt: new Date() }).where(eq(vehicles.id, v.id));
+        await tx.update(vehicles).set({ stage: body.stage, updatedAt: new Date() }).where(eq(vehicles.id, v.id));
         // A stage move only records the stage. The enquiry is marked won when
         // the vehicle is actually invoiced, not when a card is dragged.
         return saved;
       });
       res.status(201).json(event);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      if (error.status) return res.status(error.status).json({ error: error.message });
       res.status(500).json({ error: "Failed to update stage" });
     }
   });
@@ -3394,6 +3441,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     accountingModel: z.enum(["agent", "principal"]).optional(), processingFeeAmount: z.coerce.number().min(0).optional(), feeRecognition: z.enum(["on_collection", "on_handover"]).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), estimatedDelivery: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), notes: z.string().max(4000).nullable().optional(), termsText: z.string().max(12000).nullable().optional(),
   });
+  function agreementCollected(receipts: Pick<typeof payments.$inferSelect, "amount" | "exchangeRate">[], exchangeRate: string | null) {
+    return round2(receipts.reduce((sum, receipt) => sum + fromBase(baseAmountOf(receipt), exchangeRate), 0));
+  }
+
   async function agreementPayload(companyId: number, vehicleId: number) {
     const [agreement] = await db.select().from(vehicleSalesAgreements).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicleId)));
     if (!agreement) return null;
@@ -3402,7 +3453,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       db.select().from(payments).where(and(eq(payments.companyId, companyId), eq(payments.vehicleId, vehicleId))).orderBy(asc(payments.paymentDate), asc(payments.id)),
     ]);
     // Agreement schedules are in the agreement currency: convert base receipts back.
-    const collected = round2(history.reduce((s, p) => s + fromBase(baseAmountOf(p), agreement.exchangeRate), 0));
+    const collected = agreementCollected(history, agreement.exchangeRate);
     return { agreement, schedule, payments: history, collected };
   }
   router.get("/companies/:companyId/vehicles/:id/agreement", ...need("vehicles.view"), async (req: any, res) => {
@@ -3415,7 +3466,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const result = await db.transaction(async (tx: any) => {
         const v = await lockedVehicle(tx, companyId, vehicleId); if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
         if (v.customerId && body.customerId && v.customerId !== body.customerId) throw Object.assign(new Error("Agreement customer must match the vehicle customer"), { status: 400 });
-        const customerId = body.customerId || v.customerId; if (!customerId) throw Object.assign(new Error("Assign a customer first"), { status: 400 });
+        if (v.invoiceId || v.cogsJournalEntryId || ["sold", "delivered", "cancelled"].includes(v.status)) {
+          throw Object.assign(new Error("Agreement terms are locked after invoicing, posting COGS, or closing the vehicle deal"), { status: 409 });
+        }
+        const customerId = body.customerId || v.customerId;
+        if (!customerId) throw Object.assign(new Error("Assign a customer first"), { status: 400 });
+        const refError = await assertOwnedRefs(companyId, { customerId, salespersonId: body.salespersonId ?? v.salespersonId }, tx);
+        if (refError) throw Object.assign(new Error(refError), { status: 400 });
         const terms = { ...body, depositAmount: body.depositAmount, agreedPrice: body.agreedPrice }; const plan = agreementPlan(terms);
         let [existing] = await tx.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId)).for("update");
         if (existing && existing.status !== "draft") throw Object.assign(new Error("Only draft agreements can be replaced"), { status: 409 });
@@ -3459,15 +3516,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
       const notes = z.object({ notes: z.string().max(4000).nullable().optional() }).parse(req.body ?? {});
       const agreement = await db.transaction(async (tx: any) => {
-        const [updated] = await tx.update(vehicleSalesAgreements).set({ handoverAt: new Date(), handoverBy: req.user?.id, handoverNotes: notes.notes ?? null, status: "completed", updatedAt: new Date() }).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicleId))).returning();
-        if (!updated) throw Object.assign(new Error("Sales agreement not found"), { status: 404 });
-        await tx.update(vehicles).set({ status: "delivered", updatedAt: new Date() }).where(eq(vehicles.id, vehicleId));
-        if (isAgencyVehicle(updated) && updated.feeRecognition === "on_handover") {
-          // Revenue is earned at handover whether the fee invoice was raised
-          // before or after it; the invoice only parks the fee in deferred income.
-          await recogniseAgencyFee(tx, companyId, updated, req.user?.id);
-        }
-        return updated;
+        const v = await lockedVehicle(tx, companyId, vehicleId);
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        const completed = await completeHandover(tx, companyId, v, { ...notes, createdBy: req.user?.id }, true);
+        return completed.agreement;
       });
       res.json({ agreement });
     } catch (error: any) {
@@ -3477,9 +3529,27 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   });
   router.get("/companies/:companyId/agreements", ...need("vehicles.view"), async (req: any, res) => {
     const companyId = Number(req.params.companyId), status = req.query.status as string | undefined;
-    const rows = await db.select({ agreement: vehicleSalesAgreements, vehicle: vehicles, customer: customers }).from(vehicleSalesAgreements).innerJoin(vehicles, eq(vehicles.id, vehicleSalesAgreements.vehicleId)).leftJoin(customers, eq(customers.id, vehicleSalesAgreements.customerId)).where(and(eq(vehicleSalesAgreements.companyId, companyId), status ? eq(vehicleSalesAgreements.status, status) : undefined));
-    const ids = rows.map(r => r.vehicle.id); const paidRows = ids.length ? await db.select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} / NULLIF(COALESCE(${payments.exchangeRate}, 1), 0)), 0)` }).from(payments).where(inArray(payments.vehicleId, ids)).groupBy(payments.vehicleId) : [];
-    const paid = new Map(paidRows.map(p => [p.vehicleId, Number(p.total)])); res.json(rows.map(r => ({ ...r, collected: paid.get(r.vehicle.id) || 0, balance: round2(Number(r.agreement.agreedPrice) - (paid.get(r.vehicle.id) || 0)) })));
+    const rows = await db.select({ agreement: vehicleSalesAgreements, vehicle: vehicles, customer: customers })
+      .from(vehicleSalesAgreements)
+      .innerJoin(vehicles, and(eq(vehicles.id, vehicleSalesAgreements.vehicleId), eq(vehicles.companyId, companyId)))
+      .leftJoin(customers, and(eq(customers.id, vehicleSalesAgreements.customerId), eq(customers.companyId, companyId)))
+      .where(and(eq(vehicleSalesAgreements.companyId, companyId), status ? eq(vehicleSalesAgreements.status, status) : undefined));
+    const ids = rows.map(row => row.vehicle.id);
+    const receipts = ids.length ? await db.select({
+      vehicleId: payments.vehicleId,
+      amount: payments.amount,
+      exchangeRate: payments.exchangeRate,
+    }).from(payments).where(and(eq(payments.companyId, companyId), inArray(payments.vehicleId, ids))) : [];
+    const receiptsByVehicle = new Map<number | null, typeof receipts>();
+    for (const receipt of receipts) {
+      const group = receiptsByVehicle.get(receipt.vehicleId);
+      if (group) group.push(receipt);
+      else receiptsByVehicle.set(receipt.vehicleId, [receipt]);
+    }
+    res.json(rows.map(row => {
+      const collected = agreementCollected(receiptsByVehicle.get(row.vehicle.id) ?? [], row.agreement.exchangeRate);
+      return { ...row, collected, balance: round2(Number(row.agreement.agreedPrice) - collected) };
+    }));
   });
   router.get("/companies/:companyId/vehicles/overdue-schedule", ...need("vehicles.view"), async (req: any, res) => { const rows = await db.select({ count: sql<number>`count(*)` }).from(vehiclePaymentSchedules).innerJoin(vehicles, eq(vehicles.id, vehiclePaymentSchedules.vehicleId)).where(and(eq(vehicles.companyId, Number(req.params.companyId)), eq(vehiclePaymentSchedules.status, "overdue"))); res.json({ count: Number(rows[0]?.count || 0) }); });
   router.get("/companies/:companyId/vehicles/:id/payments/:paymentId/receipt", ...need("vehicles.view"), async (req: any, res) => {

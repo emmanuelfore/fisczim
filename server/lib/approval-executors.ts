@@ -120,7 +120,7 @@ async function finalizeQuotation(companyId: number, payload: Payload, referenceI
   if (referenceId) {
     const [updated] = await db.update(quotations)
       .set({ status: "approved" })
-      .where(and(eq(quotations.id, Number(referenceId)), eq(quotations.companyId, companyId)))
+      .where(and(eq(quotations.id, Number(referenceId)), eq(quotations.companyId, companyId), eq(quotations.status, "draft")))
       .returning();
     if (!updated) throw new Error("Quotation not found");
     return { quotationId: updated.id, quotationNumber: updated.quotationNumber, message: "Quotation approved" };
@@ -132,14 +132,15 @@ async function finalizeQuotation(companyId: number, payload: Payload, referenceI
   // at capture, then let the validated dimensions override any payload values.
   const analytics = await resolveInvoiceAnalytics(companyId, data as any, items as any);
   const quotation = await storage.createQuotation({
-    ...insertQuotationSchema.parse({ ...data, companyId, ...(analytics || {}), locationId: data.locationId ?? null }),
+    ...insertQuotationSchema.parse({ ...data, companyId, ...(analytics || {}), locationId: data.locationId ?? null, status: "approved" }),
     items: items.map((item) => insertQuotationItemSchema.parse(item)),
   } as any);
   return { quotationId: quotation.id, quotationNumber: quotation.quotationNumber, message: "Quotation created" };
 }
 
 async function finalizeSalesOrder(companyId: number, payload: Payload, referenceId?: string, userId?: string) {
-  if (referenceId) {
+  const quotationId = Number(payload.sourceQuotationId) || null;
+  if (referenceId && !quotationId) {
     const [updated] = await db.update(salesOrders)
       .set({
         status: "confirmed",
@@ -166,8 +167,20 @@ async function finalizeSalesOrder(companyId: number, payload: Payload, reference
     await storage.assertCustomerCreditWithinLimit(companyId, orderCustomerId!, orderTotal);
   }
   const created = await db.transaction(async (tx) => {
+    if (quotationId) {
+      const [quote] = await tx.select().from(quotations)
+        .where(and(eq(quotations.id, quotationId), eq(quotations.companyId, companyId))).for("update");
+      if (!quote || !["approved", "accepted"].includes(quote.status || "")) {
+        throw new Error("Quotation is no longer available for conversion");
+      }
+      const existing = await tx.query.salesOrders.findFirst({
+        where: and(eq(salesOrders.companyId, companyId), eq(salesOrders.quotationId, quotationId)),
+      });
+      if (existing) return existing;
+    }
     const [order] = await tx.insert(salesOrders).values({
       ...orderData,
+      quotationId,
       ...(analytics || {}),
       companyId,
       locationId: orderData.locationId ?? null,
@@ -180,58 +193,82 @@ async function finalizeSalesOrder(companyId: number, payload: Payload, reference
     if (items.length) {
       await tx.insert(salesOrderItems).values(items.map((item) => ({ ...item, salesOrderId: order.id })) as any);
     }
+    if (quotationId) {
+      await tx.update(quotations).set({ status: "accepted", convertedAt: new Date(), salesOrderId: order.id })
+        .where(and(eq(quotations.id, quotationId), eq(quotations.companyId, companyId)));
+    }
     return order;
   });
   return { salesOrderId: created.id, orderNumber: created.orderNumber, message: "Sales order created" };
 }
 
-async function markRequisitionConverted(
-  companyId: number,
-  requisitionId: unknown,
-  purchaseOrderId: number,
-) {
-  const id = Number(requisitionId);
-  if (!Number.isInteger(id) || id <= 0) return;
-  await db.update(purchaseRequisitions)
-    .set({ status: "CONVERTED", purchaseOrderId, updatedAt: new Date() })
-    .where(and(eq(purchaseRequisitions.id, id), eq(purchaseRequisitions.companyId, companyId)));
-}
-
 async function finalizePurchaseOrder(companyId: number, payload: Payload, referenceId?: string, userId?: string) {
-  // A requisition-originated PO carries a symbolic reference id so the approval
-  // inbox can link it back; only a numeric reference means an existing PO is
-  // being approved after the fact.
   const purchaseOrderId = Number(referenceId);
-  if (referenceId && Number.isInteger(purchaseOrderId) && purchaseOrderId > 0) {
-    const [updated] = await db.update(purchaseOrders)
-      .set({ status: "SENT", updatedAt: new Date() })
-      .where(and(eq(purchaseOrders.id, purchaseOrderId), eq(purchaseOrders.companyId, companyId)))
-      .returning();
-    if (!updated) throw new Error("Purchase order not found");
-    await markRequisitionConverted(companyId, payload.requisitionId, updated.id);
-    return { purchaseOrderId: updated.id, poNumber: updated.poNumber, message: "Purchase order approved" };
+  const requisitionId = payload.requisitionId == null ? null : Number(payload.requisitionId);
+  if (requisitionId !== null && (!Number.isInteger(requisitionId) || requisitionId <= 0)) {
+    throw new Error("Invalid purchase requisition reference");
   }
 
-  const data = obj(payload.purchaseOrderData, "purchaseOrderData");
-  const items = arr(payload.items, "items");
-  const analytics = await requireDepartmentalDimensions(companyId, data);
-  const created = await db.transaction(async (tx) => {
-    const [order] = await tx.insert(purchaseOrders).values(insertPurchaseOrderSchema.parse({
-      ...data,
-      ...(analytics || {}),
-      companyId,
-      createdBy: userId,
-      status: "SENT",
-      poNumber: String(data.poNumber || `PO-${Date.now()}`),
-    })).returning();
-    await tx.insert(purchaseOrderItems).values(items.map((item) => insertPurchaseOrderItemSchema.parse({
-      ...item,
-      purchaseOrderId: order.id,
-    })));
-    return order;
+  const existingOrder = Number.isInteger(purchaseOrderId) && purchaseOrderId > 0;
+  const data = existingOrder ? null : obj(payload.purchaseOrderData, "purchaseOrderData");
+  const items = data ? arr(payload.items, "items") : [];
+  const analytics = data ? await requireDepartmentalDimensions(companyId, data) : null;
+
+  const order = await db.transaction(async (tx) => {
+    if (requisitionId !== null) {
+      const [requisition] = await tx.select().from(purchaseRequisitions)
+        .where(and(eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId)))
+        .for("update");
+      if (!requisition) throw new Error("Purchase requisition not found");
+      if (requisition.purchaseOrderId) {
+        const [linked] = await tx.select().from(purchaseOrders)
+          .where(and(eq(purchaseOrders.id, requisition.purchaseOrderId), eq(purchaseOrders.companyId, companyId)));
+        if (!linked) throw new Error("The requisition's purchase order could not be found");
+        return linked;
+      }
+      if (!["QUOTE_SELECTED", "PO_PENDING_APPROVAL"].includes(requisition.status) ||
+          (payload.selectedQuoteId != null && Number(payload.selectedQuoteId) !== requisition.selectedQuoteId)) {
+        throw new Error("The requisition or selected quote has changed since approval was requested");
+      }
+    }
+
+    let order: typeof purchaseOrders.$inferSelect | undefined;
+    if (data) {
+      [order] = await tx.insert(purchaseOrders).values(insertPurchaseOrderSchema.parse({
+        ...data,
+        ...(analytics || {}),
+        companyId,
+        createdBy: userId,
+        status: "SENT",
+        expectedDate: dateOrNull(data.expectedDate),
+        poNumber: String(data.poNumber || "PO-" + Date.now()),
+      })).returning();
+      await tx.insert(purchaseOrderItems).values(items.map(item => insertPurchaseOrderItemSchema.parse({
+        ...item,
+        purchaseOrderId: order!.id,
+      })));
+    } else {
+      const [current] = await tx.select().from(purchaseOrders)
+        .where(and(eq(purchaseOrders.id, purchaseOrderId), eq(purchaseOrders.companyId, companyId)))
+        .for("update");
+      if (!current || !["DRAFT", "SENT"].includes(current.status)) {
+        throw new Error("Purchase order is no longer available for approval");
+      }
+      order = current;
+      if (current.status === "DRAFT") {
+        [order] = await tx.update(purchaseOrders).set({ status: "SENT", updatedAt: new Date() })
+          .where(and(eq(purchaseOrders.id, purchaseOrderId), eq(purchaseOrders.companyId, companyId))).returning();
+      }
+    }
+
+    if (requisitionId !== null) {
+      await tx.update(purchaseRequisitions)
+        .set({ status: "CONVERTED", purchaseOrderId: order!.id, updatedAt: new Date() })
+        .where(and(eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId)));
+    }
+    return order!;
   });
-  await markRequisitionConverted(companyId, payload.requisitionId, created.id);
-  return { purchaseOrderId: created.id, poNumber: created.poNumber, message: "Purchase order created" };
+  return { purchaseOrderId: order.id, poNumber: order.poNumber, message: "Purchase order approved" };
 }
 
 async function registerSupplier(companyId: number, payload: Payload) {
@@ -373,7 +410,7 @@ export async function createInvoiceFromApproval(
   }
 
   const analytics = await requireDepartmentalDimensions(companyId, data);
-  const invoice = await storage.createInvoice({
+  const invoiceData = {
     ...data,
     ...(analytics || {}),
     companyId,
@@ -383,25 +420,23 @@ export async function createInvoiceFromApproval(
     issueDate: dateOrNull(data.issueDate) || new Date(),
     dueDate: dateOrNull(data.dueDate) || new Date(),
     items,
-  } as any);
+  } as any;
 
+  const quotationId = Number(payload.quotationId ?? (payload.referenceType === "quotation_conversion" ? payload.referenceId : null));
+  const invoice = quotationId > 0
+    ? await db.transaction(async (tx) => {
+        const [quote] = await tx.select().from(quotations)
+          .where(and(eq(quotations.id, quotationId), eq(quotations.companyId, companyId))).for("update");
+        if (!quote || quote.salesOrderId || !["approved", "accepted"].includes(quote.status || "")) {
+          throw new Error("Quotation has already been converted or is unavailable");
+        }
+        const created = await storage.createInvoice(invoiceData, tx);
+        await tx.update(quotations).set({ status: "invoiced", convertedAt: new Date() })
+          .where(and(eq(quotations.id, quotationId), eq(quotations.companyId, companyId)));
+        return created;
+      })
+    : await storage.createInvoice(invoiceData);
   await enqueueApprovedInvoiceFiscalization(invoice.id, companyId, userId);
-
-  // A quotation conversion carries its quote in the approval payload. The
-  // quote must only move to "invoiced" when the invoice actually exists,
-  // whether that happens now or after an approver releases the request.
-  if (String(payload.referenceType || "") === "quotation_conversion" || payload.quotationId != null) {
-    const quotationId = Number(payload.quotationId ?? payload.referenceId);
-    if (Number.isInteger(quotationId) && quotationId > 0) {
-      await db.update(quotations)
-        .set({ status: "invoiced", convertedAt: new Date() })
-        .where(and(
-          eq(quotations.id, quotationId),
-          eq(quotations.companyId, companyId),
-          ne(quotations.status, "invoiced"),
-        ));
-    }
-  }
 
   return {
     invoiceId: invoice.id,

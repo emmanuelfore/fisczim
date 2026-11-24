@@ -85,7 +85,9 @@ export default function PurchaseOrderDetailsPage() {
     updateStatus(
       { id: order.id, status },
       {
-        onSuccess: () => toast({ title: "Status updated", description: `${order.poNumber} marked as ${status}` }),
+        onSuccess: result => toast(result.approval
+          ? { title: "Approval requested", description: result.message }
+          : { title: "Status updated", description: order.poNumber + " marked as " + status }),
         onError: (error: any) => toast({ title: "Update failed", description: error.message, variant: "destructive" }),
       },
     );
@@ -296,7 +298,7 @@ export default function PurchaseOrderDetailsPage() {
                   Receive Goods (GRV)
                 </Button>
               )}
-              {["DRAFT", "SENT"].includes(order.status) && (
+              {order.status === "DRAFT" && (
                 <Button 
                   variant="outline"
                   onClick={() => setLocation(`/inventory/purchase-orders/${order.id}?edit=true`)} 

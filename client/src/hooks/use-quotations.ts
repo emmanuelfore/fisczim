@@ -52,7 +52,7 @@ export function useCreateQuotation() {
                 toast({ title: "Quotation Submitted", description: data.message || "An approver must authorise this quotation." });
                 return;
             }
-            toast({ title: "Quotation Created", description: `Quotation ${data.quotationNumber} saved as draft.` });
+            toast({ title: "Quotation Created", description: `Quotation ${data.quotationNumber} saved.` });
         },
         onError: (error: Error) => {
             toast({ title: "Error", description: error.message, variant: "destructive" });

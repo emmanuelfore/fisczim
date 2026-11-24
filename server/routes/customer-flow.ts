@@ -2,12 +2,12 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { storage } from "../storage.js";
 import { eq, and, isNull, ne, or, gte, lte, desc, inArray, sql } from "drizzle-orm";
-import { 
-  salesOrders, 
-  salesOrderItems, 
-  quotations, 
-  quotationItems, 
-  invoices, 
+import {
+  salesOrders,
+  salesOrderItems,
+  quotations,
+  quotationItems,
+  invoices,
   invoiceItems,
   customerStock,
   customerProducts,
@@ -30,7 +30,7 @@ import {
 import { requireApprovalOrContinue } from "../lib/approval-gate.js";
 import { resolveInvoiceAnalytics, type DepartmentalInput } from "../lib/departmental.js";
 import { checkCompanyAccess } from "../lib/company-auth.js";
-import { assertCanApproveType } from "../lib/approval-policies.js";
+import { assertCanApproveType, assertNotSelfApproval } from "../lib/approval-policies.js";
 import { userHasPermission } from "../lib/permissions.js";
 import { APPROVAL_TYPES } from "../../shared/permissions.js";
 
@@ -164,6 +164,12 @@ export function createCustomerFlowRouter(requireAuth: any) {
     return companyId;
   };
 
+  const requireAction = async (req: any, res: any, companyId: number, permission: Parameters<typeof userHasPermission>[2]) => {
+    if (req.user?.id && await userHasPermission(req.user.id, companyId, permission, !!req.user.isSuperAdmin)) return true;
+    res.status(403).json({ error: "You do not have permission to perform this action" });
+    return false;
+  };
+
   const assertApprovedForFulfilment = (order: any, res: any): boolean => {
     if (!isBlockedForFulfilment(order)) return true;
     res.status(403).json({ error: "Sales order is not approved for fulfilment" });
@@ -241,7 +247,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
       });
       if (existingOrder) return res.json({ ...existingOrder, alreadyExists: true });
 
-      const [newOrder] = await db.insert(salesOrders).values({
+      const orderData = {
         companyId: quote.companyId,
         branchId: quote.branchId || undefined,
         customerId: quote.customerId,
@@ -257,10 +263,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
         status: "confirmed",
         currency: quote.currency || undefined,
         notes: quote.notes || undefined,
-      }).returning();
+      };
 
-      await db.insert(salesOrderItems).values(quote.items.map((item: any) => ({
-        salesOrderId: newOrder.id,
+      const orderItems = quote.items.map((item: any) => ({
         quotationItemId: item.id,
         productId: item.productId,
         description: item.description,
@@ -271,18 +276,48 @@ export function createCustomerFlowRouter(requireAuth: any) {
         taxRate: item.taxRate,
         lineTotal: item.lineTotal,
         taxTypeId: item.taxTypeId,
-      })));
+      }));
 
-      await db.update(quotations)
-        .set({
-          status: "accepted",
-          salesOrderId: newOrder.id,
-          convertedAt: new Date(),
-          departmentId: dimensions.departmentId,
-          costCenterId: dimensions.costCenterId,
-          locationId: dimensions.locationId,
-        })
-        .where(and(eq(quotations.id, quote.id), eq(quotations.companyId, companyId)));
+      const gate = await requireApprovalOrContinue({
+        userId: (req.user as any).id,
+        companyId,
+        isSuperAdmin: !!(req.user as any).isSuperAdmin,
+        type: APPROVAL_TYPES.SALES_ORDER,
+        amount: Number(quote.total),
+        title: "Convert quotation to sales order",
+        description: "Authorize the sales order before fulfillment.",
+        payload: { orderData, items: orderItems, sourceQuotationId: quote.id },
+        referenceType: "quotation_sales_order",
+        referenceId: String(quote.id),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Sales order submitted for approval", approval: gate.request });
+      }
+
+      const newOrder = await db.transaction(async (tx) => {
+        const [lockedQuote] = await tx.select().from(quotations)
+          .where(and(eq(quotations.id, quote.id), eq(quotations.companyId, companyId))).for("update");
+        if (!lockedQuote || !isApprovedQuotationStatus(lockedQuote.status)) {
+          throw Object.assign(new Error("Quotation is no longer available for conversion"), { statusCode: 409 });
+        }
+        const existing = await tx.query.salesOrders.findFirst({
+          where: and(eq(salesOrders.companyId, companyId), eq(salesOrders.quotationId, quote.id)),
+        });
+        if (existing) return existing;
+        const [newOrder] = await tx.insert(salesOrders).values(orderData).returning();
+        await tx.insert(salesOrderItems).values(orderItems.map(item => ({ ...item, salesOrderId: newOrder.id })));
+        await tx.update(quotations)
+          .set({
+            status: "accepted",
+            salesOrderId: newOrder.id,
+            convertedAt: new Date(),
+            departmentId: dimensions.departmentId,
+            costCenterId: dimensions.costCenterId,
+            locationId: dimensions.locationId,
+          })
+          .where(and(eq(quotations.id, quote.id), eq(quotations.companyId, companyId)));
+        return newOrder;
+      });
 
       res.status(201).json(newOrder);
     } catch (error: any) {
@@ -295,6 +330,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const { locationId, productId, customerId, quantity, uom, batchId } = req.body;
 
       // Check exclusivity inside the acting company only.
@@ -337,6 +373,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const { id } = req.params;
       const { stockId, quantity } = req.body;
 
@@ -363,7 +400,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
         JOIN customer_stock cs ON cs.id = sa.stock_id
         WHERE sa.stock_id = ${stockId} AND cs.company_id = ${companyId} AND sa.released_at IS NULL
       `);
-      
+
       const totalAllocated = Number(allocResult.rows[0].total_allocated || 0);
       const availableQuantity = Number(stock.quantity) - totalAllocated;
 
@@ -377,7 +414,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
            eq(salesOrderItems.productId, stock.productId)
         )
       });
-      
+
       if (orderLines.length === 0) {
         return res.status(400).json({ error: "Order does not contain the product for this stock ID." });
       }
@@ -554,15 +591,26 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const orderId = Number(req.params.id);
       const data = await loadPickList(orderId, companyId);
       if (!data) return res.status(404).json({ error: "Sales Order not found" });
       if (!assertApprovedForFulfilment(data.order, res)) return;
 
+      if (data.pickList && data.pickList.status !== "DRAFT") {
+        return res.status(409).json({ error: "Confirmed pick lists cannot be edited" });
+      }
+
       const requestedLocationId = Number(req.body?.locationId);
       const locationId = Number.isFinite(requestedLocationId) && requestedLocationId > 0
         ? requestedLocationId
         : data.locationId;
+
+      if (locationId) {
+        const [location] = await db.select({ id: inventoryLocations.id }).from(inventoryLocations)
+          .where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId))).limit(1);
+        if (!location) return res.status(400).json({ error: "Invalid pick-list location" });
+      }
 
       let pickListId = data.pickList?.id;
       if (!pickListId) {
@@ -586,7 +634,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
         const requested = requestedItems.find((r: any) => Number(r.salesOrderItemId) === item.salesOrderItemId);
         const pickedQuantity = requested
           ? Math.max(0, Math.min(Number(requested.quantity ?? requested.pickedQuantity ?? 0), item.remainingQuantity))
-          : item.pickedQuantity || item.remainingQuantity;
+          : item.pickListItemId ? item.pickedQuantity : item.remainingQuantity;
 
         if (item.pickListItemId) {
           await db.update(salesPickListItems)
@@ -620,6 +668,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const orderId = Number(req.params.id);
       const data = await loadPickList(orderId, companyId);
       if (!data) return res.status(404).json({ error: "Sales Order not found" });
@@ -682,6 +731,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const orderId = Number(req.params.id);
       const data = await loadPickList(orderId, companyId);
       if (!data) return res.status(404).json({ error: "Sales Order not found" });
@@ -698,76 +748,70 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
       const userId = (req.user as any)?.id ?? null;
       const deliveryNumber = req.body?.deliveryNumber || data.pickList.deliveryNumber || `DN-${Date.now()}`;
-      await db.update(salesPickLists)
-        .set({
-          status: "DISPATCHED",
-          dispatchedBy: userId,
-          dispatchedAt: new Date(),
-          deliveryNumber,
-          recipientName: req.body?.recipientName || null,
-          deliveryNotes: req.body?.deliveryNotes || null,
-          podReference,
-          podAttachmentUrl,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(salesPickLists.id, data.pickList.id), eq(salesPickLists.companyId, companyId)));
-      await db.update(salesOrders)
-        .set({ status: "dispatched" })
-        .where(and(eq(salesOrders.id, orderId), eq(salesOrders.companyId, companyId)));
+      await db.transaction(async (tx) => {
+        const [claimed] = await tx.update(salesPickLists)
+          .set({
+            status: "DISPATCHED",
+            dispatchedBy: userId,
+            dispatchedAt: new Date(),
+            deliveryNumber,
+            recipientName: req.body?.recipientName || null,
+            deliveryNotes: req.body?.deliveryNotes || null,
+            podReference,
+            podAttachmentUrl,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(salesPickLists.id, data.pickList.id), eq(salesPickLists.companyId, companyId), eq(salesPickLists.status, "PICKED")))
+          .returning({ id: salesPickLists.id });
+        if (!claimed) throw Object.assign(new Error("Pick list is no longer ready for dispatch"), { statusCode: 409 });
+        await tx.update(salesOrders)
+          .set({ status: "dispatched" })
+          .where(and(eq(salesOrders.id, orderId), eq(salesOrders.companyId, companyId)));
 
-      for (const item of data.items) {
-        const quantity = Number(item.pickedQuantity || 0);
-        if (quantity <= 0 || !item.productId || !data.locationId) continue;
+        for (const item of data.items) {
+          const quantity = Number(item.pickedQuantity || 0);
+          if (quantity <= 0 || !item.productId) continue;
+          if (!data.locationId) throw Object.assign(new Error("A stock location is required for dispatch"), { statusCode: 409 });
+          const [stock] = await tx.update(inventoryLocationStocks)
+            .set({
+              stockLevel: sql`${inventoryLocationStocks.stockLevel} - ${quantity}`,
+              availableQuantity: sql`GREATEST(COALESCE(${inventoryLocationStocks.availableQuantity}, ${inventoryLocationStocks.stockLevel}) - ${quantity}, 0)`,
+              updatedAt: new Date(),
+            })
+            .where(and(
+              eq(inventoryLocationStocks.locationId, data.locationId),
+              eq(inventoryLocationStocks.productId, item.productId),
+              sql`${inventoryLocationStocks.stockLevel} >= ${quantity}`,
+              inArray(inventoryLocationStocks.locationId, tx.select({ id: inventoryLocations.id })
+                .from(inventoryLocations).where(eq(inventoryLocations.companyId, companyId))),
+            ))
+            .returning({ id: inventoryLocationStocks.id });
+          if (!stock) throw Object.assign(new Error("Insufficient stock for " + item.description), { statusCode: 409 });
 
-        const [stockRow] = await db
-          .select({ id: inventoryLocationStocks.id })
-          .from(inventoryLocationStocks)
-          .innerJoin(
-            inventoryLocations,
-            and(
-              eq(inventoryLocationStocks.locationId, inventoryLocations.id),
-              eq(inventoryLocations.companyId, companyId)
-            )
-          )
-          .where(and(
-            eq(inventoryLocationStocks.locationId, data.locationId),
-            eq(inventoryLocationStocks.productId, item.productId)
-          ))
-          .limit(1);
-        if (!stockRow) continue;
-
-        await db.execute(sql`
-          UPDATE inventory_location_stocks
-          SET stock_level = GREATEST(stock_level - ${quantity}, 0),
-              available_quantity = GREATEST(available_quantity - ${quantity}, 0),
-              updated_at = now()
-          WHERE id = ${stockRow.id}
-            AND location_id IN (SELECT id FROM inventory_locations WHERE company_id = ${companyId})
-        `);
-
-        const unitCost = Number(item.costPrice || 0);
-        await db.insert(inventoryTransactions).values({
-          companyId,
-          branchId: data.order.branchId,
-          locationId: data.locationId,
-          departmentId: data.order.departmentId ?? null,
-          costCenterId: data.order.costCenterId ?? null,
-          productId: item.productId,
-          type: "STOCK_OUT",
-          quantity: (-quantity).toString(),
-          unitCost: unitCost ? unitCost.toString() : null,
-          totalCost: unitCost ? (unitCost * quantity).toString() : null,
-          referenceType: "SALES_PICK_LIST",
-          referenceId: String(data.pickList.id),
-          notes: `${deliveryNumber} — dispatched for ${data.order.orderNumber}`,
-          createdBy: userId,
-          remainingQuantity: "0",
-        });
-      }
+          const unitCost = Number(item.costPrice || 0);
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: data.order.branchId,
+            locationId: data.locationId,
+            departmentId: data.order.departmentId ?? null,
+            costCenterId: data.order.costCenterId ?? null,
+            productId: item.productId,
+            type: "STOCK_OUT",
+            quantity: (-quantity).toString(),
+            unitCost: unitCost ? unitCost.toString() : null,
+            totalCost: unitCost ? (unitCost * quantity).toString() : null,
+            referenceType: "SALES_PICK_LIST",
+            referenceId: String(data.pickList.id),
+            notes: `${deliveryNumber} — dispatched for ${data.order.orderNumber}`,
+            createdBy: userId,
+            remainingQuantity: "0",
+          });
+        }
+      });
 
       res.json(await loadPickList(orderId, companyId));
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error?.statusCode || 500).json({ error: error.message });
     }
   });
 
@@ -908,7 +952,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
             const picked = fulfillment.items.find((p: any) => p.salesOrderItemId === Number(r.salesOrderItemId));
             const qty = Number(r.quantityToInvoice ?? r.quantity ?? 0);
             if (!picked) throw new Error(`Order line ${r.salesOrderItemId} is not on the pick list`);
-            if (qty <= 0) return null;
+            if (!Number.isFinite(qty) || qty < 0) throw Object.assign(new Error("Invalid invoice quantity"), { statusCode: 400 });
+            if (qty === 0) return null;
             if (qty > picked.pickedQuantity) {
               throw new Error(`Cannot invoice ${qty} for ${picked.description}; only ${picked.pickedQuantity} was picked`);
             }
@@ -921,6 +966,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
               quantityToInvoice: number;
             }>;
 
+      if (new Set(linesToInvoice.map(line => line.salesOrderItemId)).size !== linesToInvoice.length) {
+        return res.status(400).json({ error: "Order lines may appear only once on an invoice" });
+      }
       if (!linesToInvoice.length) {
         return res.status(400).json({ error: "No picked items available to invoice" });
       }
@@ -1343,12 +1391,12 @@ export function createCustomerFlowRouter(requireAuth: any) {
             +
             COALESCE(p.stock_level, 0)
           ) AS quantity_on_hand,
-          
+
           (
             COALESCE((
               SELECT SUM(s.quantity) - COALESCE((
-                SELECT SUM(sa.quantity_allocated) 
-                FROM stock_allocations sa 
+                SELECT SUM(sa.quantity_allocated)
+                FROM stock_allocations sa
                 JOIN customer_stock cs ON cs.id = sa.stock_id
                 WHERE cs.product_id = p.id
                   AND cs.customer_id = ${id}
@@ -1393,9 +1441,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
           AND i.issue_date >= ${fromStart}
           AND i.issue_date <= ${toEnd}
           AND i.status NOT IN ('cancelled','quote')
-          
+
         UNION ALL
-        
+
         SELECT
           cst.created_at::date AS date,
           cst.reference_id AS reference,
@@ -1415,7 +1463,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
           AND cst.type = 'STOCK_IN'
           AND cst.created_at >= ${fromStart}
           AND cst.created_at <= ${toEnd}
-          
+
         ORDER BY date ASC, reference ASC
       `);
 
@@ -1542,6 +1590,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "settings.organization")) return;
       const { airPreorderMinDepositPct, seaPreorderMinDepositPct, laybyMinDepositPct, laybyDefaultDurationMonths } = req.body;
 
       const existing = await db.query.salesOrderSettings.findFirst({
@@ -1595,7 +1644,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
       let subtotal = 0;
       let taxAmount = 0;
 
-      const newItems = [];
+      const newItems: Omit<typeof salesOrderItems.$inferInsert, "salesOrderId">[] = [];
       for (const item of items) {
         const productContext = item.productId
           ? await db.query.products.findFirst({
@@ -1726,39 +1775,51 @@ export function createCustomerFlowRouter(requireAuth: any) {
         return res.status(202).json({ message: "Sales order submitted for approval", approval: gate.request });
       }
 
-      const [newOrder] = await db.insert(salesOrders).values({
-        companyId,
-        branchId: branchId || undefined,
-        customerId: customerId || null,
-        quotationId: null,
-        departmentId: dimensions.departmentId,
-        costCenterId: dimensions.costCenterId,
-        locationId: dimensions.locationId,
-        orderNumber,
-        issueDate: new Date(),
-        subtotal: subtotal.toString(),
-        taxAmount: taxAmount.toString(),
-        total: total.toString(),
-        status: initialStatus,
-        currency: currency || 'USD',
-        notes,
-        orderType,
-        preorderType: preorderType || null,
-        depositPct: depositPct ? depositPct.toString() : null,
-        depositPaid: depositPaidNum.toString(),
-        remainingBalance: remainingBalance.toString(),
-        expectedArrival: expectedArrival || null,
-        layByDuration: layByDuration || null,
-        approvalStatus,
-      } as any).returning();
+      const newOrder = await db.transaction(async (tx) => {
+        const [newOrder] = await tx.insert(salesOrders).values({
+          companyId,
+          branchId: branchId || undefined,
+          customerId: customerId || null,
+          quotationId: null,
+          departmentId: dimensions.departmentId,
+          costCenterId: dimensions.costCenterId,
+          locationId: dimensions.locationId,
+          orderNumber,
+          issueDate: new Date(),
+          subtotal: subtotal.toString(),
+          taxAmount: taxAmount.toString(),
+          total: total.toString(),
+          status: initialStatus,
+          currency: currency || 'USD',
+          notes,
+          orderType,
+          preorderType: preorderType || null,
+          depositPct: depositPct ? depositPct.toString() : null,
+          depositPaid: depositPaidNum.toString(),
+          remainingBalance: remainingBalance.toString(),
+          expectedArrival: expectedArrival || null,
+          layByDuration: layByDuration || null,
+          approvalStatus,
+        } as any).returning();
 
-      const orderItemsToInsert = newItems.map(item => ({
-        ...item,
-        salesOrderId: newOrder.id,
-      }));
-      if (orderItemsToInsert.length > 0) {
-        await db.insert(salesOrderItems).values(orderItemsToInsert);
-      }
+        const orderItemsToInsert = newItems.map(item => ({
+          ...item,
+          salesOrderId: newOrder.id,
+        }));
+        if (orderItemsToInsert.length > 0) {
+          await tx.insert(salesOrderItems).values(orderItemsToInsert);
+        }
+        if (approvalStatus === "pending") {
+          await tx.insert(salesOrderAuditLogs).values({
+            salesOrderId: newOrder.id,
+            fieldChanged: "approvalStatus",
+            oldValue: "none",
+            newValue: "pending",
+            changedBy: (req.user as any).id,
+          });
+        }
+        return newOrder;
+      });
 
       // Preorder: create stock reservations
       if (orderType === 'preorder') {
@@ -1842,6 +1903,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "sales.order.create")) return;
       const { id } = req.params;
       const { status, notes, items } = req.body;
       const userId = (req as any).user?.id || null;
@@ -1852,37 +1914,15 @@ export function createCustomerFlowRouter(requireAuth: any) {
       });
       if (!order) return res.status(404).json({ error: "Order not found" });
 
-      // Determine Zone
-      let zone = 1; // Draft
-      if (order.status !== "draft") zone = 2; // Confirmed
-      
-      for (const item of order.items) {
-        if (Number(item.invoicedQuantity) > 0) {
-          zone = 3; // Invoiced/Allocated
-          break;
-        }
+      const zone = order.status === "draft" ? 1 : 2;
+      const headerUpdates: { notes?: string } = {};
+      const workflowFields = ["orderType", "preorderType", "depositPct", "depositPaid",
+        "remainingBalance", "expectedArrival", "layByDuration", "departmentId", "costCenterId", "locationId"];
+      if ((status !== undefined && status !== order.status) ||
+          workflowFields.some(field => req.body[field] !== undefined) || items !== undefined) {
+        return res.status(400).json({ error: "Use the dedicated workflow to update sales order details" });
       }
-
-      // Handle Header Updates
-      const {
-        orderType, preorderType, depositPct, depositPaid, remainingBalance,
-        expectedArrival, layByDuration,
-        departmentId, costCenterId, locationId
-      } = req.body;
-
-      const headerUpdates: any = {};
-      if (status !== undefined && status !== order.status) headerUpdates.status = status;
-      if (notes !== undefined && notes !== order.notes) headerUpdates.notes = notes;
-      if (orderType !== undefined) headerUpdates.orderType = orderType;
-      if (preorderType !== undefined) headerUpdates.preorderType = preorderType;
-      if (depositPct !== undefined) headerUpdates.depositPct = depositPct?.toString();
-      if (depositPaid !== undefined) headerUpdates.depositPaid = depositPaid?.toString();
-      if (remainingBalance !== undefined) headerUpdates.remainingBalance = remainingBalance?.toString();
-      if (expectedArrival !== undefined) headerUpdates.expectedArrival = expectedArrival;
-      if (layByDuration !== undefined) headerUpdates.layByDuration = layByDuration;
-      if (departmentId !== undefined) headerUpdates.departmentId = departmentId || null;
-      if (costCenterId !== undefined) headerUpdates.costCenterId = costCenterId || null;
-      if (locationId !== undefined) headerUpdates.locationId = locationId || null;
+      if (typeof notes === "string" && notes !== order.notes) headerUpdates.notes = notes;
 
       if (Object.keys(headerUpdates).length > 0) {
         if (zone === 2) {
@@ -1901,9 +1941,6 @@ export function createCustomerFlowRouter(requireAuth: any) {
           .where(and(eq(salesOrders.id, order.id), eq(salesOrders.companyId, companyId)));
       }
 
-      // Handle Items (Simplified for now - we would need to diff them properly)
-      // For Zone 3 constraints, we just reject if they try to edit price/product
-      
       res.json({ message: "Sales order updated" });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -1938,15 +1975,15 @@ export function createCustomerFlowRouter(requireAuth: any) {
       if (!companyId) return;
       const order = await db.query.salesOrders.findFirst({
         where: and(eq(salesOrders.id, parseInt(req.params.id)), eq(salesOrders.companyId, companyId)),
-        with: { 
+        with: {
           items: true,
           layBySchedules: true,
           stockReservations: { with: { product: true } },
         },
       });
-      
+
       if (!order) return res.status(404).json({ error: "Not found" });
-      
+
       // Manually fetch customer
       let customer = null;
       if (order.customerId) {
@@ -1954,7 +1991,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
           where: and(eq(customers.id, order.customerId), eq(customers.companyId, companyId))
         });
       }
-      
+
       res.json({ ...order, customer });
     } catch (error: any) {
       console.error("Error fetching sales order:", error);
@@ -2013,6 +2050,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const orderLineId = parseInt(req.params.id);
 
       await db.update(stockAllocations)
@@ -2024,7 +2062,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
             inArray(stockAllocations.salesOrderLineId, scopedOrderLineIds(companyId, orderLineId))
           )
         );
-        
+
       res.json({ success: true });
     } catch (err) {
       console.error(err);
@@ -2068,10 +2106,19 @@ export function createCustomerFlowRouter(requireAuth: any) {
           : undefined;
         creatorId = matching?.requestedBy ?? null;
       }
-      if (creatorId && String(creatorId) === String(userId)) {
-        return res.status(403).json({ error: "You cannot approve or reject your own sales order" });
+      if (!creatorId) {
+        const [audit] = await db.select({ requester: salesOrderAuditLogs.changedBy }).from(salesOrderAuditLogs)
+          .where(and(eq(salesOrderAuditLogs.salesOrderId, order.id),
+            eq(salesOrderAuditLogs.fieldChanged, "approvalStatus"), eq(salesOrderAuditLogs.newValue, "pending")))
+          .limit(1);
+        creatorId = audit?.requester ?? null;
       }
+      if (!creatorId) return res.status(409).json({ error: "The approval requester could not be established" });
+      await assertNotSelfApproval(String(creatorId), userId, companyId, "sales_order");
 
+      if (action !== "approve" && action !== "reject") {
+        return res.status(400).json({ error: "Action must be approve or reject" });
+      }
       const newApprovalStatus = action === 'approve' ? 'approved' : 'rejected';
       let newStatus = (order as any).status;
       if (action === 'approve') {
@@ -2081,7 +2128,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
         newStatus = 'cancelled';
       }
 
-      await db.update(salesOrders)
+      const [reviewed] = await db.update(salesOrders)
         .set({
           approvalStatus: newApprovalStatus,
           approvedBy: userId,
@@ -2089,7 +2136,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
           approvalNotes: notes || null,
           status: newStatus,
         } as any)
-        .where(and(eq(salesOrders.id, order.id), eq(salesOrders.companyId, companyId)));
+        .where(and(eq(salesOrders.id, order.id), eq(salesOrders.companyId, companyId), eq(salesOrders.approvalStatus, "pending")))
+        .returning({ id: salesOrders.id });
+      if (!reviewed) return res.status(409).json({ error: "Sales order review has already been recorded" });
 
       res.json({ message: `Order ${action}d successfully` });
     } catch (error: any) {
@@ -2103,6 +2152,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "accounting.receipts")) return;
       const { id } = req.params;
       const { amount, scheduleId, paymentMethod = 'Cash', paymentReference } = req.body;
 
@@ -2114,7 +2164,10 @@ export function createCustomerFlowRouter(requireAuth: any) {
         return res.status(400).json({ error: "Only lay-by orders support payment recording" });
       }
 
-      const paidAmount = parseFloat(amount);
+      const paidAmount = Number(amount);
+      if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
+        return res.status(400).json({ error: "Payment amount must be positive" });
+      }
       const newDepositPaid = parseFloat((order as any).depositPaid || '0') + paidAmount;
       const total = parseFloat(order.total);
       const newBalance = total - newDepositPaid;
@@ -2197,6 +2250,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
     try {
       const companyId = await companyFor(req, res);
       if (!companyId) return;
+      if (!await requireAction(req, res, companyId, "stock.transfer")) return;
       const { id } = req.params;
       const order = await db.query.salesOrders.findFirst({
         where: and(eq(salesOrders.id, parseInt(id)), eq(salesOrders.companyId, companyId))

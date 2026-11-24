@@ -20,7 +20,7 @@ export default function QuotationsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [, setLocation] = useLocation();
 
-  const handleConvertToOrder = async (id: number) => {
+  const handleConvertToOrder = async (id: number, status: string | null) => {
     try {
       const res = await apiFetch("/api/sales-orders/from-quotation", {
         method: "POST",
@@ -32,7 +32,7 @@ export default function QuotationsPage() {
       setLocation(`/sales-orders/${data.id}`);
     } catch (err) {
       console.error(err);
-      alert("Failed to convert quotation to sales order.");
+      alert(err instanceof Error ? err.message : "Failed to convert quotation to sales order.");
     }
   };
 
@@ -112,7 +112,7 @@ export default function QuotationsPage() {
                     </div>
                   </div>
                   <div className="flex justify-end gap-2 mt-2 pt-3 border-t border-slate-100">
-                    <Button variant="outline" size="sm" onClick={() => handleConvertToOrder(quote.id)} className="h-8 rounded-lg text-slate-600">
+                    <Button variant="outline" size="sm" onClick={() => handleConvertToOrder(quote.id, quote.status ?? null)} className="h-8 rounded-lg text-slate-600">
                       Convert
                     </Button>
                     <Link href={`/quotations/new?edit=${quote.id}`}>
@@ -204,7 +204,7 @@ export default function QuotationsPage() {
                       </td>
                       <td className="data-table-cell text-right">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="outline" size="sm" onClick={() => handleConvertToOrder(quote.id)}>
+                          <Button variant="outline" size="sm" onClick={() => handleConvertToOrder(quote.id, quote.status ?? null)}>
                             Convert to Order
                           </Button>
                           <Link href={`/quotations/new?edit=${quote.id}`}>

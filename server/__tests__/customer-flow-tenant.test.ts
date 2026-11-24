@@ -53,6 +53,10 @@ vi.mock("../db.js", () => {
       groupBy: () => chain,
       orderBy: () => chain,
       limit: () => chain,
+      for: () => {
+        chain.then = (ok: any, err?: any) => Promise.resolve([state.quoteQueue.shift()].filter(Boolean)).then(ok, err);
+        return chain;
+      },
       then: (ok: any, err?: any) => Promise.resolve(state.selectQueue.shift() ?? []).then(ok, err),
       catch: (err: any) => Promise.resolve(state.selectQueue.shift() ?? []).catch(err),
     };
@@ -69,6 +73,7 @@ vi.mock("../db.js", () => {
             state.writes.push({ kind: "update", values, condition });
             return chain;
           },
+          returning: () => thenableOf([{ id: 1 }]),
           then: (ok: any, err?: any) => Promise.resolve([]).then(ok, err),
         };
         return chain;
@@ -141,6 +146,9 @@ vi.mock("../lib/permissions.js", () => ({
 }));
 
 vi.mock("../lib/approval-policies.js", () => ({
+  assertNotSelfApproval: vi.fn(async (requester: string, reviewer: string) => {
+    if (requester === reviewer) throw new Error("You cannot approve or reject your own sales order");
+  }),
   assertCanApproveType: vi.fn(async () => {
     if (!state.canApprove) throw new Error("You do not have permission to approve this request");
   }),
@@ -273,8 +281,24 @@ describe("quotation conversion", () => {
     expect(sql).toContain('"quotations"."company_id"');
   });
 
-  test("an approved quotation converts using the verified company", async () => {
+  test("quote-to-order conversion waits for the sales-order approval policy", async () => {
     state.quoteQueue = [approvedQuote];
+    vi.mocked(requireApprovalOrContinue).mockResolvedValueOnce({
+      requiresApproval: true,
+      request: { id: 42 } as any,
+    });
+    const result = await request("POST", "/api/sales-orders/from-quotation", { quotationId: 5 });
+    expect(result.status).toBe(202);
+    expect(requireApprovalOrContinue).toHaveBeenCalledWith(expect.objectContaining({
+      type: "sales_order",
+      companyId: 21,
+      referenceId: "5",
+    }));
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("an approved quotation converts using the verified company", async () => {
+    state.quoteQueue = [approvedQuote, approvedQuote];
     const result = await request("POST", "/api/customer-flow/sales-orders/from-quotation", { quotationId: 5 });
     expect(result.status).toBe(201);
     expect(state.writes.some((w) => w.kind === "insert" && w.values.companyId === 21)).toBe(true);
@@ -378,7 +402,7 @@ describe("fulfilment approval gate", () => {
     // loadPickList is called both before and after the update.
     state.orderQueue = [order, { ...order }];
     state.selectQueue = [
-      [], [pickList], [{ id: 4, salesOrderItemId: 2, pickedQuantity: "0" }], [], [],
+      [], [pickList], [{ id: 4, salesOrderItemId: 2, pickedQuantity: "0" }], [], [], [{ id: 8 }],
       [], [{ ...pickList }], [{ id: 4, salesOrderItemId: 2, pickedQuantity: "1" }], [], [],
     ];
     const result = await request("POST", "/api/sales-orders/1/pick-list", { items: [{ salesOrderItemId: 2, quantity: 1 }] });

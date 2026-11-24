@@ -163,7 +163,7 @@ export default function CreateSalesOrderPage() {
 
   useEffect(() => {
     if (existingSalesOrder && isEditing) {
-      setCustomerId(existingSalesOrder.customerId.toString());
+      setCustomerId(existingSalesOrder.customerId?.toString() || "");
       setDepartmentId(existingSalesOrder.departmentId?.toString() || "");
       setCostCenterId(existingSalesOrder.costCenterId?.toString() || "");
       setLocationId(existingSalesOrder.locationId?.toString() || "");
@@ -415,6 +415,30 @@ export default function CreateSalesOrderPage() {
       });
     }
   };
+
+  if (isEditing) {
+    return (
+      <Layout>
+        <form className="max-w-xl space-y-4" onSubmit={async (event) => {
+          event.preventDefault();
+          try {
+            await updateSalesOrder.mutateAsync({ id: editId!, data: { notes } });
+            setLocation("/sales-orders/" + editId);
+          } catch (error) {
+            toast({ title: "Unable to save notes", description: (error as Error).message, variant: "destructive" });
+          }
+        }}>
+          <h1 className="text-xl font-semibold">Edit sales order notes</h1>
+          <label className="block space-y-2">
+            <span>Notes</span>
+            <textarea className="block w-full rounded-md border bg-background p-3" value={notes}
+              onChange={(event) => setNotes(event.target.value)} rows={5} />
+          </label>
+          <Button type="submit" disabled={updateSalesOrder.isPending}>Save notes</Button>
+        </form>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

@@ -478,6 +478,7 @@ export function createProcurementRouter(requireAuth: any, requireCompanyAccess: 
         description: "Purchase order created from an approved requisition and selected supplier quote.",
         payload: {
           requisitionId,
+          selectedQuoteId: quote.id,
           purchaseOrderData,
           items,
         },
@@ -497,6 +498,12 @@ export function createProcurementRouter(requireAuth: any, requireCompanyAccess: 
       }
 
       const created = await db.transaction(async (tx) => {
+        const [current] = await tx.select().from(purchaseRequisitions).where(and(
+          eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId),
+        )).for("update");
+        if (!current || current.status !== "QUOTE_SELECTED" || current.selectedQuoteId !== quote.id || current.purchaseOrderId) {
+          throw httpError(409, "The requisition or its selected quote has already changed");
+        }
         const [order] = await tx.insert(purchaseOrders).values(insertPurchaseOrderSchema.parse({
           ...purchaseOrderData,
           companyId,

@@ -9,6 +9,7 @@ import { createServer, type Server } from "http";
 // Path resolution helper
 const rootDir = process.cwd();
 import { storage } from "./storage.js";
+import { calculatePurchaseOrderLineTax, purchaseOrderApprovalTotal } from "./lib/purchase-order-amounts.js";
 import { parseAsOfDate, parseOptionalRange, parseReportRange, throughEndOfDay } from "../shared/report-dates.js";
 import { setupAuth } from "./auth.js";
 import authRouter from "./routes/auth.js";
@@ -57,6 +58,7 @@ import payrollRouter from "./api/v1/payroll.js";
 import manufacturingRouter from "./api/v1/manufacturing.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
+import { quotations } from "../shared/schema.js";
 import { createCustomerFlowRouter, isApprovedQuotationStatus } from "./routes/customer-flow.js";
 import { LekukaDevice, LekukaApiError, generateLekukaKeypair } from "./lekuka.js";
 import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../shared/lekuka.js";
@@ -1644,7 +1646,7 @@ export async function registerRoutes(
         });
       }
 
-      const result = await storage.createQuotation(enrichedData as any);
+      const result = await storage.createQuotation({ ...enrichedData, status: "approved" } as any);
       res.status(201).json(result);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -1661,6 +1663,10 @@ export async function registerRoutes(
       if (!existing) return res.status(404).json({ message: "Quotation not found" });
       const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      const actor = req.user as any;
+      if (!await userHasPermission(actor.id, existing.companyId, "crm.quotation.create", !!actor.isSuperAdmin)) {
+        return res.status(403).json({ message: "You do not have permission to modify quotations" });
+      }
       if (QUOTATION_TERMINAL_STATUSES.has(String(existing.status || "").toLowerCase())) {
         return res.status(409).json({ message: `Quotation is ${existing.status} and can no longer be edited` });
       }
@@ -1697,6 +1703,10 @@ export async function registerRoutes(
       if (!existing) return res.status(404).json({ message: "Quotation not found" });
       const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      const actor = req.user as any;
+      if (!await userHasPermission(actor.id, existing.companyId, "crm.quotation.create", !!actor.isSuperAdmin)) {
+        return res.status(403).json({ message: "You do not have permission to modify quotations" });
+      }
       if (QUOTATION_TERMINAL_STATUSES.has(String(existing.status || "").toLowerCase())) {
         return res.status(409).json({ message: `Quotation is ${existing.status} and cannot be deleted` });
       }
@@ -1704,6 +1714,45 @@ export async function registerRoutes(
       res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/quotations/:id/authorize", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const quote = await storage.getQuotation(id);
+      if (!quote) return res.status(404).json({ message: "Quotation not found" });
+      const actor = req.user as any;
+      if (!await checkCompanyAccess(storage, actor, quote.companyId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (quote.status !== "draft") return res.status(409).json({ message: "Only draft quotations can be authorized" });
+      if (!await userHasPermission(actor.id, quote.companyId, "crm.quotation.create", !!actor.isSuperAdmin) &&
+          !await userHasPermission(actor.id, quote.companyId, "crm.quotation.approve", !!actor.isSuperAdmin)) {
+        return res.status(403).json({ message: "You do not have permission to authorize quotations" });
+      }
+      const pending = (await storage.getApprovalRequests(quote.companyId, "pending")).find(
+        request => request.type === "quotation" && request.referenceId === String(id),
+      );
+      if (pending) return res.status(202).json({ message: "Quotation already awaits approval", approval: pending });
+      const gate = await requireApprovalOrContinue({
+        userId: actor.id,
+        companyId: quote.companyId,
+        isSuperAdmin: !!actor.isSuperAdmin,
+        type: APPROVAL_TYPES.QUOTATION,
+        title: "Authorize " + quote.quotationNumber,
+        payload: { referenceId: String(id) },
+        referenceType: "quotation",
+        referenceId: String(id),
+      });
+      if (gate.requiresApproval) return res.status(202).json({ message: "Quotation submitted for approval", approval: gate.request });
+      const [approved] = await db.update(quotations).set({ status: "approved" })
+        .where(and(eq(quotations.id, id), eq(quotations.companyId, quote.companyId), eq(quotations.status, "draft")))
+        .returning();
+      if (!approved) return res.status(409).json({ message: "Quotation status changed" });
+      res.json(approved);
+    } catch (error: any) {
+      res.status(error?.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -7873,7 +7922,7 @@ export async function registerRoutes(
         costCenterId: z.coerce.number().int().positive().optional().nullable(),
         locationId: z.coerce.number().int().positive().optional().nullable(),
         poNumber: z.string().trim().optional(),
-        status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]).optional(),
+        status: z.enum(["DRAFT", "SENT"]).optional(),
         expectedDate: z.string().optional().nullable(),
         shipTo: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
@@ -7894,7 +7943,7 @@ export async function registerRoutes(
       }).parse(req.body);
 
       const poNumber = payload.poNumber?.trim() || `PO-${format(new Date(), "yyyyMMdd-HHmmss")}`;
-      const orderAmount = payload.items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+      const orderAmount = purchaseOrderApprovalTotal(payload.items, payload.taxInclusive);
       const analytics = await requireDepartmentalDimensions(companyId, payload);
       if (analytics) {
         payload.departmentId = analytics.departmentId;
@@ -7912,10 +7961,17 @@ export async function registerRoutes(
           purchaseOrderData: {
             ...payload,
             poNumber,
+            total: orderAmount,
             items: undefined,
             expectedDate: payload.expectedDate ? new Date(payload.expectedDate).toISOString() : null,
           },
-          items: payload.items,
+          items: payload.items.map(item => ({
+            ...item,
+            quantity: item.quantity.toFixed(2),
+            unitCost: item.unitCost.toFixed(2),
+            taxRate: item.taxRate.toFixed(2),
+            taxAmount: Math.max(item.taxAmount, Number(calculatePurchaseOrderLineTax(item, payload.taxInclusive))).toFixed(2),
+          })),
         },
         referenceType: "purchase_order",
       });
@@ -7951,7 +8007,7 @@ export async function registerRoutes(
             unitCost: item.unitCost.toFixed(2),
             taxTypeId: item.taxTypeId || null,
             taxRate: item.taxRate.toFixed(2),
-            taxAmount: item.taxAmount.toFixed(2),
+            taxAmount: Math.max(item.taxAmount, Number(calculatePurchaseOrderLineTax(item, payload.taxInclusive))).toFixed(2),
             isRecoverable: item.isRecoverable,
             notes: item.notes || null,
           })
@@ -8053,36 +8109,81 @@ export async function registerRoutes(
     }
   });
 
+  const canManagePurchaseOrder = async (req: express.Request, companyId: number) => {
+    const actor = req.user as any;
+    if (!actor?.id) return false;
+    return await userHasPermission(actor.id, companyId, "purchasing.po.request", !!actor.isSuperAdmin) ||
+      await userHasPermission(actor.id, companyId, "purchasing.po.approve.direct", !!actor.isSuperAdmin);
+  };
+
+  const findActivePurchaseOrderApproval = async (
+    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    companyId: number,
+    id: number,
+  ) => {
+    const [request] = await tx.select().from(approvalRequests).where(and(
+      eq(approvalRequests.companyId, companyId),
+      eq(approvalRequests.type, APPROVAL_TYPES.PURCHASE_ORDER),
+      eq(approvalRequests.referenceType, "purchase_order"),
+      eq(approvalRequests.referenceId, String(id)),
+      inArray(approvalRequests.status, ["pending", "processing"]),
+    )).limit(1);
+    return request;
+  };
+
   app.patch("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const { status } = z.object({
-        status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]),
-      }).parse(req.body);
-
-      const [existing] = await db
-        .select({ companyId: purchaseOrders.companyId })
-        .from(purchaseOrders)
-        .where(eq(purchaseOrders.id, id))
-        .limit(1);
+      const { status } = z.object({ status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]) }).parse(req.body);
+      const [existing] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id)).limit(1);
       if (!existing) return res.status(404).json({ message: "Purchase order not found" });
       if (!(await assertRowCompanyAccess(req, res, existing.companyId))) return;
-
-      const [updated] = await db
-        .update(purchaseOrders)
-        .set({ status, updatedAt: new Date() })
-        .where(eq(purchaseOrders.id, id))
-        .returning();
-
-      if (!updated) return res.status(404).json({ message: "Purchase order not found" });
-      res.json(updated);
+      if (!(await canManagePurchaseOrder(req, existing.companyId))) {
+        return res.status(403).json({ message: "You do not have permission to change purchase orders" });
+      }
+      const actor = req.user as any;
+      const result = await db.transaction(async (tx) => {
+        const [order] = await tx.select().from(purchaseOrders)
+          .where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, existing.companyId))).for("update");
+        if (!order) return { statusCode: 404, body: { message: "Purchase order not found" } };
+        if (order.status === status) return { statusCode: 200, body: order };
+        if (status === "RECEIVED" || !["DRAFT", "SENT"].includes(order.status)) {
+          return { statusCode: 409, body: { message: "Use the receiving workflow to receive a purchase order" } };
+        }
+        const pending = await findActivePurchaseOrderApproval(tx, order.companyId, id);
+        if (pending) return status === "SENT"
+          ? { statusCode: 202, body: { message: "Purchase order already awaits approval", approval: pending } }
+          : { statusCode: 409, body: { message: "Purchase order is awaiting approval" } };
+        await assertPurchaseOrderEditable(tx, order.companyId, id);
+        if (status === "SENT") {
+          const items = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, id));
+          const total = purchaseOrderApprovalTotal(items, !!order.taxInclusive);
+          const gate = await requireApprovalOrContinue({
+            userId: actor.id,
+            companyId: order.companyId,
+            isSuperAdmin: !!actor.isSuperAdmin,
+            type: APPROVAL_TYPES.PURCHASE_ORDER,
+            amount: total,
+            title: "Send purchase order " + order.poNumber,
+            payload: { referenceId: String(id), total },
+            referenceType: "purchase_order",
+            referenceId: String(id),
+          });
+          if (gate.requiresApproval) {
+            return { statusCode: 202, body: { message: "Purchase order submitted for approval", approval: gate.request } };
+          }
+        }
+        const [updated] = await tx.update(purchaseOrders).set({ status, updatedAt: new Date() })
+          .where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, order.companyId))).returning();
+        return { statusCode: 200, body: updated };
+      });
+      res.status(result.statusCode).json(result.body);
     } catch (err: any) {
       console.error("Update Purchase Order Status Error:", err);
-      res.status(400).json({ message: err.message });
+      res.status(err.statusCode || 400).json({ message: err.message });
     }
   });
 
-  // Edit a purchase order (header + lines). Only editable when DRAFT or SENT.
   app.patch("/api/purchase-orders/:id", requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -8095,12 +8196,17 @@ export async function registerRoutes(
         shipTo: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
         currency: z.string().optional(),
+        taxInclusive: z.boolean().optional(),
         items: z.array(z.object({
           productId: z.coerce.number().int().positive().optional().nullable(),
           description: z.string().optional().nullable(),
           accountCode: z.string().optional().nullable(),
           quantity: z.coerce.number().positive(),
           unitCost: z.coerce.number().nonnegative(),
+          taxTypeId: z.coerce.number().int().positive().optional().nullable(),
+          taxRate: z.coerce.number().nonnegative().default(0),
+          taxAmount: z.coerce.number().nonnegative().default(0),
+          isRecoverable: z.boolean().default(true),
           notes: z.string().optional().nullable(),
         })).min(1).optional(),
       }).parse(req.body);
@@ -8108,10 +8214,9 @@ export async function registerRoutes(
       const [existing] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id)).limit(1);
       if (!existing) return res.status(404).json({ message: "Purchase order not found" });
       if (!(await assertRowCompanyAccess(req, res, existing.companyId))) return;
-      if (!["DRAFT", "SENT"].includes(existing.status)) {
-        return res.status(409).json({ message: `Cannot edit a ${existing.status} purchase order.` });
+      if (!(await canManagePurchaseOrder(req, existing.companyId))) {
+        return res.status(403).json({ message: "You do not have permission to edit purchase orders" });
       }
-      await assertPurchaseOrderEditable(db, existing.companyId, id);
       const analytics = await requireDepartmentalDimensions(existing.companyId, {
         departmentId: payload.departmentId ?? (existing as any).departmentId,
         costCenterId: payload.costCenterId ?? (existing as any).costCenterId,
@@ -8122,17 +8227,25 @@ export async function registerRoutes(
       }
 
       const updated = await db.transaction(async (tx) => {
+        const [current] = await tx.select().from(purchaseOrders)
+          .where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, existing.companyId))).for("update");
+        if (!current || current.status !== "DRAFT" || await findActivePurchaseOrderApproval(tx, existing.companyId, id)) {
+          throw Object.assign(new Error("Only draft purchase orders without a pending approval can be edited"), { statusCode: 409 });
+        }
+        await assertPurchaseOrderEditable(tx, existing.companyId, id);
+        const taxInclusive = payload.taxInclusive ?? !!current.taxInclusive;
         const [po] = await tx.update(purchaseOrders).set({
-          supplierId: payload.supplierId ?? existing.supplierId,
-          branchId: payload.branchId !== undefined ? payload.branchId : existing.branchId,
-          departmentId: analytics ? analytics.departmentId : (existing as any).departmentId ?? null,
-          costCenterId: analytics ? analytics.costCenterId : (existing as any).costCenterId ?? null,
+          supplierId: payload.supplierId ?? current.supplierId,
+          branchId: payload.branchId !== undefined ? payload.branchId : current.branchId,
+          departmentId: analytics ? analytics.departmentId : current.departmentId ?? null,
+          costCenterId: analytics ? analytics.costCenterId : current.costCenterId ?? null,
           expectedDate: payload.expectedDate !== undefined
             ? (payload.expectedDate ? new Date(payload.expectedDate) : null)
-            : existing.expectedDate,
-          shipTo: payload.shipTo !== undefined ? payload.shipTo : existing.shipTo,
-          notes: payload.notes !== undefined ? payload.notes : existing.notes,
-          currency: payload.currency !== undefined ? payload.currency : existing.currency,
+            : current.expectedDate,
+          shipTo: payload.shipTo !== undefined ? payload.shipTo : current.shipTo,
+          notes: payload.notes !== undefined ? payload.notes : current.notes,
+          currency: payload.currency !== undefined ? payload.currency : current.currency,
+          taxInclusive,
           updatedAt: new Date(),
         }).where(eq(purchaseOrders.id, id)).returning();
 
@@ -8145,6 +8258,10 @@ export async function registerRoutes(
             accountCode: item.accountCode || null,
             quantity: item.quantity.toFixed(2),
             unitCost: item.unitCost.toFixed(2),
+            taxTypeId: item.taxTypeId ?? null,
+            taxRate: item.taxRate.toFixed(2),
+            taxAmount: Math.max(item.taxAmount, Number(calculatePurchaseOrderLineTax(item, taxInclusive))).toFixed(2),
+            isRecoverable: item.isRecoverable,
             notes: item.notes || null,
           })));
         }
@@ -8155,7 +8272,7 @@ export async function registerRoutes(
       res.json(updated);
     } catch (err: any) {
       console.error("Edit Purchase Order Error:", err);
-      res.status(400).json({ message: err.message });
+      res.status(err.statusCode || 400).json({ message: err.message });
     }
   });
 

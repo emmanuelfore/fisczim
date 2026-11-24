@@ -17,6 +17,10 @@ import {
   invoices,
   journalEntries,
   payments,
+  salesOrders,
+  salesOrderItems,
+  salesPickLists,
+  salesPickListItems,
 } from "../../../shared/schema.js";
 import { requireApprovalOrContinue } from "../../lib/approval-gate.js";
 import { resolveInvoiceAnalytics } from "../../lib/departmental.js";
@@ -325,6 +329,46 @@ export async function createAuthoritativeInvoice(
 
   const dimensions = await resolveInvoiceDimensions(context, input, input.items);
   await assertSalesOrderAvailable(context.companyId, input.salesOrderId);
+
+  if (input.salesOrderId) {
+    const [order] = await db.select().from(salesOrders).where(and(
+      eq(salesOrders.id, input.salesOrderId),
+      eq(salesOrders.companyId, context.companyId),
+    )).limit(1);
+    if (!order || ["pending", "rejected"].includes(order.approvalStatus || "") ||
+        order.status !== "dispatched" || order.customerId !== input.customerId) {
+      throw new InvoiceAuthorityError("INVALID_SALES_ORDER", "An approved, dispatched order for this customer is required", 422);
+    }
+    const picked = await db.select({
+      productId: salesOrderItems.productId,
+      quantity: salesPickListItems.pickedQuantity,
+      invoicedQuantity: salesOrderItems.invoicedQuantity,
+    }).from(salesPickLists)
+      .innerJoin(salesPickListItems, eq(salesPickListItems.pickListId, salesPickLists.id))
+      .innerJoin(salesOrderItems, and(
+        eq(salesOrderItems.id, salesPickListItems.salesOrderItemId),
+        eq(salesOrderItems.salesOrderId, salesPickLists.salesOrderId),
+      ))
+      .where(and(
+        eq(salesPickLists.companyId, context.companyId),
+        eq(salesPickLists.salesOrderId, order.id),
+        eq(salesPickLists.status, "DISPATCHED"),
+      ));
+    const dispatched = new Map<number | null, number>();
+    for (const item of picked) {
+      const quantity = Math.max(0, Number(item.quantity) - Number(item.invoicedQuantity));
+      dispatched.set(item.productId, (dispatched.get(item.productId) ?? 0) + quantity);
+    }
+    for (const item of input.items) {
+      const productId = item.productId ?? null;
+      const quantity = Number(item.quantity);
+      const remaining = (dispatched.get(productId) ?? 0) - quantity;
+      if (!Number.isFinite(quantity) || quantity <= 0 || remaining < -0.000001) {
+        throw new InvoiceAuthorityError("QUANTITY_EXCEEDS_DISPATCH", "Invoice quantities must be covered by the dispatched pick list", 422);
+      }
+      dispatched.set(productId, remaining);
+    }
+  }
 
   const invoiceData: Record<string, any> = {
     ...(input.extra || {}),

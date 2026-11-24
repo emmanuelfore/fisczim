@@ -148,6 +148,7 @@ vi.mock("../lib/approved-invoice-fiscalization.js", () => ({
 }));
 
 const { createCrmRouter } = await import("../routes/crm.js");
+const { createVehiclesRouter } = await import("../routes/vehicles.js");
 const { executeDeferredApprovalAction } = await import("../lib/approval-executors.js");
 
 const enquiry = {
@@ -192,6 +193,7 @@ beforeEach(() => {
     next();
   });
   app.use("/api", createCrmRouter(pass, pass));
+  app.use("/api", createVehiclesRouter(pass, pass));
 });
 
 async function request(method: string, path: string, payload?: any) {
@@ -212,6 +214,71 @@ async function request(method: string, path: string, payload?: any) {
 }
 
 const quotationWrites = () => state.writes.filter((w) => w.table === "quotations" && w.op === "insert");
+
+describe("vehicle imports and CRM handoff", () => {
+  const vehicle = { id: 7, companyId: 21, status: "available", stage: "cleared", accountingModel: "agent" };
+  const url = "/api/companies/21/vehicles/7";
+
+  test("a new reservation cannot overwrite an existing reservation", async () => {
+    script("vehicles", [{ ...vehicle, status: "reserved", customerId: 3 }]);
+    const result = await request("POST", `${url}/reserve`, { customerId: 4 });
+    expect(result.status).toBe(409);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("a reservation requires a company-owned customer", async () => {
+    script("vehicles", [vehicle]);
+    script("customers", []);
+    const result = await request("POST", `${url}/reserve`, { customerId: 4 });
+    expect(result.status).toBe(400);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("agreement terms are locked once a vehicle has an invoice", async () => {
+    script("vehicles", [{ ...vehicle, customerId: 3, invoiceId: 13 }]);
+    const result = await request("POST", `${url}/agreement`, {
+      agreedPrice: 2000, months: 4, startDate: "2026-11-24",
+    });
+    expect(result.status).toBe(409);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("agency handover records agreement completion and one delivery event", async () => {
+    const agreement = { id: 9, status: "draft", accountingModel: "agent", feeRecognition: "on_collection" };
+    const completed = { ...agreement, status: "completed", handoverAt: new Date("2026-11-24") };
+    const event = { id: 2, vehicleId: 7, stage: "delivered" };
+    script("vehicles", [vehicle], [], [{ ...vehicle, status: "delivered", stage: "delivered" }]);
+    script("vehicle_sales_agreements", [agreement], [completed], [completed]);
+    script("vehicle_stage_events", [event], [event]);
+
+    expect((await request("POST", `${url}/agreement/handover`, {})).status).toBe(200);
+    expect((await request("POST", `${url}/stage`, { stage: "delivered" })).body).toMatchObject(event);
+    expect(state.writes.filter((write) => write.table === "vehicle_stage_events")).toHaveLength(1);
+    expect(state.writes.find((write) => write.table === "vehicles")?.values)
+      .toMatchObject({ stage: "delivered", status: "delivered" });
+  });
+
+  test("agreement list reports collected funds and balance in the agreement currency", async () => {
+    const agreement = { id: 9, agreedPrice: "2000", currency: "ZWG", exchangeRate: "20" };
+    script("vehicle_sales_agreements", [{ agreement, vehicle }]);
+    script("payments", [{ vehicleId: 7, amount: "25", exchangeRate: "1" }]);
+    const result = await request("GET", "/api/companies/21/agreements");
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject([{ collected: 500, balance: 1500 }]);
+  });
+
+  test("retrying a completed CRM conversion reuses the customer without adding activity", async () => {
+    const lead = { ...enquiry, customerId: null, assignedTo: null, phone: null, email: null };
+    const linked = { ...lead, customerId: 12 };
+    script("enquiries", [lead], [], [], [linked], [linked], [linked]);
+    script("customers", [{ id: 12 }]);
+    const url = "/api/companies/21/crm/enquiries/5/convert";
+    expect((await request("POST", url)).body).toMatchObject({ customerId: 12 });
+    expect((await request("POST", url)).body).toMatchObject({ customerId: 12 });
+    expect(state.writes.filter((write) => write.table === "customers")).toHaveLength(1);
+    expect(state.writes.filter((write) => write.table === "enquiry_activities")).toHaveLength(1);
+  });
+});
 
 describe("CRM enquiry to quotation", () => {
   test("configured tenant without resolvable dimensions is rejected before an insert", async () => {

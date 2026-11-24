@@ -188,7 +188,9 @@ export default function PurchaseOrdersPage() {
     updateStatus(
       { id: order.id, status },
       {
-        onSuccess: () => toast({ title: "Status updated", description: `${order.poNumber} → ${status}` }),
+        onSuccess: result => toast(result.approval
+          ? { title: "Approval requested", description: result.message }
+          : { title: "Status updated", description: order.poNumber + " marked as " + status }),
         onError: (error: any) => toast({ title: "Update failed", description: error.message, variant: "destructive" }),
       },
     );
@@ -380,7 +382,7 @@ export default function PurchaseOrdersPage() {
                       <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => setPrinting(order)}>
                         <Printer className="h-3.5 w-3.5 mr-1" /> Print
                       </Button>
-                      {["DRAFT", "SENT"].includes(order.status) && (
+                      {order.status === "DRAFT" && (
                         <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => setLocation(`/inventory/purchase-orders/${order.id}?edit=true`)}>
                           <Edit2 className="h-3.5 w-3.5 mr-1" /> Edit
                         </Button>
@@ -582,7 +584,7 @@ export default function PurchaseOrdersPage() {
                           <Printer className="h-3.5 w-3.5" />
                           Print
                         </Button>
-                        {["DRAFT", "SENT"].includes(order.status) && (
+                        {order.status === "DRAFT" && (
                           <Button
                             size="sm"
                             variant="outline"

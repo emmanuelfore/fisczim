@@ -35,6 +35,7 @@ import {
   findPriorEnquiry,
   linkCustomer,
 } from "../lib/lead-capture.js";
+import { ensureEnquiryCustomer } from "../lib/crm-vehicles.js";
 import { userHasPermission } from "../lib/permissions.js";
 import { resolveActionAccess } from "../lib/approval-policies.js";
 import { approveRequest, createApprovalRequest, rejectRequest } from "../lib/approvals.js";
@@ -839,58 +840,50 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
       }
       const id = parseInt(req.params.id);
 
-      const [enquiry] = await db
-        .select()
-        .from(enquiries)
-        .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)));
-      if (!enquiry) return res.status(404).json({ error: "Enquiry not found" });
+      const result = await db.transaction(async (tx) => {
+        // Vehicle workflows acquire the vehicle lock before touching the enquiry.
+        const linkedVehicles = await tx.select({ id: vehicles.id }).from(vehicles)
+          .where(and(eq(vehicles.companyId, companyId), eq(vehicles.enquiryId, id)))
+          .orderBy(asc(vehicles.id))
+          .for("update");
+        const [enquiry] = await tx.select().from(enquiries)
+          .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)))
+          .for("update");
+        if (!enquiry) return null;
 
-      let customerId = enquiry.customerId ?? (await linkCustomer(companyId, enquiry.phone, enquiry.email));
-      let createdNew = false;
+        const { customerId, created } = await ensureEnquiryCustomer(tx, companyId, enquiry);
+        if (!enquiry.customerId) {
+          await logActivity(
+            id,
+            "customer",
+            created ? "Customer record created." : "Linked to an existing customer record.",
+            { customerId },
+            req.user?.id,
+            tx,
+          );
+        }
 
-      if (!customerId) {
-        const [customer] = await db
-          .insert(customers)
-          .values({
-            companyId,
-            name: enquiry.name,
-            phone: enquiry.phone,
-            email: enquiry.email,
-            notes: enquiry.notes,
-          })
-          .returning();
-        customerId = customer.id;
-        createdNew = true;
-      }
+        if (linkedVehicles.length) {
+          const linked = and(
+            eq(vehicles.companyId, companyId),
+            eq(vehicles.enquiryId, id),
+            inArray(vehicles.id, linkedVehicles.map(({ id: vehicleId }) => vehicleId)),
+          );
+          await tx.update(vehicles).set({ customerId, updatedAt: new Date() })
+            .where(and(linked, isNull(vehicles.customerId)));
+          if (enquiry.assignedTo) {
+            await tx.update(vehicles).set({ salespersonId: enquiry.assignedTo, updatedAt: new Date() })
+              .where(and(linked, isNull(vehicles.salespersonId)));
+          }
+        }
 
-      const [updated] = await db
-        .update(enquiries)
-        .set({ customerId, updatedAt: new Date() })
-        .where(eq(enquiries.id, id))
-        .returning();
+        const [updated] = await tx.select().from(enquiries)
+          .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)));
+        return { enquiry: updated, customerId };
+      });
 
-      await logActivity(
-        id,
-        "customer",
-        createdNew ? "Customer record created." : "Linked to an existing customer record.",
-        { customerId },
-        req.user?.id,
-      );
-
-      // Vehicles already linked to this lead inherit the resolved customer and
-      // salesperson, so the CRM hand-off does not need a second data entry.
-      await db
-        .update(vehicles)
-        .set({ customerId, updatedAt: new Date() })
-        .where(and(eq(vehicles.companyId, companyId), eq(vehicles.enquiryId, id), isNull(vehicles.customerId)));
-      if (enquiry.assignedTo) {
-        await db
-          .update(vehicles)
-          .set({ salespersonId: enquiry.assignedTo, updatedAt: new Date() })
-          .where(and(eq(vehicles.companyId, companyId), eq(vehicles.enquiryId, id), isNull(vehicles.salespersonId)));
-      }
-
-      res.json({ enquiry: updated, customerId });
+      if (!result) return res.status(404).json({ error: "Enquiry not found" });
+      res.json(result);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to convert enquiry" });
@@ -1044,6 +1037,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
         title: `Approve quotation ${quotation.quotationNumber}`,
         description: "Quotations must be authorised before they are sent or accepted.",
         payload: {
+          referenceId: String(quotation.id),
           quotationData: {
             companyId,
             branchId: quotation.branchId,
@@ -1065,7 +1059,9 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
         return res.status(202).json({ message: "Quotation submitted for approval", enquiry: updated, quotation, approval: gate.request });
       }
 
-      res.status(201).json({ enquiry: updated, quotation });
+      const [approved] = await db.update(quotations).set({ status: "approved" })
+        .where(and(eq(quotations.id, quotation.id), eq(quotations.companyId, companyId))).returning();
+      res.status(201).json({ enquiry: updated, quotation: approved });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });

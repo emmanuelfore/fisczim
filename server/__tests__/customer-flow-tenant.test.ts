@@ -506,3 +506,46 @@ describe("proof of delivery capture", () => {
     expect(state.writes).toHaveLength(0);
   });
 });
+
+describe("pick list overview", () => {
+  test("the overview is tenant-scoped and includes line totals", async () => {
+    state.selectQueue = [
+      [{
+        id: 7,
+        pickNumber: "PICK-7",
+        status: "PICKED",
+        salesOrderId: 55,
+        orderNumber: "SO-55",
+        customerName: "Acme",
+        locationCode: "WH-REP",
+        locationName: "Repairs Workshop",
+        deliveryNumber: "DN-7",
+        podReference: "POD-7",
+        createdAt: new Date("2026-11-20T10:00:00Z"),
+      }],
+      [{ pickListId: 7, lineCount: 2, pickedQuantity: "5.00" }],
+    ];
+
+    const result = await request("GET", "/api/pick-lists?status=PICKED");
+
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveLength(1);
+    expect(result.body[0]).toMatchObject({
+      id: 7,
+      pickNumber: "PICK-7",
+      lineCount: 2,
+      pickedQuantity: 5,
+    });
+    expect(state.reads).toHaveLength(2);
+    expect(render(state.reads[0])).toContain('"sales_pick_lists"."company_id"');
+    expect(render(state.reads[0])).toContain('"sales_pick_lists"."status"');
+    expect(render(state.reads[1])).toContain('"sales_pick_list_items"."pick_list_id"');
+  });
+
+  test("an arbitrary companyId is refused on the overview endpoint", async () => {
+    const result = await request("GET", "/api/pick-lists?companyId=91");
+    expect(result.status).toBe(403);
+    expect(state.selectQueue).toHaveLength(0);
+    expect(state.reads).toHaveLength(0);
+  });
+});

@@ -129,6 +129,7 @@ const SupplierCreditNotesPage = lazy(() => import("@/pages/supplier-credit-notes
 const SupplierInvoiceDetailsPage = lazy(() => import("@/pages/supplier-invoice-details"));
 const SupplierInvoiceFormPage = lazy(() => import("@/pages/supplier-invoice-form"));
 const SalesOrdersPage = lazy(() => import("@/pages/sales-orders"));
+const PickListsPage = lazy(() => import("@/pages/pick-lists"));
 const CreateSalesOrderPage = lazy(() => import("@/pages/create-sales-order"));
 const SalesOrderDetailsPage = lazy(() => import("@/pages/sales-order-details"));
 const CompoundProductsPage = lazy(() => import("@/pages/compound-products"));
@@ -777,6 +778,9 @@ function Router() {
       </Route>
       <Route path="/sales-orders">
         {() => <ProtectedRoute component={SalesOrdersPage} />}
+      </Route>
+      <Route path="/pick-lists">
+        {() => <ProtectedRoute component={PickListsPage} />}
       </Route>
       <Route path="/sales-orders/new">
         <ProtectedRoute component={CreateSalesOrderPage} />

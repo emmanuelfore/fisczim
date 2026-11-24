@@ -271,6 +271,7 @@ export function Layout({
       children: [
         { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
         { icon: FileText, label: "Sales Orders", href: "/sales-orders" },
+        { icon: ClipboardCheck, label: "Pick Lists", href: "/pick-lists" },
         { icon: Package, label: "Compound Products", href: "/compound-products" },
         { icon: FileText, label: "Invoices", href: "/invoices" },
         {

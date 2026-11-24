@@ -771,6 +771,94 @@ export function createCustomerFlowRouter(requireAuth: any) {
     }
   });
 
+  // 4e. Warehouse-wide pick list overview for the dedicated Pick Lists page.
+  // Ownership is enforced on the header and again on every join and line
+  // aggregate, so an id from another company can never leak into this list.
+  router.get("/pick-lists", requireAuth, async (req, res) => {
+    try {
+      const companyId = await companyFor(req, res);
+      if (!companyId) return;
+
+      const status = typeof req.query.status === "string" && req.query.status
+        ? req.query.status
+        : undefined;
+      const conditions = [eq(salesPickLists.companyId, companyId)];
+      if (status) conditions.push(eq(salesPickLists.status, status));
+
+      const rows = await db
+        .select({
+          id: salesPickLists.id,
+          pickNumber: salesPickLists.pickNumber,
+          status: salesPickLists.status,
+          salesOrderId: salesOrders.id,
+          orderNumber: salesOrders.orderNumber,
+          customerName: customers.name,
+          locationCode: inventoryLocations.code,
+          locationName: inventoryLocations.name,
+          deliveryNumber: salesPickLists.deliveryNumber,
+          recipientName: salesPickLists.recipientName,
+          podReference: salesPickLists.podReference,
+          podAttachmentUrl: salesPickLists.podAttachmentUrl,
+          pickedAt: salesPickLists.pickedAt,
+          dispatchedAt: salesPickLists.dispatchedAt,
+          createdAt: salesPickLists.createdAt,
+        })
+        .from(salesPickLists)
+        .innerJoin(
+          salesOrders,
+          and(eq(salesPickLists.salesOrderId, salesOrders.id), eq(salesOrders.companyId, companyId))
+        )
+        .leftJoin(
+          customers,
+          and(eq(salesOrders.customerId, customers.id), eq(customers.companyId, companyId))
+        )
+        .leftJoin(
+          inventoryLocations,
+          and(
+            eq(salesPickLists.locationId, inventoryLocations.id),
+            eq(inventoryLocations.companyId, companyId)
+          )
+        )
+        .where(and(...conditions))
+        .orderBy(desc(salesPickLists.id));
+
+      const pickListIds = rows.map((row) => row.id);
+      const aggregates = pickListIds.length
+        ? await db
+            .select({
+              pickListId: salesPickListItems.pickListId,
+              lineCount: sql<number>`count(*)::int`,
+              pickedQuantity: sql<string>`coalesce(sum(${salesPickListItems.pickedQuantity}), 0)`,
+            })
+            .from(salesPickListItems)
+            .innerJoin(
+              salesPickLists,
+              and(
+                eq(salesPickListItems.pickListId, salesPickLists.id),
+                eq(salesPickLists.companyId, companyId)
+              )
+            )
+            .where(inArray(salesPickListItems.pickListId, pickListIds))
+            .groupBy(salesPickListItems.pickListId)
+        : [];
+
+      const aggregateByPickList = new Map(
+        aggregates.map((row) => [row.pickListId, row])
+      );
+
+      res.json(rows.map((row) => {
+        const aggregate = aggregateByPickList.get(row.id);
+        return {
+          ...row,
+          lineCount: Number(aggregate?.lineCount ?? 0),
+          pickedQuantity: Number(aggregate?.pickedQuantity ?? 0),
+        };
+      }));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 4. Invoice a Sales Order. Idempotent: repeated calls return the existing
   // active invoice instead of creating a second one.
   router.post("/invoices/from-sales-order", requireAuth, async (req, res) => {

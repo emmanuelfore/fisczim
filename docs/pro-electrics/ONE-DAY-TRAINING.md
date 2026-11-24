@@ -60,10 +60,10 @@ Prepare before the session in the training company only.
 
 - **Reset the training company** before each session or use a new training dataset; do not reuse posted payroll runs or fiscalized documents.
 - **Permissions:** log in with each role at least once. Use two approver-enabled users for Exercise 7 so self-approval can be tested safely.
-- **Pending functionality:** where a step is not implemented in the current build (for example a POD attachment field), demonstrate the intended control, state clearly that it is pending, and log a training/UAT gap. Do not imply the feature exists.
+- **Pending functionality:** where a step is not implemented in the current build (for example uploading the POD document itself — the current build records a POD reference and attachment URL), demonstrate the intended control, state clearly that it is pending, and log a training/UAT gap. Do not imply the feature exists.
 - **Approval submissions:** many actions now return HTTP `202` and create an approval request instead of a business record. This applies to requisitions, quotations, sales orders, purchase orders, supplier registration, expenses, credit notes, payments, leave and discounts. Trainees must check `/approvals` before assuming the document was saved.
 - **Approval settings:** display the configured policy screen and explicitly state that monetary limits and approver names are client-confirmed inputs. Explain that a threshold of `0` means no threshold.
-- **Migration awareness:** explain that 0109 created picking records and the one-active-invoice rule; 0110 added department/cost-centre/warehouse links; 0111 added GL/source-document department fields, indexes and approval-policy seeds; 0112 added vehicle-agency accounting where applicable; 0113–0114 added price lists and budgets; 0115 added requisitions and supplier quotes; 0116 backfilled the requisition approval policy; 0117 added HR termination/probation fields; 0118 added unpriced NHIF/WCIF rules; 0119 added quotation location capture. Migration success does not prove the tenant was seeded — verify the actual company id and settings export.
+- **Migration awareness:** explain that 0109 created picking records and the one-active-invoice rule; 0110 added department/cost-centre/warehouse links; 0111 added GL/source-document department fields, indexes and approval-policy seeds; 0112 added vehicle-agency accounting where applicable; 0113–0114 added price lists and budgets; 0115 added requisitions and supplier quotes; 0116 backfilled the requisition approval policy; 0117 added HR termination/probation fields; 0118 added unpriced NHIF/WCIF rules; 0119 added quotation location capture; 0120 added POD reference and attachment fields. Migration success does not prove the tenant was seeded — verify the actual company id and settings export.
 - **FiscalPrinter training mode:** use the offline commands below. They make no API call, write no invoice and consume no fiscal counter. Copies carry `TRAINING — NOT A VALID FISCAL INVOICE` and a training QR.
 
 ```bash
@@ -110,7 +110,7 @@ npm run training:stamp:samples    # stamp a training QR on bundled PDFs
 5. Prepare and then confirm the pick list.
 6. Confirm that only picked quantities are available to dispatch/invoice.
 7. Record delivery number `DN-TRAIN-001` and recipient name via the dispatch action.
-8. Record the POD reference/attachment where available; if the field is absent, note the gap.
+8. Record POD reference `POD-TRAIN-001` and an `https://...` attachment URL during dispatch; reopen the order and confirm both persisted. Actual document upload remains out of scope in this build.
 9. Reopen the sales order and identify the remaining/backorder quantity.
 10. **Checkpoint:** one active pick list exists and stock was not over-deducted.
 
@@ -129,16 +129,16 @@ npm run training:stamp:samples    # stamp a training QR on bundled PDFs
 
 ### Exercise 5 — Requisition, supplier quotes, PO, GDN/GRN and three-way match
 
-1. Log in as the **Procurement Officer** and `POST /api/companies/:companyId/procurement/requisitions` for department `HW`.
-2. `POST .../requisitions/:id/submit` and confirm the manager receives the approval request.
-3. As the manager, approve the requisition in `/approvals`; as Procurement Officer, capture two fictitious quotes from `SUP-TRAIN-001` and `SUP-TRAIN-002` via `POST .../requisitions/:id/quotes`.
-4. Select the successful quote via `POST .../quotes/:id/select`, then `POST .../requisitions/:id/create-po`.
+1. Log in as the **Procurement Officer**, open `/inventory/procurement-requisitions` and create a requisition for department `HW` (the same action is available as `POST /api/companies/:companyId/procurement/requisitions`).
+2. Use **Submit** on the requisition and confirm the manager receives the approval request.
+3. As the manager, approve the requisition in `/approvals`; as Procurement Officer, use **Capture Quote** to add two fictitious quotes from `SUP-TRAIN-001` and `SUP-TRAIN-002`.
+4. Use **Select Quote** for the successful quote, then **Create PO** (equivalent to `POST .../quotes/:id/select` and `POST .../requisitions/:id/create-po`).
 5. As management, approve the PO at/above the provisional limit in `/approvals`; confirm department, cost centre and receiving warehouse `WH-HW` on the resulting PO.
 6. Create a GDN for a partial receipt, then confirm the GRN in `/inventory/grvs`.
 7. Verify stock increases in `WH-HW` and the GRN carries PO department/cost-centre values.
 8. Enter a supplier invoice in `/supplier-invoices` matching PO and GRN; observe a `MATCHED` result.
 9. Enter a second bill with a quantity or price variance; observe it is blocked or routed for waiver approval.
-10. If a dedicated requisition/quote screen is not available in the build, use the documented API paths and record the UI gap rather than inventing a screen.
+10. The requisition/quote screen covers capture, submission, quote selection and PO creation; supplier registration, GRNs and three-way matching remain on their existing screens.
 11. **Checkpoint:** describe the three-way match: PO quantity/price vs GRN receipt vs supplier invoice.
 
 ### Exercise 6 — Transfers, counts, adjustments and damaged stock

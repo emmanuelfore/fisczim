@@ -101,6 +101,21 @@ function toDimensionId(value: number | string | null | undefined): number | null
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+function normalizeOptionalText(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve the analytical dimensions once at capture time. The warehouse is
  * also validated for ownership here because the departmental helpers only use
@@ -675,6 +690,12 @@ export function createCustomerFlowRouter(requireAuth: any) {
         return res.status(400).json({ error: "Confirm picking before dispatch" });
       }
 
+      const podReference = normalizeOptionalText(req.body?.podReference);
+      const podAttachmentUrl = normalizeOptionalText(req.body?.podAttachmentUrl);
+      if (podAttachmentUrl && !isHttpUrl(podAttachmentUrl)) {
+        return res.status(400).json({ error: "podAttachmentUrl must be a valid http(s) URL" });
+      }
+
       const userId = (req.user as any)?.id ?? null;
       const deliveryNumber = req.body?.deliveryNumber || data.pickList.deliveryNumber || `DN-${Date.now()}`;
       await db.update(salesPickLists)
@@ -685,6 +706,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
           deliveryNumber,
           recipientName: req.body?.recipientName || null,
           deliveryNotes: req.body?.deliveryNotes || null,
+          podReference,
+          podAttachmentUrl,
           updatedAt: new Date(),
         })
         .where(and(eq(salesPickLists.id, data.pickList.id), eq(salesPickLists.companyId, companyId)));

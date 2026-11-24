@@ -22,6 +22,7 @@
   - `migrations/0117_hr_employee_fields.sql`: termination type/reason and probation date storage for employees and contracts.
   - `migrations/0118_nhif_wcif_statutory_rules.sql`: adds unpriced NHIF/WCIF rule rows; rates remain client-configured.
   - `migrations/0119_quotation_location.sql`: stores the quotation location with its analytical dimensions.
+  - `migrations/0120_sales_pick_list_pod.sql`: stores POD reference and attachment URL on dispatched pick lists.
 - Mandatory capture, immutability and self-approval hardening are still cutover prerequisites/UAT checks on every entry route; do not assume they exist because columns or a guard exist on one route.
 
 ## 2. Pre-cutover checklist
@@ -43,6 +44,7 @@
 | PC-13 | Full backup of production and staging completed and restore tested. | System Administrator | ☐ | Backup/restore log |
 | PC-14 | Migration rehearsal completed end-to-end with validation SQL attached. | System Administrator / Finance Manager | ☐ | Rehearsal evidence |
 | PC-15 | UAT exit criteria met or waivers approved. | General Manager | ☐ | UAT sign-off |
+| PC-16 | If Paynow issues a webhook signing secret, set `PAYNOW_WEBHOOK_SECRET` and confirm signed IPNs are accepted while unsigned ones are rejected (HTTP 401). | System Administrator | ☐ | Webhook verification evidence |
 
 ## 3. Backup and restore
 
@@ -105,7 +107,7 @@ Record backup file name, checksum, restore duration and the validation result. C
 | Suppliers | `suppliers` | Deduplicate by name/TIN/phone; preserve payment terms and opening balance. |
 | Quotations | `quotations` | Link to real quotation records; ensure `sales_orders.quotation_id` and `sales_order_items.quotation_item_id` resolve (0109 clears invalid links). Set department/cost centre. |
 | Sales orders | `sales_orders` | Preserve order number/status; set `department_id`, `cost_center_id`, `location_id`; keep source ID cross-reference. |
-| Picking/dispatch | `sales_pick_lists`, `sales_pick_list_items`, `sales_order_items.picked_quantity` | Only one active pick list per SO. Migrate picked/dispatched quantities and delivery/POD references where available. |
+| Picking/dispatch | `sales_pick_lists`, `sales_pick_list_items`, `sales_order_items.picked_quantity` | Only one active pick list per SO. Migrate picked/dispatched quantities; map delivery number, recipient and POD data to `delivery_number`, `recipient_name`, `pod_reference` and `pod_attachment_url` where available. |
 | Invoices | `invoices` | One active invoice per SO. Cancel duplicates rather than delete; preserve `notes`, journal links and FiscalInvoice history. Set department/cost centre/location. |
 | Payments/reconciliation | Payments, payment allocations, cashbook | Preserve allocation to invoices and bank/cashbook references; reconcile AR/AP after load. |
 | Purchase requisitions/quotes | `purchase_requisitions`, `purchase_requisition_items`, `supplier_quotes`, `supplier_quote_items` | Map requester, department/cost centre/location, manager approval, supplier quotes and selected quote. Preserve source IDs in `notes` when legacy records exist. |
@@ -359,7 +361,7 @@ FROM stock_takes WHERE company_id = $1;
 |---|---|---|---|---|
 | GN-01 | One legal company and central COA; no accidental company duplication. | Finance Manager | ☐ | |
 | GN-02 | Final codes, thresholds, managers/approvers and opening/damaged stock confirmed in writing. | General Manager | ☐ | |
-| GN-03 | Migrations 0109–0119 (0112 only where vehicles are in scope) applied successfully; tenant approval settings and NHIF/WCIF rule rows verified. | System Administrator | ☐ | |
+| GN-03 | Migrations 0109–0120 (0112 only where vehicles are in scope) applied successfully; tenant approval settings, NHIF/WCIF rule rows and POD columns verified. | System Administrator | ☐ | |
 | GN-04 | Validation SQL 6.1–6.7 passed with zero unexplained exceptions. | Accountant | ☐ | |
 | GN-05 | One active invoice per SO; duplicates cancelled with notes and history intact. | Finance Manager | ☐ | |
 | GN-06 | Department **and** cost centre propagated to source documents and GL; reports reconcile. | Finance Manager | ☐ | |

@@ -448,3 +448,61 @@ describe("sales order reads, patches and approvals", () => {
     expect(render(update.condition)).toContain('"sales_orders"."company_id"');
   });
 });
+
+describe("proof of delivery capture", () => {
+  const order = {
+    id: 1,
+    companyId: 21,
+    approvalStatus: "approved",
+    status: "picked",
+    items: [],
+  };
+  const pickList = { id: 3, salesOrderId: 1, locationId: null, status: "PICKED" };
+
+  function queuePickedList() {
+    state.orderQueue = [order, { ...order }];
+    // loadPickList: invoices, pick list, pick list items, locations — twice.
+    state.selectQueue = [[], [pickList], [], [], [], [pickList], [], []];
+  }
+
+  function pickListUpdate() {
+    return state.writes.find((w) => w.kind === "update" && render(w.condition).includes('"sales_pick_lists"'));
+  }
+
+  test("dispatch persists the saved POD reference and attachment URL", async () => {
+    queuePickedList();
+    const result = await request("POST", "/api/sales-orders/1/dispatch", {
+      deliveryNumber: "DN-9",
+      recipientName: "Receiver",
+      podReference: "POD-77",
+      podAttachmentUrl: "https://example.test/pod/77.pdf",
+    });
+    expect(result.status).toBe(200);
+    expect(pickListUpdate()?.values).toMatchObject({
+      status: "DISPATCHED",
+      deliveryNumber: "DN-9",
+      recipientName: "Receiver",
+      podReference: "POD-77",
+      podAttachmentUrl: "https://example.test/pod/77.pdf",
+    });
+  });
+
+  test("blank POD values become null and legacy dispatches still succeed", async () => {
+    queuePickedList();
+    const result = await request("POST", "/api/customer-flow/sales-orders/1/dispatch", {
+      podReference: "   ",
+      podAttachmentUrl: "",
+    });
+    expect(result.status).toBe(200);
+    expect(pickListUpdate()?.values).toMatchObject({ podReference: null, podAttachmentUrl: null });
+  });
+
+  test("a non-http(s) attachment URL is refused before any dispatch write", async () => {
+    queuePickedList();
+    const result = await request("POST", "/api/sales-orders/1/dispatch", {
+      podAttachmentUrl: "javascript:alert(1)",
+    });
+    expect(result.status).toBe(400);
+    expect(state.writes).toHaveLength(0);
+  });
+});

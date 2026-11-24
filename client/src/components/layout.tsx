@@ -305,6 +305,11 @@ export function Layout({
       children: [
         {
           icon: ClipboardList,
+          label: "Purchase Requisitions",
+          href: "/inventory/procurement-requisitions",
+        },
+        {
+          icon: ClipboardList,
           label: "Purchase Orders",
           href: "/inventory/purchase-orders",
         },
@@ -883,6 +888,12 @@ export function Layout({
       return {
         title: "Stock Take",
         subtitle: "Count inventory and reconcile stock positions.",
+      };
+    if (location.startsWith("/inventory/procurement-requisitions"))
+      return {
+        title: "Purchase Requisitions",
+        subtitle:
+          "Raise requests, compare supplier quotes and convert the selected quote into a purchase order.",
       };
     if (location.startsWith("/inventory/purchase-orders"))
       return {

@@ -6491,6 +6491,8 @@ export const salesPickLists = pgTable("sales_pick_lists", {
   deliveryNumber: text("delivery_number"),
   recipientName: text("recipient_name"),
   deliveryNotes: text("delivery_notes"),
+  podReference: text("pod_reference"),
+  podAttachmentUrl: text("pod_attachment_url"),
   pickedBy: uuid("picked_by").references(() => users.id),
   pickedAt: timestamp("picked_at"),
   dispatchedBy: uuid("dispatched_by").references(() => users.id),

@@ -59,6 +59,7 @@ const StockTransferFormPage = lazy(() => import("@/pages/stock-transfer-form"));
 const StockTransferDetailsPage = lazy(() => import("@/pages/stock-transfer-details"));
 const InventoryLocationsPage = lazy(() => import("@/pages/inventory-locations"));
 const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
+const ProcurementRequisitionsPage = lazy(() => import("@/pages/procurement-requisitions"));
 const PurchaseOrderFormPage = lazy(() => import("@/pages/purchase-order-form"));
 const PurchaseOrderDetailsPage = lazy(() => import("@/pages/purchase-order-details"));
 const PurchaseReturnsPage = lazy(() => import("@/pages/purchase-returns"));
@@ -553,6 +554,9 @@ function Router() {
       </Route>
       <Route path="/manufacturing">
         {() => <ProtectedRoute component={ManufacturingDashboard} />}
+      </Route>
+      <Route path="/inventory/procurement-requisitions">
+        {() => <ProtectedRoute component={ProcurementRequisitionsPage} />}
       </Route>
       <Route path="/inventory/purchase-orders">
         {() => <ProtectedRoute component={PurchaseOrdersPage} />}

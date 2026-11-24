@@ -45,6 +45,8 @@ export default function SalesOrderDetailsPage() {
   const [pickLocationId, setPickLocationId] = useState<string>("");
   const [deliveryNumber, setDeliveryNumber] = useState("");
   const [recipientName, setRecipientName] = useState("");
+  const [podReference, setPodReference] = useState("");
+  const [podAttachmentUrl, setPodAttachmentUrl] = useState("");
   const [isInvoicing, setIsInvoicing] = useState(false);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
   const [isApproving, setIsApproving] = useState(false);
@@ -127,6 +129,8 @@ export default function SalesOrderDetailsPage() {
     }
     setPickQuantities(quantities);
     setPickLocationId(data?.locationId ? String(data.locationId) : "");
+    setPodReference(data?.pickList?.podReference ?? "");
+    setPodAttachmentUrl(data?.pickList?.podAttachmentUrl ?? "");
     setIsPicking(true);
   };
 
@@ -191,7 +195,7 @@ export default function SalesOrderDetailsPage() {
       const res = await apiFetch(`/api/sales-orders/${id}/dispatch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deliveryNumber, recipientName }),
+        body: JSON.stringify({ deliveryNumber, recipientName, podReference, podAttachmentUrl }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -329,6 +333,9 @@ export default function SalesOrderDetailsPage() {
                     {fulfillment.pickList.deliveryNumber && (
                       <span className="text-slate-600">Delivery: {fulfillment.pickList.deliveryNumber}</span>
                     )}
+                    {fulfillment.pickList.podReference && (
+                      <span className="text-slate-600">POD: {fulfillment.pickList.podReference}</span>
+                    )}
                   </div>
                 )}
 
@@ -399,6 +406,14 @@ export default function SalesOrderDetailsPage() {
                       <div className="grid gap-2">
                         <Label>Received By</Label>
                         <Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="Recipient name" />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>POD Reference</Label>
+                        <Input value={podReference} onChange={(e) => setPodReference(e.target.value)} placeholder="POD-..." />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>POD Attachment URL</Label>
+                        <Input value={podAttachmentUrl} onChange={(e) => setPodAttachmentUrl(e.target.value)} placeholder="https://..." />
                       </div>
                     </div>
                   )}

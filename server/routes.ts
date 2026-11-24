@@ -73,6 +73,8 @@ import rateLimit from "express-rate-limit";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
+import { requireApprovalOrContinue } from "./lib/approval-gate.js";
+import { requireDepartmentalDimensions, resolveInvoiceAnalytics } from "./lib/departmental.js";
 import { confirmGdnReceipt } from "./lib/gdn-confirmation.js";
 import { APPROVAL_TYPES, ALL_PERMISSION_KEYS, LEGACY_ROLE_PERMISSIONS } from "../shared/permissions.js";
 import { db, withDbRetry } from "./db";
@@ -1294,13 +1296,37 @@ export async function registerRoutes(
   app.post("/api/quotations", requireAuth, async (req, res) => {
     try {
       const data = insertQuotationSchema.extend({ items: z.array(insertQuotationItemSchema) }).parse(req.body);
-      const result = await storage.createQuotation(data);
+      const hasAccess = await checkCompanyAccess(storage, req.user, data.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      const analytics = await requireDepartmentalDimensions(data.companyId, data as any);
+
+      const enrichedData = analytics ? { ...data, ...analytics } : data;
+      const { items, ...quotationData } = enrichedData as any;
+      const gate = await requireApprovalOrContinue({
+        userId: (req.user as any).id,
+        companyId: data.companyId,
+        isSuperAdmin: !!(req.user as any)?.isSuperAdmin,
+        type: APPROVAL_TYPES.QUOTATION,
+        amount: Number(data.total || 0),
+        title: `Approve quotation ${data.quotationNumber || ""}`.trim(),
+        description: "Quotations must be authorised before they are sent or accepted.",
+        payload: { quotationData, items },
+        referenceType: "quotation",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({
+          message: "Quotation submitted for approval",
+          approval: gate.request,
+        });
+      }
+
+      const result = await storage.createQuotation(enrichedData as any);
       res.status(201).json(result);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: error.errors.map(e => e.message).join(", ") });
       }
-      res.status(500).json({ message: error.message });
+      res.status(error?.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -7176,16 +7202,31 @@ export async function registerRoutes(
 
   app.post("/api/companies/:companyId/suppliers", requireAuthOrApiKey, async (req, res) => {
     try {
+      const companyId = Number(req.params.companyId);
       const input = insertSupplierSchema.parse(req.body);
+      const gate = await requireApprovalOrContinue({
+        userId: (req as any).user!.id,
+        companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.SUPPLIER_REGISTRATION,
+        title: `Approve supplier registration: ${(input as any).name || "New supplier"}`,
+        description: "A new supplier must be approved before it can be used on purchase orders.",
+        payload: { supplierData: input },
+        referenceType: "supplier_registration",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Supplier registration submitted for approval", approval: gate.request });
+      }
+
       const supplier = await storage.createSupplier({
         ...input,
-        companyId: Number(req.params.companyId)
+        companyId
       });
       res.status(201).json(supplier);
     } catch (err: any) {
       console.error("Create Supplier Error:", err);
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
-      res.status(500).json({ message: err.message || "Failed to create supplier" });
+      res.status(err.statusCode || 500).json({ message: err.message || "Failed to create supplier" });
     }
   });
 
@@ -7455,6 +7496,35 @@ export async function registerRoutes(
       }).parse(req.body);
 
       const poNumber = payload.poNumber?.trim() || `PO-${format(new Date(), "yyyyMMdd-HHmmss")}`;
+      const orderAmount = payload.items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+      const analytics = await requireDepartmentalDimensions(companyId, payload);
+      if (analytics) {
+        payload.departmentId = analytics.departmentId;
+        payload.costCenterId = analytics.costCenterId;
+      }
+      const gate = await requireApprovalOrContinue({
+        userId: (req as any).user!.id,
+        companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.PURCHASE_ORDER,
+        amount: orderAmount,
+        title: `Approve purchase order ${poNumber}`,
+        description: "Purchase orders above the approved authority must be authorised before being sent.",
+        payload: {
+          purchaseOrderData: {
+            ...payload,
+            poNumber,
+            items: undefined,
+            expectedDate: payload.expectedDate ? new Date(payload.expectedDate).toISOString() : null,
+          },
+          items: payload.items,
+        },
+        referenceType: "purchase_order",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Purchase order submitted for approval", approval: gate.request });
+      }
+
       const order = await db.transaction(async (tx) => {
         const [created] = await tx.insert(purchaseOrders).values(insertPurchaseOrderSchema.parse({
           companyId,
@@ -7496,7 +7566,7 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Create Purchase Order Error:", err);
       const duplicate = String(err?.message || "").includes("purchase_orders_company_po_number_idx");
-      res.status(400).json({ message: duplicate ? "Purchase order number already exists" : err.message });
+      res.status(err.statusCode || 400).json({ message: duplicate ? "Purchase order number already exists" : err.message });
     }
   });
 
@@ -7621,6 +7691,8 @@ export async function registerRoutes(
       const payload = z.object({
         supplierId: z.coerce.number().int().positive().optional(),
         branchId: z.coerce.number().int().positive().optional().nullable(),
+        departmentId: z.coerce.number().int().positive().optional().nullable(),
+        costCenterId: z.coerce.number().int().positive().optional().nullable(),
         expectedDate: z.string().optional().nullable(),
         shipTo: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
@@ -7642,11 +7714,21 @@ export async function registerRoutes(
         return res.status(409).json({ message: `Cannot edit a ${existing.status} purchase order.` });
       }
       await assertPurchaseOrderEditable(db, existing.companyId, id);
+      const analytics = await requireDepartmentalDimensions(existing.companyId, {
+        departmentId: payload.departmentId ?? (existing as any).departmentId,
+        costCenterId: payload.costCenterId ?? (existing as any).costCenterId,
+      });
+      if (analytics) {
+        payload.departmentId = analytics.departmentId;
+        payload.costCenterId = analytics.costCenterId;
+      }
 
       const updated = await db.transaction(async (tx) => {
         const [po] = await tx.update(purchaseOrders).set({
           supplierId: payload.supplierId ?? existing.supplierId,
           branchId: payload.branchId !== undefined ? payload.branchId : existing.branchId,
+          departmentId: analytics ? analytics.departmentId : (existing as any).departmentId ?? null,
+          costCenterId: analytics ? analytics.costCenterId : (existing as any).costCenterId ?? null,
           expectedDate: payload.expectedDate !== undefined
             ? (payload.expectedDate ? new Date(payload.expectedDate) : null)
             : existing.expectedDate,
@@ -8403,6 +8485,11 @@ export async function registerRoutes(
       if (!(await assertAccountingAccess(req, res, companyId, "accounting.payments"))) return;
       const input = insertSupplierPaymentSchema.parse(req.body);
       await assertOpenAccountingPeriod(companyId, input.paymentDate || new Date(), "Supplier payment posting");
+      const analytics = await requireDepartmentalDimensions(companyId, input);
+      if (analytics) {
+        input.departmentId = analytics.departmentId;
+        input.costCenterId = analytics.costCenterId;
+      }
 
       if (input.supplierInvoiceId) {
         const matchRow = await getPersistedSupplierBillMatch(db, companyId, Number(input.supplierInvoiceId));
@@ -8412,7 +8499,27 @@ export async function registerRoutes(
           });
         }
       }
-      
+
+      const gate = await requireApprovalOrContinue({
+        userId: (req as any).user.id,
+        companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.PAYMENT_EXECUTION,
+        amount: Number(input.amount),
+        title: `Approve supplier payment of ${input.amount}`,
+        description: "Supplier payments require independent approval above the configured authority.",
+        payload: {
+          supplierPaymentData: {
+            ...input,
+            paymentDate: input.paymentDate ? new Date(input.paymentDate as any).toISOString() : new Date().toISOString(),
+          },
+        },
+        referenceType: "supplier_payment",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Supplier payment submitted for approval", approval: gate.request });
+      }
+
       const payment = await storage.createSupplierPayment({
         ...input,
         companyId,
@@ -10584,15 +10691,42 @@ export async function registerRoutes(
         expenseDate: req.body.expenseDate ? new Date(req.body.expenseDate) : undefined,
       };
       const input = insertExpenseSchema.parse(body);
+      const companyId = Number(req.params.companyId);
+      const analytics = await requireDepartmentalDimensions(companyId, input);
+      if (analytics) {
+        input.departmentId = analytics.departmentId;
+        input.costCenterId = analytics.costCenterId;
+      }
+      const gate = await requireApprovalOrContinue({
+        userId: (req as any).user!.id,
+        companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.EXPENSE,
+        amount: Number(input.amount),
+        title: "Approve company expense",
+        description: "Departmental expenses must be approved before they reach the ledger.",
+        payload: {
+          expenseData: {
+            ...input,
+            expenseDate: input.expenseDate ? new Date(input.expenseDate as any).toISOString() : new Date().toISOString(),
+            amount: String(input.amount),
+          },
+        },
+        referenceType: "expense",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Expense submitted for approval", approval: gate.request });
+      }
+
       const expense = await storage.createExpense({
         ...input,
-        companyId: Number(req.params.companyId)
+        companyId
       });
       res.status(201).json(expense);
     } catch (err: any) {
       console.error("Create Expense Error:", err);
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
-      res.status(500).json({ message: err.message || "Failed to create expense" });
+      res.status(err.statusCode || 500).json({ message: err.message || "Failed to create expense" });
     }
   });
 
@@ -11767,6 +11901,18 @@ export async function registerRoutes(
       const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const requestBranchId = getBranchId(req);
 
+      // Every posted invoice must carry analytical dimensions. Fast-entry POS
+      // flows get them from the product or dispatch warehouse automatically.
+      const invoiceAnalytics = await resolveInvoiceAnalytics(
+        companyId,
+        input as any,
+        (input.items || []) as any,
+      );
+      if (invoiceAnalytics) {
+        (input as any).departmentId = invoiceAnalytics.departmentId;
+        (input as any).costCenterId = invoiceAnalytics.costCenterId;
+      }
+
       // One sales order may only have one active invoice, regardless of which
       // invoice screen or API path is used.
       if ((input as any).salesOrderId) {
@@ -11827,6 +11973,35 @@ export async function registerRoutes(
               approvalId: approval.id,
             });
           }
+        }
+      }
+
+      // Discount overrides are a separate control from invoice issuance.
+      // A manager may have direct invoice authority but still be unable to
+      // self-approve a discount above the configured authority.
+      const discountAmount = Number((input as any).discountAmount || 0) +
+        (input.items || []).reduce((sum: number, line: any) => sum + Number(line.discountAmount || 0), 0);
+      if (discountAmount > 0) {
+        const discountGate = await requireApprovalOrContinue({
+          userId,
+          companyId,
+          isSuperAdmin,
+          type: APPROVAL_TYPES.DISCOUNT,
+          amount: discountAmount,
+          title: `Approve discount of ${discountAmount.toFixed(2)}`,
+          description: "A discount was applied and must be authorised before the invoice is issued.",
+          payload: {
+            invoiceData: { ...input, status: "issued", companyId, createdBy: userId, branchId: requestBranchId },
+            items: input.items,
+          },
+          referenceType: "discount",
+        });
+        if (discountGate.requiresApproval) {
+          return sendIdempotent(req, res, idempotencyKey, 202, {
+            message: "Discount submitted for approval",
+            requiresApproval: true,
+            approvalId: discountGate.request.id,
+          });
         }
       }
 
@@ -12854,6 +13029,43 @@ export async function registerRoutes(
         ? computeNoteTotals(noteItems)
         : { subtotal: originalInvoice.subtotal, taxAmount: originalInvoice.taxAmount, total: originalInvoice.total };
 
+      const gate = await requireApprovalOrContinue({
+        userId: invoiceUserId,
+        companyId: originalInvoice.companyId,
+        isSuperAdmin: invoiceIsSuperAdmin,
+        type: APPROVAL_TYPES.CREDIT_NOTE,
+        amount: Number(totals.total),
+        title: `Approve credit note against ${originalInvoice.invoiceNumber}`,
+        description: "Credit notes and invoice cancellation credits require independent approval before issue.",
+        payload: {
+          invoiceData: {
+            customerId: originalInvoice.customerId,
+            branchId: originalInvoice.branchId || getBranchId(req) || undefined,
+            issueDate: new Date().toISOString(),
+            dueDate: new Date().toISOString(),
+            subtotal: totals.subtotal,
+            taxAmount: totals.taxAmount,
+            total: totals.total,
+            taxInclusive: originalInvoice.taxInclusive,
+            currency: originalInvoice.currency,
+            transactionType: "CreditNote",
+            relatedInvoiceId: originalInvoice.id,
+            notes: reason || undefined,
+            departmentId: (originalInvoice as any).departmentId || undefined,
+            costCenterId: (originalInvoice as any).costCenterId || undefined,
+            locationId: (originalInvoice as any).locationId || undefined,
+            isPos: !!isPos,
+            shiftId: isPos ? (await storage.getActivePosShift(originalInvoice.companyId, invoiceUserId, getBranchId(req)))?.id : undefined,
+          },
+          items: noteItems,
+        },
+        referenceType: "credit_note",
+        referenceId: String(originalInvoice.id),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Credit note submitted for approval", approval: gate.request });
+      }
+
       const cn = await storage.createInvoice({
         companyId: originalInvoice.companyId,
         customerId: originalInvoice.customerId,
@@ -12869,6 +13081,9 @@ export async function registerRoutes(
         transactionType: "CreditNote",
         relatedInvoiceId: originalInvoice.id,
         notes: reason || undefined,
+        departmentId: (originalInvoice as any).departmentId || undefined,
+        costCenterId: (originalInvoice as any).costCenterId || undefined,
+        locationId: (originalInvoice as any).locationId || undefined,
         items: noteItems,
         isPos: !!isPos,
         createdBy: (req.user as any)?.id,
@@ -12878,7 +13093,7 @@ export async function registerRoutes(
       sendIdempotent(req, res, idempotencyKey, 201, cn);
     } catch (err: any) {
       console.error("Create Credit Note Error:", err);
-      res.status(500).json({ message: "Failed to create credit note" });
+      res.status(err.statusCode || 500).json({ message: err.message || "Failed to create credit note" });
     }
   });
 
@@ -13254,6 +13469,33 @@ export async function registerRoutes(
       // Validate input
       const input = api.payments.create.input.parse(req.body);
 
+      const gate = await requireApprovalOrContinue({
+        userId: (req as any).user.id,
+        companyId: invoice.companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.PAYMENT_EXECUTION,
+        amount: Number(input.amount),
+        title: `Approve payment of ${input.amount}`,
+        description: "Payment execution requires independent approval above the configured authority.",
+        payload: {
+          paymentData: {
+            ...input,
+            invoiceId,
+            customerId: (invoice as any).customerId || undefined,
+            departmentId: (input as any).departmentId ?? (invoice as any).departmentId ?? undefined,
+            costCenterId: (input as any).costCenterId ?? (invoice as any).costCenterId ?? undefined,
+            paymentDate: input.paymentDate ? new Date(input.paymentDate as any).toISOString() : new Date().toISOString(),
+            exchangeRate: input.exchangeRate ? String(input.exchangeRate) : "1.000000",
+            amount: String(input.amount),
+          },
+        },
+        referenceType: "payment_execution",
+        referenceId: String(invoiceId),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Payment submitted for approval", approval: gate.request });
+      }
+
       // Create Payment
       const paymentData = {
         ...input,
@@ -13285,7 +13527,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("Create Payment Error:", err);
-      res.status(500).json({ message: "Failed to create payment" });
+      res.status(err.statusCode || 500).json({ message: err.message || "Failed to create payment" });
     }
   });
 

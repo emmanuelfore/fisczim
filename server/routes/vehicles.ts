@@ -7,6 +7,9 @@ import {
   vehiclePaymentSchedules,
   vehicleReminders,
   vehicleStockCounters,
+  vehicleCustomerAccounts,
+  vehicleCustomerPaymentAllocations,
+  vehicleThirdPartyPayments,
   insertVehicleSchema,
   insertVehicleCostSchema,
   payments,
@@ -42,6 +45,7 @@ import {
   markEnquiryWon,
 } from "../lib/crm-vehicles.js";
 import { accrueVehicleCommission, cancelVehicleCommission } from "../lib/commissions.js";
+import { baseCurrencyOf } from "../../shared/currency.js";
 
 /**
  * Vehicle imports: per-unit landed costing, profitability, import tracking
@@ -60,12 +64,57 @@ const roundGuard = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 /** Foreign = base * rate — used when comparing base-currency receipts to sale-currency schedules. */
 const fromBase = (base: unknown, exchangeRate: unknown) =>
   roundGuard(Number(base || 0) * (Number(exchangeRate || 1) || 1));
+/** Any value other than `principal` is treated as the default agency model. */
+function isAgencyVehicle(v: any): boolean {
+  return String(v?.accountingModel || "agent") !== "principal";
+}
+
+type AgencyLedgerInput = {
+  entryDate: any;
+  description: string;
+  referenceType: string;
+  referenceId: string;
+  postingKey: string;
+  createdBy?: string;
+  lines: Array<{ accountCode: string; type: "DEBIT" | "CREDIT"; amount: number; memo?: string }>;
+};
+
+/**
+ * Agency movements are internal settlements of amounts already converted into
+ * base currency. Posting them in the company's base currency with rate 1 keeps
+ * the GL's `amount` and `baseAmount` columns consistent; the source receipt and
+ * third-party payment rows retain the original foreign currency for audit.
+ */
+async function postAgencyLedger(companyId: number, data: AgencyLedgerInput, tx: any) {
+  const [company] = await tx.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+  return storage.postToLedger(companyId, {
+    entryDate: data.entryDate,
+    description: data.description,
+    referenceType: data.referenceType,
+    referenceId: data.referenceId,
+    postingKey: data.postingKey,
+    createdBy: data.createdBy,
+    currency: baseCurrencyOf(company),
+    exchangeRate: 1,
+    lines: data.lines.map((line) => {
+      const amount = Math.round((Number(line.amount) + Number.EPSILON) * 100) / 100;
+      return {
+        accountCode: line.accountCode,
+        type: line.type,
+        amount,
+        baseAmount: amount,
+        memo: line.memo,
+      };
+    }),
+  }, tx);
+}
 
 export function summariseVehicle(
-  vehicle: { salePrice: string | null; targetPrice: string | null; saleExchangeRate?: string | null },
+  vehicle: { salePrice: string | null; targetPrice: string | null; saleExchangeRate?: string | null; accountingModel?: string | null },
   costs: { category: string; baseAmount: string; status?: string | null }[],
   paid: number,
   invoiceTotalBase?: number | null,
+  processingFeeBase: number = 0,
 ) {
   const byCategory: Record<string, number> = {};
   for (const c of costs) {
@@ -83,11 +132,16 @@ export function summariseVehicle(
   // salePrice is in saleCurrency; GL convention is base = foreign / rate.
   const saleRate = Number(vehicle.saleExchangeRate || 1) || 1;
   const sellingPrice = vehicle.salePrice != null ? toBase(vehicle.salePrice, saleRate) : money(vehicle.targetPrice ?? 0);
-  const profit = money(sellingPrice - landedCost);
-  const margin = sellingPrice > 0 ? Math.round((profit / sellingPrice) * 10000) / 100 : 0;
-  // Statements and schedules follow the actual invoice, because that carries
-  // the tax the customer owes. Before invoicing, fall back to the agreed sale.
-  const amountDue = invoiceTotalBase != null ? money(invoiceTotalBase) : sellingPrice;
+  const isAgency = isAgencyVehicle(vehicle);
+  // Agency earnings are the processing fee only; third-party disbursements are
+  // never revenue. Principal deals keep the sale-minus-COGS margin.
+  const profit = isAgency ? money(processingFeeBase) : money(sellingPrice - landedCost);
+  const marginBase = isAgency ? processingFeeBase : sellingPrice;
+  const margin = marginBase > 0 ? Math.round((profit / marginBase) * 10000) / 100 : 0;
+  // Agency schedules follow the whole customer deal; the fee-only invoice is
+  // Prime Imports' own revenue document, not the customer's total obligation.
+  // Principal schedules follow the issued invoice (which carries the tax).
+  const amountDue = !isAgency && invoiceTotalBase != null ? money(invoiceTotalBase) : sellingPrice;
   const balance = vehicle.salePrice != null || invoiceTotalBase != null ? money(amountDue - paid) : 0;
   return {
     purchasePrice,
@@ -96,6 +150,8 @@ export function summariseVehicle(
     sellingPrice,
     amountDue,
     isProjected: vehicle.salePrice == null,
+    accountingModel: isAgency ? "agent" : "principal",
+    processingFee: money(processingFeeBase),
     profit,
     marginPercent: margin,
     paid: money(paid),
@@ -105,8 +161,8 @@ export function summariseVehicle(
     paidCosts,
     disputedCosts,
     // Alert flags consumed by the reports UI.
-    negativeMargin: sellingPrice > 0 && profit < 0,
-    lowMargin: sellingPrice > 0 && profit >= 0 && margin < 10,
+    negativeMargin: marginBase > 0 && profit < 0,
+    lowMargin: marginBase > 0 && profit >= 0 && margin < 10,
     hasUnpaidCosts: pendingCosts + disputedCosts > 0.004,
   };
 }
@@ -184,7 +240,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   }
 
   async function totalsFor(ids: number[]) {
-    if (!ids.length) return { costs: new Map<number, any[]>(), paid: new Map<number, number>(), invoiceBase: new Map<number, number>() };
+    if (!ids.length) return { costs: new Map<number, any[]>(), paid: new Map<number, number>(), invoiceBase: new Map<number, number>(), fees: new Map<number, number>() };
     const costRows = await db.select().from(vehicleCosts).where(inArray(vehicleCosts.vehicleId, ids));
     const paidRows = await db
       .select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} / NULLIF(COALESCE(${payments.exchangeRate}, 1), 0)), 0)` })
@@ -198,13 +254,19 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       .from(vehicles)
       .innerJoin(invoices, eq(vehicles.invoiceId, invoices.id))
       .where(inArray(vehicles.id, ids));
+    const agreementRows = await db
+      .select({ vehicleId: vehicleSalesAgreements.vehicleId, processingFeeAmount: vehicleSalesAgreements.processingFeeAmount, exchangeRate: vehicleSalesAgreements.exchangeRate })
+      .from(vehicleSalesAgreements)
+      .where(inArray(vehicleSalesAgreements.vehicleId, ids));
     const costs = new Map<number, any[]>();
     for (const c of costRows) costs.set(c.vehicleId, [...(costs.get(c.vehicleId) || []), c]);
     const paid = new Map<number, number>();
     for (const p of paidRows) if (p.vehicleId != null) paid.set(p.vehicleId, Number(p.total));
     const invoiceBase = new Map<number, number>();
     for (const i of invoiceRows) invoiceBase.set(i.vehicleId, toBase(i.total, i.exchangeRate));
-    return { costs, paid, invoiceBase };
+    const fees = new Map<number, number>();
+    for (const a of agreementRows) fees.set(a.vehicleId, toBase(a.processingFeeAmount, a.exchangeRate));
+    return { costs, paid, invoiceBase, fees };
   }
 
   const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -429,6 +491,342 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       .where(eq(vehicles.id, vehicle.id));
 
     return { posted: true, journalEntryId: cogs.id, amount: total };
+  }
+
+  // ── Agency accounting helpers ─────────────────────────────────────────────
+  // All account/allocation amounts are base currency. Cash journals use the
+  // bank account selected by the cashier and the payment's own FX metadata.
+
+  type AgencyAllocationInput = {
+    costId?: number | null;
+    allocationType?: "cost" | "fee";
+    amount: number;
+  };
+
+  async function customerStatementCosts(tx: any, vehicleId: number) {
+    return tx
+      .select()
+      .from(vehicleCosts)
+      .where(and(
+        eq(vehicleCosts.vehicleId, vehicleId),
+        ne(vehicleCosts.status, "cancelled"),
+        eq(vehicleCosts.includeInCustomerStatement, true),
+      ))
+      .orderBy(asc(vehicleCosts.dueDate), asc(vehicleCosts.id));
+  }
+
+  async function customerCostSheetTotal(tx: any, vehicleId: number) {
+    const costs = await customerStatementCosts(tx, vehicleId);
+    return round2(costs.reduce(
+      (sum: number, c: any) => sum + Number(c.customerChargeBaseAmount || c.baseAmount || 0),
+      0,
+    ));
+  }
+  const chargeOf = (cost: any) => round2(Number(cost.customerChargeBaseAmount || cost.baseAmount || 0));
+  const estimateOf = (cost: any) => round2(Number(cost.estimatedBaseAmount || cost.baseAmount || 0));
+
+  async function upsertCustomerAccount(
+    tx: any,
+    companyId: number,
+    v: any,
+    agreement: any,
+  ) {
+    const costSheetTotal = await customerCostSheetTotal(tx, v.id);
+    const values = {
+      companyId,
+      vehicleId: v.id,
+      agreementId: agreement?.id ?? null,
+      customerId: agreement?.customerId ?? v.customerId ?? null,
+      currency: agreement?.currency ?? v.saleCurrency ?? "USD",
+      exchangeRate: String(agreement?.exchangeRate ?? v.saleExchangeRate ?? 1),
+      totalPrice: Number(agreement?.agreedPrice ?? v.salePrice ?? 0).toFixed(2),
+      costSheetTotal: costSheetTotal.toFixed(2),
+      processingFeeAmount: Number(agreement?.processingFeeAmount ?? 0).toFixed(2),
+      updatedAt: new Date(),
+    };
+    const [existing] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, v.id));
+    if (existing) {
+      const [updated] = await tx.update(vehicleCustomerAccounts).set(values).where(eq(vehicleCustomerAccounts.id, existing.id)).returning();
+      return updated;
+    }
+    const [created] = await tx.insert(vehicleCustomerAccounts).values(values).returning();
+    return created;
+  }
+
+  async function refreshCustomerAccountTotals(tx: any, accountId: number) {
+    const [account] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.id, accountId));
+    if (!account) return null;
+
+    const [collectedRow] = await tx
+      .select({ total: sql<string>`COALESCE(SUM(${payments.amount} / NULLIF(COALESCE(${payments.exchangeRate}, 1), 0)), 0)` })
+      .from(payments)
+      .where(and(eq(payments.companyId, account.companyId), eq(payments.vehicleId, account.vehicleId)));
+    const [allocatedCosts] = await tx
+      .select({ total: sql<string>`COALESCE(SUM(${vehicleCustomerPaymentAllocations.amount}), 0)` })
+      .from(vehicleCustomerPaymentAllocations)
+      .where(and(
+        eq(vehicleCustomerPaymentAllocations.accountId, accountId),
+        eq(vehicleCustomerPaymentAllocations.allocationType, "cost"),
+      ));
+    const [allocatedFee] = await tx
+      .select({ total: sql<string>`COALESCE(SUM(${vehicleCustomerPaymentAllocations.amount}), 0)` })
+      .from(vehicleCustomerPaymentAllocations)
+      .where(and(
+        eq(vehicleCustomerPaymentAllocations.accountId, accountId),
+        eq(vehicleCustomerPaymentAllocations.allocationType, "fee"),
+      ));
+    const [thirdParty] = await tx
+      .select({ total: sql<string>`COALESCE(SUM(${vehicleThirdPartyPayments.baseAmount}), 0)` })
+      .from(vehicleThirdPartyPayments)
+      .where(eq(vehicleThirdPartyPayments.accountId, accountId));
+
+    const costRows = await tx.select().from(vehicleCosts).where(and(
+      eq(vehicleCosts.vehicleId, account.vehicleId),
+      ne(vehicleCosts.status, "cancelled"),
+    ));
+    for (const cost of costRows) {
+      const [costAlloc] = await tx
+        .select({ total: sql<string>`COALESCE(SUM(${vehicleCustomerPaymentAllocations.amount}), 0)` })
+        .from(vehicleCustomerPaymentAllocations)
+        .where(and(
+          eq(vehicleCustomerPaymentAllocations.accountId, accountId),
+          eq(vehicleCustomerPaymentAllocations.costId, cost.id),
+        ));
+      const [costSettled] = await tx
+        .select({ total: sql<string>`COALESCE(SUM(${vehicleThirdPartyPayments.baseAmount}), 0)` })
+        .from(vehicleThirdPartyPayments)
+        .where(and(
+          eq(vehicleThirdPartyPayments.accountId, accountId),
+          eq(vehicleThirdPartyPayments.costId, cost.id),
+        ));
+      await tx.update(vehicleCosts).set({
+        customerAllocatedAmount: round2(Number(costAlloc?.total || 0)).toFixed(2),
+        thirdPartyPaidAmount: round2(Number(costSettled?.total || 0)).toFixed(2),
+      }).where(eq(vehicleCosts.id, cost.id));
+    }
+
+    const [updated] = await tx.update(vehicleCustomerAccounts).set({
+      costSheetTotal: await customerCostSheetTotal(tx, account.vehicleId).then((n: number) => n.toFixed(2)),
+      amountCollected: round2(Number(collectedRow?.total || 0)).toFixed(2),
+      amountAllocatedToCosts: round2(Number(allocatedCosts?.total || 0)).toFixed(2),
+      amountAllocatedToFee: round2(Number(allocatedFee?.total || 0)).toFixed(2),
+      amountPaidToThirdParties: round2(Number(thirdParty?.total || 0)).toFixed(2),
+      updatedAt: new Date(),
+    }).where(eq(vehicleCustomerAccounts.id, accountId)).returning();
+    return updated;
+  }
+
+  async function buildAgencyAllocations(
+    tx: any,
+    account: any,
+    paymentBase: number,
+    explicit: AgencyAllocationInput[] | undefined,
+  ) {
+    const costs = await customerStatementCosts(tx, account.vehicleId);
+    const feeOutstanding = round2(Number(account.processingFeeAmount || 0) - Number(account.amountAllocatedToFee || 0));
+    const allocations: Array<{ costId: number | null; allocationType: "cost" | "fee"; amount: number }> = [];
+    let remaining = round2(paymentBase);
+
+    if (explicit && explicit.length) {
+      // Track usage inside this payment as well as the persisted balances, so
+      // two lines cannot each claim the same outstanding cost or fee.
+      let usedFee = 0;
+      const usedCosts = new Map<number, number>();
+      for (const item of explicit) {
+        const amount = round2(item.amount);
+        if (!(amount > 0)) throw Object.assign(new Error("Allocation amounts must be positive"), { status: 400 });
+        if (item.allocationType === "fee") {
+          const open = round2(feeOutstanding - usedFee);
+          if (amount > open + 0.01) throw Object.assign(new Error("Fee allocation exceeds the outstanding processing fee"), { status: 400 });
+          usedFee = round2(usedFee + amount);
+          allocations.push({ costId: null, allocationType: "fee", amount });
+          continue;
+        }
+        const cost = costs.find((c: any) => c.id === item.costId);
+        if (!cost) throw Object.assign(new Error("Cost line not found on this cost sheet"), { status: 400 });
+        const used = usedCosts.get(cost.id) ?? 0;
+        const open = round2(chargeOf(cost) - Number(cost.customerAllocatedAmount || 0) - used);
+        if (amount > open + 0.01) throw Object.assign(new Error(`Allocation exceeds the outstanding amount on ${cost.category}`), { status: 400 });
+        usedCosts.set(cost.id, round2(used + amount));
+        allocations.push({ costId: cost.id, allocationType: "cost", amount });
+      }
+    } else {
+      // Default suggestion: fee first, then cost lines in due-date order.
+      if (feeOutstanding > 0 && remaining > 0) {
+        const feePart = round2(Math.min(feeOutstanding, remaining));
+        allocations.push({ costId: null, allocationType: "fee", amount: feePart });
+        remaining = round2(remaining - feePart);
+      }
+      for (const cost of costs) {
+        if (remaining <= 0.01) break;
+        const open = round2(chargeOf(cost) - Number(cost.customerAllocatedAmount || 0));
+        if (open <= 0) continue;
+        const part = round2(Math.min(open, remaining));
+        allocations.push({ costId: cost.id, allocationType: "cost", amount: part });
+        remaining = round2(remaining - part);
+      }
+    }
+
+    const totalAllocated = round2(allocations.reduce((sum, a) => sum + a.amount, 0));
+    // Customer money can exceed the current obligations; the remainder stays in
+    // Customer Funds Held as unallocated credit rather than being forced onto a
+    // cost line.
+    if (totalAllocated > round2(paymentBase) + 0.01) {
+      throw Object.assign(new Error("Payment allocations cannot exceed the payment amount"), { status: 400 });
+    }
+    return allocations;
+  }
+
+  async function postAgencyReceipt(
+    tx: any,
+    companyId: number,
+    v: any,
+    account: any,
+    payment: any,
+    bankAccount: any,
+    allocations: Array<{ costId: number | null; allocationType: "cost" | "fee"; amount: number }>,
+    feeRecognition: string,
+    agreementStatus?: string | null,
+    userId?: string,
+  ) {
+    const baseAmount = round2(baseAmountOf(payment));
+    const costBase = round2(allocations.filter(a => a.allocationType === "cost").reduce((s, a) => s + a.amount, 0));
+    const feeBase = round2(allocations.filter(a => a.allocationType === "fee").reduce((s, a) => s + a.amount, 0));
+    const unallocatedBase = round2(baseAmount - costBase - feeBase);
+    const fundsHeldCode = await storage.getSystemAccountCode(companyId, "customerFundsHeldAccountCode", tx);
+    const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
+
+    const lines: AgencyLedgerInput["lines"] = [
+      { accountCode: bankAccount.code, type: "DEBIT", amount: baseAmount },
+      { accountCode: fundsHeldCode, type: "CREDIT", amount: round2(costBase + unallocatedBase) },
+    ];
+    if (feeBase > 0) {
+      lines.push({ accountCode: deferredCode, type: "CREDIT", amount: feeBase });
+    }
+
+    const je = await postAgencyLedger(companyId, {
+      entryDate: payment.paymentDate,
+      description: `Vehicle ${v.stockNumber} customer funds received`,
+      referenceType: "VEHICLE_CUSTOMER_FUNDS",
+      referenceId: String(payment.id),
+      postingKey: `vehicle-agency-receipt:${payment.id}`,
+      createdBy: userId,
+      lines,
+    }, tx);
+
+    await tx.update(payments).set({ journalEntryId: je.id }).where(eq(payments.id, payment.id));
+    for (const allocation of allocations) {
+      await tx.insert(vehicleCustomerPaymentAllocations).values({
+        companyId,
+        accountId: account.id,
+        paymentId: payment.id,
+        costId: allocation.costId,
+        allocationType: allocation.allocationType,
+        amount: allocation.amount.toFixed(2),
+        createdBy: userId,
+      });
+    }
+    // The fee always lands in deferred income first. It is earned immediately
+    // for on_collection deals, and immediately for late receipts on a deal that
+    // has already been handed over; otherwise handover posts the recognition.
+    const earnNow = feeBase > 0 && (feeRecognition === "on_collection" || agreementStatus === "completed");
+    if (earnNow) {
+      await postFeeRecognition(
+        tx, companyId,
+        `Vehicle ${v.stockNumber} processing fee earned on collection`,
+        feeBase,
+        String(payment.id),
+        `vehicle-fee-recognition:${agreementStatus === "completed" ? "handover-payment" : "payment"}:${payment.id}`,
+        payment.paymentDate,
+        Number(account.feeRecognisedAmount || 0) + feeBase,
+        account,
+        userId,
+      );
+    }
+    await refreshCustomerAccountTotals(tx, account.id);
+    return je;
+  }
+
+  async function postAgencyThirdPartyPayment(
+    tx: any,
+    companyId: number,
+    v: any,
+    account: any,
+    bankAccount: any,
+    amountBase: number,
+    paymentDate: Date,
+    reference: string | null,
+    settlementId: number,
+    userId?: string,
+  ) {
+    const fundsHeldCode = await storage.getSystemAccountCode(companyId, "customerFundsHeldAccountCode", tx);
+    return postAgencyLedger(companyId, {
+      entryDate: paymentDate,
+      description: `Vehicle ${v.stockNumber} third-party settlement${reference ? ` — ${reference}` : ""}`,
+      referenceType: "VEHICLE_THIRD_PARTY_SETTLEMENT",
+      referenceId: String(settlementId),
+      postingKey: `vehicle-third-party-settlement:${settlementId}`,
+      createdBy: userId,
+      lines: [
+        { accountCode: fundsHeldCode, type: "DEBIT", amount: amountBase },
+        { accountCode: bankAccount.code, type: "CREDIT", amount: amountBase },
+      ],
+    }, tx);
+  }
+
+  /** Move a collected fee out of deferred income into processing-fee revenue. */
+  async function postFeeRecognition(
+    tx: any,
+    companyId: number,
+    description: string,
+    amount: number,
+    referenceId: string,
+    postingKey: string,
+    entryDate: any,
+    recognisedAmount: number,
+    account: any,
+    userId?: string,
+  ) {
+    const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
+    const revenueCode = await storage.getSystemAccountCode(companyId, "vehicleProcessingFeeRevenueAccountCode", tx);
+    const je = await postAgencyLedger(companyId, {
+      entryDate,
+      description,
+      referenceType: "VEHICLE_FEE_RECOGNITION",
+      referenceId,
+      postingKey,
+      createdBy: userId,
+      lines: [
+        { accountCode: deferredCode, type: "DEBIT", amount },
+        { accountCode: revenueCode, type: "CREDIT", amount },
+      ],
+    }, tx);
+    await tx.update(vehicleCustomerAccounts)
+      .set({ feeRecognisedAmount: round2(recognisedAmount).toFixed(2), updatedAt: new Date() })
+      .where(eq(vehicleCustomerAccounts.id, account.id));
+    return je;
+  }
+
+  async function recogniseAgencyFee(tx: any, companyId: number, agreement: any, userId?: string) {
+    const [account] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, agreement.vehicleId));
+    if (!account) return null;
+    const outstanding = round2(Number(account.amountAllocatedToFee || 0) - Number(account.feeRecognisedAmount || 0));
+    if (outstanding <= 0) return null;
+    const je = await postFeeRecognition(
+      tx, companyId,
+      `Vehicle ${agreement.agreementNumber} processing fee earned`,
+      outstanding,
+      String(agreement.id),
+      `vehicle-fee-recognition:${agreement.id}`,
+      new Date(),
+      Number(account.amountAllocatedToFee || 0),
+      account,
+      userId,
+    );
+    await tx.update(vehicleSalesAgreements)
+      .set({ feeRecognitionJournalEntryId: je.id, updatedAt: new Date() })
+      .where(eq(vehicleSalesAgreements.id, agreement.id));
+    return je;
   }
 
   type OpenScheduleLine = {
@@ -714,7 +1112,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .leftJoin(customers, eq(customers.id, vehicles.customerId))
         .where(and(...conds))
         .orderBy(desc(vehicles.createdAt));
-      const { costs, paid, invoiceBase } = await totalsFor(rows.map((r) => r.vehicle.id));
+      const { costs, paid, invoiceBase, fees } = await totalsFor(rows.map((r) => r.vehicle.id));
       const showCosts = await can(req, "vehicles.costs");
       res.json(
         rows.map((r) =>
@@ -722,7 +1120,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             {
               ...r.vehicle,
               customerName: r.customerName,
-              summary: summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id)),
+              summary: summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id), fees.get(r.vehicle.id) || 0),
             },
             showCosts,
           ),
@@ -773,6 +1171,11 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       ]);
       const paid = paymentRows.reduce((s, p) => s + baseAmountOf(p), 0);
       const invoiceBase = invoice ? toBase(invoice.total, invoice.exchangeRate) : null;
+      const [agreementRow] = await db
+        .select({ processingFeeAmount: vehicleSalesAgreements.processingFeeAmount, exchangeRate: vehicleSalesAgreements.exchangeRate })
+        .from(vehicleSalesAgreements)
+        .where(eq(vehicleSalesAgreements.vehicleId, v.id));
+      const feeBase = agreementRow ? toBase(agreementRow.processingFeeAmount, agreementRow.exchangeRate) : 0;
       const enrichedInvoice = invoice
         ? {
             ...invoice,
@@ -794,7 +1197,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         payments: paymentRows,
         invoice: enrichedInvoice,
         reminders,
-        summary: summariseVehicle(v, costs, paid, invoiceBase),
+        summary: summariseVehicle(v, costs, paid, invoiceBase, feeBase),
       }, await can(req, "vehicles.costs")));
     } catch (error) {
       console.error(error);
@@ -874,6 +1277,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         "cogsJournalEntryId", "cogsAmount", "cogsPostedAt",
       ]) {
         delete (updates as any)[key];
+      }
+      // The accounting model changes posting behaviour, so it is locked once
+      // an agreement/invoice exists.
+      const [linkedAgreement] = await db.select({ id: vehicleSalesAgreements.id })
+        .from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, v.id));
+      if ((v.invoiceId || linkedAgreement) && (updates as any).accountingModel !== undefined) {
+        delete (updates as any).accountingModel;
       }
       const enquiryChanged =
         (updates as any).enquiryId !== undefined && (updates as any).enquiryId !== v.enquiryId;
@@ -1062,6 +1472,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     category: z.enum(VEHICLE_COST_CATEGORIES),
     description: z.string().max(2000).nullable().optional(),
     amount: z.coerce.number().positive(),
+    estimatedBaseAmount: z.coerce.number().min(0).optional(),
+    customerChargeBaseAmount: z.coerce.number().min(0).optional(),
+    includeInCustomerStatement: z.boolean().optional(),
     currency: z.string().min(1).max(8).default("USD"),
     exchangeRate: z.coerce.number().positive().default(1),
     payee: z.string().max(255).nullable().optional(),
@@ -1123,6 +1536,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           currency: data.currency.toUpperCase(),
           exchangeRate: data.exchangeRate.toFixed(6),
           baseAmount: baseAmount.toFixed(2),
+          estimatedBaseAmount: (data.estimatedBaseAmount ?? baseAmount).toFixed(2),
+          customerChargeBaseAmount: (data.customerChargeBaseAmount ?? baseAmount).toFixed(2),
+          includeInCustomerStatement: data.includeInCustomerStatement ?? true,
           payee: data.payee ?? null,
           reference: data.reference ?? null,
           costDate: data.costDate ?? null,
@@ -1200,6 +1616,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const updates: Record<string, any> = {
         ...body,
         baseAmount: baseAmount.toFixed(2),
+        estimatedBaseAmount: (body.estimatedBaseAmount ?? Number(existing.estimatedBaseAmount || baseAmount)).toFixed(2),
+        customerChargeBaseAmount: (body.customerChargeBaseAmount ?? Number(existing.customerChargeBaseAmount || baseAmount)).toFixed(2),
         inputVatAmount: vatAmount.toFixed(2),
         settlementMethod,
         bankAccountId: bankAccountId ?? null,
@@ -1239,6 +1657,9 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
         if (v.cogsJournalEntryId) {
           throw Object.assign(new Error("COGS has already been posted for this vehicle; costs are locked."), { status: 409 });
+        }
+        if (isAgencyVehicle(v)) {
+          throw Object.assign(new Error("Agency cost lines are settled through third-party payments, not capitalised to inventory"), { status: 409 });
         }
 
         const [cost] = await tx
@@ -1639,6 +2060,11 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           bankAccountId: z.coerce.number().int().positive().nullable().optional(),
           reference: z.string().optional().nullable(),
           notes: z.string().optional().nullable(),
+          allocations: z.array(z.object({
+            costId: z.coerce.number().int().positive().nullable().optional(),
+            allocationType: z.enum(["cost", "fee"]).default("cost"),
+            amount: z.coerce.number().positive(),
+          })).optional(),
         })
         .parse(req.body);
       const result = await db.transaction(async (tx: any) => {
@@ -1669,30 +2095,53 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           })
           .returning();
 
-        // Immediate posting for deposits (before invoice exists): the customer
-        // holds a credit until the invoice clears it against AR.
-        if (isDeposit) {
-          const baseAmount = baseAmountOf(created);
-          const depositsAccountCode = await storage.getSystemAccountCode(companyId, "customerDepositsAccountCode", tx) || "2010";
-          const je = await storage.postToLedger(companyId, {
-            entryDate: created.paymentDate,
-            description: `Vehicle deposit ${created.reference || created.id} for ${v.stockNumber}`,
-            referenceType: "CUSTOMER_DEPOSIT",
-            referenceId: String(created.id),
-            postingKey: `vehicle-deposit:${created.id}`,
-            currency: fxOf(created).currency,
-            exchangeRate: fxOf(created).exchangeRate,
-            createdBy: req.user?.id,
-            lines: [
-              { accountCode: bankAccount.code, type: "DEBIT", amount: baseAmount, baseAmount, currency: fxOf(created).currency, exchangeRate: fxOf(created).exchangeRate },
-              { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount, baseAmount, currency: fxOf(created).currency, exchangeRate: fxOf(created).exchangeRate },
-            ],
-          }, tx);
-          await tx.update(payments).set({ journalEntryId: je.id }).where(eq(payments.id, created.id));
+        const isAgency = isAgencyVehicle(v);
+        let agencyAllocation: any[] | null = null;
+        if (isAgency) {
+          const [agreement] = await tx.select().from(vehicleSalesAgreements).where(and(
+            eq(vehicleSalesAgreements.companyId, companyId),
+            eq(vehicleSalesAgreements.vehicleId, v.id),
+          ));
+          const [existingAccount] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, v.id));
+          const account = existingAccount ?? await upsertCustomerAccount(tx, companyId, v, agreement);
+          agencyAllocation = await buildAgencyAllocations(tx, account, baseAmountOf(created), body.allocations);
+          await postAgencyReceipt(
+            tx,
+            companyId,
+            v,
+            account,
+            created,
+            bankAccount,
+            agencyAllocation,
+            agreement?.feeRecognition ?? "on_handover",
+            agreement?.status ?? null,
+            req.user?.id,
+          );
+        } else {
+          // Principal model: deposits remain a customer credit until invoiced.
+          if (isDeposit) {
+            const baseAmount = baseAmountOf(created);
+            const depositsAccountCode = await storage.getSystemAccountCode(companyId, "customerDepositsAccountCode", tx) || "2010";
+            const je = await storage.postToLedger(companyId, {
+              entryDate: created.paymentDate,
+              description: `Vehicle deposit ${created.reference || created.id} for ${v.stockNumber}`,
+              referenceType: "CUSTOMER_DEPOSIT",
+              referenceId: String(created.id),
+              postingKey: `vehicle-deposit:${created.id}`,
+              currency: fxOf(created).currency,
+              exchangeRate: fxOf(created).exchangeRate,
+              createdBy: req.user?.id,
+              lines: [
+                { accountCode: bankAccount.code, type: "DEBIT", amount: baseAmount, baseAmount, currency: fxOf(created).currency, exchangeRate: fxOf(created).exchangeRate },
+                { accountCode: depositsAccountCode, type: "CREDIT", amount: baseAmount, baseAmount, currency: fxOf(created).currency, exchangeRate: fxOf(created).exchangeRate },
+              ],
+            }, tx);
+            await tx.update(payments).set({ journalEntryId: je.id }).where(eq(payments.id, created.id));
+          }
         }
 
         let allocation = null;
-        if (v.invoiceId) {
+        if (v.invoiceId && !isAgency) {
           const [invoice] = await tx.select().from(invoices).where(and(eq(invoices.id, v.invoiceId), eq(invoices.companyId, companyId)));
           if (invoice) allocation = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, invoice, req.user?.id);
         }
@@ -1701,7 +2150,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         }
         await refreshScheduleSettlement(tx, companyId, v.id);
         const [saved] = await tx.select().from(payments).where(eq(payments.id, created.id));
-        return { ...saved, allocation };
+        return { ...saved, allocation, agencyAllocation };
       });
       res.status(201).json(result);
     } catch (error: any) {
@@ -1710,6 +2159,404 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       res.status(error.status || 500).json({ error: error.message || "Failed to record payment" });
     }
   });
+
+  // ── customer account (agency model) ──────────────────────────────────────
+
+  router.get("/companies/:companyId/vehicles/:id/customer-account", ...need("vehicles.view"), async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
+      const v = await loadVehicle(companyId, vehicleId);
+      if (!v) return res.status(404).json({ error: "Vehicle not found" });
+      const [agreement] = await db.select().from(vehicleSalesAgreements).where(and(
+        eq(vehicleSalesAgreements.companyId, companyId),
+        eq(vehicleSalesAgreements.vehicleId, vehicleId),
+      ));
+      const [account] = await db.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, vehicleId));
+      const costs = await customerStatementCosts(db, vehicleId);
+      const costTotal = round2(costs.reduce((s: number, c: any) => s + chargeOf(c), 0));
+      const accountData = account ?? {
+        id: 0,
+        companyId,
+        vehicleId,
+        agreementId: agreement?.id ?? null,
+        customerId: v.customerId,
+        currency: agreement?.currency ?? v.saleCurrency ?? "USD",
+        exchangeRate: String(agreement?.exchangeRate ?? v.saleExchangeRate ?? 1),
+        totalPrice: String(agreement?.agreedPrice ?? v.salePrice ?? 0),
+        costSheetTotal: costTotal.toFixed(2),
+        processingFeeAmount: String(agreement?.processingFeeAmount ?? 0),
+        amountCollected: "0.00",
+        amountAllocatedToCosts: "0.00",
+        amountAllocatedToFee: "0.00",
+        feeInvoiceSettledAmount: "0.00",
+        amountPaidToThirdParties: "0.00",
+        feeRecognisedAmount: "0.00",
+        status: "open",
+      };
+
+      const paymentRows = await db.select().from(payments).where(and(
+        eq(payments.companyId, companyId),
+        eq(payments.vehicleId, vehicleId),
+      )).orderBy(asc(payments.paymentDate), asc(payments.id));
+      const allocationRows = account
+        ? await db.select().from(vehicleCustomerPaymentAllocations).where(eq(vehicleCustomerPaymentAllocations.accountId, account.id))
+        : [];
+      const thirdPartyRows = account
+        ? await db.select().from(vehicleThirdPartyPayments).where(eq(vehicleThirdPartyPayments.accountId, account.id)).orderBy(asc(vehicleThirdPartyPayments.paymentDate), asc(vehicleThirdPartyPayments.id))
+        : [];
+
+      const costSheet = costs.map((c: any) => {
+        const actual = round2(Number(c.baseAmount || 0));
+        const estimated = estimateOf(c);
+        const customerCharge = chargeOf(c);
+        const allocated = round2(Number(c.customerAllocatedAmount || 0));
+        const settled = round2(Number(c.thirdPartyPaidAmount || 0));
+        return {
+          ...c,
+          actual,
+          estimated,
+          customerCharge,
+          allocated,
+          settled,
+          held: round2(allocated - settled),
+          outstanding: round2(customerCharge - allocated),
+          supplierOutstanding: round2(actual - settled),
+        };
+      });
+      const collected = Number(accountData.amountCollected || 0);
+      const allocatedCosts = Number(accountData.amountAllocatedToCosts || 0);
+      const allocatedFee = Number(accountData.amountAllocatedToFee || 0);
+      const settled = Number(accountData.amountPaidToThirdParties || 0);
+      const totalPrice = Number(accountData.totalPrice || 0);
+
+      res.json({
+        vehicle: v,
+        agreement: agreement ?? null,
+        account: accountData,
+        costSheet,
+        payments: paymentRows.map(p => ({
+          ...p,
+          baseAmount: baseAmountOf(p),
+          allocations: allocationRows.filter(a => a.paymentId === p.id),
+        })),
+        thirdPartyPayments: thirdPartyRows,
+        totals: {
+          totalPrice: round2(totalPrice),
+          costSheetTotal: round2(Number(accountData.costSheetTotal || 0)),
+          processingFee: round2(Number(accountData.processingFeeAmount || 0)),
+          collected: round2(collected),
+          allocatedToCosts: round2(allocatedCosts),
+          allocatedToFee: round2(allocatedFee),
+          paidToThirdParties: round2(settled),
+          supplierOutstanding: round2(costSheet.reduce((s: number, c: any) => s + c.supplierOutstanding, 0)),
+          fundsHeld: round2(allocatedCosts - settled),
+          unallocatedCollected: round2(collected - allocatedCosts - allocatedFee),
+          balanceDue: round2(totalPrice - collected),
+          feeOutstanding: round2(Number(accountData.processingFeeAmount || 0) - allocatedFee),
+          feeRecognised: round2(Number(accountData.feeRecognisedAmount || 0)),
+        },
+      });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message || "Failed to load customer account" });
+    }
+  });
+
+  /**
+   * Reversals are append-only: the original allocation is stamped and a
+   * negative adjustment row is added. Supplier-funded cost allocations stay in
+   * Customer Funds Held; fee reversals move the money back there from deferred
+   * income. Recognised or invoiced fees cannot be reversed here.
+   */
+  router.post("/companies/:companyId/vehicles/:id/customer-account/allocations/:allocationId/reverse", ...need("vehicles.payments"), async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
+      const allocationId = Number(req.params.allocationId);
+      const body = z.object({ reason: z.string().max(500).optional() }).parse(req.body ?? {});
+      const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, vehicleId);
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (!isAgencyVehicle(v)) throw Object.assign(new Error("Allocations only apply to agency vehicles"), { status: 400 });
+        const [account] = await tx.select().from(vehicleCustomerAccounts)
+          .where(and(eq(vehicleCustomerAccounts.companyId, companyId), eq(vehicleCustomerAccounts.vehicleId, vehicleId)))
+          .for("update");
+        if (!account) throw Object.assign(new Error("No customer account exists for this vehicle"), { status: 404 });
+        const [allocation] = await tx.select().from(vehicleCustomerPaymentAllocations)
+          .where(and(
+            eq(vehicleCustomerPaymentAllocations.id, allocationId),
+            eq(vehicleCustomerPaymentAllocations.accountId, account.id),
+          )).for("update");
+        if (!allocation) throw Object.assign(new Error("Allocation not found"), { status: 404 });
+        if (allocation.reversedAt || allocation.reversesAllocationId || Number(allocation.amount) <= 0) {
+          throw Object.assign(new Error("This allocation has already been reversed"), { status: 409 });
+        }
+        const amount = round2(Number(allocation.amount));
+        if (allocation.allocationType === "fee" && (
+          Number(account.feeRecognisedAmount || 0) > 0.004 || Number(account.feeInvoiceSettledAmount || 0) > 0.004
+        )) {
+          throw Object.assign(new Error("A recognised or invoiced processing fee cannot be reversed"), { status: 409 });
+        }
+        const [reversed] = await tx.update(vehicleCustomerPaymentAllocations).set({
+          reversedAt: new Date(),
+          reversalReason: body.reason ?? null,
+        }).where(eq(vehicleCustomerPaymentAllocations.id, allocation.id)).returning();
+        const [adjustment] = await tx.insert(vehicleCustomerPaymentAllocations).values({
+          companyId,
+          accountId: account.id,
+          paymentId: allocation.paymentId,
+          costId: allocation.costId,
+          allocationType: allocation.allocationType,
+          amount: (-amount).toFixed(2),
+          reversesAllocationId: allocation.id,
+          reversalReason: body.reason ?? null,
+          createdBy: req.user?.id,
+        }).returning();
+        if (allocation.allocationType === "fee") {
+          const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
+          const fundsHeldCode = await storage.getSystemAccountCode(companyId, "customerFundsHeldAccountCode", tx);
+          await postAgencyLedger(companyId, {
+            entryDate: new Date(),
+            description: `Reverse fee allocation on vehicle ${v.stockNumber}`,
+            referenceType: "VEHICLE_ALLOCATION_REVERSAL",
+            referenceId: String(adjustment.id),
+            postingKey: `vehicle-allocation-reversal:${allocation.id}`,
+            createdBy: req.user?.id,
+            lines: [
+              { accountCode: deferredCode, type: "DEBIT", amount },
+              { accountCode: fundsHeldCode, type: "CREDIT", amount },
+            ],
+          }, tx);
+        }
+        await refreshCustomerAccountTotals(tx, account.id);
+        return { reversed, adjustment };
+      });
+      res.json(result);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(error.status || 500).json({ error: error.message || "Failed to reverse allocation" });
+    }
+  });
+
+  /** Allocate an agency receipt that was recorded before its cost sheet existed. */
+  router.post("/companies/:companyId/vehicles/:id/customer-account/payments/:paymentId/allocate", ...need("vehicles.payments"), async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
+      const paymentId = Number(req.params.paymentId);
+      const body = z.object({
+        allocations: z.array(z.object({
+          costId: z.coerce.number().int().positive().nullable().optional(),
+          allocationType: z.enum(["cost", "fee"]).default("cost"),
+          amount: z.coerce.number().positive(),
+        })).min(1),
+      }).parse(req.body ?? {});
+      const result = await db.transaction(async (tx: any) => {
+        const v = await lockedVehicle(tx, companyId, vehicleId);
+        if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+        if (!isAgencyVehicle(v)) throw Object.assign(new Error("Allocations only apply to agency vehicles"), { status: 400 });
+        const [payment] = await tx.select().from(payments).where(and(
+          eq(payments.id, paymentId),
+          eq(payments.companyId, companyId),
+          eq(payments.vehicleId, vehicleId),
+        )).for("update");
+        if (!payment) throw Object.assign(new Error("Payment not found"), { status: 404 });
+        const [account] = await tx.select().from(vehicleCustomerAccounts)
+          .where(and(eq(vehicleCustomerAccounts.companyId, companyId), eq(vehicleCustomerAccounts.vehicleId, vehicleId)))
+          .for("update");
+        if (!account) throw Object.assign(new Error("No customer account exists for this vehicle"), { status: 404 });
+        const [existingAllocation] = await tx.select({ id: vehicleCustomerPaymentAllocations.id })
+          .from(vehicleCustomerPaymentAllocations)
+          .where(eq(vehicleCustomerPaymentAllocations.paymentId, payment.id)).limit(1);
+        if (existingAllocation) {
+          throw Object.assign(new Error("This receipt already has allocations; reverse them before reallocating"), { status: 409 });
+        }
+        const allocations = await buildAgencyAllocations(tx, account, baseAmountOf(payment), body.allocations);
+        const feeBase = round2(allocations.filter(a => a.allocationType === "fee").reduce((s, a) => s + a.amount, 0));
+        for (const allocation of allocations) {
+          await tx.insert(vehicleCustomerPaymentAllocations).values({
+            companyId,
+            accountId: account.id,
+            paymentId: payment.id,
+            costId: allocation.costId,
+            allocationType: allocation.allocationType,
+            amount: allocation.amount.toFixed(2),
+            createdBy: req.user?.id,
+          });
+        }
+        if (feeBase > 0) {
+          const [agreement] = await tx.select().from(vehicleSalesAgreements).where(and(
+            eq(vehicleSalesAgreements.companyId, companyId),
+            eq(vehicleSalesAgreements.vehicleId, vehicleId),
+          ));
+          const fundsHeldCode = await storage.getSystemAccountCode(companyId, "customerFundsHeldAccountCode", tx);
+          const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
+          await postAgencyLedger(companyId, {
+            entryDate: payment.paymentDate,
+            description: `Vehicle ${v.stockNumber} fee allocation from existing receipt`,
+            referenceType: "VEHICLE_FEE_ALLOCATION",
+            referenceId: String(payment.id),
+            postingKey: `vehicle-fee-allocation:${payment.id}`,
+            createdBy: req.user?.id,
+            lines: [
+              { accountCode: fundsHeldCode, type: "DEBIT", amount: feeBase },
+              { accountCode: deferredCode, type: "CREDIT", amount: feeBase },
+            ],
+          }, tx);
+          if (agreement?.feeRecognition === "on_collection" || agreement?.status === "completed") {
+            await postFeeRecognition(
+              tx, companyId,
+              `Vehicle ${v.stockNumber} processing fee earned on collection`,
+              feeBase,
+              String(payment.id),
+              `vehicle-fee-recognition:allocation:${payment.id}`,
+              payment.paymentDate,
+              Number(account.feeRecognisedAmount || 0) + feeBase,
+              account,
+              req.user?.id,
+            );
+          }
+        }
+        await refreshCustomerAccountTotals(tx, account.id);
+        return allocations;
+      });
+      res.json({ allocations: result });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(error.status || 500).json({ error: error.message || "Failed to allocate receipt" });
+    }
+  });
+
+  router.post("/companies/:companyId/vehicles/:id/third-party-payments", ...need("vehicles.payments"), async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
+      const v = await loadVehicle(companyId, vehicleId);
+      if (!v) return res.status(404).json({ error: "Vehicle not found" });
+      if (!isAgencyVehicle(v)) return res.status(400).json({ error: "Third-party settlement is only used for agency vehicles" });
+      const body = z.object({
+        costId: z.coerce.number().int().positive(),
+        amount: z.coerce.number().positive(),
+        currency: z.string().default("USD"),
+        exchangeRate: z.coerce.number().positive().default(1),
+        paymentDate: z.coerce.date().optional(),
+        paymentMethod: z.string().default("bank_transfer"),
+        bankAccountId: z.coerce.number().int().positive().nullable().optional(),
+        supplierId: z.coerce.number().int().positive().nullable().optional(),
+        reference: z.string().nullable().optional(),
+      }).parse(req.body ?? {});
+      const result = await db.transaction(async (tx: any) => {
+        const supplierError = await assertOwnedSupplier(companyId, body.supplierId ?? null);
+        if (supplierError) throw Object.assign(new Error(supplierError), { status: 400 });
+        const { account: bankAccount, error: bankError } = await ownedBankAccount(tx, companyId, body.bankAccountId);
+        if (bankError || !bankAccount) throw Object.assign(new Error(bankError || "Bank account not found"), { status: 400 });
+        const [account] = await tx.select().from(vehicleCustomerAccounts)
+          .where(eq(vehicleCustomerAccounts.vehicleId, vehicleId)).for("update");
+        if (!account) throw Object.assign(new Error("No customer account exists for this vehicle"), { status: 404 });
+        const [cost] = await tx.select().from(vehicleCosts).where(and(
+          eq(vehicleCosts.id, body.costId),
+          eq(vehicleCosts.vehicleId, vehicleId),
+          ne(vehicleCosts.status, "cancelled"),
+        )).for("update");
+        if (!cost) throw Object.assign(new Error("Cost line not found on this vehicle"), { status: 400 });
+        if (cost.includeInCustomerStatement === false) {
+          throw Object.assign(new Error("This cost is excluded from the customer statement"), { status: 400 });
+        }
+
+        const amountBase = round2(Number(body.amount) / (Number(body.exchangeRate) || 1));
+        const outstanding = round2(Number(cost.customerAllocatedAmount || 0) - Number(cost.thirdPartyPaidAmount || 0));
+        if (amountBase > outstanding + 0.01) {
+          throw Object.assign(new Error("Settlement exceeds the customer funds allocated to this cost line"), { status: 400 });
+        }
+
+        const [created] = await tx.insert(vehicleThirdPartyPayments).values({
+          companyId,
+          accountId: account.id,
+          vehicleId,
+          costId: cost.id,
+          supplierId: body.supplierId ?? cost.supplierId ?? null,
+          amount: body.amount.toFixed(2),
+          baseAmount: amountBase.toFixed(2),
+          currency: body.currency,
+          exchangeRate: Number(body.exchangeRate).toFixed(6),
+          paymentDate: body.paymentDate ?? new Date(),
+          paymentMethod: body.paymentMethod,
+          bankAccountId: bankAccount.id,
+          reference: body.reference ?? null,
+          createdBy: req.user?.id,
+        }).returning();
+
+        const je = await postAgencyThirdPartyPayment(
+          tx,
+          companyId,
+          v,
+          account,
+          bankAccount,
+          amountBase,
+          created.paymentDate,
+          body.reference ?? null,
+          created.id,
+          req.user?.id,
+        );
+        await tx.update(vehicleThirdPartyPayments).set({ journalEntryId: je.id }).where(eq(vehicleThirdPartyPayments.id, created.id));
+        await refreshCustomerAccountTotals(tx, account.id);
+        const [savedCost] = await tx.select().from(vehicleCosts).where(eq(vehicleCosts.id, cost.id));
+        const fullySettled = Number(savedCost.thirdPartyPaidAmount || 0) + 0.01 >= Number(savedCost.baseAmount || 0);
+        await tx.update(vehicleCosts).set({
+          status: fullySettled ? "paid" : (cost.status === "disputed" ? "disputed" : "pending"),
+          paidAt: fullySettled ? new Date(created.paymentDate).toISOString().slice(0, 10) : null,
+          paymentJournalEntryId: cost.paymentJournalEntryId ?? je.id,
+          bankAccountId: bankAccount.id,
+        }).where(eq(vehicleCosts.id, cost.id));
+        const [saved] = await tx.select().from(vehicleThirdPartyPayments).where(eq(vehicleThirdPartyPayments.id, created.id));
+        return saved;
+      });
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error(error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(error.status || 500).json({ error: error.message || "Failed to record third-party payment" });
+    }
+  });
+
+  /** Clear the already-collected fee against the agency fee invoice's AR. */
+  async function clearAgencyFeeInvoice(
+    tx: any,
+    companyId: number,
+    invoice: any,
+    account: any,
+    userId?: string,
+  ) {
+    // Settlement of the fee invoice is independent of revenue recognition.
+    // on_collection deals have already recognised the fee but their invoice AR
+    // still has to be cleared against the fee the customer paid.
+    const available = round2(Number(account.amountAllocatedToFee || 0) - Number(account.feeInvoiceSettledAmount || 0));
+    // storage.createInvoice posts invoice.total into the base-currency GL, so
+    // the same numeric total is the amount of AR to clear here.
+    const amount = round2(Math.min(Number(invoice.total || 0), available));
+    if (amount <= 0) return null;
+    const deferredCode = await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx);
+    const arCode = await storage.getSystemAccountCode(companyId, "accountsReceivableCode", tx);
+    const je = await postAgencyLedger(companyId, {
+      entryDate: new Date(),
+      description: `Apply collected processing fee to invoice ${invoice.invoiceNumber}`,
+      referenceType: "VEHICLE_FEE_INVOICE_SETTLEMENT",
+      referenceId: String(invoice.id),
+      postingKey: `vehicle-fee-invoice-settlement:${invoice.id}`,
+      createdBy: userId,
+      lines: [
+        { accountCode: deferredCode, type: "DEBIT", amount },
+        { accountCode: arCode, type: "CREDIT", amount },
+      ],
+    }, tx);
+    const paidAmount = round2(Number(invoice.paidAmount || 0) + amount);
+    await tx.update(invoices).set({
+      paidAmount: paidAmount.toFixed(2),
+      status: paidAmount + 0.01 >= Number(invoice.total || 0) ? "paid" : "partial",
+    }).where(eq(invoices.id, invoice.id));
+    await tx.update(vehicleCustomerAccounts).set({
+      feeInvoiceSettledAmount: round2(Number(account.feeInvoiceSettledAmount || 0) + amount).toFixed(2),
+      updatedAt: new Date(),
+    }).where(eq(vehicleCustomerAccounts.id, account.id));
+    return je;
+  }
 
   // ── sales invoice ──────────────────────────────────────────────────────────
 
@@ -1740,13 +2587,22 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         if (!v.customerId) throw Object.assign(new Error("Assign a customer to this vehicle first"), { status: 400 });
         if (v.salePrice == null) throw Object.assign(new Error("Set an agreed sale price before invoicing"), { status: 400 });
 
-        // salePrice is the agreed net sale in the sale currency. Tax is added
-        // on top and must come from a real tax type, not a free-text rate.
-        const subtotal = round2(Number(v.salePrice));
-        if (subtotal <= 0) throw Object.assign(new Error("The agreed sale price must be greater than zero"), { status: 400 });
+        const [agreement] = await tx.select().from(vehicleSalesAgreements).where(and(
+          eq(vehicleSalesAgreements.companyId, companyId),
+          eq(vehicleSalesAgreements.vehicleId, v.id),
+        ));
+        const isAgency = isAgencyVehicle(v);
+        // Agency deals invoice only Prime Imports' fee. The cost sheet is a
+        // customer statement, not company revenue. Principal deals keep the
+        // existing gross sale invoice and COGS flow.
+        const subtotal = round2(isAgency ? Number(agreement?.processingFeeAmount ?? 0) : Number(v.salePrice));
+        if (subtotal <= 0) throw Object.assign(
+          new Error(isAgency ? "Set a processing fee on the sales agreement before invoicing" : "The agreed sale price must be greater than zero"),
+          { status: 400 },
+        );
 
         let taxType: any = null;
-        if (body.taxTypeId) {
+        if (!isAgency && body.taxTypeId) {
           const { taxType: found, error } = await ownedTaxType(tx, companyId, body.taxTypeId);
           if (error || !found) throw Object.assign(new Error(error || "Tax type not found"), { status: 400 });
           taxType = found;
@@ -1757,11 +2613,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         const currency = v.saleCurrency || "USD";
         const exchangeRate = Number(v.saleExchangeRate || 1) || 1;
 
-        const description = [
+        const vehicleLabel = [
           `${v.year ?? ""} ${v.make} ${v.model}`.replace(/\s+/g, " ").trim(),
           `Stock ${v.stockNumber}`,
           v.vin ? `VIN ${v.vin}` : null,
         ].filter(Boolean).join(" — ");
+        const description = isAgency ? `Vehicle import processing fee — ${vehicleLabel}` : vehicleLabel;
 
         const created = await storage.createInvoice({
           companyId,
@@ -1779,8 +2636,14 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           isFiscalized: false,
           notes: body.notes ?? description,
           createdBy: req.user?.id,
-          // Sale revenue journal idempotency: one invoice per vehicle sale.
-          postingKey: `vehicle-sale:${v.id}:invoice`,
+          // One invoice per vehicle deal; agency deals post only the fee.
+          postingKey: isAgency ? `vehicle-fee-invoice:${v.id}:invoice` : `vehicle-sale:${v.id}:invoice`,
+          // storage.createInvoice otherwise credits sales revenue directly.
+          // Agency invoices credit deferred fee income; collection/handover
+          // journals move it to revenue at the right time.
+          ...(isAgency
+            ? { revenueAccountCode: await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx) }
+            : {}),
           items: [{
             description,
             quantity: "1",
@@ -1798,8 +2661,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           updatedAt: new Date(),
         }).where(eq(vehicles.id, v.id));
 
-        const paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, created, req.user?.id);
-        const cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
+        let paymentResult: any = null;
+        let cogs: any = { posted: false, journalEntryId: null, amount: 0 };
+        if (isAgency) {
+          const [account] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, v.id));
+          if (account) {
+            paymentResult = { feeSettlement: await clearAgencyFeeInvoice(tx, companyId, created, account, req.user?.id) };
+            await refreshCustomerAccountTotals(tx, account.id);
+          }
+        } else {
+          paymentResult = await applyVehiclePaymentsToInvoice(tx, companyId, v.id, created, req.user?.id);
+          cogs = await postVehicleCogs(tx, companyId, v.id, req.user?.id);
+        }
         const enquiry = v.enquiryId
           ? await markEnquiryWon(
               tx,
@@ -2375,6 +3248,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     agreedPrice: z.coerce.number().positive(), currency: z.string().max(8).default("USD"), exchangeRate: z.coerce.number().positive().default(1),
     priceType: z.enum(["fixed", "variable"]).default("fixed"), depositAmount: z.coerce.number().min(0).default(0), months: z.coerce.number().int().min(1).max(120),
     interestType: z.enum(["none", "fixed_amount", "percent_pa", "flat_rate"]).default("none"), interestRate: z.coerce.number().min(0).default(0), adminFee: z.coerce.number().min(0).default(0), lateFee: z.coerce.number().min(0).default(0),
+    accountingModel: z.enum(["agent", "principal"]).optional(), processingFeeAmount: z.coerce.number().min(0).optional(), feeRecognition: z.enum(["on_collection", "on_handover"]).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), estimatedDelivery: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), notes: z.string().max(4000).nullable().optional(), termsText: z.string().max(12000).nullable().optional(),
   });
   async function agreementPayload(companyId: number, vehicleId: number) {
@@ -2402,14 +3276,32 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         const terms = { ...body, depositAmount: body.depositAmount, agreedPrice: body.agreedPrice }; const plan = agreementPlan(terms);
         let [existing] = await tx.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId)).for("update");
         if (existing && existing.status !== "draft") throw Object.assign(new Error("Only draft agreements can be replaced"), { status: 409 });
+        // An existing vehicle/agreement model wins: saving a draft agreement must
+        // never silently turn a principal buy/resale into an agency deal.
+        const accountingModel = String(existing?.accountingModel ?? v.accountingModel ?? body.accountingModel ?? "agent");
+        const agencyDeal = isAgencyVehicle({ accountingModel });
+        // adminFee is a financing charge already built into the schedule; it is
+        // not Prime Imports' processing-fee revenue unless entered explicitly.
+        const processingFee = body.processingFeeAmount ?? Number(existing?.processingFeeAmount ?? 0);
+        const costSheetTotal = await customerCostSheetTotal(tx, vehicleId);
+        const feeRecognition = body.feeRecognition ?? existing?.feeRecognition ?? "on_handover";
+        const agencyFields = {
+          accountingModel,
+          processingFeeAmount: processingFee.toFixed(2),
+          costSheetTotal: costSheetTotal.toFixed(2),
+          feeRecognition,
+        };
         if (!existing) {
           const [counter] = await tx.insert(vehicleAgreementCounters).values({ companyId, nextNumber: 2, updatedAt: new Date() }).onConflictDoUpdate({ target: vehicleAgreementCounters.companyId, set: { nextNumber: sql`${vehicleAgreementCounters.nextNumber} + 1`, updatedAt: new Date() } }).returning({ nextNumber: vehicleAgreementCounters.nextNumber });
           const number = `SA-${String(Number(counter.nextNumber) - 1).padStart(4, "0")}`;
-          [existing] = await tx.insert(vehicleSalesAgreements).values({ ...body, companyId, vehicleId, customerId, agreementNumber: number, agreedPrice: body.agreedPrice.toFixed(2), exchangeRate: body.exchangeRate.toFixed(6), depositAmount: body.depositAmount.toFixed(2), interestRate: body.interestRate.toFixed(4), adminFee: body.adminFee.toFixed(2), lateFee: body.lateFee.toFixed(2), createdBy: req.user?.id }).returning();
+          [existing] = await tx.insert(vehicleSalesAgreements).values({ ...body, ...agencyFields, companyId, vehicleId, customerId, agreementNumber: number, agreedPrice: body.agreedPrice.toFixed(2), exchangeRate: body.exchangeRate.toFixed(6), depositAmount: body.depositAmount.toFixed(2), interestRate: body.interestRate.toFixed(4), adminFee: body.adminFee.toFixed(2), lateFee: body.lateFee.toFixed(2), createdBy: req.user?.id }).returning();
         } else {
-          [existing] = await tx.update(vehicleSalesAgreements).set({ ...body, customerId, agreedPrice: body.agreedPrice.toFixed(2), exchangeRate: body.exchangeRate.toFixed(6), depositAmount: body.depositAmount.toFixed(2), interestRate: body.interestRate.toFixed(4), adminFee: body.adminFee.toFixed(2), lateFee: body.lateFee.toFixed(2), updatedAt: new Date() }).where(eq(vehicleSalesAgreements.id, existing.id)).returning();
+          [existing] = await tx.update(vehicleSalesAgreements).set({ ...body, ...agencyFields, customerId, agreedPrice: body.agreedPrice.toFixed(2), exchangeRate: body.exchangeRate.toFixed(6), depositAmount: body.depositAmount.toFixed(2), interestRate: body.interestRate.toFixed(4), adminFee: body.adminFee.toFixed(2), lateFee: body.lateFee.toFixed(2), updatedAt: new Date() }).where(eq(vehicleSalesAgreements.id, existing.id)).returning();
         }
-        await tx.update(vehicles).set({ customerId, salespersonId: body.salespersonId ?? v.salespersonId, salePrice: body.agreedPrice.toFixed(2), saleCurrency: body.currency, saleExchangeRate: body.exchangeRate.toFixed(6), status: v.status === "available" ? "reserved" : v.status, updatedAt: new Date() }).where(eq(vehicles.id, vehicleId));
+        await tx.update(vehicles).set({ customerId, salespersonId: body.salespersonId ?? v.salespersonId, salePrice: body.agreedPrice.toFixed(2), saleCurrency: body.currency, saleExchangeRate: body.exchangeRate.toFixed(6), accountingModel, status: v.status === "available" ? "reserved" : v.status, updatedAt: new Date() }).where(eq(vehicles.id, vehicleId));
+        if (agencyDeal) {
+          await upsertCustomerAccount(tx, companyId, { ...v, customerId, salePrice: body.agreedPrice.toFixed(2), saleCurrency: body.currency, saleExchangeRate: body.exchangeRate.toFixed(6), accountingModel }, existing);
+        }
         await tx.delete(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicleId));
         await tx.insert(vehiclePaymentSchedules).values(plan.lines.map(l => ({ vehicleId, type: l.type, dueDate: l.dueDate, amount: l.amount.toFixed(2) })));
         await refreshScheduleSettlement(tx, companyId, vehicleId);
@@ -2420,14 +3312,30 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   });
   router.patch("/companies/:companyId/vehicles/:id/agreement", ...need("vehicles.manage"), async (req: any, res) => { req.method = "POST"; return (router as any).handle(req, res); });
   router.post("/companies/:companyId/vehicles/:id/agreement/handover", ...need("vehicles.manage"), async (req: any, res) => {
-    const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id); const notes = z.object({ notes: z.string().max(4000).nullable().optional() }).parse(req.body ?? {});
-    const [agreement] = await db.update(vehicleSalesAgreements).set({ handoverAt: new Date(), handoverBy: req.user?.id, handoverNotes: notes.notes ?? null, status: "completed", updatedAt: new Date() }).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicleId))).returning();
-    if (!agreement) return res.status(404).json({ error: "Sales agreement not found" }); await db.update(vehicles).set({ status: "delivered", updatedAt: new Date() }).where(eq(vehicles.id, vehicleId)); res.json({ agreement });
+    try {
+      const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
+      const notes = z.object({ notes: z.string().max(4000).nullable().optional() }).parse(req.body ?? {});
+      const agreement = await db.transaction(async (tx: any) => {
+        const [updated] = await tx.update(vehicleSalesAgreements).set({ handoverAt: new Date(), handoverBy: req.user?.id, handoverNotes: notes.notes ?? null, status: "completed", updatedAt: new Date() }).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicleId))).returning();
+        if (!updated) throw Object.assign(new Error("Sales agreement not found"), { status: 404 });
+        await tx.update(vehicles).set({ status: "delivered", updatedAt: new Date() }).where(eq(vehicles.id, vehicleId));
+        if (isAgencyVehicle(updated) && updated.feeRecognition === "on_handover") {
+          // Revenue is earned at handover whether the fee invoice was raised
+          // before or after it; the invoice only parks the fee in deferred income.
+          await recogniseAgencyFee(tx, companyId, updated, req.user?.id);
+        }
+        return updated;
+      });
+      res.json({ agreement });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      res.status(error.status || 500).json({ error: error.message || "Failed to complete handover" });
+    }
   });
   router.get("/companies/:companyId/agreements", ...need("vehicles.view"), async (req: any, res) => {
     const companyId = Number(req.params.companyId), status = req.query.status as string | undefined;
     const rows = await db.select({ agreement: vehicleSalesAgreements, vehicle: vehicles, customer: customers }).from(vehicleSalesAgreements).innerJoin(vehicles, eq(vehicles.id, vehicleSalesAgreements.vehicleId)).leftJoin(customers, eq(customers.id, vehicleSalesAgreements.customerId)).where(and(eq(vehicleSalesAgreements.companyId, companyId), status ? eq(vehicleSalesAgreements.status, status) : undefined));
-    const ids = rows.map(r => r.vehicle.id); const paidRows = ids.length ? await db.select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} * COALESCE(${payments.exchangeRate}, 1)), 0)` }).from(payments).where(inArray(payments.vehicleId, ids)).groupBy(payments.vehicleId) : [];
+    const ids = rows.map(r => r.vehicle.id); const paidRows = ids.length ? await db.select({ vehicleId: payments.vehicleId, total: sql<string>`COALESCE(SUM(${payments.amount} / NULLIF(COALESCE(${payments.exchangeRate}, 1), 0)), 0)` }).from(payments).where(inArray(payments.vehicleId, ids)).groupBy(payments.vehicleId) : [];
     const paid = new Map(paidRows.map(p => [p.vehicleId, Number(p.total)])); res.json(rows.map(r => ({ ...r, collected: paid.get(r.vehicle.id) || 0, balance: round2(Number(r.agreement.agreedPrice) - (paid.get(r.vehicle.id) || 0)) })));
   });
   router.get("/companies/:companyId/vehicles/overdue-schedule", ...need("vehicles.view"), async (req: any, res) => { const rows = await db.select({ count: sql<number>`count(*)` }).from(vehiclePaymentSchedules).innerJoin(vehicles, eq(vehicles.id, vehiclePaymentSchedules.vehicleId)).where(and(eq(vehicles.companyId, Number(req.params.companyId)), eq(vehiclePaymentSchedules.status, "overdue"))); res.json({ count: Number(rows[0]?.count || 0) }); });
@@ -2471,7 +3379,16 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .parse(req.body ?? {});
 
       const rate = Number(v.saleExchangeRate || 1) || 1;
+      const isAgency = isAgencyVehicle(v);
+      const [agreement] = await db.select().from(vehicleSalesAgreements).where(and(
+        eq(vehicleSalesAgreements.companyId, companyId),
+        eq(vehicleSalesAgreements.vehicleId, v.id),
+      ));
+      // Schedule instalments always follow the customer's total price. For
+      // agency deals that is the full cost sheet + fee; the auto-created
+      // invoice is only the fee and must not shrink the schedule.
       const subtotal = round2(Number(v.salePrice));
+      const invoiceSubtotal = round2(isAgency ? Number(agreement?.processingFeeAmount ?? 0) : subtotal);
       if (subtotal <= 0) return res.status(400).json({ error: "The agreed sale price must be greater than zero" });
 
       const startDate = body.startDate || new Date().toISOString().slice(0, 10);
@@ -2503,14 +3420,17 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           const currency = locked.saleCurrency || "USD";
           const exchangeRate = Number(locked.saleExchangeRate || 1) || 1;
           const taxAmount = 0;
-          const total = round2(subtotal + taxAmount);
-          const invoicePostingKey = `vehicle-sale:${locked.id}:invoice`;
+          const total = round2(invoiceSubtotal + taxAmount);
+          const invoicePostingKey = isAgency
+            ? `vehicle-fee-invoice:${locked.id}:invoice`
+            : `vehicle-sale:${locked.id}:invoice`;
 
-          const description = [
+          const vehicleLabel = [
             `${locked.year ?? ""} ${locked.make} ${locked.model}`.replace(/\s+/g, " ").trim(),
             `Stock ${locked.stockNumber}`,
             locked.vin ? `VIN ${locked.vin}` : null,
           ].filter(Boolean).join(" — ");
+          const description = isAgency ? `Vehicle import processing fee — ${vehicleLabel}` : vehicleLabel;
 
           invoice = await storage.createInvoice({
             companyId,
@@ -2519,7 +3439,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             issueDate: new Date(),
             // Due date is the last instalment — that's when the full balance is owed.
             dueDate: new Date(lastInstalmentDate),
-            subtotal: subtotal.toFixed(2),
+            subtotal: invoiceSubtotal.toFixed(2),
             taxAmount: taxAmount.toFixed(2),
             total: total.toFixed(2),
             status: "issued",
@@ -2529,16 +3449,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             isFiscalized: false,
             notes: description,
             createdBy: req.user?.id,
-            // Sale revenue journal idempotency: one invoice per vehicle sale.
             postingKey: invoicePostingKey,
+            ...(isAgency
+              ? { revenueAccountCode: await storage.getSystemAccountCode(companyId, "deferredVehicleFeeRevenueAccountCode", tx) }
+              : {}),
             items: [{
               description,
               quantity: "1",
-              unitPrice: subtotal.toFixed(2),
+              unitPrice: invoiceSubtotal.toFixed(2),
               discountAmount: "0.00",
               taxRate: "0.00",
               taxTypeId: null,
-              lineTotal: subtotal.toFixed(2),
+              lineTotal: invoiceSubtotal.toFixed(2),
             }],
           } as any, tx);
 
@@ -2550,11 +3472,18 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
           invoiceCreated = true;
 
-          // Apply any pre-existing deposits / part-payments to the new invoice.
-          await applyVehiclePaymentsToInvoice(tx, companyId, locked.id, invoice, req.user?.id);
-
-          // Post COGS (Dr COGS / Cr Inventory) for all capitalised cost lines.
-          await postVehicleCogs(tx, companyId, locked.id, req.user?.id);
+          if (isAgency) {
+            const [account] = await tx.select().from(vehicleCustomerAccounts).where(eq(vehicleCustomerAccounts.vehicleId, locked.id));
+            if (account) {
+              await clearAgencyFeeInvoice(tx, companyId, invoice, account, req.user?.id);
+              await refreshCustomerAccountTotals(tx, account.id);
+            }
+          } else {
+            // Apply any pre-existing deposits / part-payments to the new invoice.
+            await applyVehiclePaymentsToInvoice(tx, companyId, locked.id, invoice, req.user?.id);
+            // Post COGS (Dr COGS / Cr Inventory) for all capitalised cost lines.
+            await postVehicleCogs(tx, companyId, locked.id, req.user?.id);
+          }
 
           // Mark the linked CRM enquiry as won.
           if (locked.enquiryId) {
@@ -2579,7 +3508,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         // ── 2. Use the invoice total (tax-inclusive) as the schedule basis ─
         // Schedule lines carry the sale currency, matching invoice.total and
         // body.deposit. Base conversion is handled at receipt time.
-        const total = invoice ? round2(Number(invoice.total)) : round2(subtotal);
+        const total = invoice && !isAgency ? round2(Number(invoice.total)) : round2(subtotal);
 
         if (total <= 0) throw Object.assign(new Error("The agreed sale price must be greater than zero"), { status: 400 });
 
@@ -2663,7 +3592,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           monthly: result.baseCents / 100,
           finalAmount: (result.remainingCents - result.baseCents * (body.months - 1)) / 100,
           startDate,
-          currency: "USD",
+          currency: v.saleCurrency || "USD",
         },
         lines: result.rows,
         invoice: finalInvoice ?? null,
@@ -2715,13 +3644,13 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         .leftJoin(customers, eq(customers.id, vehicles.customerId))
         .where(and(eq(vehicles.companyId, companyId), sql`${vehicles.salePrice} IS NOT NULL`, sql`${vehicles.status} <> 'cancelled'`));
       const ids = rows.map((r) => r.vehicle.id);
-      const { costs, paid, invoiceBase } = await totalsFor(ids);
+      const { costs, paid, invoiceBase, fees } = await totalsFor(ids);
       const schedules = ids.length
         ? await db.select().from(vehiclePaymentSchedules).where(inArray(vehiclePaymentSchedules.vehicleId, ids)).orderBy(asc(vehiclePaymentSchedules.dueDate))
         : [];
       const result = rows
         .map((r) => {
-          const summary = summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id));
+          const summary = summariseVehicle(r.vehicle, costs.get(r.vehicle.id) || [], paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id), fees.get(r.vehicle.id) || 0);
           // summary.paid is base currency; schedules carry saleCurrency amounts.
           const lines = openScheduleLines(
             schedules.filter((s) => s.vehicleId === r.vehicle.id),
@@ -2779,7 +3708,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       .where(and(eq(vehicles.companyId, companyId), sql`${vehicles.status} <> 'cancelled'`))
       .orderBy(desc(vehicles.createdAt));
     const ids = rows.map((r) => r.vehicle.id);
-    const { costs, paid, invoiceBase } = await totalsFor(ids);
+    const { costs, paid, invoiceBase, fees } = await totalsFor(ids);
     const supplierIds = Array.from(
       new Set(Array.from(costs.values()).flat().map((c: any) => c.supplierId).filter((x: any) => x != null)),
     ).map(Number);
@@ -2792,7 +3721,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         ...c,
         supplierName: c.supplierId ? supplierMap.get(Number(c.supplierId)) ?? null : null,
       }));
-      const summary = summariseVehicle(r.vehicle, lines, paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id));
+      const summary = summariseVehicle(r.vehicle, lines, paid.get(r.vehicle.id) || 0, invoiceBase.get(r.vehicle.id), fees.get(r.vehicle.id) || 0);
       const costSuppliers = Array.from(new Set(lines.map((l: any) => l.supplierId).filter((x: any) => x != null))).map((id: any) => ({
         id: Number(id),
         name: supplierMap.get(Number(id)) ?? null,
@@ -2861,6 +3790,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       importCosts: row.summary.importCosts,
       sellingPrice: row.summary.sellingPrice,
       isProjected: row.summary.isProjected,
+      accountingModel: row.summary.accountingModel,
+      processingFee: row.summary.processingFee,
       profit: row.summary.profit,
       marginPercent: row.summary.marginPercent,
       costsByCategory: row.summary.costsByCategory,
@@ -2918,7 +3849,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const totals = {
         vehicles: items.length,
         sold: sold.length,
-        revenue: money(sold.reduce((s, i) => s + i.sellingPrice, 0)),
+        // Agency revenue is the processing fee only; the customer-funded cost
+        // sheet is a disbursement, not turnover.
+        revenue: money(sold.reduce((s, i) => s + (isAgencyVehicle(i) ? i.processingFee : i.sellingPrice), 0)),
+        customerFundedCosts: money(sold.filter(isAgencyVehicle).reduce((s, i) => s + i.landedCost, 0)),
         landedCost: money(sold.reduce((s, i) => s + i.landedCost, 0)),
         profit: money(sold.reduce((s, i) => s + i.profit, 0)),
         projectedProfit: money(stock.reduce((s, i) => s + i.profit, 0)),

@@ -42,10 +42,16 @@ export function useCreateQuotation() {
                 const err = await res.json();
                 throw new Error(err.message || "Failed to create quotation");
             }
-            return await res.json();
+            // 202 means the quotation is awaiting authorisation.
+            return await res.json() as any;
         },
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["quotations"] });
+            if (data?.approval) {
+                queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+                toast({ title: "Quotation Submitted", description: data.message || "An approver must authorise this quotation." });
+                return;
+            }
             toast({ title: "Quotation Created", description: `Quotation ${data.quotationNumber} saved as draft.` });
         },
         onError: (error: Error) => {

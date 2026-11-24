@@ -46,6 +46,9 @@ export type VehicleSummary = {
   importCosts?: number;
   sellingPrice: number;
   isProjected: boolean;
+  accountingModel?: "agent" | "principal";
+  processingFee?: number;
+  customerFundedCosts?: number;
   profit?: number;
   marginPercent?: number;
   paid: number;
@@ -110,6 +113,7 @@ export type Vehicle = {
   eta: string | null;
   stage: string;
   status: string;
+  accountingModel?: "agent" | "principal";
   targetPrice: string | null;
   salePrice: string | null;
   saleCurrency: string | null;
@@ -150,6 +154,73 @@ export function useVehicle(companyId: number, id: number) {
     queryKey: ["vehicle", companyId, id],
     enabled: !!companyId && !!id,
     queryFn: async () => json<any>(await apiFetch(`/api/companies/${companyId}/vehicles/${id}`)),
+  });
+}
+
+export type VehicleCustomerAccount = {
+  id: number;
+  vehicleId: number;
+  currency: string;
+  totalPrice: string;
+  costSheetTotal: string;
+  processingFeeAmount: string;
+  amountCollected: string;
+  amountAllocatedToCosts: string;
+  amountAllocatedToFee: string;
+  feeInvoiceSettledAmount?: string;
+  amountPaidToThirdParties: string;
+  feeRecognisedAmount: string;
+  status: string;
+};
+
+export type VehicleCostSheetLine = {
+  id: number;
+  category: string;
+  description: string | null;
+  estimated: number;
+  actual: number;
+  customerCharge: number;
+  allocated: number;
+  settled: number;
+  held: number;
+  outstanding: number;
+  supplierOutstanding: number;
+  payee: string | null;
+  supplierId: number | null;
+  status: string;
+};
+
+export type VehicleCustomerAccountData = {
+  vehicle: any;
+  agreement: any | null;
+  account: VehicleCustomerAccount;
+  costSheet: VehicleCostSheetLine[];
+  payments: Array<any & { baseAmount: number; allocations: any[] }>;
+  thirdPartyPayments: any[];
+  totals: {
+    totalPrice: number;
+    costSheetTotal: number;
+    processingFee: number;
+    collected: number;
+    allocatedToCosts: number;
+    allocatedToFee: number;
+    paidToThirdParties: number;
+    supplierOutstanding: number;
+    fundsHeld: number;
+    unallocatedCollected: number;
+    balanceDue: number;
+    feeOutstanding: number;
+    feeRecognised: number;
+  };
+};
+
+export function useVehicleCustomerAccount(companyId: number, id: number) {
+  return useQuery({
+    queryKey: ["vehicle-customer-account", companyId, id],
+    enabled: !!companyId && !!id,
+    queryFn: async () => json<VehicleCustomerAccountData>(
+      await apiFetch(`/api/companies/${companyId}/vehicles/${id}/customer-account`),
+    ),
   });
 }
 
@@ -220,6 +291,8 @@ export function useVehicleAction(companyId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vehicles", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicle", companyId] });
+      qc.invalidateQueries({ queryKey: ["vehicle-customer-account", companyId] });
+      qc.invalidateQueries({ queryKey: ["vehicle-agreement", companyId] });
       qc.invalidateQueries({ queryKey: ["vehicles-report", companyId] });
       qc.invalidateQueries({ queryKey: ["/api/invoices"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });

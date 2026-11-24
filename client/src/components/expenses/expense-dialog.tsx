@@ -8,6 +8,8 @@ import {
 import { EXPENSE_CATEGORIES } from "@shared/expense-categories";
 import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useSuppliers } from "@/hooks/use-suppliers";
+import { useDepartments } from "@/hooks/use-departments";
+import { useCostCenters } from "@/hooks/use-cost-centers";
 import { isLesothoInstance } from "@/lib/country-detect";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +63,8 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
   const createExpense = useCreateExpense(companyId);
   const updateExpense = useUpdateExpense();
   const { data: suppliers } = useSuppliers(companyId);
+  const { data: departments = [] } = useDepartments(companyId);
+  const { data: costCenters = [] } = useCostCenters(companyId);
 
   const { data: segments } = useQuery<any[]>({
     queryKey: ["/api/accounting/segments", companyId],
@@ -91,6 +95,8 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
       description: expense?.description || "",
       amount: expense?.amount || "0",
       category: expense?.category || "Other",
+      departmentId: expense?.departmentId || undefined,
+      costCenterId: expense?.costCenterId || undefined,
       currency: expense?.currency || "USD",
       supplierId: expense?.supplierId || undefined,
       segmentId: expense?.segmentId || undefined,
@@ -191,6 +197,64 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                         {expenseCategories.map((c) => (
                           <SelectItem key={c} value={c}>
                             {c}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="departmentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold">Department</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v === "none" ? undefined : Number(v))}
+                      value={field.value ? String(field.value) : "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="rounded-xl shadow-xl">
+                        <SelectItem value="none">No Department</SelectItem>
+                        {departments.map((d) => (
+                          <SelectItem key={d.id} value={String(d.id)}>
+                            {d.name}{d.code ? ` (${d.code})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="costCenterId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold">Cost Centre</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v === "none" ? undefined : Number(v))}
+                      value={field.value ? String(field.value) : "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
+                          <SelectValue placeholder="Select cost centre" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="rounded-xl shadow-xl">
+                        <SelectItem value="none">No Cost Centre</SelectItem>
+                        {costCenters.map((cc) => (
+                          <SelectItem key={cc.id} value={String(cc.id)}>
+                            {cc.name}{cc.code ? ` (${cc.code})` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>

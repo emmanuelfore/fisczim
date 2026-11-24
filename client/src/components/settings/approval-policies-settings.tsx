@@ -14,6 +14,7 @@ import { Loader2, ClipboardCheck, Save, ShieldCheck, CircleSlash } from "lucide-
 import {
   APPROVAL_POLICY_MODES,
   DEFAULT_APPROVAL_POLICIES,
+  supportsAmountThreshold,
   type ApprovalPolicyMode,
   type ApprovalTypePolicy,
   type CompanyApprovalPolicies,
@@ -32,6 +33,8 @@ type PolicyItem = {
   supportsAmountThreshold: boolean;
 };
 
+type ApproverOption = { id: number | string; name: string };
+
 export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettingsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -39,20 +42,29 @@ export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettings
   const canManage = can("roles.manage");
 
   const [policies, setPolicies] = useState<CompanyApprovalPolicies>(DEFAULT_APPROVAL_POLICIES);
+  const [approverRoles, setApproverRoles] = useState<ApproverOption[]>([]);
+  const [approverUsers, setApproverUsers] = useState<ApproverOption[]>([]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["approval-policies", companyId],
     queryFn: async () => {
       const res = await apiFetch(`/api/companies/${companyId}/approval-policies`);
       if (!res.ok) throw new Error("Failed to load approval policies");
-      return await res.json() as { policies: CompanyApprovalPolicies; items: PolicyItem[] };
+      return await res.json() as {
+        policies: CompanyApprovalPolicies;
+        items: PolicyItem[];
+        approverRoles?: ApproverOption[];
+        approverUsers?: ApproverOption[];
+      };
     },
     enabled: !!companyId && can("roles.view"),
   });
 
   useEffect(() => {
     if (data?.policies) setPolicies(data.policies);
-  }, [data?.policies]);
+    if (data?.approverRoles) setApproverRoles(data.approverRoles);
+    if (data?.approverUsers) setApproverUsers(data.approverUsers);
+  }, [data?.policies, data?.approverRoles, data?.approverUsers]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -86,7 +98,7 @@ export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettings
     label: type,
     description: "",
     policy: policies[type],
-    supportsAmountThreshold: type === APPROVAL_TYPES.INVOICE_ISSUE || type === APPROVAL_TYPES.JOURNAL_POST,
+    supportsAmountThreshold: supportsAmountThreshold(type),
   }));
   const approvalRequired = items.filter((item) => policies[item.type]?.mode !== "disabled");
 
@@ -203,6 +215,60 @@ export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettings
                           </p>
                         </div>
                       )}
+
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>Approvers (optional)</Label>
+                        <p className="text-xs text-slate-500">
+                          Leave empty to allow any user with the approval permission. Selecting users or roles restricts approval to those people. Requesters cannot approve their own request unless self-approval is explicitly enabled in the policy.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {approverRoles.map((role) => {
+                            const roleId = Number(role.id);
+                            const selected = (policy.approverRoleIds || []).includes(roleId);
+                            return (
+                              <Button
+                                key={`role-${role.id}`}
+                                type="button"
+                                size="sm"
+                                variant={selected ? "default" : "outline"}
+                                disabled={!canManage}
+                                onClick={() => {
+                                  const current = policy.approverRoleIds || [];
+                                  updatePolicy(item.type, {
+                                    approverRoleIds: selected ? current.filter((id) => id !== roleId) : [...current, roleId],
+                                  });
+                                }}
+                              >
+                                Role: {role.name}
+                              </Button>
+                            );
+                          })}
+                          {approverUsers.map((user) => {
+                            const userId = String(user.id);
+                            const selected = (policy.approverUserIds || []).includes(userId);
+                            return (
+                              <Button
+                                key={`user-${user.id}`}
+                                type="button"
+                                size="sm"
+                                variant={selected ? "default" : "outline"}
+                                disabled={!canManage}
+                                onClick={() => {
+                                  const current = policy.approverUserIds || [];
+                                  updatePolicy(item.type, {
+                                    approverUserIds: selected ? current.filter((id) => id !== userId) : [...current, userId],
+                                  });
+                                }}
+                              >
+                                {user.name}
+                              </Button>
+                            );
+                          })}
+                          {!approverRoles.length && !approverUsers.length && (
+                            <span className="text-xs text-slate-400">Loading approvers…</span>
+                          )}
+                        </div>
+                      </div>
 
                       {policy.mode === "always" && (
                         <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-3 md:col-span-2">

@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertSupplierSchema, type InsertSupplier } from "@shared/schema";
 import { useCreateSupplier } from "@/hooks/use-suppliers";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,6 +36,7 @@ export function CreateSupplierDialog({
 }) {
   const [open, setOpen] = useState(false);
   const createSupplier = useCreateSupplier(companyId);
+  const { toast } = useToast();
 
   const form = useForm<InsertSupplier>({
     resolver: zodResolver(insertSupplierSchema),
@@ -54,6 +56,14 @@ export function CreateSupplierDialog({
   const onSubmit = async (data: InsertSupplier) => {
     try {
       const result = await createSupplier.mutateAsync(data);
+      if ((result as any)?.approval) {
+        toast({
+          title: "Supplier submitted for approval",
+          description: (result as any).message || "A manager must approve this supplier before it can be used.",
+        });
+      } else {
+        toast({ title: "Supplier registered" });
+      }
       setOpen(false);
       if (onSuccess) onSuccess(result);
       form.reset();

@@ -71,12 +71,21 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "invoices.approve", label: "Approve Invoice Issuance", description: "Approve pending invoice requests", group: "Sales" },
   { key: "invoices.fiscalize", label: "Fiscalize Invoices", description: "Submit invoices to ZIMRA", group: "Sales" },
   { key: "invoices.void", label: "Void Invoices", description: "Void issued invoices", group: "Sales" },
-  { key: "invoices.credit_note", label: "Credit Notes", description: "Create credit notes", group: "Sales" },
+  { key: "invoices.credit_note", label: "Credit Notes", description: "Create credit notes (may require approval)", group: "Sales" },
+  { key: "invoices.credit_note.direct", label: "Create Credit Notes Directly", description: "Create credit notes without approval", group: "Sales", allowsDirect: true },
+  { key: "invoices.credit_note.approve", label: "Approve Credit Notes", description: "Approve pending credit notes", group: "Sales" },
+  { key: "sales.order.create", label: "Create Sales Orders", description: "Create sales orders (may require approval)", group: "Sales" },
+  { key: "sales.order.confirm.direct", label: "Confirm Sales Orders Directly", description: "Confirm sales orders without approval", group: "Sales", allowsDirect: true },
+  { key: "sales.order.approve", label: "Approve Sales Orders", description: "Approve pending sales orders", group: "Sales" },
+  { key: "sales.discount.request", label: "Request Sales Discounts", description: "Submit discounts above the normal limit for approval", group: "Sales" },
+  { key: "sales.discount.direct", label: "Apply Discounts Directly", description: "Apply discounts without approval", group: "Sales", allowsDirect: true },
+  { key: "sales.discount.approve", label: "Approve Sales Discounts", description: "Approve discount overrides", group: "Sales" },
 
   // CRM
   { key: "crm.pipeline.view", label: "View Pipeline", description: "View enquiries, activities and the pipeline board", group: "CRM" },
   { key: "crm.pipeline.manage", label: "Manage Enquiries", description: "Capture, edit, assign and move enquiries between stages", group: "CRM" },
-  { key: "crm.quotation.create", label: "Quote From Enquiry", description: "Raise a quotation from a won enquiry", group: "CRM" },
+  { key: "crm.quotation.create", label: "Quote From Enquiry", description: "Raise a quotation from a won enquiry (may require approval)", group: "CRM" },
+  { key: "crm.quotation.approve", label: "Approve Quotations", description: "Approve pending quotations", group: "CRM" },
   { key: "crm.duplicates.merge", label: "Merge Duplicates", description: "Merge duplicate enquiries into one record", group: "CRM" },
   { key: "crm.stages.manage", label: "Configure Stages", description: "Create, reorder and set the probability of pipeline stages", group: "CRM" },
   { key: "crm.reports.view", label: "CRM Reports", description: "View pipeline, source and salesperson analysis", group: "CRM" },
@@ -112,6 +121,12 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "grn.confirm", label: "Approve GDN Confirmation", description: "Approve a pending GDN confirmation request", group: "Procurement" },
   { key: "grn.confirm.direct", label: "Confirm GDN Directly", description: "Confirm GDN and receive stock immediately, bypassing approval", group: "Procurement", allowsDirect: true },
   { key: "grn.view", label: "View Goods Received", description: "View GRVs and GDNs", group: "Procurement" },
+  { key: "purchasing.supplier.create", label: "Register Suppliers", description: "Register suppliers (may require approval)", group: "Procurement" },
+  { key: "purchasing.supplier.approve.direct", label: "Register Suppliers Directly", description: "Register suppliers without approval", group: "Procurement", allowsDirect: true },
+  { key: "purchasing.supplier.approve", label: "Approve Supplier Registrations", description: "Approve new supplier registrations", group: "Procurement" },
+  { key: "purchasing.po.request", label: "Request Purchase Orders", description: "Submit purchase orders for approval", group: "Procurement" },
+  { key: "purchasing.po.approve.direct", label: "Approve Purchase Orders Directly", description: "Approve and send purchase orders without a second approval", group: "Procurement", allowsDirect: true },
+  { key: "purchasing.po.approve", label: "Approve Purchase Orders", description: "Approve pending purchase orders", group: "Procurement" },
 
   // Accounting
   { key: "accounting.view", label: "View Accounting", description: "View chart of accounts and ledgers", group: "Finance" },
@@ -125,7 +140,9 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "accounting.budgets", label: "Budgets & Allocations", description: "Create budgets, cost allocation rules and consolidation eliminations", group: "Finance" },
   { key: "accounting.fixedassets", label: "Fixed Asset Actions", description: "Dispose assets and run FX revaluation", group: "Finance" },
   { key: "accounting.receipts", label: "Customer Receipts", description: "Record customer receipts", group: "Finance" },
-  { key: "accounting.payments", label: "Supplier Payments", description: "Record supplier payments", group: "Finance" },
+  { key: "accounting.payments", label: "Supplier Payments", description: "Record supplier payments (may require approval)", group: "Finance" },
+  { key: "accounting.payments.direct", label: "Execute Payments Directly", description: "Execute supplier payments without approval", group: "Finance", allowsDirect: true },
+  { key: "accounting.payments.approve", label: "Approve Payments", description: "Approve pending payment executions", group: "Finance" },
   { key: "accounting.bills.post", label: "Post Supplier Bills", description: "Create supplier bills with enforced three-way matching", group: "Finance" },
   { key: "accounting.bills.waive", label: "Approve Match Variances", description: "Authorise supplier bill posting or payment with a three-way match variance", group: "Finance" },
   { key: "accounting.periods", label: "Financial Periods", description: "Open and close financial periods", group: "Finance" },
@@ -145,6 +162,7 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   // Approvals
   { key: "approvals.view", label: "View Approvals", description: "View approval inbox", group: "Administration" },
   { key: "approvals.action", label: "Process Approvals", description: "Approve or reject requests", group: "Administration" },
+  { key: "approvals.admin", label: "Resolve Failed Approvals", description: "Close failed approval executions after manual reconciliation", group: "Administration" },
 
   // Settings
   { key: "settings.organization", label: "Organization Settings", description: "Edit company profile", group: "Administration" },
@@ -156,6 +174,12 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "payroll.view", label: "View Payroll", description: "View employee profiles, contracts, payroll runs, and pay slips", group: "HR & Payroll" },
   { key: "payroll.write", label: "Manage Payroll", description: "Create and edit employee profiles, contract settings, and run payroll", group: "HR & Payroll" },
   { key: "payroll.approve", label: "Approve Payroll", description: "Lock/approve payroll runs and manage payroll integrations/credentials", group: "HR & Payroll" },
+  { key: "payroll.leave.request", label: "Request Leave", description: "Submit employee leave requests for approval", group: "HR & Payroll" },
+  { key: "payroll.leave.approve.direct", label: "Approve Leave Directly", description: "Approve leave requests without a second approval", group: "HR & Payroll", allowsDirect: true },
+  { key: "payroll.leave.approve", label: "Approve Leave", description: "Approve pending leave requests", group: "HR & Payroll" },
+  { key: "expenses.create", label: "Capture Expenses", description: "Capture expenses (may require approval)", group: "Finance" },
+  { key: "expenses.create.direct", label: "Post Expenses Directly", description: "Post expenses without approval", group: "Finance", allowsDirect: true },
+  { key: "expenses.approve", label: "Approve Expenses", description: "Approve pending expenses", group: "Finance" },
 
   // Transport & Bus Ticketing
   { key: "bus.view", label: "View Bus Ticketing", description: "View bus ticketing dashboard and general schedules", group: "Transport & Bus Ticketing" },
@@ -194,9 +218,11 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     // Sales
     "pos.sell", "pos.shift", "pos.void", "pos.discount", "pos.reconcile",
     "invoices.view", "invoices.create", "invoices.issue", "invoices.approve",
-    "invoices.void", "invoices.credit_note", "invoices.fiscalize",
+    "invoices.void", "invoices.credit_note", "invoices.credit_note.approve", "invoices.fiscalize",
+    "sales.order.create", "sales.order.approve",
+    "sales.discount.request", "sales.discount.approve",
     // CRM
-    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
+    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create", "crm.quotation.approve",
     "crm.duplicates.merge", "crm.stages.manage", "crm.reports.view",
     "crm.social.view", "crm.social.capture", "crm.social.manage",
     "crm.commission.view", "crm.commission.manage", "crm.commission.request", "crm.commission.approve",
@@ -206,21 +232,25 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "stock.view", "stock.adjust.request", "stock.adjust.approve",
     "stock.count", "stock.transfer",
     "grn.create", "grn.view", "grn.confirm",
+    "purchasing.supplier.create", "purchasing.supplier.approve",
+    "purchasing.po.request", "purchasing.po.approve",
     // Accounting
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
     "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
     "accounting.budgets", "accounting.fixedassets",
-    "accounting.receipts", "accounting.payments", "accounting.bills.post",
+    "accounting.receipts", "accounting.payments", "accounting.payments.approve", "accounting.bills.post",
     "accounting.bills.waive", "accounting.periods",
+    "expenses.create", "expenses.approve",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     // Users & Roles
     "users.view", "users.manage", "roles.view", "roles.manage",
-    "approvals.view", "approvals.action",
+    "approvals.view", "approvals.action", "approvals.admin",
     // Settings
     "settings.organization", "settings.zimra", "settings.pos", "settings.accounting",
     // HR
     "payroll.view", "payroll.write", "payroll.approve",
+    "payroll.leave.request", "payroll.leave.approve",
     // Compliance
     "compliance.logs", "compliance.test", "compliance.manage",
     // Bus
@@ -238,13 +268,15 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.inventory", "nav.expenses", "nav.reports",
     "pos.sell", "pos.shift",
     "invoices.view", "invoices.create", "invoices.issue",
-    "crm.pipeline.view", "crm.pipeline.manage",
+    "sales.order.create", "sales.discount.request",
+    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
     "crm.social.view", "crm.social.capture",
     "crm.commission.view", "crm.tasks.view", "crm.tasks.respond",
     "nav.vehicles", "vehicles.view",
     "stock.view", "stock.adjust.request",
     "grn.create", "grn.view",
     "accounting.view",
+    "expenses.create", "payroll.leave.request",
     "reports.sales",
   ],
 
@@ -252,7 +284,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   cashier: [
     "nav.pos",
     "nav.bus",
-    "pos.sell", "pos.shift",
+    "pos.sell", "pos.shift", "sales.discount.request",
     "bus.view", "bus.operations", "bus.setup", "bus.reports",
   ],
 
@@ -277,6 +309,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.crm",
     "pos.sell", "pos.shift",
     "invoices.view", "invoices.create", "invoices.issue",
+    "sales.order.create", "sales.discount.request",
     "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create", "crm.reports.view",
     "crm.social.view", "crm.social.capture",
     "crm.commission.view", "crm.commission.request",
@@ -296,11 +329,12 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.compliance",
     // Invoices — can create and issue; void requires explicit grant
     "invoices.view", "invoices.create", "invoices.issue",
+    "invoices.credit_note", "sales.order.create", "sales.discount.request",
     // Accounting — can create drafts, approve postings, manage periods & receipts
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
     "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
     "accounting.receipts", "accounting.payments", "accounting.bills.post",
-    "accounting.bills.waive", "accounting.periods",
+    "accounting.bills.waive", "accounting.periods", "expenses.create",
     // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     // Payroll — view only; processing requires payroll.write
@@ -323,8 +357,10 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.expenses", "nav.reports", "nav.users", "nav.approvals", "nav.restaurant", "nav.crm",
     "pos.sell", "pos.shift", "pos.void", "pos.discount",
     "invoices.view", "invoices.create", "invoices.issue", "invoices.issue.direct",
-    "invoices.void", "invoices.credit_note",
-    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create",
+    "invoices.void", "invoices.credit_note", "invoices.credit_note.direct",
+    "sales.order.create", "sales.order.confirm.direct", "sales.order.approve",
+    "sales.discount.request", "sales.discount.direct", "sales.discount.approve",
+    "crm.pipeline.view", "crm.pipeline.manage", "crm.quotation.create", "crm.quotation.approve",
     "crm.duplicates.merge", "crm.stages.manage", "crm.reports.view",
     "crm.social.view", "crm.social.capture", "crm.social.manage",
     "crm.commission.view", "crm.commission.manage", "crm.commission.request",
@@ -332,16 +368,20 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.vehicles", "vehicles.view", "vehicles.manage", "vehicles.costs", "vehicles.payments",
     "stock.view", "stock.adjust.request", "stock.adjust.approve", "stock.count", "stock.transfer",
     "grn.create", "grn.view", "grn.confirm",
-    "accounting.view",
+    "purchasing.supplier.create", "purchasing.supplier.approve.direct", "purchasing.supplier.approve",
+    "purchasing.po.request", "purchasing.po.approve.direct", "purchasing.po.approve",
+    "accounting.view", "accounting.payments", "accounting.payments.approve",
+    "expenses.create", "expenses.create.direct", "expenses.approve",
+    "payroll.leave.request", "payroll.leave.approve",
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     "users.view",
-    "approvals.view",
+    "approvals.view", "approvals.action", "approvals.admin",
     "restaurant.orders", "restaurant.kds", "restaurant.layout",
   ],
 
   hr: [
     "nav.dashboard", "nav.payroll", "nav.users",
-    "payroll.view", "payroll.write",
+    "payroll.view", "payroll.write", "payroll.leave.request",
     "users.view",
   ],
 
@@ -351,15 +391,17 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   finance_director: [
     "nav.dashboard", "nav.invoices", "nav.accounting", "nav.expenses",
     "nav.reports", "nav.payroll", "nav.compliance", "nav.approvals", "nav.settings",
-    "invoices.view", "invoices.approve", "invoices.void", "invoices.credit_note",
+    "invoices.view", "invoices.approve", "invoices.void", "invoices.credit_note", "invoices.credit_note.approve",
+    "sales.order.approve", "sales.discount.approve", "crm.quotation.approve",
     "accounting.view", "accounting.journal.create", "accounting.journal.approve",
     "accounting.journal.reverse", "accounting.coa.manage", "accounting.cashbook",
-    "accounting.receipts", "accounting.payments", "accounting.bills.post",
+    "accounting.receipts", "accounting.payments", "accounting.payments.approve", "accounting.bills.post",
     "accounting.bills.waive", "accounting.periods",
+    "expenses.create", "expenses.approve", "purchasing.supplier.approve", "purchasing.po.approve",
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     "payroll.view", "payroll.approve",
     "compliance.logs",
-    "approvals.view", "approvals.action",
+    "approvals.view", "approvals.action", "approvals.admin",
     "settings.accounting",
   ],
 
@@ -367,13 +409,14 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   hr_manager: [
     "nav.dashboard", "nav.payroll", "nav.users",
     "payroll.view", "payroll.write", "payroll.approve",
+    "payroll.leave.request", "payroll.leave.approve.direct", "payroll.leave.approve",
     "users.view",
   ],
 
   // Payroll Clerk: prepares payroll runs but cannot approve or lock them.
   payroll_clerk: [
     "nav.dashboard", "nav.payroll",
-    "payroll.view", "payroll.write",
+    "payroll.view", "payroll.write", "payroll.leave.request",
   ],
 
   // Tax Officer: focused on statutory compliance, returns and audit evidence.
@@ -399,6 +442,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.dashboard", "nav.inventory",
     "stock.view", "stock.transfer",
     "grn.create", "grn.view", "grn.confirm",
+    "purchasing.supplier.create", "purchasing.po.request",
   ],
 
   // Auditor: read-only access across all modules. No write or diagnostic actions.
@@ -622,6 +666,15 @@ export const APPROVAL_TYPES = {
   JOURNAL_POST: "journal_post",
   INVOICE_ISSUE: "invoice_issue",
   SALES_COMMISSION: "sales_commission",
+  QUOTATION: "quotation",
+  DISCOUNT: "discount",
+  SALES_ORDER: "sales_order",
+  PURCHASE_ORDER: "purchase_order",
+  SUPPLIER_REGISTRATION: "supplier_registration",
+  CREDIT_NOTE: "credit_note",
+  PAYMENT_EXECUTION: "payment_execution",
+  LEAVE: "leave",
+  EXPENSE: "expense",
 } as const;
 
 export type ApprovalType = (typeof APPROVAL_TYPES)[keyof typeof APPROVAL_TYPES];
@@ -632,6 +685,15 @@ export const APPROVAL_TYPE_LABELS: Record<ApprovalType, string> = {
   journal_post: "Journal Posting",
   invoice_issue: "Invoice Issuance",
   sales_commission: "Sales Commission",
+  quotation: "Quotation",
+  discount: "Discount Override",
+  sales_order: "Sales Order",
+  purchase_order: "Purchase Order",
+  supplier_registration: "Supplier Registration",
+  credit_note: "Credit Note",
+  payment_execution: "Payment Execution",
+  leave: "Leave",
+  expense: "Expense",
 };
 
 /** Permission required to approve each approval type */
@@ -641,6 +703,15 @@ export const APPROVAL_TYPE_PERMISSION: Record<ApprovalType, PermissionKey> = {
   journal_post: "accounting.journal.approve",
   invoice_issue: "invoices.approve",
   sales_commission: "crm.commission.approve",
+  quotation: "crm.quotation.approve",
+  discount: "sales.discount.approve",
+  sales_order: "sales.order.approve",
+  purchase_order: "purchasing.po.approve",
+  supplier_registration: "purchasing.supplier.approve",
+  credit_note: "invoices.credit_note.approve",
+  payment_execution: "accounting.payments.approve",
+  leave: "payroll.leave.approve",
+  expense: "expenses.approve",
 };
 
 /** Permission for direct action (bypass approval) */
@@ -650,6 +721,15 @@ export const DIRECT_ACTION_PERMISSION: Record<ApprovalType, PermissionKey> = {
   journal_post: "accounting.journal.post.direct",
   invoice_issue: "invoices.issue.direct",
   sales_commission: "crm.commission.approve",
+  quotation: "crm.quotation.approve",
+  discount: "sales.discount.direct",
+  sales_order: "sales.order.confirm.direct",
+  purchase_order: "purchasing.po.approve.direct",
+  supplier_registration: "purchasing.supplier.approve.direct",
+  credit_note: "invoices.credit_note.direct",
+  payment_execution: "accounting.payments.direct",
+  leave: "payroll.leave.approve.direct",
+  expense: "expenses.create.direct",
 };
 
 /** Permission to request (submit for approval) */
@@ -659,4 +739,13 @@ export const REQUEST_ACTION_PERMISSION: Record<ApprovalType, PermissionKey> = {
   journal_post: "accounting.journal.create",
   invoice_issue: "invoices.issue",
   sales_commission: "crm.commission.request",
+  quotation: "crm.quotation.create",
+  discount: "sales.discount.request",
+  sales_order: "sales.order.create",
+  purchase_order: "purchasing.po.request",
+  supplier_registration: "purchasing.supplier.create",
+  credit_note: "invoices.credit_note",
+  payment_execution: "accounting.payments",
+  leave: "payroll.leave.request",
+  expense: "expenses.create",
 };

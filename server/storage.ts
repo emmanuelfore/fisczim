@@ -23,7 +23,7 @@ import {
   posHolds, type PosHold, type InsertPosHold,
   branches, branchUsers, branchStocks,
   type Branch, type InsertBranch, type BranchUser, type BranchStock,
-  costCenters, accountingSegments, type CostCenter, type InsertCostCenter,
+  costCenters, departments, accountingSegments, type CostCenter, type InsertCostCenter,
   productCategories, type ProductCategory, type InsertProductCategory,
   resetTokens, insertResetTokenSchema,
   suppliers, inventoryTransactions, expenses, purchaseOrders, purchaseOrderItems, goodsDeliveryNotes,
@@ -95,6 +95,9 @@ const SUPPLEMENTAL_SYSTEM_ACCOUNTS = [
   { code: "2015", name: "Goods Received Not Invoiced", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2016", name: "Landed Cost Clearing", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Current Liabilities", isControlAccount: false, isSystem: true },
   { code: "2017", name: "Partner Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "2022", name: "Customer Funds Held — Vehicle Imports", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "2023", name: "Deferred Vehicle Processing Fees", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+  { code: "4120", name: "Vehicle Processing Fee Revenue", type: "REVENUE", subType: "Fees", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Fee Income", isControlAccount: false, isSystem: true },
   { code: "1320", name: "Staff Loans Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-19", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: false, isSystem: true },
   { code: "2018", name: "Statutory Contributions Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: true, isSystem: true },
   { code: "2019", name: "Employee Deductions Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: true, isSystem: true },
@@ -158,6 +161,7 @@ type LedgerPostLine = {
   branchId?: number;
   memo?: string;
   costCenterId?: number | null;
+  departmentId?: number | null;
   segmentId?: number | null;
   vatTypeId?: number | null;
   vatAmount?: number | null;
@@ -286,8 +290,10 @@ export interface IStorage {
   updateApprovalRequest(id: number, companyId: number, data: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
   /** Atomically claim a pending request; returns undefined if another reviewer won. */
   claimApprovalRequest(id: number, companyId: number, reviewerId: string): Promise<ApprovalRequest | undefined>;
-  /** Put a claimed request back into `pending` after an action failure. */
-  releaseApprovalRequest(id: number, companyId: number): Promise<void>;
+  /** Terminal failure: a failed execution may have produced side effects. */
+  failApprovalRequest(id: number, companyId: number, error: string): Promise<void>;
+  /** Administrator closes a failed execution after manual reconciliation. */
+  resolveFailedApprovalRequest(id: number, companyId: number, adminId: string, notes: string): Promise<ApprovalRequest | undefined>;
   getPendingApprovalCount(companyId: number): Promise<number>;
 
   // Partnerships
@@ -615,6 +621,7 @@ export class DatabaseStorage implements IStorage {
     memo?: string;
     branchId?: number | null;
     costCenterId?: number | null;
+    departmentId?: number | null;
     segmentId?: number | null;
     vatTypeId?: number | null;
     vatAmount?: number | null;
@@ -665,9 +672,10 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Account ${identifier} not found for company ${companyId}`);
       }
 
-      // Source documents should supply the department's cost centre. Where they
-      // do not, fall back to the account-level default so postings do not leak
-      // into the "Unassigned" analytical bucket.
+      // Source documents should supply both analytical dimensions. Where they
+      // do not, fall back to the account defaults. Once a company has
+      // departments configured, posting without either dimension is rejected
+      // so transactions cannot silently land in an "Unassigned" bucket.
       const costCenterId = line.costCenterId
         ? Number(line.costCenterId)
         : (account.defaultCostCenterId ?? null);
@@ -676,6 +684,33 @@ export class DatabaseStorage implements IStorage {
           .where(and(eq(costCenters.id, costCenterId), eq(costCenters.companyId, companyId)))
           .limit(1);
         if (!cc) throw new Error(`Cost centre ${costCenterId} not found for company ${companyId}`);
+      }
+
+      let departmentId = line.departmentId
+        ? Number(line.departmentId)
+        : (account.defaultDepartmentId ?? null);
+      if (!departmentId && costCenterId) {
+        const [departmentByCostCenter] = await tx.select({ id: departments.id }).from(departments)
+          .where(and(eq(departments.companyId, companyId), eq(departments.costCenterId, costCenterId)))
+          .limit(1);
+        departmentId = departmentByCostCenter?.id ?? null;
+      }
+      if (departmentId) {
+        const [department] = await tx.select({ id: departments.id }).from(departments)
+          .where(and(eq(departments.id, departmentId), eq(departments.companyId, companyId)))
+          .limit(1);
+        if (!department) throw new Error(`Department ${departmentId} not found for company ${companyId}`);
+      }
+
+      const [configuredDepartments] = await tx.select({ id: departments.id }).from(departments)
+        .where(eq(departments.companyId, companyId)).limit(1);
+      const [configuredCostCenters] = await tx.select({ id: costCenters.id }).from(costCenters)
+        .where(eq(costCenters.companyId, companyId)).limit(1);
+      if ((configuredDepartments || configuredCostCenters) && (!departmentId || !costCenterId)) {
+        throw new Error(
+          `Department and cost centre are required before posting account ${account.code}. ` +
+          `Select them on the source document or configure an account default.`,
+        );
       }
 
       const segmentId = line.segmentId ? Number(line.segmentId) : null;
@@ -699,6 +734,7 @@ export class DatabaseStorage implements IStorage {
         memo: line.memo,
         branchId: line.branchId ?? null,
         costCenterId,
+        departmentId,
         segmentId,
         vatTypeId: line.vatTypeId ?? null,
         vatAmount: line.vatAmount ?? null,
@@ -1770,9 +1806,14 @@ export class DatabaseStorage implements IStorage {
   async createInvoice(data: CreateInvoiceRequest, providedTx?: any): Promise<Invoice> {
     const { applyPartnershipToInvoiceData } = await import("./lib/partnerships.js");
     const enriched = await applyPartnershipToInvoiceData(data);
+    const revenueAccountCodeOverride = (data as any).revenueAccountCode
+      ? String((data as any).revenueAccountCode)
+      : null;
 
     const execute = async (tx: any) => {
-      const { items, ...invoiceData } = enriched;
+      const { items, ...invoiceData } = enriched as any;
+      // Ledger-only hint; it is not a column on the invoices table.
+      delete invoiceData.revenueAccountCode;
 
       if (!Array.isArray(items) || items.length === 0) {
         throw new Error("Cannot create an invoice without at least one line item.");
@@ -2209,7 +2250,10 @@ export class DatabaseStorage implements IStorage {
       const description = `${isCreditNote ? 'Credit Note' : 'Invoice'} ${invoice.invoiceNumber}`;
       const arAccountCode = await this.getSystemAccountCode(invoice.companyId, "accountsReceivableCode", tx);
       const cashAccountCode = await this.getSystemAccountCode(invoice.companyId, "cashAccountCode", tx);
-      const salesAccountCode = await this.getSystemAccountCode(invoice.companyId, "salesRevenueAccountCode", tx);
+      // Agency fee invoices park the fee in deferred revenue until handover;
+      // normal invoices recognise sales revenue immediately.
+      const salesAccountCode = revenueAccountCodeOverride
+        || await this.getSystemAccountCode(invoice.companyId, "salesRevenueAccountCode", tx);
       const vatOutputAccountCode = await this.getSystemAccountCode(invoice.companyId, "vatOutputAccountCode", tx);
       const cogsAccountCode = await this.getSystemAccountCode(invoice.companyId, "cogsAccountCode", tx);
       const inventoryAccountCode = await this.getSystemAccountCode(invoice.companyId, "inventoryAccountCode", tx);
@@ -2242,7 +2286,15 @@ export class DatabaseStorage implements IStorage {
         postLines.push({ accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerSubtotal });
       }
 
-      const validPostLines = postLines.filter(line => Number(line.amount) > 0);
+      // Carry the invoice's department/cost centre onto every analytical GL
+      // line so departmental P&L and cost-centre reports reconcile to source.
+      const invoiceAnalytics = {
+        departmentId: (invoice as any).departmentId ?? undefined,
+        costCenterId: (invoice as any).costCenterId ?? undefined,
+      };
+      const validPostLines = postLines
+        .filter((line) => Number(line.amount) > 0)
+        .map((line) => ({ ...line, ...invoiceAnalytics }));
       if (validPostLines.length >= 2) {
         await this.postToLedger(invoice.companyId, {
           entryDate: invoice.issueDate || new Date(),
@@ -2262,8 +2314,8 @@ export class DatabaseStorage implements IStorage {
           referenceId: invoice.id.toString(),
           createdBy: invoice.createdBy || undefined,
           lines: [
-            { accountCode: cogsAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: totalCogs },
-            { accountCode: inventoryAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: totalCogs },
+            { accountCode: cogsAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: totalCogs, ...invoiceAnalytics },
+            { accountCode: inventoryAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: totalCogs, ...invoiceAnalytics },
           ]
         }, tx);
       }
@@ -3248,34 +3300,56 @@ export class DatabaseStorage implements IStorage {
   }
 
   async claimApprovalRequest(id: number, companyId: number, reviewerId: string): Promise<ApprovalRequest | undefined> {
-    // Conditional UPDATE is the claim: only one reviewer can flip a pending row
-    // to `processing`. A claim older than the stale window is recoverable so a
-    // crashed process cannot leave the request stuck forever.
-    const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
+    // Conditional UPDATE is the claim: exactly one reviewer can flip a pending
+    // row to `processing`. `processing` is deliberately never reclaimed — a
+    // stale claim must be resolved by an administrator, not by replaying the
+    // underlying side effect.
     const [row] = await db
       .update(approvalRequests)
       .set({ status: "processing", reviewedBy: reviewerId, reviewedAt: new Date() })
       .where(and(
         eq(approvalRequests.id, id),
         eq(approvalRequests.companyId, companyId),
-        or(
-          eq(approvalRequests.status, "pending"),
-          and(eq(approvalRequests.status, "processing"), lt(approvalRequests.reviewedAt, staleBefore)),
-        ),
+        eq(approvalRequests.status, "pending"),
       ))
       .returning();
     return row;
   }
 
-  async releaseApprovalRequest(id: number, companyId: number): Promise<void> {
+  async failApprovalRequest(id: number, companyId: number, error: string): Promise<void> {
+    // A failed execution may already have produced side effects. Never return
+    // the row to `pending`: an administrator must inspect and resolve it.
     await db
       .update(approvalRequests)
-      .set({ status: "pending", reviewedBy: null, reviewedAt: null, resultData: null })
+      .set({
+        status: "failed",
+        reviewedAt: new Date(),
+        reviewNotes: `Execution failed: ${error}`.slice(0, 4000),
+        resultData: null,
+      })
       .where(and(
         eq(approvalRequests.id, id),
         eq(approvalRequests.companyId, companyId),
         eq(approvalRequests.status, "processing"),
       ));
+  }
+
+  async resolveFailedApprovalRequest(id: number, companyId: number, adminId: string, notes: string): Promise<ApprovalRequest | undefined> {
+    const [row] = await db
+      .update(approvalRequests)
+      .set({
+        status: "cancelled",
+        reviewedBy: adminId,
+        reviewedAt: new Date(),
+        reviewNotes: `Administrative resolution: ${notes}`.slice(0, 4000),
+      })
+      .where(and(
+        eq(approvalRequests.id, id),
+        eq(approvalRequests.companyId, companyId),
+        eq(approvalRequests.status, "failed"),
+      ))
+      .returning();
+    return row;
   }
 
   async getPendingApprovalCount(companyId: number): Promise<number> {
@@ -3974,16 +4048,26 @@ export class DatabaseStorage implements IStorage {
         const fxGainAccountCode = await this.getSystemAccountCode(invoice.companyId, "fxGainAccountCode", tx);
         const fxLossAccountCode = await this.getSystemAccountCode(invoice.companyId, "fxLossAccountCode", tx);
         
-        const lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [
-          { accountCode: cashAccountCode, type: "DEBIT", amount: currentBaseValue },
-          { accountCode: arAccountCode, type: "CREDIT", amount: originalBaseValue },
+        const paymentAnalytics = {
+          departmentId: (newPayment as any).departmentId ?? (invoice as any).departmentId ?? undefined,
+          costCenterId: (newPayment as any).costCenterId ?? (invoice as any).costCenterId ?? undefined,
+        };
+        const lines: Array<{
+          accountCode: string;
+          type: 'DEBIT' | 'CREDIT';
+          amount: number;
+          departmentId?: number | null;
+          costCenterId?: number | null;
+        }> = [
+          { accountCode: cashAccountCode, type: "DEBIT", amount: currentBaseValue, ...paymentAnalytics },
+          { accountCode: arAccountCode, type: "CREDIT", amount: originalBaseValue, ...paymentAnalytics },
         ];
 
         // FX Gain/Loss automated posting
         if (fxVariance > 0) {
-           lines.push({ accountCode: fxGainAccountCode, type: "CREDIT", amount: fxVariance });
+           lines.push({ accountCode: fxGainAccountCode, type: "CREDIT", amount: fxVariance, ...paymentAnalytics });
         } else if (fxVariance < 0) {
-           lines.push({ accountCode: fxLossAccountCode, type: "DEBIT", amount: Math.abs(fxVariance) });
+           lines.push({ accountCode: fxLossAccountCode, type: "DEBIT", amount: Math.abs(fxVariance), ...paymentAnalytics });
         }
 
         const je = await this.postToLedger(invoice.companyId, {
@@ -6305,9 +6389,19 @@ export class DatabaseStorage implements IStorage {
       // Automated Journaling: Debit Accounts Payable (2000), Credit Cash/Bank (1000)
       const apAccountCode = await this.getSystemAccountCode(data.companyId, "accountsPayableCode", tx);
       const cashAccountCode = await this.getSystemAccountCode(data.companyId, "cashAccountCode", tx);
-      const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
-        { accountCode: apAccountCode, type: 'DEBIT', amount: Number(data.amount) },
-        { accountCode: cashAccountCode, type: 'CREDIT', amount: Number(data.amount) }
+      const paymentAnalytics = {
+        departmentId: data.departmentId ?? null,
+        costCenterId: data.costCenterId ?? null,
+      };
+      const lines: Array<{
+        accountCode: string;
+        type: 'DEBIT' | 'CREDIT';
+        amount: number;
+        departmentId?: number | null;
+        costCenterId?: number | null;
+      }> = [
+        { accountCode: apAccountCode, type: 'DEBIT', amount: Number(data.amount), ...paymentAnalytics },
+        { accountCode: cashAccountCode, type: 'CREDIT', amount: Number(data.amount), ...paymentAnalytics }
       ];
 
       await this.postToLedger(data.companyId, {
@@ -6521,8 +6615,8 @@ export class DatabaseStorage implements IStorage {
         referenceId: expense.id.toString(),
         createdBy: undefined,
         lines: [
-          { accountCode: debitAccountCode, type: "DEBIT", amount: Number(expense.amount), costCenterId: expense.costCenterId ?? null },
-          { accountCode: creditAccountCode, type: "CREDIT", amount: Number(expense.amount), costCenterId: expense.costCenterId ?? null },
+          { accountCode: debitAccountCode, type: "DEBIT", amount: Number(expense.amount), departmentId: expense.departmentId ?? null, costCenterId: expense.costCenterId ?? null },
+          { accountCode: creditAccountCode, type: "CREDIT", amount: Number(expense.amount), departmentId: expense.departmentId ?? null, costCenterId: expense.costCenterId ?? null },
         ]
       }, tx);
 
@@ -8962,6 +9056,7 @@ export class DatabaseStorage implements IStorage {
           exchangeRate: line.exchangeRate.toFixed(6),
           memo: line.memo ?? null,
           costCenterId: line.costCenterId ?? null,
+          departmentId: line.departmentId ?? null,
           segmentId: line.segmentId ?? null,
           vatTypeId: line.vatTypeId ?? null,
           vatAmount: line.vatAmount != null ? Number(line.vatAmount).toFixed(2) : null,

@@ -21,6 +21,8 @@ export type PurchaseOrder = {
   supplierName?: string | null;
   branchId?: number | null;
   branchName?: string | null;
+  departmentId?: number | null;
+  costCenterId?: number | null;
   poNumber: string;
   status: "DRAFT" | "SENT" | "RECEIVED" | "CANCELLED";
   expectedDate?: string | null;
@@ -41,6 +43,8 @@ export type PurchaseOrder = {
 export type CreatePurchaseOrderInput = {
   supplierId: number;
   branchId?: number | null;
+  departmentId?: number | null;
+  costCenterId?: number | null;
   poNumber?: string;
   status?: PurchaseOrder["status"];
   expectedDate?: string | null;
@@ -61,6 +65,8 @@ export type CreatePurchaseOrderInput = {
 export type UpdatePurchaseOrderInput = {
   supplierId?: number;
   branchId?: number | null;
+  departmentId?: number | null;
+  costCenterId?: number | null;
   expectedDate?: string | null;
   shipTo?: string | null;
   notes?: string | null;

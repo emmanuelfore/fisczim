@@ -1,5 +1,6 @@
 import {
   ApprovalType,
+  APPROVAL_TYPES,
   APPROVAL_TYPE_PERMISSION,
   DIRECT_ACTION_PERMISSION,
 } from "../../shared/permissions.js";
@@ -7,6 +8,9 @@ import { storage } from "../storage.js";
 import { userHasPermission } from "./permissions.js";
 import { sendApprovalRequestEmail } from "../email.js";
 import { sanitizeManualJournalPayload } from "./accounting-guards.js";
+import { assertCanApproveType, assertNotSelfApproval, canUserApproveType } from "./approval-policies.js";
+import { logAction } from "../audit.js";
+import { executeDeferredApprovalAction } from "./approval-executors.js";
 
 export interface CreateApprovalInput {
   companyId: number;
@@ -32,6 +36,15 @@ export async function createApprovalRequest(input: CreateApprovalInput) {
     requestedBy: input.requestedBy,
   });
 
+  await logAction(
+    input.companyId,
+    input.requestedBy,
+    "APPROVAL_REQUEST_CREATED",
+    "approval_request",
+    String(request.id),
+    { type: input.type, referenceType: input.referenceType || null, referenceId: input.referenceId || null },
+  );
+
   // Dispatch email notifications asynchronously
   setTimeout(async () => {
     try {
@@ -40,13 +53,17 @@ export async function createApprovalRequest(input: CreateApprovalInput) {
       const requesterName = requester?.name || requester?.username || "A user";
       const companyName = company?.name || "Your Company";
 
-      const approvePerm = APPROVAL_TYPE_PERMISSION[input.type];
       const companyUsers = await storage.getCompanyUsers(input.companyId);
 
       for (const u of companyUsers) {
-        if (!u.email) continue;
-        // Check if this specific user can approve
-        const canApprove = await userHasPermission(u.id, input.companyId, approvePerm, (u as any).isSuperAdmin || false);
+        if (!u.email || u.id === input.requestedBy) continue;
+        // Honour the type's named approvers/roles as well as the permission.
+        const canApprove = await canUserApproveType(
+          u.id,
+          input.companyId,
+          input.type,
+          (u as any).isSuperAdmin || false,
+        );
         if (canApprove) {
           await sendApprovalRequestEmail(
             u.email,
@@ -65,6 +82,25 @@ export async function createApprovalRequest(input: CreateApprovalInput) {
   return request;
 }
 
+function isApprovalType(value: string): value is ApprovalType {
+  return (Object.values(APPROVAL_TYPES) as string[]).includes(value);
+}
+
+async function assertReviewReady(request: { id: number; type: string; status: string; requestedBy: string; resultData?: unknown }, companyId: number, reviewerId: string, isSuperAdmin: boolean) {
+  if (!isApprovalType(request.type)) throw new Error("Unsupported approval request type");
+  await assertNotSelfApproval(request.requestedBy, reviewerId, companyId, request.type);
+  await assertCanApproveType(reviewerId, companyId, request.type, isSuperAdmin);
+
+  // Replaying an approved request must return its original result rather than
+  // executing the side effect a second time.
+  if (request.status === "approved" || request.status === "rejected") {
+    throw new Error("This request has already been processed");
+  }
+  if (request.status !== "pending") {
+    throw new Error("This request is already being processed");
+  }
+}
+
 export async function approveRequest(
   requestId: number,
   companyId: number,
@@ -74,10 +110,7 @@ export async function approveRequest(
 ) {
   const request = await storage.getApprovalRequest(requestId, companyId);
   if (!request) throw new Error("Approval request not found");
-
-  const approvePerm = APPROVAL_TYPE_PERMISSION[request.type as ApprovalType];
-  const canApprove = isSuperAdmin || await userHasPermission(reviewerId, companyId, approvePerm, false);
-  if (!canApprove) throw new Error("You do not have permission to approve this request");
+  await assertReviewReady(request, companyId, reviewerId, isSuperAdmin);
 
   // Claim before executing the action. Two approvers must never both run the
   // posting; the conditional UPDATE makes exactly one of them win.
@@ -85,22 +118,41 @@ export async function approveRequest(
   if (!claimed) throw new Error("This request has already been processed");
 
   try {
-    const resultData = await executeApprovalAction(
-      request.type as ApprovalType,
-      companyId,
-      request.payload as Record<string, unknown>,
-      reviewerId,
-      reviewNotes,
-    );
-    return await storage.updateApprovalRequest(requestId, companyId, {
+    const type = request.type as ApprovalType;
+    const resultData = type === "sales_commission" && request.referenceType === "crm_commission" && request.referenceId
+      ? await (async () => {
+          const { applyCommissionDecision } = await import("./commissions.js");
+          const commission = await applyCommissionDecision(companyId, Number(request.referenceId), "approve", reviewerId, reviewNotes);
+          return { commissionId: commission.id, netAmount: commission.netAmount, status: commission.status, message: "Commission approved" };
+        })()
+      : await executeApprovalAction(
+          type,
+          companyId,
+          request.payload as Record<string, unknown>,
+          reviewerId,
+          reviewNotes,
+          requestId,
+        );
+
+    const updated = await storage.updateApprovalRequest(requestId, companyId, {
       status: "approved",
       reviewedBy: reviewerId,
       reviewedAt: new Date(),
       reviewNotes: reviewNotes || null,
       resultData,
     });
+    await logAction(companyId, reviewerId, "APPROVAL_REQUEST_APPROVED", "approval_request", String(requestId), {
+      type: request.type,
+      resultData,
+    });
+    return updated;
   } catch (err) {
-    await storage.releaseApprovalRequest(requestId, companyId);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    await storage.failApprovalRequest(requestId, companyId, errorMessage);
+    await logAction(companyId, reviewerId, "APPROVAL_EXECUTION_FAILED", "approval_request", String(requestId), {
+      type: request.type,
+      error: errorMessage,
+    });
     throw err;
   }
 }
@@ -114,28 +166,35 @@ export async function rejectRequest(
 ) {
   const request = await storage.getApprovalRequest(requestId, companyId);
   if (!request) throw new Error("Approval request not found");
-
-  const approvePerm = APPROVAL_TYPE_PERMISSION[request.type as ApprovalType];
-  const canApprove = isSuperAdmin || await userHasPermission(reviewerId, companyId, approvePerm, false);
-  if (!canApprove) throw new Error("You do not have permission to reject this request");
+  await assertReviewReady(request, companyId, reviewerId, isSuperAdmin);
 
   const claimed = await storage.claimApprovalRequest(requestId, companyId, reviewerId);
   if (!claimed) throw new Error("This request has already been processed");
 
   try {
-    if (request.referenceType === "crm_commission" && request.referenceId) {
+    if (request.type === "sales_commission" && request.referenceType === "crm_commission" && request.referenceId) {
       const { applyCommissionDecision } = await import("./commissions.js");
       await applyCommissionDecision(companyId, Number(request.referenceId), "reject", reviewerId, reviewNotes);
     }
 
-    return await storage.updateApprovalRequest(requestId, companyId, {
+    const updated = await storage.updateApprovalRequest(requestId, companyId, {
       status: "rejected",
       reviewedBy: reviewerId,
       reviewedAt: new Date(),
       reviewNotes: reviewNotes || null,
     });
+    await logAction(companyId, reviewerId, "APPROVAL_REQUEST_REJECTED", "approval_request", String(requestId), {
+      type: request.type,
+      reviewNotes: reviewNotes || null,
+    });
+    return updated;
   } catch (err) {
-    await storage.releaseApprovalRequest(requestId, companyId);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    await storage.failApprovalRequest(requestId, companyId, errorMessage);
+    await logAction(companyId, reviewerId, "APPROVAL_REJECT_FAILED", "approval_request", String(requestId), {
+      type: request.type,
+      error: errorMessage,
+    });
     throw err;
   }
 }
@@ -146,6 +205,7 @@ async function executeApprovalAction(
   payload: Record<string, unknown>,
   userId: string,
   reviewNotes?: string,
+  requestId?: number,
 ): Promise<Record<string, unknown>> {
   switch (type) {
     case "stock_adjustment": {
@@ -240,7 +300,7 @@ async function executeApprovalAction(
       };
     }
     default:
-      throw new Error(`Unknown approval type: ${type}`);
+      return await executeDeferredApprovalAction(type, companyId, payload, userId, reviewNotes, requestId);
   }
 }
 

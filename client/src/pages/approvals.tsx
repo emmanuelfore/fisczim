@@ -94,7 +94,7 @@ export default function ApprovalsPage() {
               Approvals Inbox
             </CardTitle>
             <CardDescription>
-              Review and approve stock adjustments, goods received, journal postings, and invoice issuances.
+              Review approval requests across sales, purchasing, inventory, accounting, payroll and expenses. Failed executions are terminal and require administrator resolution after reconciliation.
             </CardDescription>
           </CardHeader>
           <CardContent>

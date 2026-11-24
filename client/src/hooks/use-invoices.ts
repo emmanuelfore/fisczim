@@ -75,10 +75,14 @@ export function useCreateInvoice(companyId: number) {
         const error = await res.json();
         throw new Error(error.message || "Failed to create invoice");
       }
-      return api.invoices.create.responses[201].parse(await res.json());
+      // HTTP 202 means the document is in the approval inbox, not yet posted.
+      return await res.json() as any;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path, companyId] });
+      if (data?.approval) {
+        queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+      }
     },
   });
 }
@@ -225,10 +229,18 @@ export function useCreateCreditNote() {
         const error = await res.json();
         throw new Error(error.message || "Failed to create credit note");
       }
-      return await res.json(); // Returns the new invoice object
+      return await res.json(); // New invoice object or approval receipt
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
+      if (data?.approval) {
+        queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+        toast({
+          title: "Credit Note Submitted",
+          description: data.message || "An approver must authorise this credit note before it is issued.",
+        });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: [api.products.list.path, data.companyId] });
       queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, data.companyId] });
       queryClient.invalidateQueries({ queryKey: [api.reports.stockValuation.path, data.companyId] });
@@ -343,12 +355,20 @@ export function useAddPayment() {
         const error = await res.json();
         throw new Error(error.message || "Failed to add payment");
       }
-      return api.payments.create.responses[201].parse(await res.json());
+      return await res.json() as any;
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [api.payments.list.path, variables.invoiceId] });
       queryClient.invalidateQueries({ queryKey: [api.invoices.get.path, variables.invoiceId] });
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
+      if (data?.approval) {
+        queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+        toast({
+          title: "Payment Submitted",
+          description: data.message || "An approver must authorise this payment before it is posted.",
+        });
+        return;
+      }
       toast({
         title: "Payment Recorded",
         description: "Payment has been successfully recorded.",

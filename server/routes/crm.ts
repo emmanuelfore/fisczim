@@ -38,6 +38,7 @@ import { userHasPermission } from "../lib/permissions.js";
 import { resolveActionAccess } from "../lib/approval-policies.js";
 import { approveRequest, createApprovalRequest, rejectRequest } from "../lib/approvals.js";
 import { APPROVAL_TYPES } from "../../shared/permissions.js";
+import { requireApprovalOrContinue } from "../lib/approval-gate.js";
 import {
   accrueVehicleCommission,
   applyCommissionDecision,
@@ -1003,10 +1004,39 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
         return { quotation: created, updated: enq };
       });
 
+      const gate = await requireApprovalOrContinue({
+        userId: req.user!.id,
+        companyId,
+        isSuperAdmin: !!(req.user as any)?.isSuperAdmin,
+        type: APPROVAL_TYPES.QUOTATION,
+        title: `Approve quotation ${quotation.quotationNumber}`,
+        description: "Quotations must be authorised before they are sent or accepted.",
+        payload: {
+          quotationData: {
+            companyId,
+            branchId: quotation.branchId,
+            customerId: quotation.customerId,
+            quotationNumber: quotation.quotationNumber,
+            status: "draft",
+            subtotal: quotation.subtotal,
+            taxAmount: quotation.taxAmount,
+            total: quotation.total,
+            notes: quotation.notes,
+          },
+          items: computed.map(({ taxTotal: _taxTotal, ...item }) => item),
+        },
+        referenceType: "quotation",
+        referenceId: String(quotation.id),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Quotation submitted for approval", enquiry: updated, quotation, approval: gate.request });
+      }
+
       res.status(201).json({ enquiry: updated, quotation });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+      if (error?.statusCode) return res.status(error.statusCode).json({ error: error.message });
       res.status(500).json({ error: "Failed to raise quotation" });
     }
   });

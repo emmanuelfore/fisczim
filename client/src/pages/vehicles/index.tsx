@@ -274,6 +274,7 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
   const [supplierId, setSupplierId] = useState("none");
   const [salespersonId, setSalespersonId] = useState("none");
   const [enquiryId, setEnquiryId] = useState("none");
+  const [accountingModel, setAccountingModel] = useState<"agent" | "principal">("agent");
   const { data: matches = [] } = useMatchingEnquiries(
     companyId,
     { make: form.make, model: form.model, year: form.year },
@@ -315,12 +316,14 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
           enquiryId: enquiryId === "none" ? null : Number(enquiryId),
           auctionRef: form.auctionRef || null,
           targetPrice: form.targetPrice || "0",
+          accountingModel,
         },
       });
       setForm(empty);
       setSupplierId("none");
       setSalespersonId("none");
       setEnquiryId("none");
+      setAccountingModel("agent");
       onOpenChange(false);
       onCreated(created.id);
     } catch (e: any) {
@@ -372,6 +375,17 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
           </div>
           {field("auctionRef", "Auction / lot ref")}
           {field("targetPrice", "Target retail price (USD)", { type: "number", step: "0.01" })}
+          <div className="col-span-2 space-y-1.5">
+            <Label>Accounting model</Label>
+            <Select value={accountingModel} onValueChange={(v) => setAccountingModel(v as "agent" | "principal")}>
+              <SelectTrigger id="nv-accounting-model"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="agent">Agent — customer funds held; only our fee is revenue</SelectItem>
+                <SelectItem value="principal">Principal — we buy and resell; sale less COGS is profit</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-slate-400">Default is Agent. This controls costing, invoices and reports.</p>
+          </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Matching lead (optional)</Label>
             <Select value={enquiryId} onValueChange={pickEnquiry}>

@@ -23,6 +23,8 @@ import {
   type PurchaseOrder,
 } from "@/hooks/use-purchase-orders";
 import { useSuppliers } from "@/hooks/use-suppliers";
+import { useDepartments } from "@/hooks/use-departments";
+import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -73,6 +75,8 @@ export default function PurchaseOrderFormPage({
   const { data: suppliers = [] } = useSuppliers(companyId);
   const { data: products = [] } = useProducts(companyId);
   const { data: branches = [] } = useBranches(companyId);
+  const { data: departments = [] } = useDepartments(companyId);
+  const { data: costCenters = [] } = useCostCenters(companyId);
   
   const { data: accounts = [] } = useQuery<Account[]>({
     queryKey: ["/api/accounting/accounts", companyId],
@@ -110,6 +114,8 @@ export default function PurchaseOrderFormPage({
 
   const [supplierId, setSupplierId] = useState("");
   const [branchId, setBranchId] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [costCenterId, setCostCenterId] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [expectedDate, setExpectedDate] = useState("");
@@ -139,6 +145,8 @@ export default function PurchaseOrderFormPage({
     if (mode === "edit" && initialData) {
       setSupplierId(String(initialData.supplierId));
       setBranchId(initialData.branchId ? String(initialData.branchId) : "");
+      setDepartmentId((initialData as any).departmentId ? String((initialData as any).departmentId) : "");
+      setCostCenterId((initialData as any).costCenterId ? String((initialData as any).costCenterId) : "");
       setPoNumber(initialData.poNumber);
       setCurrencyCode(initialData.currency || "USD");
       setExpectedDate(
@@ -227,9 +235,14 @@ export default function PurchaseOrderFormPage({
 
     if (mode === "create") {
       createOrder(
-        { supplierId: Number(supplierId), branchId: branchId ? Number(branchId) : null, poNumber: poNumber || undefined, expectedDate: expectedDate || null, shipTo: shipTo || null, notes: notes || null, currency: currencyCode, taxInclusive, items },
+        { supplierId: Number(supplierId), branchId: branchId ? Number(branchId) : null, departmentId: departmentId ? Number(departmentId) : null, costCenterId: costCenterId ? Number(costCenterId) : null, poNumber: poNumber || undefined, expectedDate: expectedDate || null, shipTo: shipTo || null, notes: notes || null, currency: currencyCode, taxInclusive, items },
         {
           onSuccess: (data: any) => {
+            if (data?.approval) {
+              toast({ title: "Purchase order submitted", description: data.message || "An approver must authorise this PO before it is sent." });
+              setLocation("/approvals");
+              return;
+            }
             toast({ title: "Purchase order created", description: "The PO has been created successfully." });
             if (data?.po && data.po.id) {
                setLocation(`/inventory/purchase-orders/${data.po.id}`);
@@ -244,7 +257,7 @@ export default function PurchaseOrderFormPage({
       updateOrder(
         {
           id: initialData.id,
-          data: { supplierId: Number(supplierId), branchId: branchId ? Number(branchId) : null, expectedDate: expectedDate || null, shipTo: shipTo || null, notes: notes || null, currency: currencyCode, taxInclusive, items },
+          data: { supplierId: Number(supplierId), branchId: branchId ? Number(branchId) : null, departmentId: departmentId ? Number(departmentId) : null, costCenterId: costCenterId ? Number(costCenterId) : null, expectedDate: expectedDate || null, shipTo: shipTo || null, notes: notes || null, currency: currencyCode, taxInclusive, items },
         },
         {
           onSuccess: () => {
@@ -650,6 +663,32 @@ export default function PurchaseOrderFormPage({
                     <SelectItem value="__none__">— None —</SelectItem>
                     {(branches as any[]).map((b) => (
                       <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Department <span className="text-red-500">*</span></Label>
+                <Select value={departmentId || "__none__"} onValueChange={(v) => setDepartmentId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="h-10"><SelectValue placeholder="Select department" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— None —</SelectItem>
+                    {(departments as any[]).map((d) => (
+                      <SelectItem key={d.id} value={String(d.id)}>{d.name}{d.code ? ` (${d.code})` : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Cost Centre <span className="text-red-500">*</span></Label>
+                <Select value={costCenterId || "__none__"} onValueChange={(v) => setCostCenterId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="h-10"><SelectValue placeholder="Select cost centre" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— None —</SelectItem>
+                    {(costCenters as any[]).map((cc) => (
+                      <SelectItem key={cc.id} value={String(cc.id)}>{cc.name}{cc.code ? ` (${cc.code})` : ""}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

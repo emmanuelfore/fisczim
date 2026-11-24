@@ -56,6 +56,8 @@ import {
   type PayrollJournalAccountKey,
 } from "../../lib/payroll-journal.js";
 import { logAction } from "../../audit.js";
+import { requireApprovalOrContinue } from "../../lib/approval-gate.js";
+import { APPROVAL_TYPES } from "../../../shared/permissions.js";
 import { sendPayslipEmail } from "../../email.js";
 import {
   currentPayPeriod,
@@ -3422,10 +3424,26 @@ router.post("/leave/requests", requirePayrollWrite, async (req, res) => {
 
   try {
     const companyId = getTargetCompanyId(req);
+    const userId = (req as any).user?.id;
+    const gate = await requireApprovalOrContinue({
+      userId,
+      companyId,
+      isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+      type: APPROVAL_TYPES.LEAVE,
+      title: "Approve employee leave request",
+      description: "Leave must be authorised before it affects balances or payroll.",
+      payload: { leaveRequestData: parsed.data },
+      referenceType: "leave",
+    });
+    if (gate.requiresApproval) {
+      return res.status(202).json({ message: "Leave request submitted for approval", approval: gate.request });
+    }
+
     const [request] = await db.insert(leaveRequests)
       .values({
         ...parsed.data,
         companyId,
+        requestedBy: userId || null,
         status: "PENDING"
       })
       .returning();
@@ -3453,6 +3471,9 @@ router.post("/leave/requests/:id/approve", requirePayrollApproval, async (req, r
   try {
     const [request] = await db.select().from(leaveRequests).where(and(eq(leaveRequests.id, id), eq(leaveRequests.companyId, companyId))).limit(1);
     if (!request) return res.status(404).json({ message: "Leave request not found" });
+    if (request.requestedBy && request.requestedBy === userId) {
+      return res.status(403).json({ message: "You cannot approve or reject your own leave request" });
+    }
 
     const status = parsed.data.approve ? "APPROVED" : "REJECTED";
 

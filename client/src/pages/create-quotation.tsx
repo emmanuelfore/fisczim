@@ -12,6 +12,8 @@ import {
 } from "@/hooks/use-quotations";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
+import { useCostCenters } from "@/hooks/use-cost-centers";
+import { useDepartments } from "@/hooks/use-departments";
 import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { isLesothoInstance } from "@/lib/country-detect";
@@ -96,6 +98,8 @@ export default function CreateQuotationPage() {
   const { data: customers } = useCustomers(companyId);
   const { data: products } = useProducts(companyId);
   const { data: currencies } = useCurrencies(companyId);
+  const { data: departments = [] } = useDepartments(companyId);
+  const { data: costCenters = [] } = useCostCenters(companyId);
   const { data: existingQuotation } = useQuotation(
     editId ? parseInt(editId) : 0,
   );
@@ -112,6 +116,8 @@ export default function CreateQuotationPage() {
   const [expiryDate, setExpiryDate] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [taxInclusive, setTaxInclusive] = useState<boolean>(false);
+  const [departmentId, setDepartmentId] = useState<string>("");
+  const [costCenterId, setCostCenterId] = useState<string>("");
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [exchangeRate, setExchangeRate] = useState("1.00");
   const [items, setItems] = useState<LineItem[]>([
@@ -139,6 +145,8 @@ export default function CreateQuotationPage() {
         );
       setNotes(existingQuotation.notes || "");
       setTaxInclusive(existingQuotation.taxInclusive || false);
+      setDepartmentId((existingQuotation as any).departmentId?.toString() || "");
+      setCostCenterId((existingQuotation as any).costCenterId?.toString() || "");
       setCurrencyCode(existingQuotation.currency || "USD");
 
       if (existingQuotation.items && existingQuotation.items.length > 0) {
@@ -192,6 +200,12 @@ export default function CreateQuotationPage() {
       createdProduct ??
       products?.find((p) => String(p.id) === productId);
     if (product) {
+      if ((product as any).costCenterId && !costCenterId) {
+        setCostCenterId(String((product as any).costCenterId));
+      }
+      if ((product as any).departmentId && !departmentId) {
+        setDepartmentId(String((product as any).departmentId));
+      }
       setItems((prev) =>
         prev.map((item) => {
           if (item.localId !== localId) return item;
@@ -311,6 +325,8 @@ export default function CreateQuotationPage() {
       issueDate: new Date(issueDate),
       expiryDate: expiryDate ? new Date(expiryDate) : undefined,
       notes,
+      departmentId: departmentId ? parseInt(departmentId) : null,
+      costCenterId: costCenterId ? parseInt(costCenterId) : null,
       currency: currencyCode,
       taxInclusive,
       subtotal: subtotal.toFixed(2),
@@ -535,6 +551,38 @@ export default function CreateQuotationPage() {
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Select value={departmentId || "none"} onValueChange={(v) => setDepartmentId(v === "none" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Department</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={String(dept.id)}>
+                        {dept.name}{dept.code ? ` (${dept.code})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Cost Centre</Label>
+                <Select value={costCenterId || "none"} onValueChange={(v) => setCostCenterId(v === "none" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Cost Centre" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Cost Centre</SelectItem>
+                    {costCenters.map((cc) => (
+                      <SelectItem key={cc.id} value={String(cc.id)}>
+                        {cc.name}{cc.code ? ` (${cc.code})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

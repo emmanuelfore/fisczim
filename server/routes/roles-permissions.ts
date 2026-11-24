@@ -3,7 +3,7 @@ import { z } from "zod";
 import { storage } from "../storage.js";
 import { getPermissionCatalog, getUserPermissions } from "../lib/permissions.js";
 import { approveRequest, createApprovalRequest, rejectRequest } from "../lib/approvals.js";
-import { ALL_PERMISSION_KEYS } from "../../shared/permissions.js";
+import { ALL_PERMISSION_KEYS, APPROVAL_TYPES, type ApprovalType } from "../../shared/permissions.js";
 import {
   normalizeApprovalPolicies,
   getApprovalPolicyList,
@@ -11,6 +11,7 @@ import {
   type CompanyApprovalPolicies,
 } from "../../shared/approval-policies.js";
 import { getCompanyApprovalPolicies } from "../lib/approval-policies.js";
+import { logAction } from "../audit.js";
 
 export function createRolesPermissionsRouter(
   requireAuth: (req: any, res: any, next: any) => void
@@ -204,8 +205,9 @@ export function createRolesPermissionsRouter(
   router.post("/companies/:companyId/approvals", requireAuth, async (req: any, res) => {
     try {
       const companyId = Number(req.params.companyId);
+      await assertCompanyAccess(req, companyId);
       const body = z.object({
-        type: z.enum(["stock_adjustment", "grn_confirm", "journal_post", "invoice_issue", "sales_commission"]),
+        type: z.enum(Object.values(APPROVAL_TYPES) as [ApprovalType, ...ApprovalType[]]),
         title: z.string().min(3),
         description: z.string().optional(),
         payload: z.record(z.unknown()),
@@ -240,11 +242,13 @@ export function createRolesPermissionsRouter(
     try {
       const companyId = Number(req.params.companyId);
       const id = Number(req.params.id);
+      await assertCompanyAccess(req, companyId);
+      await assertPermission(req, companyId, "approvals.action");
       const { reviewNotes } = z.object({ reviewNotes: z.string().optional() }).parse(req.body || {});
       const result = await approveRequest(id, companyId, req.user!.id, !!req.user?.isSuperAdmin, reviewNotes);
       res.json(result);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err.statusCode || 400).json({ message: err.message });
     }
   });
 
@@ -252,11 +256,41 @@ export function createRolesPermissionsRouter(
     try {
       const companyId = Number(req.params.companyId);
       const id = Number(req.params.id);
+      await assertCompanyAccess(req, companyId);
+      await assertPermission(req, companyId, "approvals.action");
       const { reviewNotes } = z.object({ reviewNotes: z.string().optional() }).parse(req.body || {});
       const result = await rejectRequest(id, companyId, req.user!.id, !!req.user?.isSuperAdmin, reviewNotes);
       res.json(result);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err.statusCode || 400).json({ message: err.message });
+    }
+  });
+
+  // Failed executions may have produced side effects. They are terminal and
+  // can only be closed by an administrator after manual reconciliation.
+  router.post("/companies/:companyId/approvals/:id/resolve-failed", requireAuth, async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const id = Number(req.params.id);
+      await assertCompanyAccess(req, companyId);
+      await assertPermission(req, companyId, "approvals.admin");
+      const { reviewNotes } = z.object({
+        reviewNotes: z.string().trim().min(5, "Describe the reconciliation action"),
+      }).parse(req.body || {});
+      const result = await storage.resolveFailedApprovalRequest(
+        id,
+        companyId,
+        req.user!.id,
+        reviewNotes,
+      );
+      if (!result) return res.status(404).json({ message: "Failed approval request not found" });
+      await logAction(companyId, req.user!.id, "APPROVAL_EXECUTION_RESOLVED", "approval_request", String(id), {
+        type: result.type,
+        reviewNotes,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err.statusCode || 400).json({ message: err.message });
     }
   });
 
@@ -266,10 +300,14 @@ export function createRolesPermissionsRouter(
       await assertCompanyAccess(req, companyId);
       await assertPermission(req, companyId, "roles.view");
       const policies = await getCompanyApprovalPolicies(companyId);
+      const roles = await storage.getCompanyRoles(companyId);
+      const users = await storage.getCompanyUsers(companyId);
       res.json({
         policies,
         items: getApprovalPolicyList(policies),
         modes: APPROVAL_POLICY_MODES,
+        approverRoles: roles.map((role) => ({ id: role.id, name: role.name })),
+        approverUsers: users.map((user) => ({ id: user.id, name: user.name || user.username || user.email })),
       });
     } catch (err: any) {
       res.status(err.statusCode || 500).json({ message: err.message });
@@ -279,6 +317,7 @@ export function createRolesPermissionsRouter(
   router.patch("/companies/:companyId/approval-policies", requireAuth, async (req: any, res) => {
     try {
       const companyId = Number(req.params.companyId);
+      await assertCompanyAccess(req, companyId);
       await assertPermission(req, companyId, "roles.manage");
       const body = z.object({
         policies: z.record(
@@ -286,12 +325,18 @@ export function createRolesPermissionsRouter(
             mode: z.enum(["disabled", "by_permission", "always"]),
             amountThreshold: z.number().min(0).optional(),
             ownerBypass: z.boolean().optional(),
+            allowSelfApproval: z.boolean().optional(),
+            approverUserIds: z.array(z.string()).optional(),
+            approverRoleIds: z.array(z.coerce.number().int().positive()).optional(),
           })
         ),
       }).parse(req.body);
 
       const policies = normalizeApprovalPolicies(body.policies) as CompanyApprovalPolicies;
       const company = await storage.updateCompany(companyId, { approvalSettings: policies as any });
+      await logAction(companyId, req.user!.id, "APPROVAL_POLICIES_UPDATED", "company", String(companyId), {
+        modes: Object.fromEntries(Object.entries(policies).map(([type, policy]) => [type, policy.mode])),
+      });
       res.json({
         policies: normalizeApprovalPolicies(company.approvalSettings),
         items: getApprovalPolicyList(normalizeApprovalPolicies(company.approvalSettings)),

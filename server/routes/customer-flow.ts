@@ -27,6 +27,8 @@ import {
   inventoryLocations,
   inventoryTransactions
 } from "../../shared/schema.js";
+import { requireApprovalOrContinue } from "../lib/approval-gate.js";
+import { APPROVAL_TYPES } from "../../shared/permissions.js";
 
 export function createCustomerFlowRouter(requireAuth: any) {
   const router = Router();
@@ -1214,6 +1216,48 @@ export function createCustomerFlowRouter(requireAuth: any) {
         approvalStatus = 'none';
       }
 
+      const orderNumber = `SO-${Date.now()}`;
+      const gate = await requireApprovalOrContinue({
+        userId: (req as any).user!.id,
+        companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.SALES_ORDER,
+        amount: total,
+        title: `Approve sales order ${orderNumber}`,
+        description: "Sales orders must be authorised before picking and dispatch.",
+        payload: {
+          orderData: {
+            branchId: branchId || null,
+            customerId: customerId || null,
+            quotationId: null,
+            departmentId: resolvedDepartmentId || null,
+            costCenterId: resolvedCostCenterId || null,
+            locationId: locationId ? Number(locationId) : null,
+            orderNumber,
+            issueDate: new Date().toISOString(),
+            subtotal: subtotal.toString(),
+            taxAmount: taxAmount.toString(),
+            total: total.toString(),
+            status: initialStatus,
+            currency: currency || 'USD',
+            notes,
+            orderType,
+            preorderType: preorderType || null,
+            depositPct: depositPct ? depositPct.toString() : null,
+            depositPaid: depositPaidNum.toString(),
+            remainingBalance: remainingBalance.toString(),
+            expectedArrival: expectedArrival || null,
+            layByDuration: layByDuration || null,
+            approvalStatus: approvalStatus === 'approved' ? 'approved' : 'pending',
+          },
+          items: newItems,
+        },
+        referenceType: "sales_order",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({ message: "Sales order submitted for approval", approval: gate.request });
+      }
+
       const [newOrder] = await db.insert(salesOrders).values({
         companyId,
         branchId: branchId || undefined,
@@ -1222,7 +1266,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
         departmentId: resolvedDepartmentId || null,
         costCenterId: resolvedCostCenterId || null,
         locationId: locationId ? Number(locationId) : null,
-        orderNumber: `SO-${Date.now()}`,
+        orderNumber,
         issueDate: new Date(),
         subtotal: subtotal.toString(),
         taxAmount: taxAmount.toString(),
@@ -1321,7 +1365,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
       });
       res.json(completeOrder);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error?.statusCode || 500).json({ error: error.message });
     }
   });
 

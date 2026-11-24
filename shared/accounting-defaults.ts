@@ -22,6 +22,11 @@ export const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   grniAccountCode: "2000",
   landedCostClearingAccountCode: "2016",
   partnerPayableAccountCode: "2017",
+  // Vehicle-import agency accounting: customer money held for third parties is
+  // a liability; the processing fee is revenue only when earned.
+  customerFundsHeldAccountCode: "2022",
+  deferredVehicleFeeRevenueAccountCode: "2023",
+  vehicleProcessingFeeRevenueAccountCode: "4120",
   payrollExpenseAccountCode: "5004",
   wagesPayableAccountCode: "2004",
   payrollTaxPayableAccountCode: "2013",

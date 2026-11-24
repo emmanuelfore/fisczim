@@ -282,6 +282,7 @@ export const inventoryLocationStocks = pgTable("inventory_location_stocks", {
   stockLevel: decimal("stock_level", { precision: 10, scale: 2 }).default("0").notNull(),
   reservedQuantity: decimal("reserved_quantity", { precision: 10, scale: 2 }).default("0").notNull(),
   availableQuantity: decimal("available_quantity", { precision: 10, scale: 2 }).default("0").notNull(),
+  reorderLevel: decimal("reorder_level", { precision: 10, scale: 2 }).default("0").notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   locationProductUnique: unique("inventory_location_stocks_location_product_idx").on(table.locationId, table.productId),
@@ -957,6 +958,8 @@ export type InsertSocialWebhookEvent = z.infer<typeof insertSocialWebhookEventSc
 export const VEHICLE_STAGES = [
   "purchased", "in_transit", "container_loaded", "at_port", "clearing", "cleared", "in_delivery", "delivered",
 ] as const;
+/** agent = disbursements held for the customer; principal = buy/resale with COGS. */
+export const VEHICLE_ACCOUNTING_MODELS = ["agent", "principal"] as const;
 export const VEHICLE_COST_CATEGORIES = [
   "purchase", "shipping", "logistics", "admin_fee", "bank_charges", "duty", "clearing", "delivery",
   "insurance", "registration", "inspection", "commission", "other",
@@ -985,6 +988,7 @@ export const vehicles = pgTable("vehicles", {
   eta: date("eta"),
   stage: text("stage").default("purchased").notNull(),
   status: text("status").default("available").notNull(), // available, reserved, sold, delivered, cancelled
+  accountingModel: text("accounting_model").default("agent").notNull(), // agent | principal
   targetPrice: decimal("target_price", { precision: 15, scale: 2 }).default("0.00"),
   salePrice: decimal("sale_price", { precision: 15, scale: 2 }),
   saleCurrency: text("sale_currency").default("USD"),
@@ -1016,6 +1020,15 @@ export const vehicleCosts = pgTable("vehicle_costs", {
   currency: text("currency").default("USD").notNull(),
   exchangeRate: decimal("exchange_rate", { precision: 14, scale: 6 }).default("1.000000").notNull(), // units of base per 1 of currency
   baseAmount: decimal("base_amount", { precision: 15, scale: 2 }).notNull(),
+  // Three-value cost sheet: estimated budget, actual incurred (baseAmount), and
+  // the commercial amount recovered from the customer. All base currency.
+  estimatedBaseAmount: decimal("estimated_base_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  customerChargeBaseAmount: decimal("customer_charge_base_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  // Agency view: how much of the customer's money is allocated to this line and
+  // how much has actually been settled with the third party. Base currency.
+  customerAllocatedAmount: decimal("customer_allocated_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  thirdPartyPaidAmount: decimal("third_party_paid_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  includeInCustomerStatement: boolean("include_in_customer_statement").default(true).notNull(),
   payee: text("payee"),
   reference: text("reference"),
   costDate: date("cost_date"),
@@ -1097,6 +1110,13 @@ export const vehicleSalesAgreements = pgTable("vehicle_sales_agreements", {
   interestType: text("interest_type").default("none").notNull(), // none | flat_rate | percent_pa | fixed_amount
   interestRate: decimal("interest_rate", { precision: 8, scale: 4 }).default("0.0000").notNull(),
   adminFee: decimal("admin_fee", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  // Agency accounting fields. `adminFee` remains the financing charge used by
+  // the instalment plan; `processingFeeAmount` is Prime Imports' own earning.
+  accountingModel: text("accounting_model").default("agent").notNull(),
+  processingFeeAmount: decimal("processing_fee_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  costSheetTotal: decimal("cost_sheet_total", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  feeRecognition: text("fee_recognition").default("on_handover").notNull(), // on_collection | on_handover
+  feeRecognitionJournalEntryId: integer("fee_recognition_journal_entry_id").references(() => journalEntries.id),
   lateFee: decimal("late_fee", { precision: 15, scale: 2 }).default("0.00").notNull(), // per missed instalment
   startDate: date("start_date").notNull(),
   estimatedDelivery: date("estimated_delivery"),
@@ -1122,6 +1142,81 @@ export const vehicleAgreementCounters = pgTable("vehicle_agreement_counters", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+/**
+ * Customer-facing account for an agency vehicle deal. All money columns are in
+ * the company's base currency; `currency`/`exchangeRate` are display metadata
+ * inherited from the vehicle sale agreement.
+ */
+export const vehicleCustomerAccounts = pgTable("vehicle_customer_accounts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull().unique(),
+  agreementId: integer("agreement_id").references(() => vehicleSalesAgreements.id, { onDelete: "set null" }),
+  customerId: integer("customer_id").references(() => customers.id),
+  currency: text("currency").default("USD").notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 14, scale: 6 }).default("1.000000").notNull(),
+  totalPrice: decimal("total_price", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  costSheetTotal: decimal("cost_sheet_total", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  processingFeeAmount: decimal("processing_fee_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  amountCollected: decimal("amount_collected", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  amountAllocatedToCosts: decimal("amount_allocated_to_costs", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  amountAllocatedToFee: decimal("amount_allocated_to_fee", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  feeInvoiceSettledAmount: decimal("fee_invoice_settled_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  amountPaidToThirdParties: decimal("amount_paid_to_third_parties", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  feeRecognisedAmount: decimal("fee_recognised_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  status: text("status").default("open").notNull(), // open | settled | cancelled
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("vca_company_idx").on(table.companyId),
+  customerIdx: index("vca_customer_idx").on(table.customerId),
+}));
+
+/** Splits a customer receipt across cost-sheet lines and/or the processing fee. */
+export const vehicleCustomerPaymentAllocations = pgTable("vehicle_customer_payment_allocations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  accountId: integer("account_id").references(() => vehicleCustomerAccounts.id, { onDelete: "cascade" }).notNull(),
+  paymentId: integer("payment_id").references(() => payments.id, { onDelete: "cascade" }).notNull(),
+  costId: integer("cost_id").references(() => vehicleCosts.id, { onDelete: "set null" }),
+  allocationType: text("allocation_type").default("cost").notNull(), // cost | fee
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(), // base currency; negative rows reverse an allocation
+  allocatedAt: timestamp("allocated_at").defaultNow().notNull(),
+  reversedAt: timestamp("reversed_at"),
+  reversalReason: text("reversal_reason"),
+  reversesAllocationId: integer("reverses_allocation_id"),
+  createdBy: uuid("created_by").references(() => users.id),
+}, (table) => ({
+  accountIdx: index("vcpa_account_idx").on(table.accountId),
+  paymentIdx: index("vcpa_payment_idx").on(table.paymentId),
+  costIdx: index("vcpa_cost_idx").on(table.costId),
+}));
+
+/** Actual settlement of a cost-sheet line to its supplier/service provider. */
+export const vehicleThirdPartyPayments = pgTable("vehicle_third_party_payments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  accountId: integer("account_id").references(() => vehicleCustomerAccounts.id, { onDelete: "cascade" }).notNull(),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull(),
+  costId: integer("cost_id").references(() => vehicleCosts.id, { onDelete: "set null" }),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  baseAmount: decimal("base_amount", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 14, scale: 6 }).default("1.000000").notNull(),
+  paymentDate: timestamp("payment_date").defaultNow().notNull(),
+  paymentMethod: text("payment_method").default("bank_transfer").notNull(),
+  reference: text("reference"),
+  bankAccountId: integer("bank_account_id").references(() => accounts.id),
+  journalEntryId: integer("journal_entry_id").references(() => journalEntries.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  accountIdx: index("vtpp_account_idx").on(table.accountId),
+  costIdx: index("vtpp_cost_idx").on(table.costId),
+  vehicleIdx: index("vtpp_vehicle_idx").on(table.vehicleId),
+}));
+
 export const vehicleStockCounters = pgTable("vehicle_stock_counters", {
   companyId: integer("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
   nextNumber: integer("next_number").notNull().default(1),
@@ -1135,6 +1230,9 @@ export type VehicleCost = typeof vehicleCosts.$inferSelect;
 export type VehicleStageEvent = typeof vehicleStageEvents.$inferSelect;
 export type VehiclePaymentSchedule = typeof vehiclePaymentSchedules.$inferSelect;
 export type VehicleSalesAgreement = typeof vehicleSalesAgreements.$inferSelect;
+export type VehicleCustomerAccount = typeof vehicleCustomerAccounts.$inferSelect;
+export type VehicleCustomerPaymentAllocation = typeof vehicleCustomerPaymentAllocations.$inferSelect;
+export type VehicleThirdPartyPayment = typeof vehicleThirdPartyPayments.$inferSelect;
 
 export const vehicleCustomsDocuments = pgTable("vehicle_customs_documents", {
   id: serial("id").primaryKey(),
@@ -1795,6 +1893,8 @@ export const payments = pgTable("payments", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").default("USD").notNull(),
   exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 }).default("1.000000"),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
 
   paymentDate: timestamp("payment_date").defaultNow().notNull(),
   paymentMethod: text("payment_method").notNull(), // Cash, Card, Transfer, Ecocash
@@ -2531,6 +2631,8 @@ export const stockTransfers = pgTable("stock_transfers", {
   toBranchId: integer("to_branch_id").references(() => branches.id),
   fromLocationId: integer("from_location_id").references(() => inventoryLocations.id),
   toLocationId: integer("to_location_id").references(() => inventoryLocations.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
   status: text("status").default("IN_TRANSIT").notNull(), // DRAFT, PENDING_APPROVAL, APPROVED, IN_TRANSIT, RECEIVED, CANCELLED
   notes: text("notes"),
   transitCost: decimal("transit_cost", { precision: 10, scale: 2 }).default("0.00"),
@@ -2657,6 +2759,8 @@ export const purchaseReturns = pgTable("purchase_returns", {
   branchId: integer("branch_id").references(() => branches.id),
   purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id),
   goodsDeliveryNoteId: integer("goods_delivery_note_id").references(() => goodsDeliveryNotes.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
   returnNumber: text("return_number").notNull(),
   status: text("status").default("DRAFT").notNull(), // DRAFT, APPROVED, SHIPPED, COMPLETED, CANCELLED
   reason: text("reason"),
@@ -2746,6 +2850,9 @@ export const stockTakes = pgTable("stock_takes", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull(),
   branchId: integer("branch_id").references(() => branches.id),
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
   userId: uuid("user_id").notNull(),
   status: text("status").default("draft").notNull(), // draft, completed, cancelled
   startDate: timestamp("start_date").defaultNow().notNull(),
@@ -3148,6 +3255,9 @@ export const accounts = pgTable("accounts", {
   isControlAccount: boolean("is_control_account").default(false).notNull(),
   defaultVatTypeId: integer("default_vat_type_id").references(() => taxTypes.id),
   defaultCostCenterId: integer("default_cost_center_id").references(() => costCenters.id),
+  // departments.glAccountId references accounts, so break the schema's
+  // compile-time inference cycle with an explicit column type here.
+  defaultDepartmentId: integer("default_department_id").references((): AnyPgColumn => departments.id),
   defaultSegmentId: integer("default_segment_id").references(() => accountingSegments.id),
   isBudgetEnabled: boolean("is_budget_enabled").default(false).notNull(),
   isSystem: boolean("is_system").default(false), // Permanent accounts like AR/Revenue
@@ -3203,6 +3313,7 @@ export const ledgerEntries = pgTable("ledger_entries", {
   accountId: integer("account_id").references(() => accounts.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id), // Denormalized for branch-level querying
   costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  departmentId: integer("department_id").references(() => departments.id),
   segmentId: integer("segment_id").references(() => accountingSegments.id),
   type: text("type").notNull(), // DEBIT, CREDIT
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
@@ -3265,6 +3376,7 @@ export const journalEntryDraftLines = pgTable("journal_entry_draft_lines", {
   exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 }).default("1.000000"),
   branchId: integer("branch_id").references(() => branches.id), // Branch-level GL segregation
   costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  departmentId: integer("department_id").references(() => departments.id),
   segmentId: integer("segment_id").references(() => accountingSegments.id),
   type: text("type").notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
@@ -3417,6 +3529,8 @@ export const supplierPayments = pgTable("supplier_payments", {
   currency: text("currency").default("USD"),
   paymentDate: timestamp("payment_date").notNull().defaultNow(),
   method: text("method").notNull(), // Cash, Bank, Mobile Money, etc.
+  departmentId: integer("department_id").references(() => departments.id),
+  costCenterId: integer("cost_center_id").references(() => costCenters.id),
   reference: text("reference"),
   notes: text("notes"),
   createdBy: text("created_by"),
@@ -3583,6 +3697,7 @@ export const cashbookEntryLines = pgTable("cashbook_entry_lines", {
   cashbookEntryId: integer("cashbook_entry_id").references(() => cashbookEntries.id).notNull(),
   accountId: integer("account_id").references(() => accounts.id).notNull(),
   costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  departmentId: integer("department_id").references(() => departments.id),
   description: text("description"),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   vatAmount: decimal("vat_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
@@ -4460,6 +4575,7 @@ export const leaveRequests = pgTable("leave_requests", {
   totalDays: integer("total_days").notNull(),
   reason: text("reason"),
   attachmentUrl: text("attachment_url"), // For sick sheets / medical certificates
+  requestedBy: uuid("requested_by").references(() => users.id),
   status: text("status").default("PENDING").notNull(), // PENDING, APPROVED, REJECTED, CANCELLED
   
   // Encashment properties

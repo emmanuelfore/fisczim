@@ -30,7 +30,8 @@ export function useCreateExpense(companyId: number) {
                 const err = await res.json();
                 throw new Error(err.message || "Failed to create expense");
             }
-            return api.expenses.create.responses[201].parse(await res.json());
+            // 202 means the expense was routed to the approval inbox.
+            return await res.json() as any;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.expenses.list.path, companyId] });

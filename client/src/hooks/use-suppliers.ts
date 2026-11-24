@@ -25,8 +25,12 @@ export function useCreateSupplier(companyId: number) {
                 method: "POST",
                 body: JSON.stringify(data),
             });
-            if (!res.ok) throw new Error("Failed to create supplier");
-            return api.suppliers.create.responses[201].parse(await res.json());
+            if (!res.ok) {
+              const error = await res.json().catch(() => ({}));
+              throw new Error(error.message || "Failed to create supplier");
+            }
+            // 202 means the supplier was routed to the approval inbox.
+            return await res.json() as any;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.suppliers.list.path, companyId] });

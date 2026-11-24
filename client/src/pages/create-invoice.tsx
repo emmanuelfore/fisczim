@@ -11,6 +11,8 @@ import {
 } from "@/hooks/use-invoices";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
+import { useCostCenters } from "@/hooks/use-cost-centers";
+import { useDepartments } from "@/hooks/use-departments";
 import { useCompany } from "@/hooks/use-companies";
 import { usePartners } from "@/hooks/use-partners";
 import { useTaxConfig } from "@/hooks/use-tax-config";
@@ -126,6 +128,8 @@ export default function CreateInvoicePage() {
   const { data: customers } = useCustomers(companyId);
   const { data: products } = useProducts(companyId);
   const { data: currencies } = useCurrencies(companyId);
+  const { data: departments = [] } = useDepartments(companyId);
+  const { data: costCenters = [] } = useCostCenters(companyId);
   // Fetch existing invoice if we are editing OR duplicating
   const sourceId = editId || duplicateId;
   const { data: existingInvoice } = useInvoice(
@@ -231,6 +235,8 @@ export default function CreateInvoicePage() {
       }
 
       setNotes(existingInvoice.notes || "");
+      setDepartmentId((existingInvoice as any).departmentId?.toString() || "");
+      setCostCenterId((existingInvoice as any).costCenterId?.toString() || "");
       setPoNumber((existingInvoice as any).poNumber || "");
       setInvoiceTemplate(
         (existingInvoice.invoiceTemplate as InvoiceTemplateId) ||
@@ -281,6 +287,8 @@ export default function CreateInvoicePage() {
     return d.toISOString().split("T")[0];
   });
   const [notes, setNotes] = useState<string>("");
+  const [departmentId, setDepartmentId] = useState<string>("");
+  const [costCenterId, setCostCenterId] = useState<string>("");
   const [poNumber, setPoNumber] = useState<string>("");
   const [invoiceTemplate, setInvoiceTemplate] = useState<InvoiceTemplateId>(
     () => getStoredInvoiceTemplateSettings(companyId).defaultTemplateId,
@@ -484,6 +492,12 @@ export default function CreateInvoicePage() {
   const handleProductSelect = (localId: string, productId: string) => {
     const product = products?.find((p) => p.id === parseInt(productId));
     if (product) {
+      if ((product as any).costCenterId && !costCenterId) {
+        setCostCenterId(String((product as any).costCenterId));
+      }
+      if ((product as any).departmentId && !departmentId) {
+        setDepartmentId(String((product as any).departmentId));
+      }
       setItems((prev) =>
         prev.map((item) => {
           if (item.localId !== localId) return item;
@@ -661,6 +675,8 @@ export default function CreateInvoicePage() {
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : null,
       notes,
+      departmentId: departmentId ? parseInt(departmentId) : null,
+      costCenterId: costCenterId ? parseInt(costCenterId) : null,
       poNumber: poNumber.trim() || null,
       invoiceTemplate,
       currency: currencyCode,
@@ -755,6 +771,8 @@ export default function CreateInvoicePage() {
         ? new Date(dueDate)
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       notes,
+      departmentId: departmentId ? parseInt(departmentId) : null,
+      costCenterId: costCenterId ? parseInt(costCenterId) : null,
       poNumber: poNumber.trim() || null,
       invoiceTemplate,
       currency: currencyCode,
@@ -861,6 +879,8 @@ export default function CreateInvoicePage() {
       issueDate: new Date(issueDate),
       dueDate: dueDate ? new Date(dueDate) : null,
       notes,
+      departmentId: departmentId ? parseInt(departmentId) : null,
+      costCenterId: costCenterId ? parseInt(costCenterId) : null,
       poNumber: poNumber.trim() || null,
       invoiceTemplate,
       currency: currencyCode,
@@ -894,6 +914,15 @@ export default function CreateInvoicePage() {
         });
       } else {
         savedInvoice = await createInvoice.mutateAsync(invoiceData as any);
+      }
+
+      if (savedInvoice?.approval) {
+        toast({
+          title: "Invoice Submitted",
+          description: savedInvoice.message || "An approver must authorise this invoice before it is posted.",
+        });
+        setLocation("/approvals");
+        return;
       }
 
       if (fiscalizeNow) {
@@ -1284,6 +1313,44 @@ export default function CreateInvoicePage() {
                           {currencies?.map((c) => (
                             <SelectItem key={c.id} value={c.code}>
                               {c.code} ({c.symbol})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">
+                        Department
+                      </Label>
+                      <Select value={departmentId || "none"} onValueChange={(v) => setDepartmentId(v === "none" ? "" : v)}>
+                        <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Department</SelectItem>
+                          {departments.map((dept) => (
+                            <SelectItem key={dept.id} value={String(dept.id)}>
+                              {dept.name}{dept.code ? ` (${dept.code})` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">
+                        Cost Centre
+                      </Label>
+                      <Select value={costCenterId || "none"} onValueChange={(v) => setCostCenterId(v === "none" ? "" : v)}>
+                        <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
+                          <SelectValue placeholder="Select cost centre" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Cost Centre</SelectItem>
+                          {costCenters.map((cc) => (
+                            <SelectItem key={cc.id} value={String(cc.id)}>
+                              {cc.name}{cc.code ? ` (${cc.code})` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>

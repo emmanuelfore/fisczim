@@ -23,7 +23,7 @@ import { parseStringPromise } from "xml2js";
 import crypto from "crypto";
 import { logAction } from "./audit.js";
 import { startPosShift, endPosShift, addPosTransaction, getOpenShift, getShiftTransactions, getCompanyPosTransactions, shiftInCompany } from "./lib/pos.js";
-import { resolveShiftCompanyId } from "./lib/pos-scope.js";
+import { resolveAuthenticatedCompanyId, resolveShiftCompanyId } from "./lib/pos-scope.js";
 import { encryptField } from "./lib/vault.js";
 import { seedCompanyDefaults } from "./lib/seeding.js";
 import { processInvoiceFiscalization, getCompanyZimraConfig, getZimraLogger, FiscalDeviceBusyError } from "./lib/fiscalization.js";
@@ -52,7 +52,7 @@ import payrollRouter from "./api/v1/payroll.js";
 import manufacturingRouter from "./api/v1/manufacturing.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
-import { createCustomerFlowRouter } from "./routes/customer-flow.js";
+import { createCustomerFlowRouter, isApprovedQuotationStatus } from "./routes/customer-flow.js";
 import { LekukaDevice, LekukaApiError, generateLekukaKeypair } from "./lekuka.js";
 import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../shared/lekuka.js";
 import {
@@ -74,9 +74,10 @@ import { createPriceListsRouter } from "./routes/price-lists.js";
 import { createProcurementRouter } from "./routes/procurement.js";
 import rateLimit from "express-rate-limit";
 import { userHasPermission } from "./lib/permissions.js";
-import { deriveApprovalAmount, resolveActionAccess } from "./lib/approval-policies.js";
+import { assertCanApproveType, assertNotSelfApproval, deriveApprovalAmount, resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { requireApprovalOrContinue } from "./lib/approval-gate.js";
+import { assertSupplierBillPayable } from "./lib/approval-executors.js";
 import { requireDepartmentalDimensions, resolveInvoiceAnalytics } from "./lib/departmental.js";
 import { resolveSalesUnitPrice } from "./lib/pricing.js";
 import { confirmGdnReceipt } from "./lib/gdn-confirmation.js";
@@ -608,6 +609,38 @@ export async function registerRoutes(
       items: serverItems,
       pricing,
     };
+  };
+
+  /**
+   * Quotations use the same tenant-owned product/tax recomputation as invoices.
+   * Client totals are checked, never trusted, and the persisted lines are the
+   * server-computed ones even when an approval defers the write.
+   */
+  const computeQuotationAmountsServer = async (
+    companyId: number,
+    quotationData: any,
+    rawItems: any[],
+  ) => {
+    const declared = quotationData.discountAmount !== undefined
+      ? { ...quotationData, discountAmount: quotationData.discountAmount }
+      : quotationData;
+    const computed = await computeInvoiceAmountsServer(companyId, rawItems, {
+      taxInclusive: Boolean(quotationData.taxInclusive),
+      departmentId: quotationData.departmentId,
+      customerId: quotationData.customerId,
+      declared,
+    });
+    const items = computed.items.map((item) => insertQuotationItemSchema.parse({
+      productId: item.productId ?? null,
+      description: item.description ?? "",
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      taxRate: item.taxRate,
+      taxTypeId: item.taxTypeId ?? null,
+      lineTotal: item.lineTotal,
+      cogsAmount: item.cogsAmount ?? null,
+    }));
+    return { ...computed, items };
   };
 
   /** Picks a real company admin/owner to attribute API-initiated approvals to. */
@@ -1577,24 +1610,35 @@ export async function registerRoutes(
     }
   });
 
+  const QUOTATION_TERMINAL_STATUSES = new Set(["approved", "accepted", "invoiced"]);
+
   app.post("/api/quotations", requireAuth, async (req, res) => {
     try {
       const data = insertQuotationSchema.extend({ items: z.array(insertQuotationItemSchema) }).parse(req.body);
       const hasAccess = await checkCompanyAccess(storage, req.user, data.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
       const analytics = await requireDepartmentalDimensions(data.companyId, data as any);
+      const computed = await computeQuotationAmountsServer(data.companyId, data, data.items);
 
-      const enrichedData = analytics ? { ...data, ...analytics } : data;
+      const enrichedData = {
+        ...data,
+        ...(analytics || {}),
+        status: "draft",
+        subtotal: computed.subtotal.toFixed(2),
+        taxAmount: computed.taxAmount.toFixed(2),
+        total: computed.total.toFixed(2),
+        items: computed.items,
+      };
       const { items, ...quotationData } = enrichedData as any;
       const gate = await requireApprovalOrContinue({
         userId: (req.user as any).id,
         companyId: data.companyId,
         isSuperAdmin: !!(req.user as any)?.isSuperAdmin,
         type: APPROVAL_TYPES.QUOTATION,
-        amount: Number(data.total || 0),
+        amount: computed.total,
         title: `Approve quotation ${data.quotationNumber || ""}`.trim(),
         description: "Quotations must be authorised before they are sent or accepted.",
-        payload: { quotationData, items },
+        payload: { quotationData, items, amount: computed.total },
         referenceType: "quotation",
       });
       if (gate.requiresApproval) {
@@ -1621,14 +1665,32 @@ export async function registerRoutes(
       if (!existing) return res.status(404).json({ message: "Quotation not found" });
       const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      if (QUOTATION_TERMINAL_STATUSES.has(String(existing.status || "").toLowerCase())) {
+        return res.status(409).json({ message: `Quotation is ${existing.status} and can no longer be edited` });
+      }
+
       const data = insertQuotationSchema.extend({ items: z.array(insertQuotationItemSchema) }).partial().parse(req.body);
-      const result = await storage.updateQuotation(id, data);
+      // Status transitions and tenant ownership are server-owned properties.
+      delete (data as any).status;
+      delete (data as any).companyId;
+      delete (data as any).convertedAt;
+
+      const sourceItems = data.items && data.items.length > 0 ? data.items : existing.items;
+      const merged = { ...existing, ...data, companyId: existing.companyId };
+      const computed = await computeQuotationAmountsServer(existing.companyId, merged, sourceItems as any[]);
+      const result = await storage.updateQuotation(id, {
+        ...data,
+        subtotal: computed.subtotal.toFixed(2),
+        taxAmount: computed.taxAmount.toFixed(2),
+        total: computed.total.toFixed(2),
+        items: computed.items,
+      } as any);
       res.json(result);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: error.errors.map(e => e.message).join(", ") });
       }
-      res.status(500).json({ message: error.message });
+      res.status(error?.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -1639,6 +1701,9 @@ export async function registerRoutes(
       if (!existing) return res.status(404).json({ message: "Quotation not found" });
       const hasAccess = await checkCompanyAccess(storage, req.user, existing.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      if (QUOTATION_TERMINAL_STATUSES.has(String(existing.status || "").toLowerCase())) {
+        return res.status(409).json({ message: `Quotation is ${existing.status} and cannot be deleted` });
+      }
       await storage.deleteQuotation(id);
       res.status(204).end();
     } catch (error: any) {
@@ -1653,40 +1718,67 @@ export async function registerRoutes(
       if (!quote) return res.status(404).json({ message: "Quotation not found" });
       const hasAccess = await checkCompanyAccess(storage, req.user, quote.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
-      if (quote.status === "invoiced") return res.status(400).json({ message: "Quotation already converted to invoice" });
+      if (!isApprovedQuotationStatus(quote.status)) {
+        return res.status(400).json({
+          message: `Quotation is ${quote.status || "draft"} and must be approved before conversion`,
+        });
+      }
 
-      // Convert Quote to Invoice Data
+      // Legacy quotes may still carry client-supplied header totals. The invoice
+      // and the approval threshold must both use amounts recomputed from the
+      // persisted lines and the tenant's own catalogue.
+      const computed = await computeQuotationAmountsServer(quote.companyId, quote, quote.items || []);
+
       const invoiceData = {
         companyId: quote.companyId,
-                issueDate: new Date(),
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days
+        branchId: quote.branchId ?? null,
+        departmentId: quote.departmentId ?? null,
+        costCenterId: quote.costCenterId ?? null,
+        locationId: quote.locationId ?? null,
+        customerId: quote.customerId,
+        issueDate: new Date(),
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         currency: quote.currency || "USD",
-        exchangeRate: "1.00", // Default
+        exchangeRate: "1.00",
         taxInclusive: quote.taxInclusive || false,
-        subtotal: quote.subtotal,
-        taxAmount: quote.taxAmount,
-        total: quote.total,
+        subtotal: computed.subtotal.toFixed(2),
+        taxAmount: computed.taxAmount.toFixed(2),
+        total: computed.total.toFixed(2),
         status: "draft",
         transactionType: "FiscalInvoice",
         notes: `Converted from Quotation ${quote.quotationNumber}. ${quote.notes || ""}`,
-        items: quote.items.map(item => ({
-          productId: item.productId,
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          taxRate: item.taxRate,
-          lineTotal: item.lineTotal
-        }))
+        items: computed.items,
       };
 
+      const gate = await requireApprovalOrContinue({
+        userId: (req.user as any).id,
+        companyId: quote.companyId,
+        isSuperAdmin: !!(req.user as any)?.isSuperAdmin,
+        type: APPROVAL_TYPES.INVOICE_ISSUE,
+        amount: computed.total,
+        title: `Convert quotation ${quote.quotationNumber} to invoice`,
+        description: "Converting an approved quotation into an invoice must be authorised.",
+        payload: {
+          invoiceData,
+          items: invoiceData.items,
+          quotationId: id,
+          referenceType: "quotation_conversion",
+        },
+        referenceType: "quotation_conversion",
+        referenceId: String(id),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({
+          message: "Quotation conversion submitted for approval",
+          approval: gate.request,
+        });
+      }
+
       const invoice = await storage.createInvoice(invoiceData as any);
-
-      // Update quote status
-      await storage.updateQuotation(id, { status: "invoiced" });
-
+      await storage.updateQuotation(id, { status: "invoiced", convertedAt: new Date() });
       res.status(201).json(invoice);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error?.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -4014,7 +4106,8 @@ export async function registerRoutes(
     try {
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
-      const companyId = Number(req.body.companyId);
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
       const branchId = getBranchId(req);
       const existing = await storage.getActivePosShift(companyId, (req.user as any).id, branchId);
       if (existing) {
@@ -4022,6 +4115,7 @@ export async function registerRoutes(
       }
       const data = insertPosShiftSchema.parse({
         ...req.body,
+        companyId,
         branchId,
         userId: (req.user as any).id,
         status: "open"
@@ -4148,10 +4242,12 @@ export async function registerRoutes(
     try {
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
-      const { productId, variationId, companyId, type = "ADJUSTMENT", quantityChange, unitCost, referenceId, notes } = req.body;
+      const { productId, variationId, type = "ADJUSTMENT", quantityChange, unitCost, referenceId, notes } = req.body;
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
       const amount = Number(quantityChange);
-      
-      if (isNaN(amount)) {
+
+      if (!Number.isFinite(amount)) {
         return res.status(400).json({ message: "Invalid quantity change" });
       }
       if (amount === 0) {
@@ -4165,34 +4261,56 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid stock adjustment type" });
       }
 
-      // Fetch the product directly to get current stock
+      const branchId = getBranchId(req);
       const productList = await storage.getProducts(companyId);
-      const product = productList.find((p: any) => p.id === productId);
+      const product = productList.find((p: any) => p.id === Number(productId));
       if (!product) return res.status(404).json({ message: "Product not found" });
 
-      const currentStock = Number(product.stockLevel || 0);
-      const newStock = currentStock + amount;
-
-      const updatedProduct = await storage.updateProduct(productId, {
-        stockLevel: newStock.toString()
-      });
-
-      const branchId = getBranchId(req);
-
-      await storage.createInventoryTransaction({
+      // Reuse the standard stock-adjustment gate. Direct adjustments go through
+      // adjustInventory so stock, ledger and audit rows stay in one transaction;
+      // requested ones are executed by the central approval executor later.
+      const gate = await requireApprovalOrContinue({
+        userId: (req.user as any).id,
         companyId,
+        isSuperAdmin: !!(req.user as any)?.isSuperAdmin,
+        type: APPROVAL_TYPES.STOCK_ADJUSTMENT,
+        amount: Math.abs(amount),
+        title: `POS stock adjustment: ${type}`,
+        description: String(notes),
+        payload: {
+          productId: Number(productId),
+          variationId: variationId ? Number(variationId) : undefined,
+          branchId,
+          quantity: amount.toFixed(2),
+          type: String(type),
+          notes: String(notes),
+          referenceId: referenceId ?? null,
+          unitCost: unitCost ?? product.costPrice ?? 0,
+          amount: Math.abs(amount),
+        },
+        referenceType: "product",
+        referenceId: String(productId),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({
+          message: "Stock adjustment submitted for approval",
+          requiresApproval: true,
+          approval: gate.request,
+        });
+      }
+
+      await storage.adjustInventory(companyId, {
+        productId: Number(productId),
+        variationId: variationId ? Number(variationId) : undefined,
         branchId,
-        productId,
-        variationId: variationId || null,
-        type: type,
-        quantity: amount.toString(),
-        unitCost: (unitCost || product.costPrice || 0).toString(),
-        referenceType: "MANUAL",
-        referenceId: referenceId || null,
-        notes: notes || "Manual stock adjustment",
-        createdBy: (req.user as any)?.id
+        quantity: amount,
+        type: String(type),
+        notes: String(notes),
+        userId: (req.user as any).id,
       });
 
+      const refreshed = await storage.getProducts(companyId);
+      const updatedProduct = refreshed.find((p: any) => p.id === Number(productId)) || product;
       sendIdempotent(req, res, idempotencyKey, 200, updatedProduct);
     } catch (error: any) {
       console.error("[Inventory Adjust]", error);
@@ -9176,11 +9294,52 @@ export async function registerRoutes(
       if (!supplierId || paymentAmount <= 0) return res.status(400).json({ message: "Supplier and positive payment amount are required" });
       await assertOpenAccountingPeriod(companyId, paymentDate || new Date(), "Supplier payment posting");
 
-      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      const normalizedAllocations = (Array.isArray(allocations) ? allocations : [])
+        .map((row: any) => ({ supplierInvoiceId: Number(row.supplierInvoiceId), amount: Number(row.amount || 0) }))
+        .filter((row: any) => Number.isInteger(row.supplierInvoiceId) && row.supplierInvoiceId > 0 && row.amount > 0);
+      const allocatedTotal = normalizedAllocations.reduce((sum: number, row: any) => sum + row.amount, 0);
       if (allocatedTotal - paymentAmount > 0.005) return res.status(400).json({ message: "Allocated amount cannot exceed payment amount" });
 
+      // Re-prove each bill is live, approved and still has an unpaid balance.
+      // The deferred executor repeats this immediately before posting cash.
+      for (const allocation of normalizedAllocations) {
+        await assertSupplierBillPayable(companyId, allocation.supplierInvoiceId);
+      }
+
+      const primaryInvoiceId = normalizedAllocations[0]?.supplierInvoiceId ?? null;
+      const supplierPaymentData = {
+        companyId,
+        supplierId: Number(supplierId),
+        supplierInvoiceId: primaryInvoiceId,
+        amount: paymentAmount.toFixed(2),
+        currency,
+        paymentDate: paymentDate ? new Date(paymentDate).toISOString() : new Date().toISOString(),
+        method,
+        reference: reference ?? null,
+        notes: notes ?? null,
+        departmentId: req.body?.departmentId ?? null,
+        costCenterId: req.body?.costCenterId ?? null,
+      };
+      const gate = await requireApprovalOrContinue({
+        userId: String(req.user?.id ?? ""),
+        companyId,
+        isSuperAdmin: !!(req.user as any)?.isSuperAdmin,
+        type: APPROVAL_TYPES.PAYMENT_EXECUTION,
+        amount: paymentAmount,
+        title: `Supplier payment ${reference || ""}`.trim(),
+        description: "Supplier payments must be authorised before cash is posted.",
+        payload: { supplierPaymentData, allocations: normalizedAllocations },
+        referenceType: "supplier_payment",
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({
+          message: "Supplier payment submitted for approval",
+          requiresApproval: true,
+          approval: gate.request,
+        });
+      }
+
       const result = await db.transaction(async (tx) => {
-        const primaryInvoiceId = allocations[0]?.supplierInvoiceId ? Number(allocations[0].supplierInvoiceId) : null;
         const [payment] = await tx.insert(supplierPayments).values({
           companyId,
           supplierId: Number(supplierId),
@@ -9194,10 +9353,9 @@ export async function registerRoutes(
           createdBy: req.user?.id,
         } as any).returning();
 
-        for (const allocation of allocations) {
-          const supplierInvoiceId = Number(allocation.supplierInvoiceId);
-          const allocAmount = Number(allocation.amount || 0);
-          if (!supplierInvoiceId || allocAmount <= 0) continue;
+        for (const allocation of normalizedAllocations) {
+          const supplierInvoiceId = allocation.supplierInvoiceId;
+          const allocAmount = allocation.amount;
           const [bill] = await tx.select().from(supplierInvoices).where(and(eq(supplierInvoices.id, supplierInvoiceId), eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, Number(supplierId))));
           if (!bill) throw new Error(`Supplier bill ${supplierInvoiceId} was not found for this supplier`);
 
@@ -9225,8 +9383,8 @@ export async function registerRoutes(
           postingKey: `supplier-payment:${companyId}:${payment.id}`,
           createdBy: req.user?.id,
           lines: [
-            { accountCode: apAccountCode, type: "DEBIT", amount: paymentAmount },
-            { accountCode: cashAccountCode, type: "CREDIT", amount: paymentAmount },
+            { accountCode: apAccountCode, type: "DEBIT", amount: paymentAmount, departmentId: supplierPaymentData.departmentId, costCenterId: supplierPaymentData.costCenterId },
+            { accountCode: cashAccountCode, type: "CREDIT", amount: paymentAmount, departmentId: supplierPaymentData.departmentId, costCenterId: supplierPaymentData.costCenterId },
           ],
         }, tx);
 
@@ -9618,27 +9776,31 @@ export async function registerRoutes(
     }
   });
 
+  /** Transfer workflow permissions. Approval always needs a human approver. */
+  const assertTransferPermission = async (req: any, companyId: number, action: "create" | "approve" | "dispatch" | "receive" | "cancel"): Promise<boolean> => {
+    if (req.apiKeyCompanyId) return action !== "approve" && Number(req.apiKeyCompanyId) === companyId;
+    const userId = req.user?.id;
+    if (!userId) return false;
+    if (req.user?.isSuperAdmin) return true;
+    if (!(await userHasPermission(userId, companyId, "stock.transfer"))) return false;
+    if (action === "approve" && !(await userHasPermission(userId, companyId, "stock.adjust.approve"))) return false;
+    return true;
+  };
+
   app.post("/api/companies/:companyId/inventory/transfers", requireAuthOrApiKey, async (req, res) => {
     try {
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
       const companyId = Number(req.params.companyId);
-
-      // Permission check: stock.transfer required
-      const transferUserId = (req as any).user?.id;
-      const transferIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
-      if (!transferIsSuperAdmin && transferUserId) {
-        const { userHasPermission } = await import("./lib/permissions.js");
-        const canTransfer = await userHasPermission(transferUserId, companyId, "stock.transfer");
-        if (!canTransfer) {
-          return res.status(403).json({ message: "You do not have permission to transfer stock" });
-        }
+      if (!(await assertTransferPermission(req, companyId, "create"))) {
+        return res.status(403).json({ message: "You do not have permission to transfer stock" });
       }
       const requestedFromLocationId = req.body?.fromLocationId ? Number(req.body.fromLocationId) : null;
       const requestedToLocationId = req.body?.toLocationId ? Number(req.body.toLocationId) : null;
       const requestedFromBranchId = req.body?.fromBranchId ? Number(req.body.fromBranchId) : null;
       const requestedToBranchId = req.body?.toBranchId ? Number(req.body.toBranchId) : null;
-      const statusInput = req.body?.status || "DRAFT"; // DRAFT, PENDING_APPROVAL, IN_TRANSIT
+      // Status is workflow-owned: a client cannot create a transfer that is
+      // already approved, in transit or dispatched.
       const transitCost = req.body?.transitCost ? Number(req.body.transitCost) : 0;
       const transitCostCurrency = req.body?.transitCostCurrency || "USD";
       const freightCarrier = req.body?.freightCarrier || null;
@@ -9679,7 +9841,13 @@ export async function registerRoutes(
         const fromBranchId = fromLocation.branchId || null;
         const toBranchId = toLocation.branchId || null;
 
-        const isDispatching = statusInput === "IN_TRANSIT";
+        // Analytics come from the validated source location/department, never
+        // from the request body, so every later GL line is fully dimensioned.
+        const analytics = await resolveInvoiceAnalytics(companyId, {
+          departmentId: (fromLocation as any)?.departmentId ?? req.body?.departmentId,
+          costCenterId: req.body?.costCenterId,
+          locationId: fromLocation.id,
+        }, items);
 
         const [created] = await tx.insert(stockTransfers).values({
           companyId,
@@ -9688,17 +9856,16 @@ export async function registerRoutes(
           toBranchId,
           fromLocationId: fromLocation.id,
           toLocationId: toLocation.id,
-          status: statusInput,
+          departmentId: analytics?.departmentId ?? null,
+          costCenterId: analytics?.costCenterId ?? null,
+          status: "DRAFT",
           notes: notes || null,
           transitCost: transitCost.toFixed(2),
           transitCostCurrency,
           freightCarrier,
           vehicleReg,
-          dispatchedBy: isDispatching ? ((req.user as any)?.id || null) : null,
-          dispatchedAt: isDispatching ? new Date() : null,
         }).returning();
 
-        let totalTransferCost = 0;
         for (const raw of items) {
           const productId = Number(raw.productId);
           const quantity = Number(raw.quantity);
@@ -9706,23 +9873,8 @@ export async function registerRoutes(
             throw new Error("Each transfer line needs a product and positive quantity.");
           }
 
-          if (isDispatching) {
-            const available = await getStockAtInventoryLocation(tx, productId, fromLocation.id);
-            if (available < quantity) {
-              const [prod] = await tx.select({ name: products.name }).from(products).where(eq(products.id, productId)).limit(1);
-              throw new Error(`Insufficient stock at ${locationDisplayName(fromLocation)} for "${prod?.name || `Product ${productId}`}". Available: ${available}, Requested: ${quantity}.`);
-            }
-          }
-
           const [product] = await tx.select({ costPrice: products.costPrice, name: products.name }).from(products).where(eq(products.id, productId)).limit(1);
           const unitCost = Number(raw.unitCost ?? product?.costPrice ?? 0);
-          const lineCost = quantity * unitCost;
-          totalTransferCost += lineCost;
-          const baseNotes = `${notes || "Stock transfer"}; ${locationDisplayName(fromLocation)} to ${locationDisplayName(toLocation)}`;
-
-          if (isDispatching) {
-            await adjustStockAtInventoryLocation(tx, productId, -quantity, fromLocation);
-          }
 
           await tx.insert(stockTransferItems).values({
             transferId: created.id,
@@ -9733,53 +9885,13 @@ export async function registerRoutes(
             expiryDate: raw.expiryDate ? new Date(raw.expiryDate) : null,
             notes: raw.notes || null,
           });
-
-          if (isDispatching) {
-            await tx.insert(inventoryTransactions).values({
-              companyId,
-              branchId: fromBranchId,
-              locationId: fromLocation.id,
-              productId,
-              type: "TRANSFER_OUT",
-              quantity: (-quantity).toString(),
-              unitCost: unitCost.toString(),
-              totalCost: lineCost.toString(),
-              referenceType: "TRANSFER",
-              referenceId,
-              notes: baseNotes,
-              createdBy: (req.user as any)?.id,
-              remainingQuantity: "0",
-              batchNumber: raw.batchNumber || null,
-              expiryDate: raw.expiryDate ? new Date(raw.expiryDate) : null,
-            });
-          }
-        }
-
-        // ── GL Posting: Dr Inventory-InTransit / Cr Inventory-Source ──
-        if (isDispatching && totalTransferCost > 0) {
-          const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
-          const inTransitAccCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx)
-            || await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx); // fallback
-          if (inventoryAccCode && inTransitAccCode) {
-            await storage.postToLedger(companyId, {
-              entryDate: new Date(),
-              description: `Transfer Dispatch ${referenceId} — ${locationDisplayName(fromLocation)} → ${locationDisplayName(toLocation)}`,
-              referenceType: "TRANSFER_DISPATCH",
-              referenceId,
-              createdBy: (req.user as any)?.id,
-              lines: [
-                { accountCode: inTransitAccCode, type: "DEBIT" as const, amount: totalTransferCost },
-                { accountCode: inventoryAccCode, type: "CREDIT" as const, amount: totalTransferCost },
-              ],
-            }, tx);
-          }
         }
 
         return { created, referenceId };
       });
 
       sendIdempotent(req, res, idempotencyKey, 201, {
-        message: statusInput === "IN_TRANSIT" ? "Transfer dispatched" : "Transfer order created",
+        message: "Transfer order created",
         transfer: result.created,
         referenceId: result.referenceId
       });
@@ -9792,6 +9904,9 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
+      if (!(await assertTransferPermission(req, companyId, "create"))) {
+        return res.status(403).json({ message: "You do not have permission to transfer stock" });
+      }
 
       const [updated] = await db
         .update(stockTransfers)
@@ -9812,12 +9927,25 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
+      if (!(await assertTransferPermission(req, companyId, "approve"))) {
+        return res.status(403).json({ message: "You do not have permission to approve stock transfers" });
+      }
+
+      const [transfer] = await db.select()
+        .from(stockTransfers)
+        .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId)))
+        .limit(1);
+      if (!transfer) return res.status(404).json({ message: "Transfer not found" });
+      const reviewerId = String(req.user?.id || "");
+      if (transfer.dispatchedBy && String(transfer.dispatchedBy) === reviewerId) {
+        return res.status(403).json({ message: "You cannot approve a transfer you dispatched" });
+      }
 
       const [updated] = await db
         .update(stockTransfers)
         .set({
           status: "APPROVED",
-          approvedBy: (req.user as any)?.id || null,
+          approvedBy: reviewerId || null,
           approvedAt: new Date(),
           updatedAt: new Date()
         })
@@ -9837,6 +9965,9 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
+      if (!(await assertTransferPermission(req, companyId, "dispatch"))) {
+        return res.status(403).json({ message: "You do not have permission to dispatch stock transfers" });
+      }
 
       const result = await db.transaction(async (tx) => {
         const [transfer] = await tx
@@ -9846,8 +9977,12 @@ export async function registerRoutes(
           .limit(1);
 
         if (!transfer) throw new Error("Transfer not found.");
-        if (transfer.status !== "APPROVED" && transfer.status !== "DRAFT") {
-          throw new Error("Only approved or draft transfers can be dispatched.");
+        if (transfer.status !== "APPROVED") {
+          throw new Error("Only approved transfers can be dispatched.");
+        }
+        const dispatcherId = String(req.user?.id || "");
+        if (transfer.approvedBy && String(transfer.approvedBy) === dispatcherId) {
+          throw Object.assign(new Error("You cannot dispatch a transfer you approved"), { statusCode: 403 });
         }
 
         const fromLocation = await resolveInventoryLocation(tx, companyId, {
@@ -9938,8 +10073,8 @@ export async function registerRoutes(
               referenceId: transfer.transferNumber,
               createdBy: (req.user as any)?.id,
               lines: [
-                { accountCode: inTransitAccCode, type: "DEBIT" as const, amount: totalTransferCost },
-                { accountCode: inventoryAccCode, type: "CREDIT" as const, amount: totalTransferCost },
+                { accountCode: inTransitAccCode, type: "DEBIT" as const, amount: totalTransferCost, departmentId: transfer.departmentId, costCenterId: transfer.costCenterId },
+                { accountCode: inventoryAccCode, type: "CREDIT" as const, amount: totalTransferCost, departmentId: transfer.departmentId, costCenterId: transfer.costCenterId },
               ],
             }, tx);
           }
@@ -9953,7 +10088,7 @@ export async function registerRoutes(
             dispatchedAt: new Date(),
             updatedAt: new Date()
           })
-          .where(eq(stockTransfers.id, transferId))
+          .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId)))
           .returning();
 
         return updated;
@@ -9961,7 +10096,7 @@ export async function registerRoutes(
 
       res.json({ message: "Transfer dispatched successfully", transfer: result });
     } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to dispatch transfer" });
+      res.status(error.statusCode || 400).json({ message: error.message || "Failed to dispatch transfer" });
     }
   });
 
@@ -9969,6 +10104,9 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
+      if (!(await assertTransferPermission(req, companyId, "receive"))) {
+        return res.status(403).json({ message: "You do not have permission to receive stock transfers" });
+      }
       const { notes, items, varianceReason } = req.body || {};
 
       const result = await db.transaction(async (tx) => {
@@ -9979,6 +10117,13 @@ export async function registerRoutes(
           .limit(1);
         if (!transfer) throw new Error("Transfer not found.");
         if (transfer.status !== "IN_TRANSIT") throw new Error("Only in-transit transfers can be received.");
+        const receiverId = String(req.user?.id || "");
+        if (transfer.dispatchedBy && String(transfer.dispatchedBy) === receiverId) {
+          throw Object.assign(new Error("You cannot receive a transfer you dispatched"), { statusCode: 403 });
+        }
+        if (transfer.varianceReason || transfer.receivedAt) {
+          throw new Error("This transfer has already been received.");
+        }
         const toLocation = await resolveInventoryLocation(tx, companyId, {
           locationId: transfer.toLocationId,
           branchId: transfer.toBranchId,
@@ -10044,6 +10189,22 @@ export async function registerRoutes(
           const varianceQty = finalLost + finalDamaged;
           const lineCostVariance = varianceQty * unitCost;
           totalVarianceGoodsCost += lineCostVariance;
+
+          // Loss/damage is a stock adjustment: it may only be recognised by a
+          // separate authorised reviewer, never by the dispatcher/receiver.
+          if (varianceQty > 0) {
+            if ((req as any).apiKeyCompanyId || !req.user?.id) {
+              throw Object.assign(new Error("API keys cannot approve transit loss or damage"), { statusCode: 403 });
+            }
+            const reviewerId = String(req.user.id);
+            await assertCanApproveType(reviewerId, companyId, APPROVAL_TYPES.STOCK_ADJUSTMENT, !!req.user.isSuperAdmin);
+            await assertNotSelfApproval(
+              String(transfer.dispatchedBy || transfer.approvedBy || ""),
+              reviewerId,
+              companyId,
+              APPROVAL_TYPES.STOCK_ADJUSTMENT,
+            );
+          }
 
           let allocatedTransitCost = 0;
           if (transitCost > 0) {
@@ -10139,20 +10300,21 @@ export async function registerRoutes(
           const lines = [];
 
           const finalReceivedVal = totalReceivedGoodsCost + transitCost;
+          const dimensions = { departmentId: transfer.departmentId, costCenterId: transfer.costCenterId };
           if (finalReceivedVal > 0 && inventoryAccCode) {
-            lines.push({ accountCode: inventoryAccCode, type: "DEBIT" as const, amount: Number(finalReceivedVal.toFixed(2)) });
+            lines.push({ accountCode: inventoryAccCode, type: "DEBIT" as const, amount: Number(finalReceivedVal.toFixed(2)), ...dimensions });
           }
 
           if (totalVarianceGoodsCost > 0 && lossAccCode) {
-            lines.push({ accountCode: lossAccCode, type: "DEBIT" as const, amount: Number(totalVarianceGoodsCost.toFixed(2)) });
+            lines.push({ accountCode: lossAccCode, type: "DEBIT" as const, amount: Number(totalVarianceGoodsCost.toFixed(2)), ...dimensions });
           }
 
           if (totalDispatchedGoodsCost > 0 && inTransitAccCode) {
-            lines.push({ accountCode: inTransitAccCode, type: "CREDIT" as const, amount: Number(totalDispatchedGoodsCost.toFixed(2)) });
+            lines.push({ accountCode: inTransitAccCode, type: "CREDIT" as const, amount: Number(totalDispatchedGoodsCost.toFixed(2)), ...dimensions });
           }
 
           if (transitCost > 0 && transitClearingAccCode) {
-            lines.push({ accountCode: transitClearingAccCode, type: "CREDIT" as const, amount: Number(transitCost.toFixed(2)) });
+            lines.push({ accountCode: transitClearingAccCode, type: "CREDIT" as const, amount: Number(transitCost.toFixed(2)), ...dimensions });
           }
 
           if (lines.length >= 2) {
@@ -10173,13 +10335,13 @@ export async function registerRoutes(
           receivedBy: (req.user as any)?.id || null,
           receivedAt: new Date(),
           updatedAt: new Date(),
-        }).where(eq(stockTransfers.id, transferId)).returning();
+        }).where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId))).returning();
         return updated;
       });
 
       res.json({ message: "Transfer received and stock posted", transfer: result });
     } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to receive transfer" });
+      res.status(error.statusCode || 400).json({ message: error.message || "Failed to receive transfer" });
     }
   });
 
@@ -10187,6 +10349,9 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
+      if (!(await assertTransferPermission(req, companyId, "cancel"))) {
+        return res.status(403).json({ message: "You do not have permission to cancel stock transfers" });
+      }
       const result = await db.transaction(async (tx) => {
         const [transfer] = await tx
           .select()
@@ -10197,6 +10362,10 @@ export async function registerRoutes(
         
         if (transfer.status === "CANCELLED" || transfer.status === "RECEIVED") {
           throw new Error("Transfer is already completed or cancelled.");
+        }
+        const cancellerId = String(req.user?.id || "");
+        if (transfer.dispatchedBy && String(transfer.dispatchedBy) === cancellerId) {
+          throw Object.assign(new Error("You cannot cancel a transfer you dispatched"), { statusCode: 403 });
         }
 
         const wasDispatched = transfer.status === "IN_TRANSIT";
@@ -10228,8 +10397,8 @@ export async function registerRoutes(
                 referenceId: transfer.transferNumber,
                 createdBy: (req.user as any)?.id,
                 lines: [
-                  { accountCode: inventoryAccCode, type: "DEBIT" as const, amount: totalReversalCost },
-                  { accountCode: inTransitAccCode, type: "CREDIT" as const, amount: totalReversalCost },
+                  { accountCode: inventoryAccCode, type: "DEBIT" as const, amount: totalReversalCost, departmentId: transfer.departmentId, costCenterId: transfer.costCenterId },
+                  { accountCode: inTransitAccCode, type: "CREDIT" as const, amount: totalReversalCost, departmentId: transfer.departmentId, costCenterId: transfer.costCenterId },
                 ],
               }, tx);
             }
@@ -10241,13 +10410,13 @@ export async function registerRoutes(
           cancelledBy: (req.user as any)?.id || null,
           cancelledAt: new Date(),
           updatedAt: new Date(),
-        }).where(eq(stockTransfers.id, transferId)).returning();
+        }).where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId))).returning();
         return updated;
       });
 
       res.json({ message: "Transfer cancelled successfully", transfer: result });
     } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to cancel transfer" });
+      res.status(error.statusCode || 400).json({ message: error.message || "Failed to cancel transfer" });
     }
   });
 
@@ -12006,11 +12175,13 @@ export async function registerRoutes(
     }
   });
 
+  // Tax setup is tenant configuration: the company is resolved from the
+  // authenticated session (or the key's tenant), never from an unverified body.
   app.get(api.tax.categories.path, requireAuth, async (req, res) => {
     try {
-      const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
-      if (!companyId && !req.user?.isSuperAdmin) return res.status(403).json({ message: "No company associated with request" });
-      const categories = await storage.getTaxCategories(companyId ? Number(companyId) : undefined);
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
+      const categories = await storage.getTaxCategories(companyId);
       res.json(categories);
     } catch (err: any) {
       console.error("List Tax Categories Error:", err);
@@ -12021,11 +12192,12 @@ export async function registerRoutes(
 
   app.post(api.tax.createCategory.path, requireAuth, async (req, res) => {
     try {
-      const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
-      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
+      if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
 
       const input = api.tax.createCategory.input.parse(req.body);
-      const category = await storage.createTaxCategory({ ...input, companyId: Number(companyId) });
+      const category = await storage.createTaxCategory({ ...input, companyId });
       res.status(201).json(category);
     } catch (err: any) {
       console.error(err);
@@ -12041,12 +12213,13 @@ export async function registerRoutes(
 
   app.patch(api.tax.updateCategory.path, requireAuth, async (req, res) => {
     try {
-      const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
-      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
+      if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
 
       const id = Number(req.params.id);
       const input = api.tax.updateCategory.input.parse(req.body);
-      const updated = await storage.updateTaxCategory(id, Number(companyId), input);
+      const updated = await storage.updateTaxCategory(id, companyId, input);
       if (!updated) return res.status(404).json({ message: "Category not found" });
       res.json(updated);
     } catch (err: any) {
@@ -12063,29 +12236,30 @@ export async function registerRoutes(
 
   // --- Tax Types Management ---
 
-  app.get("/api/tax-types", async (req, res) => {
+  app.get("/api/tax-types", requireAuth, async (req, res) => {
     try {
-      if (!req.isAuthenticated()) return res.sendStatus(401);
-      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : (req.headers["x-company-id"] ? parseInt(req.headers["x-company-id"] as string) : undefined);
-      // Allow seeing system defaults even if companyId is provided (logic inside storage)
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      // System-only defaults remain visible to an admin with no tenant selected;
+      // any tenant read must be authorised for that tenant.
+      if (!companyId && !req.user?.isSuperAdmin) {
+        return res.status(403).json({ message: "No company associated with request" });
+      }
       const taxes = await storage.getTaxTypes(companyId);
       res.json(taxes);
     } catch (err: any) {
-      console.error("List Tax Types (public) Error:", err);
+      console.error("List Tax Types Error:", err);
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation error", details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`) });
       res.status(500).json({ message: err.message || "Failed to list tax types" });
     }
   });
 
-  app.post("/api/tax-types", async (req, res) => {
+  app.post("/api/tax-types", requireAuth, async (req, res) => {
     try {
-      if (!req.isAuthenticated()) return res.sendStatus(401);
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
+      if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
+
       const data = insertTaxTypeSchema.parse(req.body);
-      const companyId = req.body.companyId; // Should be passed or derived from context
-
-      // Basic validation
-      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
-
       const newTax = await storage.createTaxType({ ...data, companyId });
       res.json(newTax);
     } catch (err: any) {
@@ -12095,15 +12269,13 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/tax-types/:id", async (req, res) => {
+  app.put("/api/tax-types/:id", requireAuth, async (req, res) => {
     try {
-      if (!req.isAuthenticated()) return res.sendStatus(401);
+      const companyId = await resolveAuthenticatedCompanyId(req);
+      if (!companyId) return res.status(403).json({ message: "No company associated with request" });
+      if (!(await requireAccountingPermission(req, res, companyId, "settings.accounting"))) return;
+
       const id = parseInt(req.params.id);
-      const companyId = req.body.companyId;
-
-      if (!companyId) return res.status(400).json({ message: "Company ID is required for verification" });
-
-      // We use partial update
       const updated = await storage.updateTaxType(id, companyId, req.body);
       if (!updated) return res.status(404).json({ message: "Tax Type not found" });
 
@@ -15215,13 +15387,34 @@ export async function registerRoutes(
   });
 
   // Stock Takes
+  const assertStockTakeAccess = async (req: any, companyId: number, action: "read" | "write"): Promise<boolean> => {
+    if (req.apiKeyCompanyId) return req.apiKeyCompanyId === companyId && action === "read";
+    if (!(await checkCompanyAccess(storage, req.user, companyId))) return false;
+    if (req.user?.isSuperAdmin) return true;
+    if (!req.user?.id) return false;
+    return userHasPermission(req.user.id, companyId, "stock.count");
+  };
+
+  const assertStockTakeProductsOwned = async (companyId: number, items: any[]) => {
+    if (items.some(item => !Number.isInteger(Number(item?.productId)) || Number(item.productId) <= 0)) {
+      throw new Error("Every stock take line needs a product");
+    }
+    const productIds = Array.from(new Set(items.map(item => Number(item.productId))));
+    const owned = await db.select({ id: products.id }).from(products)
+      .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+    if (owned.length !== productIds.length) throw new Error("A stock take product does not belong to this company");
+  };
+
   app.get("/api/companies/:companyId/stock-takes", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
+      if (!(await assertStockTakeAccess(req, companyId, "read"))) {
+        return res.status(403).json({ message: "You do not have permission to view stock takes" });
+      }
       const data = await storage.getStockTakes(companyId);
       res.json(data);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -15230,9 +15423,12 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const data = await storage.getStockTake(id);
       if (!data) return res.status(404).json({ message: "Stock take not found" });
+      if (!(await assertStockTakeAccess(req, data.companyId, "read"))) {
+        return res.status(403).json({ message: "You do not have permission to view stock takes" });
+      }
       res.json(data);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -15241,6 +15437,9 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const data = await storage.getStockTake(id);
       if (!data) return res.status(404).json({ message: "Stock take not found" });
+      if (!(await assertStockTakeAccess(req, data.companyId, "read"))) {
+        return res.status(403).json({ message: "You do not have permission to view stock takes" });
+      }
 
       const varianceReport = data.items.map(item => {
         const physical = parseFloat(item.physicalCount?.toString() || "0");
@@ -15260,14 +15459,21 @@ export async function registerRoutes(
 
       res.json(varianceReport);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 
   app.post("/api/companies/:companyId/stock-takes", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
+      if (!(await assertStockTakeAccess(req, companyId, "write"))) {
+        return res.status(403).json({ message: "You do not have permission to record stock takes" });
+      }
       const { items, notes } = req.body; // items: { productId, physicalCount, systemCount, unitCost }[]
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Add at least one stock take line" });
+      }
+      await assertStockTakeProductsOwned(companyId, items);
 
       const stockTake = await storage.createStockTake({
         companyId,
@@ -15276,42 +15482,54 @@ export async function registerRoutes(
         notes,
       });
 
-      if (items && items.length > 0) {
-        await storage.createStockTakeItems(items.map((it: any) => ({
-          ...it,
-          stockTakeId: stockTake.id,
-        })));
-      }
+      await storage.createStockTakeItems(items.map((it: any) => ({
+        ...it,
+        stockTakeId: stockTake.id,
+      })), companyId);
 
       res.status(201).json(stockTake);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 
   app.patch("/api/stock-takes/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { items, notes, status } = req.body;
+      const existing = await storage.getStockTake(id);
+      if (!existing) return res.status(404).json({ message: "Stock take not found" });
+      if (!(await assertStockTakeAccess(req, existing.companyId, "write"))) {
+        return res.status(403).json({ message: "You do not have permission to edit stock takes" });
+      }
+      if (existing.status !== "draft") {
+        return res.status(409).json({ message: `Stock take is ${existing.status} and can no longer be edited` });
+      }
 
-      const updated = await storage.updateStockTake(id, { notes, status });
+      const { items, notes } = req.body;
+      if (items !== undefined) {
+        if (!Array.isArray(items) || items.length === 0) {
+          return res.status(400).json({ message: "Add at least one stock take line" });
+        }
+        await assertStockTakeProductsOwned(existing.companyId, items);
+      }
+
+      // Status is completed only by the completion endpoint after the variance
+      // has been authorised. It is never accepted from the client here.
+      await storage.updateStockTake(id, { notes }, existing.companyId);
 
       if (items) {
-        // Simple strategy: replace all items for now, or update individually
-        // For simplicity in mobile, we might just send the whole list
-        // But let's support adding/updating
         for (const it of items) {
           if (it.id) {
-            await storage.updateStockTakeItem(it.id, it);
+            await storage.updateStockTakeItem(it.id, it, existing.companyId);
           } else {
-            await storage.createStockTakeItems([{ ...it, stockTakeId: id }]);
+            await storage.createStockTakeItems([{ ...it, stockTakeId: id }], existing.companyId);
           }
         }
       }
 
-      res.json(updated);
+      res.json(await storage.getStockTake(id, existing.companyId));
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -15320,12 +15538,36 @@ export async function registerRoutes(
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
       const id = parseInt(req.params.id);
-      const { companyId } = req.body;
+      const stockTake = await storage.getStockTake(id);
+      if (!stockTake) return res.status(404).json({ message: "Stock take not found" });
+      if (!(await assertStockTakeAccess(req, stockTake.companyId, "write"))) {
+        return res.status(403).json({ message: "You do not have permission to complete stock takes" });
+      }
+      if (stockTake.status !== "draft") {
+        return res.status(409).json({ message: `Stock take is ${stockTake.status} and cannot be completed again` });
+      }
+
+      const hasVariance = stockTake.items.some(item =>
+        Math.abs(Number(item.physicalCount || 0) - Number(item.systemCount || 0)) > 0.001,
+      );
+      if (hasVariance) {
+        if ((req as any).apiKeyCompanyId || !req.user?.id) {
+          return res.status(403).json({ message: "API keys cannot approve stock take variances" });
+        }
+        const reviewerId = String(req.user.id);
+        try {
+          await assertCanApproveType(reviewerId, stockTake.companyId, APPROVAL_TYPES.STOCK_ADJUSTMENT, !!req.user.isSuperAdmin);
+          await assertNotSelfApproval(String(stockTake.userId || ""), reviewerId, stockTake.companyId, APPROVAL_TYPES.STOCK_ADJUSTMENT);
+        } catch (error: any) {
+          return res.status(403).json({ message: error.message || "Stock take variance is not approved" });
+        }
+      }
+
       const { processStockTake } = await import("./lib/inventory.js");
-      await processStockTake(id, companyId, (req.user as any)?.id);
+      await processStockTake(id, stockTake.companyId, (req.user as any)?.id);
       sendIdempotent(req, res, idempotencyKey, 200, { message: "Stock take completed and inventory adjusted" });
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 

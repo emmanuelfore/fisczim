@@ -18,6 +18,36 @@ import { checkCompanyAccess } from "./company-auth.js";
  * when nothing names one the owner is inferred from the caller's own memberships — and a
  * shift id that two of the caller's companies both hold is refused rather than guessed at.
  */
+/**
+ * Company for routes that are not addressed by a resource id (opening a shift,
+ * making a manual POS adjustment, reading tenant-owned setup). The caller may
+ * name the tenant in the path, query, body or X-Company-ID header; otherwise
+ * the session's own company is used, or the sole membership when there is no
+ * default on the user. API keys stay pinned to their own tenant.
+ */
+export async function resolveAuthenticatedCompanyId(req: any): Promise<number | undefined> {
+  const userId = req.user?.id;
+  if (!userId && !req.apiKeyCompanyId) return undefined;
+
+  const named = Number(
+    req.params?.companyId ??
+    req.query?.companyId ??
+    req.body?.companyId ??
+    req.headers?.["x-company-id"] ??
+    req.user?.companyId,
+  );
+  if (Number.isInteger(named) && named > 0) {
+    if (req.apiKeyCompanyId) {
+      return named === Number(req.apiKeyCompanyId) ? named : undefined;
+    }
+    return (await checkCompanyAccess(storage, req.user, named)) ? named : undefined;
+  }
+
+  if (req.apiKeyCompanyId) return Number(req.apiKeyCompanyId);
+  const memberships = await storage.getCompanies(userId);
+  return memberships.length === 1 ? Number(memberships[0].id) : undefined;
+}
+
 export async function resolveShiftCompanyId(req: any, shiftId: number): Promise<number | undefined> {
   const userId = req.user?.id;
   if (!userId) return undefined;

@@ -607,14 +607,20 @@ export async function recordAdjustment(
 
 export async function processStockTake(stockTakeId: number, companyId: number, userId?: string) {
     await db.transaction(async (tx) => {
-        // 1. Get stock take and items
-        const [stockTake] = await tx.select().from(stockTakes).where(eq(stockTakes.id, stockTakeId));
-        if (!stockTake) throw new Error("Stock take not found");
+        // 1. Get stock take and items. The id alone is not authoritative: the
+        // row must still belong to the company the caller authenticated for.
+        const [stockTake] = await tx.select().from(stockTakes)
+            .where(and(eq(stockTakes.id, stockTakeId), eq(stockTakes.companyId, companyId)));
+        if (!stockTake) throw new Error("Stock take not found for this company");
         if (stockTake.status !== "draft") throw new Error("Stock take is not in draft status");
 
-        const items = await tx.select().from(stockTakeItems).where(eq(stockTakeItems.stockTakeId, stockTakeId));
+        const items = await tx.select({ item: stockTakeItems })
+            .from(stockTakeItems)
+            .innerJoin(products, eq(stockTakeItems.productId, products.id))
+            .where(and(eq(stockTakeItems.stockTakeId, stockTakeId), eq(products.companyId, companyId)));
 
-        for (const item of items) {
+        for (const joined of items) {
+            const item = joined.item;
             const physical = parseFloat(item.physicalCount?.toString() || "0");
             const system = parseFloat(item.systemCount?.toString() || "0");
             const variance = physical - system;
@@ -650,10 +656,16 @@ export async function processStockTake(stockTakeId: number, companyId: number, u
             }
         }
 
-        // 4. Mark as completed
-        await tx.update(stockTakes)
+        // 4. Mark as completed only if it is still the same draft row
+        const [completed] = await tx.update(stockTakes)
             .set({ status: "completed", completedAt: new Date() })
-            .where(eq(stockTakes.id, stockTakeId));
+            .where(and(
+                eq(stockTakes.id, stockTakeId),
+                eq(stockTakes.companyId, companyId),
+                eq(stockTakes.status, "draft"),
+            ))
+            .returning({ id: stockTakes.id });
+        if (!completed) throw new Error("Stock take is no longer in draft status");
     });
 }
 

@@ -865,6 +865,72 @@ export function createCustomerFlowRouter(requireAuth: any) {
       const itemsToInvoice = linesToInvoice;
       const invoiceTotal = invoiceSubtotal + invoiceTax;
 
+      // Approval amount and the deferred payload come from the persisted
+      // sales-order lines and persisted pick list. Client input only selects
+      // lines; it never prices or totals the invoice.
+      const approvalInvoiceData = {
+        companyId: order.companyId,
+        branchId: order.branchId ?? null,
+        customerId: order.customerId ?? null,
+        salesOrderId: order.id,
+        departmentId: order.departmentId ?? null,
+        costCenterId: order.costCenterId ?? null,
+        locationId: fulfillment.locationId ?? order.locationId ?? null,
+        invoiceNumber: `INV-${Date.now()}`,
+        issueDate: new Date().toISOString(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        subtotal: invoiceSubtotal.toFixed(2),
+        taxAmount: invoiceTax.toFixed(2),
+        total: invoiceTotal.toFixed(2),
+        status: "issued",
+        items: invoiceItemsData,
+      };
+
+      // Same gate as the direct invoice route. The shared invoice_issue
+      // executor rechecks the source document (one active invoice per sales
+      // order) and issues from these persisted amounts when approval arrives.
+      const gate = await requireApprovalOrContinue({
+        userId: String((req as any).user?.id ?? ""),
+        companyId,
+        isSuperAdmin: !!(req as any).user?.isSuperAdmin,
+        type: APPROVAL_TYPES.INVOICE_ISSUE,
+        amount: invoiceTotal,
+        title: `Invoice issuance: ${order.orderNumber}`,
+        description: "Issuing an invoice from a dispatched sales order must be authorised.",
+        payload: {
+          invoiceData: approvalInvoiceData,
+          items: invoiceItemsData,
+          pricing: {
+            subtotal: invoiceSubtotal.toFixed(2),
+            taxAmount: invoiceTax.toFixed(2),
+            total: invoiceTotal.toFixed(2),
+          },
+          salesOrderId: order.id,
+          salesOrderSnapshot: {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            approvalStatus: order.approvalStatus ?? "none",
+          },
+          fulfilmentSnapshot: {
+            pickListId: fulfillment.pickList.id,
+            pickListStatus: fulfillment.pickList.status,
+            deliveryNumber: fulfillment.pickList.deliveryNumber ?? null,
+            lines: itemsToInvoice,
+          },
+        },
+        referenceType: "invoice_draft",
+        referenceId: String(order.id),
+      });
+      if (gate.requiresApproval) {
+        return res.status(202).json({
+          message: "Invoice issuance submitted for approval",
+          requiresApproval: true,
+          approvalId: gate.request.id,
+          approval: gate.request,
+        });
+      }
+
       // The invoice, GL postings and order status must form one atomic unit.
       // A duplicate retry is handled by the active-invoice guard above and the
       // partial unique index in the database.
@@ -898,6 +964,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
         // Post the customer document with the originating department's cost centre.
         try {
           const costCenterId = newInvoice.costCenterId ?? order.costCenterId ?? null;
+          // The originating sales order's stored department travels with every
+          // GL line so departmental reports reconcile with the invoice.
+          const departmentId = order.departmentId ?? null;
           const [arAccountCode, salesAccountCode, vatAccountCode, cogsAccountCode, inventoryAccountCode] = await Promise.all([
             storage.getSystemAccountCode(order.companyId, "accountsReceivableCode", tx),
             storage.getSystemAccountCode(order.companyId, "salesRevenueAccountCode", tx),
@@ -907,11 +976,11 @@ export function createCustomerFlowRouter(requireAuth: any) {
           ]);
 
           const revenueLines: any[] = [
-            { accountCode: arAccountCode, type: "DEBIT", amount: invoiceTotal, costCenterId },
-            { accountCode: salesAccountCode, type: "CREDIT", amount: invoiceSubtotal, costCenterId },
+            { accountCode: arAccountCode, type: "DEBIT", amount: invoiceTotal, costCenterId, departmentId },
+            { accountCode: salesAccountCode, type: "CREDIT", amount: invoiceSubtotal, costCenterId, departmentId },
           ];
           if (invoiceTax > 0) {
-            revenueLines.push({ accountCode: vatAccountCode, type: "CREDIT", amount: invoiceTax, costCenterId });
+            revenueLines.push({ accountCode: vatAccountCode, type: "CREDIT", amount: invoiceTax, costCenterId, departmentId });
           }
           await storage.postToLedger(order.companyId, {
             entryDate: newInvoice.issueDate || new Date(),
@@ -934,8 +1003,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
               referenceId: String(newInvoice.id),
               createdBy: (req.user as any)?.id || undefined,
               lines: [
-                { accountCode: cogsAccountCode, type: "DEBIT", amount: cogs, costCenterId },
-                { accountCode: inventoryAccountCode, type: "CREDIT", amount: cogs, costCenterId },
+                { accountCode: cogsAccountCode, type: "DEBIT", amount: cogs, costCenterId, departmentId },
+                { accountCode: inventoryAccountCode, type: "CREDIT", amount: cogs, costCenterId, departmentId },
               ],
             } as any, tx);
           }
@@ -1049,7 +1118,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
           return res.json({ ...existingInvoice, alreadyExists: true });
         }
       }
-      res.status(500).json({ error: error.message });
+      res.status(error?.statusCode || 500).json({ error: error.message });
     }
   });
 

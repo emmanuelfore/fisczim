@@ -118,11 +118,11 @@ npm run training:stamp:samples    # stamp a training QR on bundled PDFs
 
 1. Log in as the **Accountant** and open the dispatched sales order.
 2. Click invoice generation (`/api/invoices/from-sales-order`) and invoice only picked/dispatched quantities.
-3. Verify department, cost centre and location on the invoice.
-4. Attempt to invoice the same sales order again.
-5. Confirm the existing invoice is reopened/blocked rather than a second active invoice being created.
-6. Explain how migration 0109 handles legacy duplicates: it cancels duplicates and preserves accounting history; it does not delete rows.
-7. Open the invoice approval flow and submit it when the amount requires approval.
+3. If the amount requires approval, confirm the response says no invoice was created yet and show the pending item in `/approvals`; only an authorised approver can release it.
+4. Verify department, cost centre and location on the invoice and on every AR/sales/VAT/COGS/inventory GL line.
+5. Attempt to invoice the same sales order again.
+6. Confirm the existing invoice is reopened/blocked rather than a second active invoice being created.
+7. Explain how migration 0109 handles legacy duplicates: it cancels duplicates and preserves accounting history; it does not delete rows.
 8. In `FiscalPrinter`, run `npm run training:invoice` and `npm run training:pdf`; inspect the watermark/training QR.
 9. Run `npm run training:stamp:samples` on a copy of a sample PDF and confirm the source file is unchanged.
 10. **Checkpoint:** no live fiscalization was used and one active invoice remains.
@@ -138,19 +138,20 @@ npm run training:stamp:samples    # stamp a training QR on bundled PDFs
 7. Verify stock increases in `WH-HW` and the GRN carries PO department/cost-centre values.
 8. Enter a supplier invoice in `/supplier-invoices` matching PO and GRN; observe a `MATCHED` result.
 9. Enter a second bill with a quantity or price variance; observe it is blocked or routed for waiver approval.
-10. The requisition/quote screen covers capture, submission, quote selection and PO creation; supplier registration, GRNs and three-way matching remain on their existing screens.
+10. Pay the matched bill through `/api/accounting/payments/supplier`; if it is above the threshold, confirm the 202 response posts no cash until a different authorised approver releases it. The requisition/quote screen covers capture, submission, quote selection and PO creation; supplier registration, GRNs and three-way matching remain on their existing screens.
 11. **Checkpoint:** describe the three-way match: PO quantity/price vs GRN receipt vs supplier invoice.
 
 ### Exercise 6 — Transfers, counts, adjustments and damaged stock
 
 1. Log in as the **Warehouse Officer**.
-2. Transfer stock from `CENTRAL` to `WH-HW` in `/inventory/transfers`.
-3. Confirm both location balances and the inventory transaction department/cost centre.
-4. Perform a stock count in `/inventory/stock-counts` for one product in `WH-REP`.
-5. Post an approved adjustment in `/inventory/adjustments` for a small training variance.
-6. Record a damaged-stock quantity using the client-confirmed damaged-stock figure when available; otherwise use a clearly labelled placeholder.
-7. Log in as the **Accountant** and inspect the resulting GL lines and cost centre.
-8. **Checkpoint:** explain which movements require approval and why adjustments must be auditable.
+2. Create a transfer from `CENTRAL` to `WH-HW` in `/inventory/transfers`; it is saved as DRAFT even if an `IN_TRANSIT` status is submitted.
+3. Have a different authorised user approve it, then dispatch and receive it with separate users; the same person must not approve and dispatch, or dispatch and receive.
+4. Confirm both location balances and the inventory transaction department/cost centre.
+5. Perform a stock count in `/inventory/stock-counts` for one product in `WH-REP`; completing a variance requires a separate authorised reviewer.
+6. Post an approved adjustment in `/inventory/adjustments` for a small training variance.
+7. Record a damaged-stock quantity using the client-confirmed damaged-stock figure when available; otherwise use a clearly labelled placeholder.
+8. Log in as the **Accountant** and inspect the resulting GL lines and cost centre.
+9. **Checkpoint:** explain which movements require approval and why adjustments must be auditable.
 
 ### Exercise 7 — Approvals, SoD and self-approval prevention
 

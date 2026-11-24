@@ -447,7 +447,10 @@ export interface IStorage {
   createSupplier(data: InsertSupplier & { companyId: number }): Promise<Supplier>;
   updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined>;
   createSupplierInvoice(data: InsertSupplierInvoice & { items: Array<Omit<InsertSupplierInvoiceItem, "supplierInvoiceId">>, createdBy?: string, onAfterInsert?: (tx: any, invoiceId: number) => Promise<void> }): Promise<SupplierInvoice>;
-  createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment>;
+  createSupplierPayment(data: InsertSupplierPayment, options?: {
+    skipInvoiceUpdate?: boolean;
+    onAfterInsert?: (tx: any, paymentId: number) => Promise<void>;
+  }): Promise<SupplierPayment>;
   getSupplierInvoices(companyId: number): Promise<any[]>;
   getSupplierPayments(companyId: number): Promise<any[]>;
 
@@ -493,11 +496,11 @@ export interface IStorage {
 
   // Stock Takes
   getStockTakes(companyId: number): Promise<StockTake[]>;
-  getStockTake(id: number): Promise<(StockTake & { items: (StockTakeItem & { product: Product })[] }) | undefined>;
+  getStockTake(id: number, companyId?: number): Promise<(StockTake & { items: (StockTakeItem & { product: Product })[] }) | undefined>;
   createStockTake(data: InsertStockTake): Promise<StockTake>;
-  updateStockTake(id: number, data: Partial<StockTake>): Promise<StockTake>;
-  createStockTakeItems(items: InsertStockTakeItem[]): Promise<void>;
-  updateStockTakeItem(id: number, data: Partial<StockTakeItem>): Promise<void>;
+  updateStockTake(id: number, data: Partial<StockTake>, companyId?: number): Promise<StockTake>;
+  createStockTakeItems(items: InsertStockTakeItem[], companyId?: number): Promise<void>;
+  updateStockTakeItem(id: number, data: Partial<StockTakeItem>, companyId?: number): Promise<void>;
   deleteStockTakeItem(id: number): Promise<void>;
 
   // Restaurant & BOM
@@ -4622,6 +4625,94 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Quotations
+  private async recomputeQuotationAmounts(
+    tx: any,
+    companyId: number,
+    rawItems: InsertQuotationItem[],
+    taxInclusive: boolean,
+  ) {
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      throw new Error("At least one quotation line is required");
+    }
+
+    const productIds = Array.from(new Set(rawItems
+      .map((item) => Number(item.productId))
+      .filter((id) => Number.isInteger(id) && id > 0)));
+    const explicitTaxIds = Array.from(new Set(rawItems
+      .map((item) => Number(item.taxTypeId))
+      .filter((id) => Number.isInteger(id) && id > 0)));
+
+    const productRows = productIds.length
+      ? await tx.select({ id: products.id, taxRate: products.taxRate, taxTypeId: products.taxTypeId })
+          .from(products)
+          .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)))
+      : [];
+    const productById = new Map<number, { taxTypeId?: number | null; taxRate?: string | number | null }>(
+      productRows.map((row: any) => [Number(row.id), row] as const),
+    );
+    for (const id of productIds) {
+      if (!productById.has(id)) throw new Error(`Product ${id} does not belong to this company`);
+    }
+
+    const taxIds = Array.from(new Set([
+      ...explicitTaxIds,
+      ...productRows.map((row: any) => Number(row.taxTypeId)).filter((id: number) => Number.isInteger(id) && id > 0),
+    ]));
+    const taxRateById = new Map<number, number>();
+    if (taxIds.length) {
+      const taxRows = await tx.select({ id: taxTypes.id, rate: taxTypes.rate })
+        .from(taxTypes)
+        .where(and(or(eq(taxTypes.companyId, companyId), isNull(taxTypes.companyId)), inArray(taxTypes.id, taxIds)));
+      for (const row of taxRows) taxRateById.set(Number(row.id), Number(row.rate || 0));
+    }
+
+    const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+    let subtotal = 0;
+    let taxAmount = 0;
+    const items: InsertQuotationItem[] = [];
+
+    for (const raw of rawItems) {
+      const quantity = Number(raw.quantity);
+      const unitPrice = Number(raw.unitPrice);
+      if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) {
+        throw new Error("Quotation lines must have a valid quantity and unit price");
+      }
+      const product = productById.get(Number(raw.productId));
+      const taxTypeId = raw.taxTypeId != null ? Number(raw.taxTypeId) : product?.taxTypeId ?? null;
+      const taxRate = taxTypeId != null && taxRateById.has(taxTypeId)
+        ? taxRateById.get(taxTypeId)!
+        : product ? Number(product.taxRate ?? 0) : Number(raw.taxRate ?? 0);
+      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+        throw new Error("Quotation line tax rate must be between 0 and 100");
+      }
+
+      const netLine = quantity * unitPrice;
+      if (taxInclusive) {
+        const net = netLine / (1 + taxRate / 100);
+        subtotal += net;
+        taxAmount += netLine - net;
+      } else {
+        subtotal += netLine;
+        taxAmount += netLine * (taxRate / 100);
+      }
+      items.push({
+        ...raw,
+        quantity: String(quantity),
+        unitPrice: round(unitPrice).toFixed(2),
+        taxRate: taxRate.toFixed(2),
+        taxTypeId: taxTypeId ?? null,
+        lineTotal: round(netLine).toFixed(2),
+      });
+    }
+
+    return {
+      subtotal: round(subtotal).toFixed(2),
+      taxAmount: round(taxAmount).toFixed(2),
+      total: round(subtotal + taxAmount).toFixed(2),
+      items,
+    };
+  }
+
   async getQuotations(companyId: number): Promise<Quotation[]> {
     return await db.select().from(quotations).where(eq(quotations.companyId, companyId)).orderBy(desc(quotations.createdAt));
   }
@@ -4639,14 +4730,18 @@ export class DatabaseStorage implements IStorage {
   async createQuotation(data: InsertQuotation & { items: InsertQuotationItem[] }): Promise<Quotation> {
     return await db.transaction(async (tx) => {
       const { items, ...quotationData } = data;
+      const computed = await this.recomputeQuotationAmounts(tx, quotationData.companyId, items, Boolean(quotationData.taxInclusive));
       const [quotation] = await tx.insert(quotations).values({
         ...quotationData,
+        subtotal: computed.subtotal,
+        taxAmount: computed.taxAmount,
+        total: computed.total,
         quotationNumber: await this.getNextQuotationNumber(quotationData.companyId),
       }).returning();
 
-      if (items.length > 0) {
+      if (computed.items.length > 0) {
         await tx.insert(quotationItems).values(
-          items.map(item => ({ ...item, quotationId: quotation.id }))
+          computed.items.map(item => ({ ...item, quotationId: quotation.id }))
         );
       }
 
@@ -4657,19 +4752,51 @@ export class DatabaseStorage implements IStorage {
   async updateQuotation(id: number, data: Partial<InsertQuotation> & { items?: InsertQuotationItem[] }): Promise<Quotation> {
     return await db.transaction(async (tx) => {
       const { items, ...quotationData } = data;
+      const [existing] = await tx.select().from(quotations).where(eq(quotations.id, id)).limit(1);
+      if (!existing) throw new Error("Quotation not found");
+
+      const terminal = new Set(["approved", "accepted", "invoiced"]);
+      const commercialFields = ["items", "subtotal", "taxAmount", "total", "taxInclusive", "customerId", "quantity", "unitPrice"];
+      if (terminal.has(String(existing.status || "").toLowerCase())
+          && commercialFields.some((field) => (data as any)[field] !== undefined)) {
+        throw new Error(`Quotation is ${existing.status} and can no longer be edited`);
+      }
+
+      let nextQuotationData: Partial<InsertQuotation> = quotationData;
+      let nextItems: InsertQuotationItem[] | undefined = items;
+      const touchesAmounts = commercialFields.some((field) => (data as any)[field] !== undefined);
+      if (touchesAmounts) {
+        const storedItems = items && items.length > 0
+          ? items
+          : await tx.select().from(quotationItems).where(eq(quotationItems.quotationId, id)) as InsertQuotationItem[];
+        const computed = await this.recomputeQuotationAmounts(
+          tx,
+          existing.companyId,
+          storedItems as InsertQuotationItem[],
+          Boolean(quotationData.taxInclusive ?? existing.taxInclusive),
+        );
+        nextQuotationData = {
+          ...quotationData,
+          subtotal: computed.subtotal,
+          taxAmount: computed.taxAmount,
+          total: computed.total,
+        };
+        nextItems = computed.items;
+      }
+
       const [updated] = await tx
         .update(quotations)
-        .set(quotationData)
-        .where(eq(quotations.id, id))
+        .set(nextQuotationData)
+        .where(and(eq(quotations.id, id), eq(quotations.companyId, existing.companyId)))
         .returning();
 
       if (!updated) throw new Error("Quotation not found");
 
-      if (items) {
+      if (nextItems) {
         await tx.delete(quotationItems).where(eq(quotationItems.quotationId, id));
-        if (items.length > 0) {
+        if (nextItems.length > 0) {
           await tx.insert(quotationItems).values(
-            items.map(item => ({ ...item, quotationId: id }))
+            nextItems.map(item => ({ ...item, quotationId: id }))
           );
         }
       }
@@ -6543,7 +6670,10 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment> {
+  async createSupplierPayment(data: InsertSupplierPayment, options?: {
+    skipInvoiceUpdate?: boolean;
+    onAfterInsert?: (tx: any, paymentId: number) => Promise<void>;
+  }): Promise<SupplierPayment> {
     return await db.transaction(async (tx) => {
       const [payment] = await tx.insert(supplierPayments).values(data).returning();
 
@@ -6574,8 +6704,10 @@ export class DatabaseStorage implements IStorage {
         lines
       }, tx);
 
-      // If allocated to an invoice, update that invoice
-      if (data.supplierInvoiceId) {
+      // Legacy single-invoice payments update the bill here. Allocated payments
+      // carry their own bill updates in onAfterInsert so the primary bill is
+      // not credited twice.
+      if (data.supplierInvoiceId && !options?.skipInvoiceUpdate) {
         const [invoice] = await tx.select().from(supplierInvoices).where(eq(supplierInvoices.id, data.supplierInvoiceId));
         if (invoice) {
           const newPaidAmount = (Number(invoice.paidAmount) + Number(data.amount)).toFixed(2);
@@ -6588,6 +6720,10 @@ export class DatabaseStorage implements IStorage {
             })
             .where(eq(supplierInvoices.id, invoice.id));
         }
+      }
+
+      if (options?.onAfterInsert) {
+        await options.onAfterInsert(tx, payment.id);
       }
 
       return payment;
@@ -8211,8 +8347,9 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(stockTakes).where(eq(stockTakes.companyId, companyId)).orderBy(desc(stockTakes.createdAt));
   }
 
-  async getStockTake(id: number): Promise<(StockTake & { items: (StockTakeItem & { product: Product })[] }) | undefined> {
-    const [stockTake] = await db.select().from(stockTakes).where(eq(stockTakes.id, id));
+  async getStockTake(id: number, companyId?: number): Promise<(StockTake & { items: (StockTakeItem & { product: Product })[] }) | undefined> {
+    const [stockTake] = await db.select().from(stockTakes)
+      .where(companyId ? and(eq(stockTakes.id, id), eq(stockTakes.companyId, companyId)) : eq(stockTakes.id, id));
     if (!stockTake) return undefined;
 
     const itemsWithProducts = await db
@@ -8222,7 +8359,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(stockTakeItems)
       .innerJoin(products, eq(stockTakeItems.productId, products.id))
-      .where(eq(stockTakeItems.stockTakeId, id));
+      .where(and(eq(stockTakeItems.stockTakeId, id), eq(products.companyId, stockTake.companyId)));
 
     return {
       ...stockTake,
@@ -8238,19 +8375,41 @@ export class DatabaseStorage implements IStorage {
     return stockTake;
   }
 
-  async updateStockTake(id: number, data: Partial<StockTake>): Promise<StockTake> {
-    const [updated] = await db.update(stockTakes).set(data).where(eq(stockTakes.id, id)).returning();
+  async updateStockTake(id: number, data: Partial<StockTake>, companyId?: number): Promise<StockTake> {
+    const [updated] = await db.update(stockTakes)
+      .set(data)
+      .where(companyId ? and(eq(stockTakes.id, id), eq(stockTakes.companyId, companyId)) : eq(stockTakes.id, id))
+      .returning();
     if (!updated) throw new Error("Stock take not found");
     return updated;
   }
 
-  async createStockTakeItems(items: InsertStockTakeItem[]): Promise<void> {
+  async createStockTakeItems(items: InsertStockTakeItem[], companyId?: number): Promise<void> {
     if (items.length === 0) return;
+    if (companyId) {
+      const stockTakeIds = Array.from(new Set(items.map(item => Number(item.stockTakeId))));
+      const owned = await db.select({ id: stockTakes.id }).from(stockTakes)
+        .where(and(eq(stockTakes.companyId, companyId), inArray(stockTakes.id, stockTakeIds)));
+      if (owned.length !== stockTakeIds.length) throw new Error("Stock take not found for this company");
+      const productIds = Array.from(new Set(items.map(item => Number(item.productId)).filter(id => Number.isInteger(id) && id > 0)));
+      if (productIds.length) {
+        const ownedProducts = await db.select({ id: products.id }).from(products)
+          .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+        if (ownedProducts.length !== productIds.length) throw new Error("Product not found for this company");
+      }
+    }
     await db.insert(stockTakeItems).values(items);
   }
 
-  async updateStockTakeItem(id: number, data: Partial<StockTakeItem>): Promise<void> {
-    await db.update(stockTakeItems).set(data).where(eq(stockTakeItems.id, id));
+  async updateStockTakeItem(id: number, data: Partial<StockTakeItem>, companyId?: number): Promise<void> {
+    await db.update(stockTakeItems)
+      .set(data)
+      .where(companyId
+        ? and(
+            eq(stockTakeItems.id, id),
+            inArray(stockTakeItems.stockTakeId, db.select({ id: stockTakes.id }).from(stockTakes).where(eq(stockTakes.companyId, companyId))),
+          )
+        : eq(stockTakeItems.id, id));
   }
 
   async deleteStockTakeItem(id: number): Promise<void> {

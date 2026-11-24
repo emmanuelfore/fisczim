@@ -118,7 +118,7 @@ vi.mock("../storage.js", () => ({
 }));
 
 import { endPosShift, addPosTransaction, getShiftTransactions } from "../lib/pos.js";
-import { resolveShiftCompanyId } from "../lib/pos-scope.js";
+import { resolveAuthenticatedCompanyId, resolveShiftCompanyId } from "../lib/pos-scope.js";
 
 beforeEach(() => {
   state.reads = [];
@@ -227,5 +227,41 @@ describe("the company a shift route acts for", () => {
 
     expect(await resolveShiftCompanyId(req, 1)).toBeUndefined();
     expect(state.reads).toHaveLength(0);
+  });
+});
+
+describe("the company used by routes without a resource id", () => {
+  const reqFor = (over: any = {}) => ({
+    user: { id: "cashier-1", isSuperAdmin: false },
+    params: {},
+    query: {},
+    body: {},
+    headers: {},
+    ...over,
+  });
+
+  test("a named company is only accepted when the caller belongs to it", async () => {
+    state.memberships = [{ id: 21, role: "cashier" }];
+
+    expect(await resolveAuthenticatedCompanyId(reqFor({ body: { companyId: 21 } }))).toBe(21);
+    expect(await resolveAuthenticatedCompanyId(reqFor({ body: { companyId: 91 } }))).toBeUndefined();
+  });
+
+  test("the web client's header and the session default are both honoured", async () => {
+    state.memberships = [{ id: 21, role: "cashier" }];
+
+    expect(await resolveAuthenticatedCompanyId(reqFor({ headers: { "x-company-id": "21" } }))).toBe(21);
+    expect(await resolveAuthenticatedCompanyId(reqFor({ user: { id: "cashier-1", companyId: 21 } }))).toBe(21);
+  });
+
+  test("an API key cannot be redirected to another tenant", async () => {
+    expect(await resolveAuthenticatedCompanyId(reqFor({ apiKeyCompanyId: 21, body: { companyId: 91 } }))).toBeUndefined();
+    expect(await resolveAuthenticatedCompanyId(reqFor({ apiKeyCompanyId: 21 }))).toBe(21);
+  });
+
+  test("with no company named, a single membership decides the tenant", async () => {
+    state.memberships = [{ id: 21, role: "cashier" }];
+
+    expect(await resolveAuthenticatedCompanyId(reqFor())).toBe(21);
   });
 });

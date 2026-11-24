@@ -227,6 +227,15 @@ export default function SalesOrderDetailsPage() {
       });
 
       const invoice = await res.json();
+      if (res.status === 202) {
+        toast({
+          title: "Invoice Sent for Approval",
+          description: invoice.message || "Invoice issuance was submitted for approval. No invoice was created yet.",
+        });
+        setIsInvoicing(false);
+        await refreshOrder();
+        return;
+      }
       if (!res.ok) throw new Error(invoice.error || "Failed to invoice");
 
       toast({

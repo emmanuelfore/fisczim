@@ -116,11 +116,18 @@ export function useConvertToInvoice() {
                 const err = await res.json();
                 throw new Error(err.message || "Failed to convert quotation");
             }
-            return await res.json();
+            // 202 means an approver must release the conversion before an
+            // invoice exists. Do not suggest the invoice was created.
+            return await res.json() as any;
         },
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["quotations"] });
             queryClient.invalidateQueries({ queryKey: ["invoices"] });
+            if (data?.approval) {
+                queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+                toast({ title: "Conversion Submitted", description: data.message || "An approver must authorise this conversion." });
+                return;
+            }
             toast({ title: "Conversion Successful", description: `Created Invoice ${data.invoiceNumber}.` });
         },
         onError: (error: Error) => {

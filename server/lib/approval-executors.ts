@@ -1,5 +1,6 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import {
+  approvalRequests,
   invoices,
   insertExpenseSchema,
   insertPaymentSchema,
@@ -17,6 +18,11 @@ import {
   quotations,
   salesOrderItems,
   salesOrders,
+  salesPickListItems,
+  salesPickLists,
+  supplierBillMatches,
+  supplierInvoices,
+  supplierPaymentAllocations,
 } from "../../shared/schema.js";
 import { type ApprovalType } from "../../shared/permissions.js";
 import { db } from "../db.js";
@@ -42,6 +48,72 @@ function dateOrNull(value: unknown): Date | null {
   if (!value) return null;
   const d = new Date(String(value));
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const PAYABLE_MATCH_STATUSES = new Set(["MATCHED", "NO_PO", "WAIVED"]);
+const SETTLED_MATCH_APPROVALS = new Set(["NOT_REQUIRED", "APPROVED"]);
+
+/**
+ * A bill can only carry cash once it is a live, approved, payable supplier
+ * invoice. Both the payment route and the deferred payment executor call this
+ * so a bill that is cancelled, voided, still awaiting approval or carrying a
+ * failed three-way match cannot be paid while an approval is in flight.
+ */
+export async function assertSupplierBillPayable(companyId: number, supplierInvoiceId: unknown): Promise<void> {
+  const id = Number(supplierInvoiceId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("A supplier bill is required for this allocation");
+  }
+
+  const [bill] = await db
+    .select()
+    .from(supplierInvoices)
+    .where(and(eq(supplierInvoices.id, id), eq(supplierInvoices.companyId, companyId)))
+    .limit(1);
+  if (!bill) throw new Error(`Supplier bill ${id} was not found for this company`);
+
+  const billStatus = String(bill.status || "").toLowerCase();
+  if (["cancelled", "void", "voided"].includes(billStatus)) {
+    throw new Error(`Supplier bill ${bill.invoiceNumber || id} is ${billStatus} and cannot be paid`);
+  }
+  if (String(bill.transactionType || "Invoice").toLowerCase() === "creditnote") {
+    throw new Error(`Supplier credit note ${bill.invoiceNumber || id} cannot be paid as a bill`);
+  }
+  if (Number(bill.paidAmount || 0) >= Number(bill.totalAmount || 0) - 0.005) {
+    throw new Error(`Supplier bill ${bill.invoiceNumber || id} is already fully paid`);
+  }
+
+  const [approval] = await db
+    .select({ status: approvalRequests.status })
+    .from(approvalRequests)
+    .where(and(
+      eq(approvalRequests.companyId, companyId),
+      eq(approvalRequests.referenceType, "supplier_invoice"),
+      eq(approvalRequests.referenceId, String(id)),
+    ))
+    .orderBy(desc(approvalRequests.createdAt))
+    .limit(1);
+  const approvalStatus = String(approval?.status || "").toLowerCase();
+  if (approvalStatus === "pending" || approvalStatus === "rejected" || approvalStatus === "cancelled") {
+    throw new Error(`Supplier bill ${bill.invoiceNumber || id} is not approved for payment`);
+  }
+
+  const [match] = await db
+    .select({ status: supplierBillMatches.status, approvalStatus: supplierBillMatches.approvalStatus })
+    .from(supplierBillMatches)
+    .where(and(
+      eq(supplierBillMatches.companyId, companyId),
+      eq(supplierBillMatches.supplierInvoiceId, id),
+    ))
+    .limit(1);
+  if (match) {
+    if (!PAYABLE_MATCH_STATUSES.has(String(match.status || "").toUpperCase())) {
+      throw new Error(`Supplier bill ${bill.invoiceNumber || id} has a ${match.status} match and cannot be paid`);
+    }
+    if (!SETTLED_MATCH_APPROVALS.has(String(match.approvalStatus || "").toUpperCase())) {
+      throw new Error(`Supplier bill ${bill.invoiceNumber || id} match is not approved for payment`);
+    }
+  }
 }
 
 async function finalizeQuotation(companyId: number, payload: Payload, referenceId?: string) {
@@ -168,6 +240,100 @@ async function registerSupplier(companyId: number, payload: Payload) {
   return { supplierId: supplier.id, message: "Supplier registered" };
 }
 
+/**
+ * The capture route checks that the sales order is dispatched before it asks
+ * for approval. Approval payloads are persisted and can be approved later, so
+ * the executor has to prove the source is still in a fulfiable state before it
+ * posts stock and GL rows. Any change here makes the approval fail cleanly;
+ * approvals.ts marks the request terminal-failed and never retries it.
+ */
+async function assertSalesOrderFulfilmentStillValid(
+  companyId: number,
+  payload: Payload,
+  data: Payload,
+  items: Payload[],
+) {
+  const salesOrderId = Number(data.salesOrderId);
+  if (!Number.isInteger(salesOrderId) || salesOrderId <= 0) {
+    throw new Error("The approval payload has an invalid sales order reference");
+  }
+
+  const [order] = await db
+    .select()
+    .from(salesOrders)
+    .where(and(eq(salesOrders.id, salesOrderId), eq(salesOrders.companyId, companyId)))
+    .limit(1);
+  if (!order) throw new Error(`Sales order ${salesOrderId} no longer exists`);
+
+  const orderApproval = String(order.approvalStatus ?? "none").toLowerCase();
+  if (orderApproval === "pending" || orderApproval === "rejected" || orderApproval === "cancelled") {
+    throw new Error(`Sales order ${order.orderNumber} is ${orderApproval} and cannot be invoiced`);
+  }
+  if (String(order.status || "").toLowerCase() === "cancelled") {
+    throw new Error(`Sales order ${order.orderNumber} is cancelled and cannot be invoiced`);
+  }
+
+  const snapshot: Payload = payload.fulfilmentSnapshot && typeof payload.fulfilmentSnapshot === "object"
+    ? payload.fulfilmentSnapshot as Payload
+    : {};
+  const snapshotPickListId = Number(snapshot.pickListId);
+  let pickList;
+  if (Number.isInteger(snapshotPickListId) && snapshotPickListId > 0) {
+    [pickList] = await db
+      .select()
+      .from(salesPickLists)
+      .where(and(
+        eq(salesPickLists.id, snapshotPickListId),
+        eq(salesPickLists.companyId, companyId),
+        eq(salesPickLists.salesOrderId, salesOrderId),
+      ))
+      .limit(1);
+  } else {
+    [pickList] = await db
+      .select()
+      .from(salesPickLists)
+      .where(and(
+        eq(salesPickLists.companyId, companyId),
+        eq(salesPickLists.salesOrderId, salesOrderId),
+        eq(salesPickLists.status, "DISPATCHED"),
+      ))
+      .orderBy(desc(salesPickLists.id))
+      .limit(1);
+  }
+  if (!pickList) {
+    throw new Error(`Sales order ${order.orderNumber} has no active pick list to invoice`);
+  }
+  if (String(pickList.status || "").toUpperCase() !== "DISPATCHED") {
+    throw new Error(`Sales order ${order.orderNumber} pick list is ${pickList.status}, not DISPATCHED`);
+  }
+
+  const [pickItems, orderItems] = await Promise.all([
+    db.select().from(salesPickListItems).where(eq(salesPickListItems.pickListId, pickList.id)),
+    db.select().from(salesOrderItems).where(eq(salesOrderItems.salesOrderId, salesOrderId)),
+  ]);
+
+  for (const line of items) {
+    const orderItemId = Number(line.salesOrderItemId);
+    if (!Number.isInteger(orderItemId) || orderItemId <= 0) continue;
+    const quantity = Number(line.quantity ?? 0);
+    const pickItem = pickItems.find((row) => Number(row.salesOrderItemId) === orderItemId);
+    if (!pickItem) {
+      throw new Error(`Order line ${orderItemId} is no longer on the dispatched pick list`);
+    }
+    if (Number(pickItem.pickedQuantity || 0) + 0.001 < quantity) {
+      throw new Error(`Only ${pickItem.pickedQuantity} of order line ${orderItemId} is picked/dispatched; ${quantity} cannot be invoiced`);
+    }
+    const orderItem = orderItems.find((row) => Number(row.id) === orderItemId);
+    if (!orderItem) {
+      throw new Error(`Order line ${orderItemId} no longer exists on sales order ${order.orderNumber}`);
+    }
+    const remaining = Number(orderItem.quantity || 0) - Number(orderItem.invoicedQuantity || 0);
+    if (remaining + 0.001 < quantity) {
+      throw new Error(`Only ${remaining} of order line ${orderItemId} remains to be invoiced`);
+    }
+  }
+}
+
 export async function createInvoiceFromApproval(
   companyId: number,
   payload: Payload,
@@ -186,20 +352,24 @@ export async function createInvoiceFromApproval(
     await storage.assertCustomerCreditWithinLimit(companyId, customerId!, invoiceTotal);
   }
 
-  const salesOrderId = data.salesOrderId ? Number(data.salesOrderId) : undefined;
-  if (Number.isFinite(salesOrderId)) {
+  if (data.salesOrderId !== undefined && data.salesOrderId !== null && data.salesOrderId !== "") {
+    const salesOrderId = Number(data.salesOrderId);
+    if (!Number.isInteger(salesOrderId) || salesOrderId <= 0) {
+      throw new Error("The approval payload has an invalid sales order reference");
+    }
     const [existing] = await db
       .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber })
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
-        eq(invoices.salesOrderId, salesOrderId!),
+        eq(invoices.salesOrderId, salesOrderId),
         ne(invoices.status, "cancelled"),
       ))
       .limit(1);
     if (existing) {
       throw new Error(`An active invoice (${existing.invoiceNumber}) already exists for this sales order`);
     }
+    await assertSalesOrderFulfilmentStillValid(companyId, payload, data, items);
   }
 
   const analytics = await requireDepartmentalDimensions(companyId, data);
@@ -216,6 +386,22 @@ export async function createInvoiceFromApproval(
   } as any);
 
   await enqueueApprovedInvoiceFiscalization(invoice.id, companyId, userId);
+
+  // A quotation conversion carries its quote in the approval payload. The
+  // quote must only move to "invoiced" when the invoice actually exists,
+  // whether that happens now or after an approver releases the request.
+  if (String(payload.referenceType || "") === "quotation_conversion" || payload.quotationId != null) {
+    const quotationId = Number(payload.quotationId ?? payload.referenceId);
+    if (Number.isInteger(quotationId) && quotationId > 0) {
+      await db.update(quotations)
+        .set({ status: "invoiced", convertedAt: new Date() })
+        .where(and(
+          eq(quotations.id, quotationId),
+          eq(quotations.companyId, companyId),
+          ne(quotations.status, "invoiced"),
+        ));
+    }
+  }
 
   return {
     invoiceId: invoice.id,
@@ -245,13 +431,70 @@ async function executePayment(companyId: number, payload: Payload, userId?: stri
 
 async function executeSupplierPayment(companyId: number, payload: Payload, userId?: string) {
   const data = obj(payload.supplierPaymentData, "supplierPaymentData");
+  const allocations = Array.isArray(payload.allocations) ? payload.allocations as Payload[] : [];
+
+  // Approval can happen long after capture. Re-prove every bill is still
+  // payable at execution time before any cash or GL row is posted.
+  for (const allocation of allocations) {
+    const supplierInvoiceId = Number(allocation.supplierInvoiceId);
+    if (!Number.isInteger(supplierInvoiceId) || supplierInvoiceId <= 0 || Number(allocation.amount || 0) <= 0) continue;
+    await assertSupplierBillPayable(companyId, supplierInvoiceId);
+  }
+
   const analytics = await requireDepartmentalDimensions(companyId, data);
-  const payment = await storage.createSupplierPayment(insertSupplierPaymentSchema.parse({
-    ...data,
-    ...(analytics || {}),
-    paymentDate: dateOrNull(data.paymentDate) || new Date(),
-    createdBy: userId || null,
-  }) as any);
+  const payment = await storage.createSupplierPayment(
+    insertSupplierPaymentSchema.parse({
+      ...data,
+      ...(analytics || {}),
+      companyId,
+      paymentDate: dateOrNull(data.paymentDate) || new Date(),
+      createdBy: userId || null,
+    }) as any,
+    allocations.length > 0
+      ? {
+          // The payment row keeps the primary bill as its reference, but the
+          // legacy single-bill update must be skipped: the callback below
+          // applies every allocation once, inside the same payment transaction.
+          skipInvoiceUpdate: true,
+          onAfterInsert: async (tx: any, paymentId: number) => {
+            for (const allocation of allocations) {
+              const supplierInvoiceId = Number(allocation.supplierInvoiceId);
+              const amount = Number(allocation.amount || 0);
+              if (!Number.isInteger(supplierInvoiceId) || supplierInvoiceId <= 0 || amount <= 0) continue;
+
+              const [bill] = await tx.select()
+                .from(supplierInvoices)
+                .where(and(
+                  eq(supplierInvoices.id, supplierInvoiceId),
+                  eq(supplierInvoices.companyId, companyId),
+                  eq(supplierInvoices.supplierId, Number(data.supplierId || 0)),
+                ))
+                .limit(1);
+              if (!bill) throw new Error(`Supplier bill ${supplierInvoiceId} was not found for this supplier`);
+
+              await tx.insert(supplierPaymentAllocations).values({
+                companyId,
+                supplierPaymentId: paymentId,
+                supplierInvoiceId,
+                amount: amount.toFixed(2),
+              });
+
+              const newPaidAmount = (Number(bill.paidAmount || 0) + amount).toFixed(2);
+              await tx.update(supplierInvoices)
+                .set({
+                  paidAmount: newPaidAmount,
+                  status: Number(newPaidAmount) >= Number(bill.totalAmount || 0) ? "paid" : "partial",
+                })
+                .where(and(
+                  eq(supplierInvoices.id, supplierInvoiceId),
+                  eq(supplierInvoices.companyId, companyId),
+                ));
+            }
+          },
+        }
+      : undefined,
+  );
+
   return { supplierPaymentId: payment.id, message: "Supplier payment executed" };
 }
 

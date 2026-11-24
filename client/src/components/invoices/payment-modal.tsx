@@ -141,6 +141,19 @@ export function PaymentModal({
       const response = await apiRequest("POST", url, payload);
       const result = await response.json();
 
+      // 202 means the payment is awaiting authorisation: no cash or allocation
+      // has been posted yet, so do not show a receipt or a success message.
+      if (response.status === 202 || result?.approval) {
+        toast({
+          title: "Payment submitted for approval",
+          description: result?.message || "An approver must authorise this payment before it is posted.",
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+        onOpenChange(false);
+        form.reset();
+        return;
+      }
+
       if (isSupplier) {
         toast({
           title: "Payment recorded",

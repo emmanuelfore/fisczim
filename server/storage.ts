@@ -2430,6 +2430,9 @@ export class DatabaseStorage implements IStorage {
       "status", "paidAmount", "fiscalCode", "fiscalSignature", "qrCodeData",
       "verificationCode", "syncedWithFdms", "fdmsStatus", "submissionId",
       "fiscalDayNo", "receiptCounter", "receiptGlobalNo", "validationStatus",
+      // Fiscal submission persists these before sending so a retry can reuse
+      // the same receipt timestamp and chain anchor.
+      "offlineDate", "offlinePreviousHash",
       "lastValidationAttempt", "lockedBy", "lockedAt", "orderStatus",
     ]);
     const unsafeFields = Object.keys(data).filter((key) => !POSTED_INVOICE_UPDATES.has(key));

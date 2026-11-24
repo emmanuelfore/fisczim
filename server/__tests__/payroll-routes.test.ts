@@ -598,6 +598,153 @@ describe("payroll approval segregation", () => {
   });
 });
 
+describe("salary change approval segregation", () => {
+  const PENDING_CHANGE = {
+    id: 91,
+    companyId: 12,
+    employeeId: 7,
+    previousBaseSalary: "1000.00",
+    newBaseSalary: "1200.00",
+    currency: "USD",
+    payFrequency: "MONTHLY",
+    effectiveDate: "2026-01-01",
+    status: "PENDING",
+    requestedBy: "user-1",
+  };
+  const APPROVED_CHANGE = { ...PENDING_CHANGE, status: "APPROVED" };
+
+  function auditEntries() {
+    return state.writes.filter((write: any) => write.table === "audit_logs") as any[];
+  }
+
+  test("the requester cannot approve their own salary change", async () => {
+    script("employee_salary_changes", [PENDING_CHANGE]);
+    script("audit_logs", [{ userId: "user-1", action: "PAYROLL_SALARY_CHANGE_REQUESTED" }]);
+
+    const { status, body } = await call("POST", "/api/companies/12/payroll/salary-changes/91/approve");
+
+    expect(status).toBe(409);
+    expect(body.error).toBe("PAYROLL_SELF_APPROVAL_BLOCKED");
+    expect(state.writes.filter((write) => write.table === "employee_salary_changes")).toHaveLength(0);
+    const blocked = auditEntries().find((write) => write.values?.action === "PAYROLL_SELF_APPROVAL_BLOCKED");
+    expect(blocked?.values).toMatchObject({
+      entityType: "employee_salary_changes",
+      entityId: "91",
+      details: { approverId: "user-1", requestedBy: "user-1", requestAction: "PAYROLL_SALARY_CHANGE_REQUESTED" },
+    });
+    // The SoD lookup is scoped to this change and this tenant, not just any request.
+    const sodQuery = readSqlFor("audit_logs")[0];
+    expect(sodQuery).toContain('"audit_logs"."entity_type"');
+    expect(sodQuery).toContain('"audit_logs"."entity_id"');
+    expect(readParamsFor("audit_logs")).toContain("PAYROLL_SALARY_CHANGE_REQUESTED");
+  });
+
+  test("missing legacy request evidence is logged but does not block the change", async () => {
+    script("employee_salary_changes", [PENDING_CHANGE], [APPROVED_CHANGE]);
+    script("audit_logs", []); // no surviving request audit entry
+
+    const { status, body } = await call("POST", "/api/companies/12/payroll/salary-changes/91/approve");
+
+    expect(status).toBe(200);
+    expect(body.status).toBe("APPROVED");
+    expect(state.writes.some((write) => write.table === "employee_salary_changes" && write.op === "update")).toBe(true);
+    expect(auditEntries().some((write) => write.values?.action === "PAYROLL_SOD_EVIDENCE_MISSING")).toBe(true);
+    expect(auditEntries().some((write) => write.values?.action === "PAYROLL_SELF_APPROVAL_BLOCKED")).toBe(false);
+  });
+
+  test("a different approver may approve a requested change", async () => {
+    script("employee_salary_changes", [PENDING_CHANGE], [APPROVED_CHANGE]);
+    script("audit_logs", [{ userId: "user-2", action: "PAYROLL_SALARY_CHANGE_REQUESTED" }]);
+
+    const { status } = await call("POST", "/api/companies/12/payroll/salary-changes/91/approve");
+
+    expect(status).toBe(200);
+    expect(auditEntries().some((write) => write.values?.action === "PAYROLL_SOD_EVIDENCE_MISSING")).toBe(false);
+    expect(auditEntries().some((write) => write.values?.action === "PAYROLL_SELF_APPROVAL_BLOCKED")).toBe(false);
+  });
+});
+
+describe("HR fields accepted by the API are persisted", () => {
+  test("employee update stores termination details and probation end date", async () => {
+    script("employees",
+      [{ id: 7, companyId: 12, status: "ACTIVE" }],
+      [{ id: 7, companyId: 12, status: "TERMINATED", terminationType: "RESIGNATION" }]
+    );
+    script("employee_contracts", [{ id: 5, employeeId: 7, probationEndDate: "2026-03-31" }]);
+
+    const { status } = await call("PUT", "/api/companies/12/payroll/employees/7", {
+      status: "TERMINATED",
+      terminationDate: "2026-03-31",
+      terminationType: "RESIGNATION",
+      terminationReason: "Accepted another offer",
+      probationEndDate: "2026-03-31",
+    });
+
+    expect(status).toBe(200);
+    const employeeWrite = state.writes.find((write: any) => write.table === "employees" && write.op === "update");
+    expect(employeeWrite?.values).toMatchObject({
+      terminationType: "RESIGNATION",
+      terminationReason: "Accepted another offer",
+      probationEndDate: "2026-03-31",
+    });
+    const contractWrite = state.writes.find((write: any) => write.table === "employee_contracts" && write.op === "update");
+    expect(contractWrite?.values.probationEndDate).toBe("2026-03-31");
+  });
+
+  test("employee create persists the wizard's contract probation end date", async () => {
+    script("branches", [{ id: 1 }]);
+    // First employees read is the staff-number duplicate check, then the insert.
+    script("employees", [], [{ id: 7, companyId: 12, employeeNumber: "EMP100" }]);
+    script("employee_contracts", [{ id: 5, employeeId: 7 }]);
+
+    const { status } = await call("POST", "/api/companies/12/payroll/employees", {
+      firstName: "Tine",
+      lastName: "Chiwese",
+      nationalId: "98-1-2345678",
+      employeeNumber: "EMP100",
+      contract: {
+        contractType: "PERMANENT",
+        baseSalary: "1200.00",
+        currency: "USD",
+        usdPercentage: "100.00",
+        zigPercentage: "0.00",
+        payFrequency: "MONTHLY",
+        probationEndDate: "2026-03-31",
+      },
+    });
+
+    expect(status).toBe(201);
+    expect(state.writes.find((write: any) => write.table === "employees" && write.op === "insert")?.values.probationEndDate)
+      .toBe("2026-03-31");
+    expect(state.writes.find((write: any) => write.table === "employee_contracts" && write.op === "insert")?.values.probationEndDate)
+      .toBe("2026-03-31");
+  });
+
+  test("contract create persists probation end date on the contract and directory", async () => {
+    // Existence check, then the mirrored directory update inside the transaction.
+    script("employees", [{ id: 7, companyId: 12, status: "ACTIVE" }], []);
+    // Deactivate-old update, then the new contract's returning().
+    script("employee_contracts", [], [{ id: 5, employeeId: 7 }]);
+
+    const { status } = await call("POST", "/api/companies/12/payroll/employees/7/contract", {
+      contractType: "PERMANENT",
+      startDate: "2026-01-01",
+      baseSalary: "1200.00",
+      currency: "USD",
+      usdPercentage: "100.00",
+      zigPercentage: "0.00",
+      payFrequency: "MONTHLY",
+      probationEndDate: "2026-03-31",
+    });
+
+    expect(status).toBe(201);
+    expect(state.writes.find((write: any) => write.table === "employee_contracts" && write.op === "insert")?.values.probationEndDate)
+      .toBe("2026-03-31");
+    expect(state.writes.find((write: any) => write.table === "employees" && write.op === "update")?.values.probationEndDate)
+      .toBe("2026-03-31");
+  });
+});
+
 describe("payslip adjustments", () => {
   test("a locked run is closed to adjustment", async () => {
     script("companies", [{ country: "Zimbabwe" }]);

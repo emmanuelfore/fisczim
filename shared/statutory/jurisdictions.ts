@@ -32,6 +32,8 @@ export const STATUTORY_RULE_CODES = {
   zimdef: "ZIMDEF",
   standardsLevy: "STANDARDS_LEVY",
   apwcs: "APWCS",
+  nhif: "NHIF",
+  wcif: "WCIF",
   pension: "PENSION",
 } as const;
 
@@ -46,6 +48,8 @@ export const ZIMBABWE_JURISDICTION: PayrollJurisdiction = {
     STATUTORY_RULE_CODES.zimdef,
     STATUTORY_RULE_CODES.standardsLevy,
     STATUTORY_RULE_CODES.apwcs,
+    STATUTORY_RULE_CODES.nhif,
+    STATUTORY_RULE_CODES.wcif,
     STATUTORY_RULE_CODES.pension,
   ],
   // AIDS levy rides on every PAYE figure and NSSA POBS is mandatory, so a run

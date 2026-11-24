@@ -17,6 +17,11 @@
   - `migrations/0110_departmental_structure.sql`: adds nullable `department_id` / `cost_center_id` / warehouse links to departments, products, inventory locations/transactions, quotations, sales orders, invoices, purchase orders and expenses; backfills by normalized name match.
   - `migrations/0111_approval_sod_departmental_gl.sql`: adds department/cost-centre columns to GL and source documents, account default departments, analytical indexes and 14 normalized approval policies for tenants with no settings. It is present in this working tree but must be confirmed in the deployment branch; its absence is a blocker.
   - `migrations/0112_vehicle_agency_accounting.sql`: vehicle-import agency accounting tables and fields; apply where vehicle workflows are in scope.
+  - `migrations/0113_department_price_lists.sql`, `0114_department_budgets.sql`, `0115_procurement_requisitions.sql`: department/customer price lists, budgets and requisition/supplier-quote tables.
+  - `migrations/0116_requisition_approval_policy.sql`: backfills the 15th approval policy without overwriting configured tenant settings.
+  - `migrations/0117_hr_employee_fields.sql`: termination type/reason and probation date storage for employees and contracts.
+  - `migrations/0118_nhif_wcif_statutory_rules.sql`: adds unpriced NHIF/WCIF rule rows; rates remain client-configured.
+  - `migrations/0119_quotation_location.sql`: stores the quotation location with its analytical dimensions.
 - Mandatory capture, immutability and self-approval hardening are still cutover prerequisites/UAT checks on every entry route; do not assume they exist because columns or a guard exist on one route.
 
 ## 2. Pre-cutover checklist
@@ -32,7 +37,7 @@
 | PC-07 | Customer/supplier master deduplicated; opening balances agreed. | Accountant | ☐ | AR/AP ageing |
 | PC-08 | Duplicate active invoices per sales order identified; 0109 behaviour tested on staging copy. | Finance Manager | ☐ | Duplicate report + 0109 log |
 | PC-09 | Open POs, GDNs/GRNs and unmatched supplier bills listed with department/cost centre. | Procurement Officer | ☐ | Open items report |
-| PC-10 | Payroll statutory config, tax tables, approved credits and APWCS industry rate confirmed. | HR/Payroll Officer | ☐ | Statutory export |
+| PC-10 | Payroll statutory config, tax tables, approved credits, APWCS industry rate, and NHIF/WCIF effective rates confirmed; NHIF/WCIF remain zero with warnings until configured. | HR/Payroll Officer | ☐ | Statutory export |
 | PC-11 | User roles, permissions and approver/delegate assignments confirmed; SoD reviewed; verify tenant id and that 0111 seeded settings rather than assuming migration success. | System Administrator | ☐ | User/role matrix + SQL |
 | PC-12 | Source data frozen; cutover timing and user communication issued. | General Manager / System Administrator | ☐ | Cutover notice |
 | PC-13 | Full backup of production and staging completed and restore tested. | System Administrator | ☐ | Backup/restore log |
@@ -238,7 +243,7 @@ ORDER BY i.sales_order_id;
 
 ### 6.5 Approval settings and request queue
 
-Expected: 14 policies, 14 with `allowSelfApproval:false`, modes/thresholds match the client-confirmed matrix; no unexpected pending or `failed` requests after cutover.
+Expected: 15 policies, 15 with `allowSelfApproval:false`, modes/thresholds match the client-confirmed matrix; no unexpected pending or `failed` requests after cutover.
 
 ```sql
 SELECT id, name, approval_settings
@@ -354,7 +359,7 @@ FROM stock_takes WHERE company_id = $1;
 |---|---|---|---|---|
 | GN-01 | One legal company and central COA; no accidental company duplication. | Finance Manager | ☐ | |
 | GN-02 | Final codes, thresholds, managers/approvers and opening/damaged stock confirmed in writing. | General Manager | ☐ | |
-| GN-03 | Migrations 0109, 0110, 0111 and 0112 (where vehicles are in scope) applied successfully; tenant approval settings verified. | System Administrator | ☐ | |
+| GN-03 | Migrations 0109–0119 (0112 only where vehicles are in scope) applied successfully; tenant approval settings and NHIF/WCIF rule rows verified. | System Administrator | ☐ | |
 | GN-04 | Validation SQL 6.1–6.7 passed with zero unexplained exceptions. | Accountant | ☐ | |
 | GN-05 | One active invoice per SO; duplicates cancelled with notes and history intact. | Finance Manager | ☐ | |
 | GN-06 | Department **and** cost centre propagated to source documents and GL; reports reconcile. | Finance Manager | ☐ | |

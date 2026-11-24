@@ -142,6 +142,53 @@ async function assertPayrollRunNotSelfPrepared(
   }
 }
 
+/**
+ * A salary change must be approved by somebody other than the requester. As with
+ * payroll runs, the change row's requester is not trusted on its own: the durable
+ * request audit entry is the evidence. A legacy change with no surviving request
+ * entry is recorded as a control gap and allowed through, never silently passed.
+ */
+async function assertSalaryChangeNotSelfRequested(
+  companyId: number,
+  changeId: number,
+  approverId?: string | null,
+) {
+  if (!approverId) return;
+  const [lastRequest] = await db
+    .select({ userId: auditLogs.userId, action: auditLogs.action })
+    .from(auditLogs)
+    .where(and(
+      eq(auditLogs.companyId, companyId),
+      eq(auditLogs.entityType, "employee_salary_changes"),
+      eq(auditLogs.entityId, String(changeId)),
+      eq(auditLogs.action, "PAYROLL_SALARY_CHANGE_REQUESTED"),
+      isNotNull(auditLogs.userId),
+    ))
+    .orderBy(desc(auditLogs.id))
+    .limit(1);
+
+  if (!lastRequest) {
+    await logAction(companyId, approverId, "PAYROLL_SOD_EVIDENCE_MISSING", "employee_salary_changes", String(changeId), {
+      approverId,
+      reason: "No salary-change request audit entry was found for this change",
+    });
+    return;
+  }
+
+  if (lastRequest.userId === approverId) {
+    await logAction(companyId, approverId, "PAYROLL_SELF_APPROVAL_BLOCKED", "employee_salary_changes", String(changeId), {
+      approverId,
+      requestAction: lastRequest.action,
+      requestedBy: lastRequest.userId,
+    });
+    throw new PayrollHttpError(
+      409,
+      "Segregation of duties: the person who requested a salary change cannot approve it.",
+      "PAYROLL_SELF_APPROVAL_BLOCKED",
+    );
+  }
+}
+
 /** Durable keys so a retried GL approval cannot create a second payroll journal. */
 function payrollLockPostingKey(runId: number) {
   return `payroll-lock:${runId}`;
@@ -1993,6 +2040,9 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
       usdPercentage: _up, zigPercentage: _zp, payFrequency: _pf, payGradeId: _pg,
       necSectorId: _ns, startDate: _sd, endDate: _ed, ...empData } = parsed.data as Record<string, any>;
     void _ct; void _bs; void _cu; void _up; void _zp; void _pf; void _pg; void _ns; void _sd; void _ed;
+    // The HR wizard submits probationEndDate inside `contract`. Mirror it on the
+    // employee row as well so directory-level checks can read it without a join.
+    empData.probationEndDate = contract?.probationEndDate ?? null;
     if (!empData.joiningDate) {
       empData.joiningDate = new Date().toISOString().slice(0, 10);
     }
@@ -2077,6 +2127,7 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
             payFrequency: contract.payFrequency,
             payGradeId: contract.payGradeId,
             necSectorId: contract.necSectorId,
+            probationEndDate: contract.probationEndDate ?? null,
             isActive: true,
           })
           .returning();
@@ -2436,22 +2487,26 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
       "emergencyContactName", "emergencyContactPhone",
       "nextOfKinName", "nextOfKinRelationship", "nextOfKinPhone", "nextOfKinAddress",
       "status", "joiningDate", "terminationDate", "terminationType", "terminationReason",
-      "departmentId", "positionId",
+      "probationEndDate", "departmentId", "positionId",
     ];
     // Contract fields may arrive nested (`contract: {...}`) or flat alongside
     // employee fields (legacy HR form). Collect them instead of dropping.
-    const CONTRACT_KEYS = ["contractType", "baseSalary", "currency", "usdPercentage", "zigPercentage", "payFrequency", "payGradeId", "necSectorId", "startDate", "endDate"];
+    const CONTRACT_KEYS = ["contractType", "baseSalary", "currency", "usdPercentage", "zigPercentage", "payFrequency", "payGradeId", "necSectorId", "startDate", "endDate", "probationEndDate"];
     const rawBody = (req.body || {}) as Record<string, any>;
     const nestedContract = (rawBody.contract && typeof rawBody.contract === "object" ? rawBody.contract : null) as Record<string, any> | null;
     const flatContract: Record<string, any> = {};
     for (const k of CONTRACT_KEYS) {
-      if (rawBody[k] !== undefined && rawBody[k] !== "" && rawBody[k] !== null) flatContract[k] = rawBody[k];
+      // A blank probation date is an explicit clear, not an untouched field.
+      if (rawBody[k] !== undefined && rawBody[k] !== null && (rawBody[k] !== "" || k === "probationEndDate")) {
+        flatContract[k] = rawBody[k];
+      }
     }
     const contractUpdate = nestedContract ? { ...flatContract, ...nestedContract } : (Object.keys(flatContract).length > 0 ? flatContract : null);
     if (contractUpdate) {
       if (contractUpdate.payGradeId === "" || contractUpdate.payGradeId === undefined) contractUpdate.payGradeId = null;
       if (contractUpdate.necSectorId === "" || contractUpdate.necSectorId === undefined) contractUpdate.necSectorId = null;
       if (contractUpdate.endDate === "") contractUpdate.endDate = null;
+      if (contractUpdate.probationEndDate === "") contractUpdate.probationEndDate = null;
     }
 
     const updates: Record<string, unknown> = {};
@@ -2462,6 +2517,12 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
         return res.status(400).json({ error: "VALIDATION_ERROR", message: `"${value}" is not a valid email address` });
       }
       updates[key] = value;
+    }
+
+    // A probation date submitted inside the contract is also the directory's
+    // current expiry; keep the two columns in step on profile edits.
+    if (contractUpdate?.probationEndDate !== undefined && updates.probationEndDate === undefined) {
+      updates.probationEndDate = contractUpdate.probationEndDate;
     }
 
     if (updates.employeeNumber) {
@@ -2484,6 +2545,7 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
         payFrequency: contractUpdate.payFrequency ?? (active as any)?.payFrequency ?? "MONTHLY",
         payGradeId: contractUpdate.payGradeId ?? active?.payGradeId ?? null,
         necSectorId: contractUpdate.necSectorId ?? active?.necSectorId ?? null,
+        probationEndDate: contractUpdate.probationEndDate ?? active?.probationEndDate ?? null,
         startDate: contractUpdate.startDate ?? new Date().toISOString().slice(0, 10),
         endDate: contractUpdate.endDate ?? null,
       };
@@ -2512,6 +2574,7 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
           payFrequency: merged.payFrequency,
           payGradeId: merged.payGradeId ? Number(merged.payGradeId) : null,
           necSectorId: merged.necSectorId ? Number(merged.necSectorId) : null,
+          probationEndDate: merged.probationEndDate ?? null,
           isActive: true,
         }).returning();
         await applySalaryHistoryChange(tx, companyId, id, {
@@ -2525,6 +2588,14 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
         });
         return nc;
       });
+    } else if (contractUpdate && contractUpdate.probationEndDate !== undefined) {
+      // Probation-only edit: update the live contract in place rather than
+      // replacing it (no salary event is involved).
+      const [changed] = await db.update(employeeContracts)
+        .set({ probationEndDate: contractUpdate.probationEndDate ?? null })
+        .where(and(eq(employeeContracts.employeeId, id), eq(employeeContracts.isActive, true)))
+        .returning();
+      if (changed) appliedContract = changed;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -2789,6 +2860,8 @@ router.post("/salary-changes/:id/approve", requirePayrollApproval, async (req, r
     if (!change) return res.status(404).json({ message: "Salary change not found" });
     if (change.status !== "PENDING") return res.status(400).json({ error: "STATE_ERROR", message: `Already ${change.status}` });
 
+    await assertSalaryChangeNotSelfRequested(companyId, change.id, req.user?.id);
+
     const [approved] = await db.update(employeeSalaryChanges)
       .set({ status: "APPROVED", approvedBy: req.user?.id || null, approvedAt: new Date() })
       .where(eq(employeeSalaryChanges.id, id))
@@ -2920,6 +2993,13 @@ router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => 
           isActive: true
         })
         .returning();
+
+      // The directory mirrors the current contract's probation expiry.
+      if (parsed.data.probationEndDate !== undefined) {
+        await tx.update(employees)
+          .set({ probationEndDate: parsed.data.probationEndDate ?? null, updatedAt: new Date() })
+          .where(and(eq(employees.id, id), eq(employees.companyId, companyId)));
+      }
 
       // Effective-dated history: the contract change is a salary + employment
       // event. Never overwrite the previous salary record.
@@ -5068,6 +5148,12 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           zimdefRate: levyRate("ZIMDEF", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.zimdefRate),
           standardsLevyRate: jurisdictionLevies(jurisdiction, "STANDARDS_LEVY") ? statutoryRate(standardsRule, "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.standardsLevyRate) : 0,
           apwcsRate: apwcsConfig?.rate ?? null,
+          nhifRate: jurisdictionLevies(jurisdiction, "NHIF")
+            ? statutoryRate(statutoryRules["NHIF"], "employeeRate", 0)
+            : 0,
+          wcifRate: jurisdictionLevies(jurisdiction, "WCIF")
+            ? statutoryRate(statutoryRules["WCIF"], "employerRate", 0)
+            : 0,
         };
 
         // Perform calculation
@@ -5498,6 +5584,12 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
             : null,
           zimdefRate: levyRate("ZIMDEF", "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.zimdefRate),
           standardsLevyRate: jurisdictionLevies(jurisdiction, "STANDARDS_LEVY") ? statutoryRate(standardsRule, "employerRate", ZIMBABWE_STATUTORY_DEFAULTS.standardsLevyRate) : 0,
+          nhifRate: jurisdictionLevies(jurisdiction, "NHIF")
+            ? statutoryRate(statutoryRules["NHIF"], "employeeRate", 0)
+            : 0,
+          wcifRate: jurisdictionLevies(jurisdiction, "WCIF")
+            ? statutoryRate(statutoryRules["WCIF"], "employerRate", 0)
+            : 0,
         }
       });
 

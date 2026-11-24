@@ -21,7 +21,7 @@ import {
 import { type ApprovalType } from "../../shared/permissions.js";
 import { db } from "../db.js";
 import { storage } from "../storage.js";
-import { requireDepartmentalDimensions } from "./departmental.js";
+import { requireDepartmentalDimensions, resolveInvoiceAnalytics } from "./departmental.js";
 import { enqueueApprovedInvoiceFiscalization } from "./approved-invoice-fiscalization.js";
 
 type Payload = Record<string, unknown>;
@@ -55,10 +55,13 @@ async function finalizeQuotation(companyId: number, payload: Payload, referenceI
   }
 
   const data = obj(payload.quotationData, "quotationData");
-  const analytics = await requireDepartmentalDimensions(companyId, data);
+  const items = arr(payload.items, "items");
+  // Re-resolve at execution time with the same product/warehouse fallback used
+  // at capture, then let the validated dimensions override any payload values.
+  const analytics = await resolveInvoiceAnalytics(companyId, data as any, items as any);
   const quotation = await storage.createQuotation({
-    ...insertQuotationSchema.parse({ ...data, companyId, ...(analytics || {}) }),
-    items: arr(payload.items, "items").map((item) => insertQuotationItemSchema.parse(item)),
+    ...insertQuotationSchema.parse({ ...data, companyId, ...(analytics || {}), locationId: data.locationId ?? null }),
+    items: items.map((item) => insertQuotationItemSchema.parse(item)),
   } as any);
   return { quotationId: quotation.id, quotationNumber: quotation.quotationNumber, message: "Quotation created" };
 }
@@ -81,7 +84,10 @@ async function finalizeSalesOrder(companyId: number, payload: Payload, reference
 
   const orderData = obj(payload.orderData, "orderData");
   const items = arr(payload.items, "items");
-  const analytics = await requireDepartmentalDimensions(companyId, orderData);
+  // The capturing route has already resolved these; re-running the fallback
+  // keeps older payloads and API-created approvals consistent, and the parsed
+  // values override anything a client may have placed in the payload.
+  const analytics = await resolveInvoiceAnalytics(companyId, orderData as any, items as any);
   const orderCustomerId = orderData.customerId ? Number(orderData.customerId) : undefined;
   const orderTotal = Number(orderData.total || 0);
   if (Number.isFinite(orderCustomerId) && orderTotal > 0) {
@@ -92,6 +98,7 @@ async function finalizeSalesOrder(companyId: number, payload: Payload, reference
       ...orderData,
       ...(analytics || {}),
       companyId,
+      locationId: orderData.locationId ?? null,
       orderNumber: String(orderData.orderNumber || `SO-${Date.now()}`),
       status: "confirmed",
       approvalStatus: "approved",

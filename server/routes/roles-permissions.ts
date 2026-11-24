@@ -7,6 +7,7 @@ import { ALL_PERMISSION_KEYS, APPROVAL_TYPES, type ApprovalType } from "../../sh
 import {
   normalizeApprovalPolicies,
   getApprovalPolicyList,
+  supportsAmountThreshold,
   APPROVAL_POLICY_MODES,
   type CompanyApprovalPolicies,
 } from "../../shared/approval-policies.js";
@@ -341,7 +342,7 @@ export function createRolesPermissionsRouter(
       const body = z.object({
         policies: z.record(
           z.object({
-            mode: z.enum(["disabled", "by_permission", "always"]),
+            mode: z.enum(["disabled", "by_permission", "always"]).optional(),
             amountThreshold: z.number().min(0).optional(),
             ownerBypass: z.boolean().optional(),
             allowSelfApproval: z.boolean().optional(),
@@ -349,12 +350,46 @@ export function createRolesPermissionsRouter(
             approverRoleIds: z.array(z.coerce.number().int().positive()).optional(),
           })
         ),
+        reason: z.string().trim().min(5).optional(),
       }).parse(req.body);
 
-      const policies = normalizeApprovalPolicies(body.policies) as CompanyApprovalPolicies;
+      const knownTypes = new Set<string>(Object.values(APPROVAL_TYPES));
+      const unknownTypes = Object.keys(body.policies).filter((type) => !knownTypes.has(type));
+      if (unknownTypes.length) {
+        throw Object.assign(new Error(`Unknown approval types: ${unknownTypes.join(", ")}`), { statusCode: 400 });
+      }
+
+      const selfApprovalTypes = (Object.entries(body.policies) as [ApprovalType, any][])
+        .filter(([, policy]) => policy.allowSelfApproval === true)
+        .map(([type]) => type);
+      if (selfApprovalTypes.length && !body.reason) {
+        throw Object.assign(
+          new Error("A written justification is required when enabling self-approval"),
+          { statusCode: 400 },
+        );
+      }
+
+      const current = await getCompanyApprovalPolicies(companyId);
+      const before = JSON.parse(JSON.stringify(current));
+      const merged = { ...current } as CompanyApprovalPolicies;
+      for (const [type, patch] of Object.entries(body.policies) as [ApprovalType, any][]) {
+        if (patch.amountThreshold !== undefined && !supportsAmountThreshold(type)) {
+          throw Object.assign(
+            new Error(`${type} does not support a monetary threshold`),
+            { statusCode: 400 },
+          );
+        }
+        merged[type] = { ...merged[type], ...patch };
+      }
+
+      const policies = normalizeApprovalPolicies(merged) as CompanyApprovalPolicies;
       const company = await storage.updateCompany(companyId, { approvalSettings: policies as any });
       await logAction(companyId, req.user!.id, "APPROVAL_POLICIES_UPDATED", "company", String(companyId), {
-        modes: Object.fromEntries(Object.entries(policies).map(([type, policy]) => [type, policy.mode])),
+        reason: body.reason ?? null,
+        selfApprovalTypes,
+        changedTypes: Object.keys(body.policies),
+        before,
+        after: policies,
       });
       res.json({
         policies: normalizeApprovalPolicies(company.approvalSettings),

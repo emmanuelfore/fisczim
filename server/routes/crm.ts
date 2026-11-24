@@ -11,6 +11,7 @@ import {
   insertCrmStageSchema,
   customers,
   products,
+  inventoryLocations,
   quotations,
   quotationItems,
   users,
@@ -39,6 +40,7 @@ import { resolveActionAccess } from "../lib/approval-policies.js";
 import { approveRequest, createApprovalRequest, rejectRequest } from "../lib/approvals.js";
 import { APPROVAL_TYPES } from "../../shared/permissions.js";
 import { requireApprovalOrContinue } from "../lib/approval-gate.js";
+import { resolveInvoiceAnalytics } from "../lib/departmental.js";
 import {
   accrueVehicleCommission,
   applyCommissionDecision,
@@ -122,6 +124,11 @@ const createQuotationInput = z.object({
     unitPrice: z.coerce.number().finite().min(0).max(100000000),
     taxRate: z.coerce.number().finite().min(0).max(100).default(0),
   })).min(1).max(200),
+  // Optional because a product or warehouse can supply them; when the company
+  // has departments/cost centres configured, resolution is mandatory.
+  departmentId: z.coerce.number().int().positive().optional().nullable(),
+  costCenterId: z.coerce.number().int().positive().optional().nullable(),
+  locationId: z.coerce.number().int().positive().optional().nullable(),
 });
 
 const publicLeadInput = z.object({
@@ -905,7 +912,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
         .where(and(eq(enquiries.id, id), eq(enquiries.companyId, companyId)));
       if (!enquiry) return res.status(404).json({ error: "Enquiry not found" });
 
-      const { items } = createQuotationInput.parse(req.body ?? {});
+      const { items, departmentId, costCenterId, locationId } = createQuotationInput.parse(req.body ?? {});
 
       // A product id from another tenant must never be copied into a quote.
       const productIds = [...new Set(items.map((i) => i.productId).filter((p): p is number => !!p))];
@@ -918,6 +925,30 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
           return res.status(400).json({ error: "A product does not belong to this company" });
         }
       }
+
+      // Resolve once, before the insert and the approval gate, so the stored
+      // quote and the deferred payload describe the same analytical dimensions.
+      // resolveInvoiceAnalytics tries explicit request values, then line
+      // products, then the warehouse; it throws a 400 for configured tenants
+      // that cannot be resolved and returns null for legacy tenants.
+      if (locationId) {
+        const [location] = await db
+          .select({ id: inventoryLocations.id })
+          .from(inventoryLocations)
+          .where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)))
+          .limit(1);
+        if (!location) return res.status(400).json({ error: "Location is not valid for this company" });
+      }
+      const dimensions = await resolveInvoiceAnalytics(
+        companyId,
+        { departmentId, costCenterId, locationId },
+        items,
+      );
+      const analytics = {
+        departmentId: dimensions?.departmentId ?? null,
+        costCenterId: dimensions?.costCenterId ?? null,
+        locationId: locationId ?? null,
+      };
 
       const computed = items.map((item) => {
         const lineTotal = item.quantity * item.unitPrice;
@@ -974,6 +1005,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
             branchId: enquiry.branchId ?? null,
             customerId,
             quotationNumber,
+            ...analytics,
             status: "draft",
             subtotal: subtotal.toFixed(2),
             taxAmount: taxAmount.toFixed(2),
@@ -1017,6 +1049,7 @@ export function createCrmRouter(requireAuth: any, requireCompanyAccess: any) {
             branchId: quotation.branchId,
             customerId: quotation.customerId,
             quotationNumber: quotation.quotationNumber,
+            ...analytics,
             status: "draft",
             subtotal: quotation.subtotal,
             taxAmount: quotation.taxAmount,

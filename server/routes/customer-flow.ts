@@ -28,6 +28,7 @@ import {
   inventoryTransactions
 } from "../../shared/schema.js";
 import { requireApprovalOrContinue } from "../lib/approval-gate.js";
+import { resolveInvoiceAnalytics, type DepartmentalInput } from "../lib/departmental.js";
 import { checkCompanyAccess } from "../lib/company-auth.js";
 import { assertCanApproveType } from "../lib/approval-policies.js";
 import { userHasPermission } from "../lib/permissions.js";
@@ -88,6 +89,52 @@ export function isBlockedForFulfilment(order: { approvalStatus?: unknown } | nul
 
 export function isApprovedQuotationStatus(status: unknown): boolean {
   return APPROVED_QUOTATION_STATUSES.has(String(status ?? "").toLowerCase());
+}
+
+function dimensionError(message: string): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode: 400 });
+}
+
+function toDimensionId(value: number | string | null | undefined): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * Resolve the analytical dimensions once at capture time. The warehouse is
+ * also validated for ownership here because the departmental helpers only use
+ * it as a source for department/cost centre and would otherwise let a foreign
+ * location id reach the sales order/approval payload.
+ */
+async function resolveSalesOrderDimensions(
+  companyId: number,
+  input: DepartmentalInput & { locationId?: number | string | null },
+  items: Array<{ productId?: number | string | null }>,
+): Promise<{ departmentId: number | null; costCenterId: number | null; locationId: number | null }> {
+  const locationId = toDimensionId(input.locationId);
+  if (input.locationId !== undefined && input.locationId !== null && input.locationId !== "" && !locationId) {
+    throw dimensionError("Location is not valid for this company");
+  }
+  if (locationId) {
+    const [location] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)))
+      .limit(1);
+    if (!location) throw dimensionError("Location is not valid for this company");
+  }
+
+  const dimensions = await resolveInvoiceAnalytics(
+    companyId,
+    { departmentId: input.departmentId, costCenterId: input.costCenterId, locationId },
+    items,
+  );
+  return {
+    departmentId: dimensions?.departmentId ?? null,
+    costCenterId: dimensions?.costCenterId ?? null,
+    locationId,
+  };
 }
 
 export function createCustomerFlowRouter(requireAuth: any) {
@@ -157,9 +204,18 @@ export function createCustomerFlowRouter(requireAuth: any) {
         return res.status(400).json({ error: `Quotation is ${quote.status || "draft"} and must be approved before conversion` });
       }
 
-      const firstCostedItem = quote.items.find((item: any) => item.product?.costCenterId);
-      const costCenterId = quote.costCenterId ?? firstCostedItem?.product?.costCenterId ?? null;
-      const departmentId = quote.departmentId ?? firstCostedItem?.product?.departmentId ?? null;
+      // Re-resolve at conversion time so older quotes and quotes without a
+      // product/warehouse fallback cannot create an order with null dimensions
+      // in a configured tenant.
+      const dimensions = await resolveSalesOrderDimensions(
+        companyId,
+        {
+          departmentId: quote.departmentId,
+          costCenterId: quote.costCenterId,
+          locationId: quote.locationId,
+        },
+        quote.items.map((item: any) => ({ productId: item.productId })),
+      );
 
       // Return the existing order instead of creating a duplicate on retry.
       const existingOrder = await db.query.salesOrders.findFirst({
@@ -175,8 +231,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
         branchId: quote.branchId || undefined,
         customerId: quote.customerId,
         quotationId: quote.id,
-        departmentId,
-        costCenterId,
+        departmentId: dimensions.departmentId,
+        costCenterId: dimensions.costCenterId,
+        locationId: dimensions.locationId,
         orderNumber: `SO-${Date.now()}`,
         issueDate: new Date(),
         subtotal: quote.subtotal,
@@ -206,14 +263,15 @@ export function createCustomerFlowRouter(requireAuth: any) {
           status: "accepted",
           salesOrderId: newOrder.id,
           convertedAt: new Date(),
-          departmentId,
-          costCenterId,
+          departmentId: dimensions.departmentId,
+          costCenterId: dimensions.costCenterId,
+          locationId: dimensions.locationId,
         })
         .where(and(eq(quotations.id, quote.id), eq(quotations.companyId, companyId)));
 
       res.status(201).json(newOrder);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(error?.statusCode || 500).json({ error: error.message });
     }
   });
 
@@ -1356,8 +1414,6 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
       let subtotal = 0;
       let taxAmount = 0;
-      let resolvedDepartmentId = departmentId ? Number(departmentId) : null;
-      let resolvedCostCenterId = costCenterId ? Number(costCenterId) : null;
 
       const newItems = [];
       for (const item of items) {
@@ -1366,8 +1422,6 @@ export function createCustomerFlowRouter(requireAuth: any) {
               where: and(eq(products.id, item.productId), eq(products.companyId, companyId))
             })
           : null;
-        if (!resolvedDepartmentId) resolvedDepartmentId = productContext?.departmentId ?? null;
-        if (!resolvedCostCenterId) resolvedCostCenterId = productContext?.costCenterId ?? null;
 
         let unitPrice = item.unitPrice;
         if (unitPrice === undefined || unitPrice === null) {
@@ -1406,6 +1460,15 @@ export function createCustomerFlowRouter(requireAuth: any) {
           taxTypeId: item.taxTypeId,
         });
       }
+
+      // One resolution feeds both the stored order and the deferred approval
+      // payload, so an approver never creates an order with different (or null)
+      // dimensions from the ones the caller saw.
+      const dimensions = await resolveSalesOrderDimensions(
+        companyId,
+        { departmentId, costCenterId, locationId },
+        items,
+      );
 
       const total = subtotal + taxAmount;
       const depositPaidNum = parseFloat(depositPaid || '0');
@@ -1455,9 +1518,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
             branchId: branchId || null,
             customerId: customerId || null,
             quotationId: null,
-            departmentId: resolvedDepartmentId || null,
-            costCenterId: resolvedCostCenterId || null,
-            locationId: locationId ? Number(locationId) : null,
+            departmentId: dimensions.departmentId,
+            costCenterId: dimensions.costCenterId,
+            locationId: dimensions.locationId,
             orderNumber,
             issueDate: new Date().toISOString(),
             subtotal: subtotal.toString(),
@@ -1488,9 +1551,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
         branchId: branchId || undefined,
         customerId: customerId || null,
         quotationId: null,
-        departmentId: resolvedDepartmentId || null,
-        costCenterId: resolvedCostCenterId || null,
-        locationId: locationId ? Number(locationId) : null,
+        departmentId: dimensions.departmentId,
+        costCenterId: dimensions.costCenterId,
+        locationId: dimensions.locationId,
         orderNumber,
         issueDate: new Date(),
         subtotal: subtotal.toString(),

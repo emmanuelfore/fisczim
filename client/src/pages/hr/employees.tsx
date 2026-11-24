@@ -246,7 +246,10 @@ export default function HREmployees() {
         payGradeId: contractData.payGradeId === "" || contractData.payGradeId === "none" || contractData.payGradeId === undefined
           ? undefined
           : Number(contractData.payGradeId),
+        probationEndDate: cleanText(contractData.probationEndDate),
       },
+      terminationType: cleanText(formData.terminationType),
+      terminationReason: cleanText(formData.terminationReason),
     };
   };
 
@@ -413,6 +416,7 @@ export default function HREmployees() {
         payGradeId: data.payGradeId === "" || data.payGradeId === "none" || data.payGradeId === undefined
           ? null
           : Number(data.payGradeId),
+        probationEndDate: data.probationEndDate || null,
       };
       const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/contract`, cleaned);
       return res.json();

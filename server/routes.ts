@@ -74,13 +74,19 @@ import { createPriceListsRouter } from "./routes/price-lists.js";
 import { createProcurementRouter } from "./routes/procurement.js";
 import rateLimit from "express-rate-limit";
 import { userHasPermission } from "./lib/permissions.js";
-import { resolveActionAccess } from "./lib/approval-policies.js";
+import { deriveApprovalAmount, resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { requireApprovalOrContinue } from "./lib/approval-gate.js";
 import { requireDepartmentalDimensions, resolveInvoiceAnalytics } from "./lib/departmental.js";
 import { resolveSalesUnitPrice } from "./lib/pricing.js";
 import { confirmGdnReceipt } from "./lib/gdn-confirmation.js";
-import { APPROVAL_TYPES, ALL_PERMISSION_KEYS, LEGACY_ROLE_PERMISSIONS } from "../shared/permissions.js";
+import {
+  APPROVAL_TYPES,
+  ALL_PERMISSION_KEYS,
+  LEGACY_ROLE_PERMISSIONS,
+  REQUEST_ACTION_PERMISSION,
+  type ApprovalType,
+} from "../shared/permissions.js";
 import { db, withDbRetry } from "./db";
 import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, isNotNull, inArray, like } from "drizzle-orm";
 import { format } from "date-fns";
@@ -18290,7 +18296,9 @@ export async function registerRoutes(
     return amount.toFixed(2);
   };
 
-  // Approval requests: clients choose the request content; workflow state is server-owned.
+  // Legacy accounting entry point. It must use the same trusted approval path
+  // as /api/companies/:companyId/approvals: validated type, request permission,
+  // server-derived amount and no caller-controlled workflow state.
   app.post("/api/accounting/approval-requests", requireAuth, async (req: any, res: any) => {
     try {
       const companyId = await resolveAccountingCompanyId(req);
@@ -18298,29 +18306,48 @@ export async function registerRoutes(
       if (!(await requireAccountingPermission(req, res, companyId, "approvals.action"))) return;
       const requestedBy = req.user?.id;
       if (!requestedBy) throw new Error("An authenticated user is required");
-      if (!req.body?.payload || typeof req.body.payload !== "object" || Array.isArray(req.body.payload)) {
-        throw new Error("payload must be an object");
-      }
-      const inserted: any = await db.insert(approvalRequests).values({
-        companyId,
-        type: requireEntityString(req.body.type, "type"),
-        title: requireEntityString(req.body.title, "title"),
-        description: req.body.description != null ? String(req.body.description) : null,
-        payload: req.body.payload,
-        referenceType: req.body.referenceType != null ? String(req.body.referenceType) : null,
-        referenceId: req.body.referenceId != null ? String(req.body.referenceId) : null,
-        status: "pending",
+
+      const body = z.object({
+        type: z.enum(Object.values(APPROVAL_TYPES) as [ApprovalType, ...ApprovalType[]]),
+        title: z.string().trim().min(3),
+        description: z.string().trim().optional(),
+        payload: z.record(z.unknown()),
+        referenceType: z.string().trim().optional(),
+        referenceId: z.string().trim().optional(),
+      }).parse(req.body);
+
+      const requestPerm = REQUEST_ACTION_PERMISSION[body.type];
+      if (requestPerm && !(await requireAccountingPermission(req, res, companyId, requestPerm))) return;
+
+      const derivedAmount = deriveApprovalAmount(body.type, body.payload);
+      const access = await resolveActionAccess(
         requestedBy,
-        reviewedBy: null,
-        reviewedAt: null,
-        reviewNotes: null,
-        resultData: null,
-        createdAt: new Date(),
-      } as any).returning();
-      const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+        companyId,
+        body.type,
+        Boolean(req.user?.isSuperAdmin),
+        { amount: derivedAmount },
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to submit this approval" });
+      }
+
+      const trustedPayload = { ...body.payload };
+      delete trustedPayload.__approvalAmount;
+      if (derivedAmount != null) trustedPayload.__approvalAmount = derivedAmount;
+
+      const row = await createApprovalRequest({
+        companyId,
+        type: body.type,
+        title: body.title,
+        description: body.description,
+        payload: trustedPayload,
+        referenceType: body.referenceType,
+        referenceId: body.referenceId,
+        requestedBy,
+      });
       res.status(201).json(row);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(err.statusCode || 400).json({ message: err.message });
     }
   });
 

@@ -2164,6 +2164,7 @@ export const quotations = pgTable("quotations", {
   salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id),
   departmentId: integer("department_id").references(() => departments.id),
   costCenterId: integer("cost_center_id").references(() => costCenters.id),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
   convertedAt: timestamp("converted_at"),
 
   quotationNumber: text("quotation_number").notNull(),
@@ -4247,6 +4248,13 @@ export const employees = pgTable("employees", {
   status: text("status").default("ACTIVE").notNull(), // ACTIVE, INACTIVE, SUSPENDED, TERMINATED
   joiningDate: date("joining_date").notNull(),
   terminationDate: date("termination_date"),
+  // Persisted from the employee profile's termination details. Free text: the
+  // HR form offers values but the API does not constrain them to an enum.
+  terminationType: text("termination_type"),
+  terminationReason: text("termination_reason"),
+  // Current probation expiry for staff-directory reminders. The authoritative
+  // per-contract value lives on employeeContracts.
+  probationEndDate: date("probation_end_date"),
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -4264,6 +4272,7 @@ export const employeeContracts = pgTable("employee_contracts", {
   contractType: text("contract_type").default("PERMANENT").notNull(), // PERMANENT, FIXED_TERM, CASUAL
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
+  probationEndDate: date("probation_end_date"),
   payFrequency: text("pay_frequency").default("MONTHLY").notNull(), // MONTHLY, WEEKLY, FORTNIGHTLY, DAILY
   baseSalary: decimal("base_salary", { precision: 15, scale: 2 }).notNull(), // Total base salary in base contract currency
   currency: text("currency").default("USD").notNull(), // USD, ZiG, or SPLIT

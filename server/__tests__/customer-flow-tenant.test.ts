@@ -152,6 +152,8 @@ vi.mock("../lib/approval-gate.js", () => ({
 
 const { createCustomerFlowRouter, resolveCustomerFlowCompany, isBlockedForFulfilment, isApprovedQuotationStatus } =
   await import("../routes/customer-flow.js");
+const { requireApprovalOrContinue } = await import("../lib/approval-gate.js");
+const { db } = await import("../db.js");
 
 let app: express.Express;
 
@@ -168,6 +170,9 @@ beforeEach(() => {
   state.selectChains = [];
   state.reads = [];
   state.writes = [];
+  vi.mocked(requireApprovalOrContinue).mockClear();
+  (db.query.products.findFirst as any).mockReset();
+  (db.query.products.findFirst as any).mockResolvedValue(undefined);
 
   app = express();
   app.use(express.json());
@@ -276,6 +281,66 @@ describe("quotation conversion", () => {
     const quoteUpdate = state.writes.find((w) => w.kind === "update" && render(w.condition).includes('"quotations"'));
     expect(quoteUpdate).toBeTruthy();
     expect(render(quoteUpdate.condition)).toContain('"quotations"."company_id"');
+  });
+});
+
+describe("sales order dimension capture", () => {
+  const orderBody = {
+    customerId: 3,
+    items: [{ productId: 9, quantity: 1, unitPrice: "10.00" }],
+  };
+
+  test("a configured tenant with no resolvable dimensions is refused with 400 before any write", async () => {
+    // Product has no dimensions, one department without a cost centre and no
+    // cost centres: resolveInvoiceAnalytics must reject this capture.
+    state.selectQueue = [
+      [],
+      [{ id: 7, costCenterId: null }],
+      [],
+    ];
+    const result = await request("POST", "/api/sales-orders", orderBody);
+    expect(result.status).toBe(400);
+    expect(state.writes).toHaveLength(0);
+    expect(vi.mocked(requireApprovalOrContinue)).not.toHaveBeenCalled();
+  });
+
+  test("legacy tenants with no configured dimensions still capture nulls", async () => {
+    state.selectQueue = [
+      [], // no product dimensions
+      [], // no departments
+      [], // no cost centres
+    ];
+    const result = await request("POST", "/api/sales-orders", orderBody);
+    expect(result.status).toBe(200);
+
+    const orderInsert = state.writes.find((w) => w.kind === "insert" && w.values.orderNumber);
+    expect(orderInsert?.values).toMatchObject({ departmentId: null, costCenterId: null, locationId: null });
+    const approvalPayload: any = vi.mocked(requireApprovalOrContinue).mock.calls[0][0].payload;
+    expect(approvalPayload.orderData).toMatchObject({ departmentId: null, costCenterId: null, locationId: null });
+  });
+
+  test("product and location fallbacks reach both the stored order and approval payload", async () => {
+    (db.query.products.findFirst as any).mockResolvedValue({
+      id: 9,
+      price: "10.00",
+      departmentId: 7,
+      costCenterId: 8,
+    });
+    state.selectQueue = [
+      [{ id: 5 }], // company-owned location check
+      [{ id: 9, departmentId: 7, costCenterId: 8 }], // product dimensions
+      [{ id: 7, costCenterId: 8 }], // departments
+      [{ id: 8 }], // cost centres
+    ];
+    const result = await request("POST", "/api/sales-orders", { ...orderBody, locationId: 5 });
+    expect(result.status).toBe(200);
+
+    const orderInsert = state.writes.find((w) => w.kind === "insert" && w.values.orderNumber);
+    expect(orderInsert?.values).toMatchObject({ departmentId: 7, costCenterId: 8, locationId: 5 });
+
+    expect(vi.mocked(requireApprovalOrContinue)).toHaveBeenCalledTimes(1);
+    const approvalPayload: any = vi.mocked(requireApprovalOrContinue).mock.calls[0][0].payload;
+    expect(approvalPayload.orderData).toMatchObject({ departmentId: 7, costCenterId: 8, locationId: 5 });
   });
 });
 

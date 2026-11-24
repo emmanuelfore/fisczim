@@ -54,7 +54,7 @@ Prepare before the session in the training company only.
 | Products | Repair labour, distribution board, cable, tools | Each mapped to one department/cost centre |
 | Employees | One per department | Contracts, salary history and tax credits for UAT payroll |
 | Approval settings | `by_permission` / provisional amount threshold | Clearly mark as training-only; actual limits client-confirmed |
-| Payroll config | ZW country; PAYE, AIDS_LEVY, NSSA_POBS, NEC, ZIMDEF, APWCS rules | APWCS rate must be the client/industry value, never guessed |
+| Payroll config | ZW country; PAYE, AIDS_LEVY, NSSA_POBS, NEC, ZIMDEF, APWCS, NHIF, WCIF rules | APWCS, NHIF and WCIF rates must be the client/industry values, never guessed |
 
 ## 4. Trainer notes
 
@@ -63,7 +63,7 @@ Prepare before the session in the training company only.
 - **Pending functionality:** where a step is not implemented in the current build (for example a POD attachment field), demonstrate the intended control, state clearly that it is pending, and log a training/UAT gap. Do not imply the feature exists.
 - **Approval submissions:** many actions now return HTTP `202` and create an approval request instead of a business record. This applies to requisitions, quotations, sales orders, purchase orders, supplier registration, expenses, credit notes, payments, leave and discounts. Trainees must check `/approvals` before assuming the document was saved.
 - **Approval settings:** display the configured policy screen and explicitly state that monetary limits and approver names are client-confirmed inputs. Explain that a threshold of `0` means no threshold.
-- **Migration awareness:** explain that 0109 created picking records and the one-active-invoice rule; 0110 added department/cost-centre/warehouse links; 0111 added GL/source-document department fields, indexes and approval-policy seeds; 0112 added vehicle-agency accounting where applicable; 0113–0114 added price lists and budgets; 0115 added requisitions and supplier quotes. Migration success does not prove the tenant was seeded — verify the actual company id and settings export.
+- **Migration awareness:** explain that 0109 created picking records and the one-active-invoice rule; 0110 added department/cost-centre/warehouse links; 0111 added GL/source-document department fields, indexes and approval-policy seeds; 0112 added vehicle-agency accounting where applicable; 0113–0114 added price lists and budgets; 0115 added requisitions and supplier quotes; 0116 backfilled the requisition approval policy; 0117 added HR termination/probation fields; 0118 added unpriced NHIF/WCIF rules; 0119 added quotation location capture. Migration success does not prove the tenant was seeded — verify the actual company id and settings export.
 - **FiscalPrinter training mode:** use the offline commands below. They make no API call, write no invoice and consume no fiscal counter. Copies carry `TRAINING — NOT A VALID FISCAL INVOICE` and a training QR.
 
 ```bash

@@ -9,6 +9,7 @@
  *  - AIDS Levy (3% of PAYE)
  *  - NSSA POBS (4.5% employee + employer, capped at insurable ceiling)
  *  - NSSA APWCS (employer-only, industry-specific rate)
+ *  - NHIF and WCIF (configurable rates; zero + warning until configured)
  *  - NEC levy (sector-specific, employee + employer)
  *  - ZIMDEF 1% + Standards Development Levy 0.5% (both employer-only)
  *  - Tax-free bonus threshold (USD 400 p.a. per Finance Act)
@@ -117,6 +118,9 @@ export interface CalculationInput {
     aidsLevyRate: number;
     zimdefRate: number;
     standardsLevyRate: number;
+    /** Optional configured rates for jurisdictions that levy NHIF/WCIF. */
+    nhifRate?: number;
+    wcifRate?: number;
     taxFreeBonusThreshold: number;
     nssaRateEmployee: number;
     nssaRateEmployer: number;
@@ -162,7 +166,9 @@ export interface CalculationResult {
 
   nssaEmployee: number;
   nssaEmployer: number;
+  nhifAmount: number;
   apwcsAmount: number;
+  wcifAmount: number;
   pensionEmployee: number;
   pensionEmployer: number;
   necEmployee: number;
@@ -331,6 +337,24 @@ export class ZimbabwePayrollEngine {
       warnings.push("APWCS premium not configured: add an NSSA industry code and effective-dated premium rate before remitting.");
     }
 
+    // ── 5b. NHIF (employee deduction, configurable tier equivalent) ───────
+    // No statutory rate is hardcoded. A zero/unconfigured rate produces zero
+    // and a warning, never an invented deduction.
+    const nhifRule = rulesByCode.get("NHIF");
+    const nhifRate = nr(ruleRate("NHIF", "employeeRate", input.statutoryConfig.nhifRate ?? 0));
+    const nhifAmount = r2(grossSalary * nhifRate);
+    if (!Number.isFinite(nhifRate) || nhifRate <= 0) {
+      warnings.push("NHIF contribution not configured: add an effective-dated employee rate or tier equivalent before remitting.");
+    }
+
+    // ── 5c. WCIF (employer-only, industry-specific) ───────────────────────
+    const wcifRule = rulesByCode.get("WCIF");
+    const wcifRate = nr(ruleRate("WCIF", "employerRate", input.statutoryConfig.wcifRate ?? 0));
+    const wcifAmount = r2(grossSalary * wcifRate);
+    if (!Number.isFinite(wcifRate) || wcifRate <= 0) {
+      warnings.push("WCIF premium not configured: add an effective-dated industry class rate before remitting.");
+    }
+
     // ── 6. Pension ─────────────────────────────────────────────────────────
     const pensionEmployee = r2(input.baseSalary * nr(Number(input.pensionEmployeeRate || 0)));
     const pensionEmployer = r2(input.baseSalary * nr(Number(input.pensionEmployerRate || 0)));
@@ -437,7 +461,7 @@ export class ZimbabwePayrollEngine {
     const payeFinal = r2(payeAfterCredit + aidsLevy);
 
     // ── 13. Net Salary ─────────────────────────────────────────────────────
-    const totalDeductions = r2(payeFinal + nssaEmployee + pensionEmployee + necEmployee + otherDeductions + taxDeductibleDeductions);
+    const totalDeductions = r2(payeFinal + nssaEmployee + nhifAmount + pensionEmployee + necEmployee + otherDeductions + taxDeductibleDeductions);
     const netSalary = r2(grossSalary - totalDeductions);
 
     // ── 14. Split Currency ─────────────────────────────────────────────────
@@ -451,6 +475,7 @@ export class ZimbabwePayrollEngine {
         { code: "PAYE", name: "PAYE", amount: payeAfterCredit, responsibleParty: "EMPLOYEE" },
         { code: "AIDS_LEVY", name: ruleName("AIDS_LEVY", "AIDS Levy"), amount: aidsLevy, responsibleParty: "EMPLOYEE" },
         { code: "NSSA_POBS_EMPLOYEE", name: ruleName("NSSA_POBS_EMPLOYEE", "NSSA POBS"), amount: nssaEmployee, responsibleParty: "EMPLOYEE" },
+        { code: "NHIF", name: ruleName("NHIF", "NHIF Contribution"), amount: nhifAmount, responsibleParty: "EMPLOYEE" },
         { code: "PENSION_EMPLOYEE", name: "Pension Fund", amount: pensionEmployee, responsibleParty: "EMPLOYEE" },
         { code: "NEC_EMPLOYEE", name: "NEC", amount: necEmployee, responsibleParty: "EMPLOYEE" },
       ].filter((item) => item.amount > 0),
@@ -461,6 +486,7 @@ export class ZimbabwePayrollEngine {
         { code: "PENSION_EMPLOYER", name: "Pension Fund", amount: pensionEmployer, responsibleParty: "EMPLOYER" },
         { code: "NEC_EMPLOYER", name: "NEC", amount: necEmployer, responsibleParty: "EMPLOYER" },
         { code: "STANDARDS_LEVY", name: "Standards Development Levy", amount: standardsLevyAmount, responsibleParty: "EMPLOYER" },
+        { code: "WCIF", name: ruleName("WCIF", "Workers' Compensation Levy"), amount: wcifAmount, responsibleParty: "EMPLOYER" },
       ].filter((item) => item.amount > 0),
       taxCredits: appliedCreditItems,
       warnings,
@@ -483,7 +509,9 @@ export class ZimbabwePayrollEngine {
 
       nssaEmployee,
       nssaEmployer,
+      nhifAmount,
       apwcsAmount,
+      wcifAmount,
       pensionEmployee,
       pensionEmployer,
       necEmployee,
@@ -513,7 +541,7 @@ export class ZimbabwePayrollEngine {
       nssaEmployeeUsd: r2(nssaEmployee * usdRatio),
       nssaEmployeeZig: r2(nssaEmployee * zigRatio * rate),
 
-      totalEmployerCost: r2(grossSalary + nssaEmployer + pensionEmployer + necEmployer + apwcsAmount + zimdefAmount + standardsLevyAmount),
+      totalEmployerCost: r2(grossSalary + nssaEmployer + pensionEmployer + necEmployer + apwcsAmount + wcifAmount + zimdefAmount + standardsLevyAmount),
       statutoryBreakdown,
     };
   }

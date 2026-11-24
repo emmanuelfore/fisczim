@@ -71,6 +71,7 @@ export type VehicleInvoice = {
   currency: string | null;
   dueDate: string | null;
   issueDate: string | null;
+  vehicleCosts?: import("@/lib/vehicle-invoice-costs").VehicleInvoiceCost[];
 };
 
 export type VehicleOpenScheduleLine = {

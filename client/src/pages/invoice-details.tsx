@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
-import { currencyLabel } from "@shared/currency";
+import { currencyLabel, formatCurrencyAmount } from "@shared/currency";
+import { vehicleInvoiceDisbursements } from "@/lib/vehicle-invoice-costs";
 import {
   useInvoices,
   useInvoice,
@@ -1175,16 +1176,30 @@ export default function InvoiceDetailsPage() {
                             const saleRate = Number(inv.exchangeRate || 1) || 1;
                             const sale = inv.currency === "USD" ? Number(inv.total || 0) : (Number(inv.total || 0) / saleRate);
                             const profit = sale - landed;
-                            const isAgency = String(inv.vehicle?.accountingModel || "") === "agent";
+                            const isAgency = inv.vehicle && inv.vehicle.accountingModel !== "principal";
+                            const disbursements = isAgency ? vehicleInvoiceDisbursements(costs, inv.exchangeRate) : [];
+                            if (isAgency && !disbursements.length) return null;
                             if (isAgency) return (
                               <div className="rounded-xl border border-slate-200 p-4 space-y-2 bg-slate-50/50">
                                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                                   <Car className="w-3.5 h-3.5 text-blue-600" />
-                                  Agency arrangement
+                                  Vehicle import cost breakdown
                                 </p>
                                 <p className="text-xs text-slate-600">
-                                  This invoice covers Prime Imports&apos; processing fee only. Purchase price, shipping, duty and other third-party costs are customer-funded disbursements and are shown on the Vehicle Account Statement / Cost Sheet, not on this invoice total.
+                                  These customer-funded costs are shown for reference. The invoice total is the processing fee.
                                 </p>
+                                <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+                                  {disbursements.map(cost => (
+                                    <div key={cost.id} className="flex justify-between gap-3 py-2">
+                                      <dt className="capitalize">{cost.description}</dt>
+                                      <dd className="shrink-0">{formatCurrencyAmount(cost.amount, inv.currency)}</dd>
+                                    </div>
+                                  ))}
+                                  <div className="flex justify-between gap-3 py-2 font-semibold">
+                                    <dt>Total customer-funded costs</dt>
+                                    <dd>{formatCurrencyAmount(disbursements.reduce((sum, cost) => sum + cost.amount, 0), inv.currency)}</dd>
+                                  </div>
+                                </dl>
                                 {inv.vehicle?.id && (
                                   <Link href={`/vehicles/${inv.vehicle.id}`} className="text-[11px] text-blue-600 hover:underline font-semibold">
                                     Open vehicle statement →

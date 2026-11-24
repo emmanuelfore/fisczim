@@ -2,6 +2,7 @@
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { formatCurrencyAmount } from "@shared/currency";
+import { vehicleInvoiceDisbursements } from "@/lib/vehicle-invoice-costs";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
@@ -263,10 +264,12 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
     // Vehicle cost lines are informational only: they are shown on the invoice
     // document but never added to the invoice items, subtotal, VAT or total.
     const vehicleCostLines = (invoice.vehicleCosts || []).filter((c: any) => c.status !== "cancelled");
-    // On an agency deal the invoice is only for the processing fee. Third-party
-    // cost lines belong on the Vehicle Account Statement, never on this invoice.
-    const isAgencyFeeInvoice = String(invoice.accountingModel || invoice.vehicle?.accountingModel || "") === "agent";
+    const accountingModel = invoice.accountingModel || invoice.vehicle?.accountingModel;
+    const isAgencyFeeInvoice = accountingModel === "agent" || (invoice.vehicle && !accountingModel);
     const shownVehicleCostLines = isAgencyFeeInvoice ? [] : vehicleCostLines;
+    const disbursements = isAgencyFeeInvoice
+        ? vehicleInvoiceDisbursements(vehicleCostLines, invoice.exchangeRate)
+        : [];
     const hasDesignerPartnership = designerSettings.showPartnership;
     const partner = (invoice.partnerSnapshot || (hasDesignerPartnership ? {
         id: 1,
@@ -749,12 +752,22 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     </View>
                 </View>
 
-                {isAgencyFeeInvoice && vehicleCostLines.length ? (
+                {isAgencyFeeInvoice && disbursements.length > 0 ? (
                     <View style={{ marginTop: 14, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
-                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: "uppercase" }}>Agency arrangement</Text>
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: "uppercase" }}>Vehicle import cost breakdown</Text>
                         <Text style={{ fontSize: 7, color: "#64748b", lineHeight: 1.5 }}>
-                            This invoice covers Prime Imports&apos; processing fee only. Purchase price, shipping, duty and other third-party costs are funded by the customer and reported on the separate Vehicle Account Statement / Cost Sheet. Those amounts are not included in this invoice total.
+                            These customer-funded costs are shown for reference. The invoice total is the processing fee.
                         </Text>
+                        {disbursements.map(cost => (
+                            <View key={cost.id} wrap={false} style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, borderTopWidth: 1, borderTopColor: borderColor, marginTop: 4, paddingTop: 4 }}>
+                                <Text style={{ flex: 1, textTransform: "capitalize" }}>{cost.description}</Text>
+                                <Text>{formatCurrencyAmount(cost.amount, invoice.currency || "USD")}</Text>
+                            </View>
+                        ))}
+                        <View wrap={false} style={{ flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: borderColor, marginTop: 4, paddingTop: 4, fontWeight: 700 }}>
+                            <Text>Total customer-funded costs</Text>
+                            <Text>{formatCurrencyAmount(disbursements.reduce((sum, cost) => sum + cost.amount, 0), invoice.currency || "USD")}</Text>
+                        </View>
                     </View>
                 ) : null}
 

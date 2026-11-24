@@ -191,7 +191,20 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
     if (showCosts) return row;
     const { summary, costs, cogsAmount, invoice, ...rest } = row as any;
     const s = summary ? { sellingPrice: summary.sellingPrice, isProjected: summary.isProjected, paid: summary.paid, balance: summary.balance } : undefined;
-    const redInv = invoice ? { ...invoice, vehicleCosts: [] } : undefined;
+    const redInv = invoice ? {
+      ...invoice,
+      vehicleCosts: invoice.vehicle && isAgencyVehicle(invoice.vehicle)
+        ? (invoice.vehicleCosts ?? [])
+            .filter((cost: typeof vehicleCosts.$inferSelect) => cost.includeInCustomerStatement && cost.status !== "cancelled")
+            .map((cost: typeof vehicleCosts.$inferSelect) => ({
+              id: cost.id,
+              category: cost.category,
+              description: cost.description,
+              includeInCustomerStatement: true,
+              customerChargeBaseAmount: cost.customerChargeBaseAmount ?? cost.baseAmount,
+            }))
+        : [],
+    } : undefined;
     return { ...rest, ...(s ? { summary: s } : {}), ...(costs ? { costs: [] } : {}), ...(redInv !== undefined ? { invoice: redInv } : {}) } as T;
   }
 

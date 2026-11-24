@@ -673,11 +673,11 @@ describe("Invoices Router — Property 11: Re-fiscalizing an already-fiscalized 
     expect(processInvoiceFiscalization).not.toHaveBeenCalled();
   });
 
-  test("POST /:id/fiscalize proceeds normally when fiscalCode is null", async () => {
+  test("POST /:id/fiscalize proceeds normally for an issued invoice when fiscalCode is null", async () => {
     const companyId = 1;
     vi.mocked(storage.getInvoice)
-      .mockResolvedValueOnce(mockInvoice({ companyId, fiscalCode: null }) as any)
-      .mockResolvedValueOnce(mockInvoice({ companyId, fiscalCode: "NEW-CODE" }) as any);
+      .mockResolvedValueOnce(mockInvoice({ companyId, status: "issued", fiscalCode: null }) as any)
+      .mockResolvedValueOnce(mockInvoice({ companyId, status: "issued", fiscalCode: "NEW-CODE" }) as any);
 
     vi.mocked(processInvoiceFiscalization).mockResolvedValue({
       fiscalCode: "NEW-CODE",

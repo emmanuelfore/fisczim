@@ -123,9 +123,11 @@ npm run training:stamp:samples    # stamp a training QR on bundled PDFs
 5. Attempt to invoice the same sales order again.
 6. Confirm the existing invoice is reopened/blocked rather than a second active invoice being created.
 7. Explain how migration 0109 handles legacy duplicates: it cancels duplicates and preserves accounting history; it does not delete rows.
-8. In `FiscalPrinter`, run `npm run training:invoice` and `npm run training:pdf`; inspect the watermark/training QR.
-9. Run `npm run training:stamp:samples` on a copy of a sample PDF and confirm the source file is unchanged.
-10. **Checkpoint:** no live fiscalization was used and one active invoice remains.
+8. Issue the invoice and deliberately use values that fail fiscal preflight. Open the invoice and use **Correct & Fiscalize** to repair the highlighted data, then submit again; an issued invoice may be corrected until ZIMRA records it.
+9. After successful fiscalization, confirm the invoice cannot be resubmitted or commercially edited, and that a credit/debit note is the correction route.
+10. In `FiscalPrinter`, run `npm run training:invoice` and `npm run training:pdf`; inspect the watermark/training QR.
+11. Run `npm run training:stamp:samples` on a copy of a sample PDF and confirm the source file is unchanged.
+12. **Checkpoint:** only training-company data was fiscalized, the training QR/watermark was inspected, and one active invoice remains.
 
 ### Exercise 5 — Requisition, supplier quotes, PO, GDN/GRN and three-way match
 

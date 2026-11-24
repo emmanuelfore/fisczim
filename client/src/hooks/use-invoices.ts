@@ -185,8 +185,8 @@ export function useFiscalizeInvoice() {
         toast({
           title: "Preflight Checks Failed",
           description: count > 0
-            ? `${count} issue(s) were saved on the invoice. Open the invoice, edit the highlighted data, then fiscalize again.`
-            : err.message || "Review the invoice details, edit the issue, then fiscalize again.",
+            ? `${count} issue(s) were saved on the invoice. Use "Correct & Fiscalize" to edit the highlighted data, then fiscalize again.`
+            : err.message || 'Use "Correct & Fiscalize" to review the invoice details, then fiscalize again.',
           variant: "destructive"
         });
         return;

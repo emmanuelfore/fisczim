@@ -8,6 +8,7 @@ import { eq, and, ne, isNotNull } from "drizzle-orm";
 import { logAction } from "../../audit.js";
 import {
   assertEditableDraft,
+  assertEditableInvoice,
   assertUserCompanyAccess,
   createAuthoritativeInvoice,
   enforceIssueApproval,
@@ -400,7 +401,7 @@ router.get("/:id", async (req, res) => {
   });
 });
 
-// PUT /:id — update only a true draft/unposted invoice
+// PUT /:id — update an unposted draft, quote or issued invoice (for fiscal retry)
 router.put("/:id", async (req, res) => {
   try {
     const context = resolveInvoiceContext(req, (req.body as any)?.companyId);
@@ -425,8 +426,8 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    // Draft-only guard: rejects issued/paid/fiscalized/posted invoices.
-    await assertEditableDraft(context.companyId, invoice);
+    // Issued invoices stay correctable until fiscal/ledger evidence exists.
+    await assertEditableInvoice(context.companyId, invoice);
 
     const parsed = updateInvoiceSchema.safeParse(req.body);
     if (!parsed.success) {

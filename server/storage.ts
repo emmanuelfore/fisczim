@@ -75,6 +75,7 @@ import {
 import { baseCurrencyOf, defaultCurrencySeeds } from "../shared/currency.js";
 import { addToBucket, daysOverdue, emptyAgingAmounts, legacyAgingFields, resolveDueDate, type AgingAmounts } from "../shared/aging.js";
 import { throughEndOfDay } from "../shared/report-dates.js";
+import { CORRECTABLE_INVOICE_STATUSES, DRAFT_INVOICE_STATUSES, invoiceImmutableReasons } from "./lib/invoice-lifecycle.js";
 import { db } from "./db.js";
 import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
@@ -84,10 +85,10 @@ import { format } from "date-fns";
 
 const scryptAsync = promisify(scrypt);
 
-// Only these invoice states may be changed or removed. Anything issued,
-// posted, paid or handed to the fiscal device is immutable; corrections must
-// be made with credit notes, debit notes or explicit reversals.
-const MUTABLE_INVOICE_STATUSES = new Set(["draft", "quote"]);
+// Drafts and quotes may be changed or removed. An issued invoice may still be
+// corrected so a failed fiscal preflight can be fixed and resubmitted, but it
+// becomes immutable once fiscal/ledger evidence exists.
+const DELETABLE_INVOICE_STATUSES = DRAFT_INVOICE_STATUSES;
 
 // Codes the postings above resolve to that many live charts were seeded without.
 // Created on first use so a missing default cannot abort a posting.
@@ -616,14 +617,22 @@ export class DatabaseStorage implements IStorage {
    * required, but storage must never let a caller quietly rewrite or remove a
    * document that already has accounting or fiscal consequences.
    */
-  private async requireMutableInvoice(id: number) {
+  private async requireMutableInvoice(
+    id: number,
+    options: { allowIssued?: boolean } = {},
+  ) {
     const [invoice] = await db
       .select({
         id: invoices.id,
         status: invoices.status,
         fiscalCode: invoices.fiscalCode,
+        fiscalSignature: invoices.fiscalSignature,
+        qrCodeData: invoices.qrCodeData,
+        verificationCode: invoices.verificationCode,
+        submissionId: invoices.submissionId,
         syncedWithFdms: invoices.syncedWithFdms,
         fdmsStatus: invoices.fdmsStatus,
+        isFiscalized: invoices.isFiscalized,
       })
       .from(invoices)
       .where(eq(invoices.id, id))
@@ -632,14 +641,12 @@ export class DatabaseStorage implements IStorage {
     if (!invoice) throw new Error("Invoice not found");
 
     const status = String(invoice.status || "").toLowerCase();
-    const fdmsStatus = String(invoice.fdmsStatus || "").toLowerCase();
-    const hasFiscalEvidence = Boolean(
-      invoice.fiscalCode ||
-      invoice.syncedWithFdms ||
-      ["issued", "fiscalized", "submitted", "accepted"].includes(fdmsStatus),
-    );
+    const allowedStatuses = options.allowIssued
+      ? CORRECTABLE_INVOICE_STATUSES
+      : DELETABLE_INVOICE_STATUSES;
+    const reasons = invoiceImmutableReasons(invoice);
 
-    if (!MUTABLE_INVOICE_STATUSES.has(status) || hasFiscalEvidence) {
+    if (!allowedStatuses.has(status) || reasons.length > 0) {
       throw new Error("Issued, posted or fiscalized invoices are immutable. Use a credit note, debit note or reversal instead.");
     }
 
@@ -2427,7 +2434,7 @@ export class DatabaseStorage implements IStorage {
     ]);
     const unsafeFields = Object.keys(data).filter((key) => !POSTED_INVOICE_UPDATES.has(key));
     if (unsafeFields.length > 0) {
-      await this.requireMutableInvoice(id);
+      await this.requireMutableInvoice(id, { allowIssued: true });
     } else {
       // Even a whitelisted update must not resurrect or rewrite a cancelled
       // document. The full guard handles that; this lightweight check keeps
@@ -2443,8 +2450,11 @@ export class DatabaseStorage implements IStorage {
         throw new Error("Cancelled invoices are immutable.");
       }
       const nextStatus = data.status == null ? undefined : String(data.status).toLowerCase();
-      if (!MUTABLE_INVOICE_STATUSES.has(currentStatus) && (nextStatus === "draft" || nextStatus === "quote")) {
+      if (!CORRECTABLE_INVOICE_STATUSES.has(currentStatus) && (nextStatus === "draft" || nextStatus === "quote")) {
         throw new Error("A posted invoice cannot be reverted to draft.");
+      }
+      if (currentStatus === "issued" && (nextStatus === "draft" || nextStatus === "quote")) {
+        throw new Error("An issued invoice cannot be reverted to draft; correct it and fiscalize it instead.");
       }
       if (current.fiscalCode && (nextStatus === "draft" || nextStatus === "quote")) {
         throw new Error("A fiscalized invoice cannot be reverted to draft.");
@@ -2462,9 +2472,9 @@ export class DatabaseStorage implements IStorage {
 
       if (!updated) throw new Error("Invoice not found");
 
-      // 2. If items provided, replace them (draft invoices only)
+      // 2. If items provided, replace them (draft/quote or unposted issued invoices)
       if (data.items) {
-        await this.requireMutableInvoice(id);
+        await this.requireMutableInvoice(id, { allowIssued: true });
         await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
 
         await tx.insert(invoiceItems).values(

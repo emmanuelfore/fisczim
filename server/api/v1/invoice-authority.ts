@@ -21,6 +21,11 @@ import {
 import { requireApprovalOrContinue } from "../../lib/approval-gate.js";
 import { resolveInvoiceAnalytics } from "../../lib/departmental.js";
 import { processInvoiceFiscalization } from "../../lib/fiscalization.js";
+import {
+  CORRECTABLE_INVOICE_STATUSES,
+  DRAFT_INVOICE_STATUSES,
+  invoiceImmutableReasons,
+} from "../../lib/invoice-lifecycle.js";
 
 export class InvoiceAuthorityError extends Error {
   readonly statusCode: number;
@@ -120,14 +125,16 @@ async function gateInvoiceAction(
     referenceId?: string;
   },
 ): Promise<ApprovalOutcome> {
-  // Approval requests have a UUID requester FK. API keys have no user, so we
-  // cannot attribute a submission to a real person; fail closed rather than
-  // silently bypassing the gate.
+  // A verified company API key authorizes the integration to act for that company.
+  if (context.principal.isApiKey) {
+    return { requiresApproval: false, request: null };
+  }
+
   if (!context.principal.userId) {
     throw new InvoiceAuthorityError(
-      "APPROVAL_PRINCIPAL_REQUIRED",
-      "Issuing invoices through this API requires an authenticated user principal so approvals can be attributed",
-      403,
+      "AUTHENTICATION_REQUIRED",
+      "An authenticated user or company API key is required",
+      401,
     );
   }
 
@@ -533,32 +540,14 @@ export async function fiscalizeIssuedInvoice(
   }
 }
 
-const EDITABLE_STATUSES = new Set(["draft", "quote"]);
-
-/** True only for genuinely unposted drafts. Never deletes payments or GL history. */
-export async function assertEditableDraft(companyId: number, invoice: any): Promise<void> {
-  const status = String(invoice?.status || "").toLowerCase();
-  if (!EDITABLE_STATUSES.has(status)) {
-    throw new InvoiceAuthorityError(
-      "INVOICE_NOT_EDITABLE",
-      `Cannot modify an invoice in ${invoice?.status || "unknown"} status; only draft/quote invoices are editable`,
-      422,
-    );
-  }
-
-  if (
-    invoice?.fiscalCode ||
-    invoice?.qrCodeData ||
-    invoice?.fiscalSignature ||
-    invoice?.isFiscalized === true ||
-    invoice?.receiptGlobalNo != null ||
-    invoice?.receiptCounter != null ||
-    invoice?.verificationCode
-  ) {
+async function assertInvoiceUnposted(companyId: number, invoice: any): Promise<void> {
+  const immutableReasons = invoiceImmutableReasons(invoice);
+  if (immutableReasons.length > 0) {
     throw new InvoiceAuthorityError(
       "INVOICE_ALREADY_FISCALIZED",
-      "Cannot modify an invoice that has been fiscalized",
+      "Cannot modify an invoice that has been fiscalized or posted",
       422,
+      { reasons: immutableReasons },
     );
   }
 
@@ -597,4 +586,33 @@ export async function assertEditableDraft(companyId: number, invoice: any): Prom
       { journalEntries: postedJournal.length, payments: linkedPayments.length },
     );
   }
+}
+
+/**
+ * Issued invoices remain correctable until fiscal/ledger evidence exists. This
+ * is what lets a failed ZIMRA preflight be repaired and submitted again.
+ */
+export async function assertEditableInvoice(companyId: number, invoice: any): Promise<void> {
+  const status = String(invoice?.status || "").toLowerCase();
+  if (!CORRECTABLE_INVOICE_STATUSES.has(status)) {
+    throw new InvoiceAuthorityError(
+      "INVOICE_NOT_EDITABLE",
+      `Cannot modify an invoice in ${invoice?.status || "unknown"} status; only draft, quote or unposted issued invoices are editable`,
+      422,
+    );
+  }
+  await assertInvoiceUnposted(companyId, invoice);
+}
+
+/** Stricter guard for destructive operations: only true drafts may be deleted. */
+export async function assertEditableDraft(companyId: number, invoice: any): Promise<void> {
+  const status = String(invoice?.status || "").toLowerCase();
+  if (!DRAFT_INVOICE_STATUSES.has(status)) {
+    throw new InvoiceAuthorityError(
+      "INVOICE_NOT_EDITABLE",
+      `Cannot delete an invoice in ${invoice?.status || "unknown"} status; only drafts and quotations are deletable`,
+      422,
+    );
+  }
+  await assertInvoiceUnposted(companyId, invoice);
 }

@@ -30,6 +30,11 @@ import { processInvoiceFiscalization, getCompanyZimraConfig, getZimraLogger, Fis
 import { classifyProduct } from "./utils/productClassifier.js";
 import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
+import {
+  CORRECTABLE_INVOICE_STATUSES,
+  DRAFT_INVOICE_STATUSES,
+  invoiceImmutableReasons,
+} from "./lib/invoice-lifecycle.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import zohoWebhookRouter from "./lib/zoho-webhook.js";
@@ -362,7 +367,8 @@ export async function registerRoutes(
    * Server-owned invoice state. Commercial edits are only allowed while the
    * document is still a draft/quote with no fiscal or ledger consequences.
    */
-  const SERVER_EDITABLE_INVOICE_STATUSES = new Set(["draft", "quote"]);
+  // An issued invoice is still correctable until ZIMRA/fiscal evidence exists.
+  const SERVER_EDITABLE_INVOICE_STATUSES = CORRECTABLE_INVOICE_STATUSES;
   const INVOICE_SERVER_OWNED_FIELDS = new Set([
     "id", "companyId", "createdAt", "createdBy", "updatedBy", "updatedAt",
     "isFiscalized", "fiscalCode", "fiscalSignature", "qrCodeData",
@@ -381,17 +387,7 @@ export async function registerRoutes(
     if (!SERVER_EDITABLE_INVOICE_STATUSES.has(status)) {
       reasons.push(`status is ${invoice?.status || "unknown"}`);
     }
-    if (invoice?.fiscalCode != null) reasons.push("a fiscal code is present");
-    if (invoice?.fiscalSignature != null) reasons.push("a fiscal signature is present");
-    if (invoice?.qrCodeData != null) reasons.push("fiscal QR data is present");
-    if (invoice?.verificationCode != null) reasons.push("a verification code is present");
-    if (invoice?.submissionId != null) reasons.push("a fiscal submission is present");
-    if (invoice?.syncedWithFdms === true) reasons.push("the invoice was synced to FDMS");
-    if (String(invoice?.fdmsStatus || "").toLowerCase() === "issued") {
-      reasons.push("the FDMS status is issued");
-    }
-    if (invoice?.isFiscalized === true) reasons.push("the invoice is marked fiscalized");
-    if (invoice?.journalEntryId != null) reasons.push("a journal entry is attached");
+    reasons.push(...invoiceImmutableReasons(invoice));
     return reasons;
   };
 
@@ -13284,15 +13280,21 @@ export async function registerRoutes(
       const input = api.invoices.update.input.parse(body);
       await assertOpenAccountingPeriod(existingInvoice.companyId, body.issueDate || existingInvoice.issueDate || new Date(), "Invoice editing");
 
-      const requestedStatus = input.status ? String(input.status).toLowerCase() : String(existingInvoice.status || "").toLowerCase();
+      const currentStatus = String(existingInvoice.status || "").toLowerCase();
+      const requestedStatus = input.status ? String(input.status).toLowerCase() : currentStatus;
       const isIssueTransition = requestedStatus === "issued" &&
-        SERVER_EDITABLE_INVOICE_STATUSES.has(String(existingInvoice.status || "").toLowerCase());
-      if (!SERVER_EDITABLE_INVOICE_STATUSES.has(requestedStatus) && !isIssueTransition) {
+        DRAFT_INVOICE_STATUSES.has(currentStatus);
+      const invalidStatusTransition =
+        !SERVER_EDITABLE_INVOICE_STATUSES.has(requestedStatus) ||
+        (currentStatus === "issued" && requestedStatus !== "issued");
+      if (invalidStatusTransition) {
         await logAction(existingInvoice.companyId, (req as any).user?.id || "system", "INVOICE_UPDATE_BLOCKED", "invoice", String(invoiceId), {
           reasons: [`requested status ${requestedStatus}`],
         });
         return res.status(409).json({
-          message: "Only draft/quote invoices can be edited. Use a credit note, debit note or reversal for posted documents.",
+          message: currentStatus === "issued"
+            ? "Issued invoices can be corrected in place but cannot change status. Use a credit note, debit note or reversal for posted documents."
+            : "Only draft, quote or issued invoices can be edited. Use a credit note, debit note or reversal for posted documents.",
         });
       }
 

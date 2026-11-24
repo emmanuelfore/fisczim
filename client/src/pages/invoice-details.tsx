@@ -885,6 +885,17 @@ export default function InvoiceDetailsPage() {
                           Edit Quotation
                         </DropdownMenuItem>
                       )}
+                      {invoice.status === "issued" &&
+                        !invoice.fiscalCode &&
+                        !invoice.syncedWithFdms && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setLocation(`/invoices/new?edit=${invoiceId}`)
+                            }
+                          >
+                            <ShieldCheck className="w-4 h-4 mr-2" /> Correct & Fiscalize
+                          </DropdownMenuItem>
+                        )}
                       {["issued", "paid", "fiscalized"].includes(
                         invoice.status || "",
                       ) && (

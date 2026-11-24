@@ -53,6 +53,7 @@ import { processInvoiceFiscalization } from "../../../lib/fiscalization.js";
 import {
   assertDeclaredTotals,
   assertEditableDraft,
+  assertEditableInvoice,
   createAuthoritativeInvoice,
   fiscalizeIssuedInvoice,
   type InvoiceContext,
@@ -158,31 +159,61 @@ describe("authoritative create gate", () => {
     );
   });
 
-  test("an API key without a user principal fails closed instead of bypassing approval", async () => {
+  test("a company API key can issue an invoice without a user principal", async () => {
     await expect(
-      createAuthoritativeInvoice(context({ userId: null, isApiKey: true }), input())
-    ).rejects.toMatchObject({ code: "APPROVAL_PRINCIPAL_REQUIRED", statusCode: 403 });
+      createAuthoritativeInvoice(context({ userId: null, isApiKey: true }), {
+        ...input(),
+        discountAmount: 5,
+      })
+    ).resolves.toMatchObject({ kind: "invoice" });
+
+    expect(requireApprovalOrContinue).not.toHaveBeenCalled();
+    expect(storage.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 1, createdBy: null, status: "issued" }),
+    );
+  });
+
+  test("invoice issuance still requires an authenticated actor", async () => {
+    await expect(
+      createAuthoritativeInvoice(context({ userId: null }), input())
+    ).rejects.toMatchObject({ code: "AUTHENTICATION_REQUIRED", statusCode: 401 });
 
     expect(storage.createInvoice).not.toHaveBeenCalled();
   });
 });
 
-describe("draft-only mutation guard", () => {
-  test("refuses issued and fiscalized invoices", async () => {
+describe("invoice mutation guards", () => {
+  test("an issued invoice can be corrected before fiscalization", async () => {
+    await expect(
+      assertEditableInvoice(1, { id: 1, status: "issued", fdmsStatus: "Failed" })
+    ).resolves.toBeUndefined();
+  });
+
+  test("a posted or fiscalized invoice remains immutable", async () => {
+    await expect(
+      assertEditableInvoice(1, { id: 1, status: "issued", fiscalCode: "FC1" })
+    ).rejects.toMatchObject({ code: "INVOICE_ALREADY_FISCALIZED", statusCode: 422 });
+
+    await expect(
+      assertEditableInvoice(1, { id: 1, status: "paid" })
+    ).rejects.toMatchObject({ code: "INVOICE_NOT_EDITABLE", statusCode: 422 });
+  });
+
+  test("only true drafts can be deleted", async () => {
     await expect(
       assertEditableDraft(1, { id: 1, status: "issued" })
     ).rejects.toMatchObject({ code: "INVOICE_NOT_EDITABLE", statusCode: 422 });
 
     await expect(
-      assertEditableDraft(1, { id: 1, status: "draft", fiscalCode: "FC1" })
-    ).rejects.toMatchObject({ code: "INVOICE_ALREADY_FISCALIZED", statusCode: 422 });
+      assertEditableDraft(1, { id: 1, status: "draft" })
+    ).resolves.toBeUndefined();
   });
 
-  test("refuses a draft that already has a posted journal or payment", async () => {
+  test("refuses an invoice that already has a posted journal or payment", async () => {
     mockDbChain._result = [{ id: 5 }];
 
     await expect(
-      assertEditableDraft(1, { id: 1, status: "draft" })
+      assertEditableInvoice(1, { id: 1, status: "issued" })
     ).rejects.toMatchObject({ code: "INVOICE_HAS_POSTINGS", statusCode: 409 });
   });
 });

@@ -53,7 +53,7 @@ Prepare before the session in the training company only.
 | Suppliers | `SUP-TRAIN-001`, `SUP-TRAIN-002` | Fictitious supplier quotes |
 | Products | Repair labour, distribution board, cable, tools | Each mapped to one department/cost centre |
 | Employees | One per department | Contracts, salary history and tax credits for UAT payroll |
-| Approval settings | `by_permission` / provisional amount threshold | Clearly mark as training-only; actual limits client-confirmed |
+| Approval settings | Disabled by default; opt into `by_permission` with a provisional threshold where needed | Clearly mark as training-only; actual limits client-confirmed |
 | Payroll config | ZW country; PAYE, AIDS_LEVY, NSSA_POBS, NEC, ZIMDEF, APWCS, NHIF, WCIF rules | APWCS, NHIF and WCIF rates must be the client/industry values, never guessed |
 
 ## 4. Trainer notes

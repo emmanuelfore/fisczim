@@ -119,7 +119,7 @@ export function ApprovalPoliciesSettings({ companyId }: ApprovalPoliciesSettings
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">What needs approval</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              These rules apply company-wide. Change a mode below to add or remove an approval step.
+              Approvals start off. Change a mode below to opt this company into an approval step.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

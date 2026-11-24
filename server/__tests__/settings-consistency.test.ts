@@ -2,9 +2,11 @@ import { describe, expect, test } from "vitest";
 import { resolveWorkspaceMode } from "../../shared/app-mode";
 import { isFeatureModuleEnabled } from "../../shared/feature-modules";
 import {
+  APPROVAL_TYPES,
   DIRECT_ACTION_PERMISSION,
   LEGACY_ROLE_PERMISSIONS,
 } from "../../shared/permissions";
+import { DEFAULT_APPROVAL_POLICIES } from "../../shared/approval-policies";
 import { rateAsPercent } from "../../shared/statutory/brackets";
 
 describe("workspace and module settings", () => {
@@ -35,6 +37,12 @@ describe("role and approval defaults", () => {
 
   test("commission direct action still requires approve permission", () => {
     expect(DIRECT_ACTION_PERMISSION.sales_commission).toBe("crm.commission.approve");
+  });
+
+  test("every approval type starts disabled", () => {
+    for (const type of Object.values(APPROVAL_TYPES)) {
+      expect(DEFAULT_APPROVAL_POLICIES[type].mode).toBe("disabled");
+    }
   });
 });
 

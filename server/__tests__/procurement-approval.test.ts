@@ -20,7 +20,7 @@ describe("purchase requisition approval registration", () => {
     expect(REQUEST_ACTION_PERMISSION.requisition).toBe("purchasing.requisition.request");
     expect(DIRECT_ACTION_PERMISSION.requisition).toBe("purchasing.requisition.direct");
     expect(APPROVAL_TYPE_PERMISSION.requisition).toBe("purchasing.requisition.approve");
-    expect(DEFAULT_APPROVAL_POLICIES.requisition.mode).toBe("by_permission");
+    expect(DEFAULT_APPROVAL_POLICIES.requisition.mode).toBe("disabled");
     expect(supportsAmountThreshold("requisition")).toBe(false);
   });
 

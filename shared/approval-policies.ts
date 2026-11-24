@@ -44,22 +44,23 @@ export const APPROVAL_POLICY_MODES: { value: ApprovalPolicyMode; label: string; 
   },
 ];
 
+/** Approvals are opt-in. Companies enable a mode explicitly in Approval Settings. */
 export const DEFAULT_APPROVAL_POLICIES: CompanyApprovalPolicies = {
-  [APPROVAL_TYPES.STOCK_ADJUSTMENT]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.GRN_CONFIRM]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.JOURNAL_POST]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.INVOICE_ISSUE]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.SALES_COMMISSION]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.QUOTATION]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.DISCOUNT]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.SALES_ORDER]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.PURCHASE_ORDER]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.SUPPLIER_REGISTRATION]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.REQUISITION]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.CREDIT_NOTE]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.PAYMENT_EXECUTION]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.LEAVE]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.EXPENSE]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.STOCK_ADJUSTMENT]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.GRN_CONFIRM]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.JOURNAL_POST]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.INVOICE_ISSUE]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.SALES_COMMISSION]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.QUOTATION]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.DISCOUNT]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.SALES_ORDER]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.PURCHASE_ORDER]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.SUPPLIER_REGISTRATION]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.REQUISITION]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.CREDIT_NOTE]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.PAYMENT_EXECUTION]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.LEAVE]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.EXPENSE]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
 };
 
 export const APPROVAL_POLICY_DESCRIPTIONS: Record<ApprovalType, string> = {

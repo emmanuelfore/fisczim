@@ -13,6 +13,22 @@ import {
   supportsAmountThreshold,
 } from "../../shared/approval-policies.js";
 
+import { calculatePurchaseOrderLineTax, purchaseOrderApprovalTotal } from "../lib/purchase-order-amounts.js";
+
+describe("purchase order approval amount", () => {
+  test("exclusive tax counts towards the threshold even when omitted from the submitted line", () => {
+    const line = { quantity: "2.00", unitCost: "45.00", taxRate: "15.00", taxAmount: "0.00" };
+    expect(calculatePurchaseOrderLineTax(line, false)).toBe("13.50");
+    expect(purchaseOrderApprovalTotal([line], false)).toBe(103.5);
+  });
+
+  test("inclusive prices do not have tax added twice and stored tax amounts count for legacy exclusive lines", () => {
+    const line = { quantity: "1.00", unitCost: "115.00", taxRate: "15.00", taxAmount: "15.00" };
+    expect(purchaseOrderApprovalTotal([line], true)).toBe(115);
+    expect(purchaseOrderApprovalTotal([{ ...line, taxRate: "0.00" }], false)).toBe(130);
+  });
+});
+
 describe("purchase requisition approval registration", () => {
   test("the approval type is fully wired into the central framework", () => {
     expect(APPROVAL_TYPES.REQUISITION).toBe("requisition");

@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   approvalRequests,
   invoices,
+  purchaseOrders,
+  purchaseRequisitions,
   salesOrderItems,
   salesOrders,
   salesPickListItems,
@@ -46,6 +48,9 @@ function selectChain() {
     where() {
       return chain;
     },
+    for() {
+      return chain;
+    },
     orderBy() {
       return chain;
     },
@@ -66,6 +71,7 @@ function selectChain() {
 vi.mock("../db.js", () => ({
   db: {
     select: vi.fn(() => selectChain()),
+    transaction: vi.fn(async (run: (tx: any) => Promise<unknown>) => run({ select: () => selectChain() })),
     update: vi.fn(() => ({ set: () => ({ where: () => ({ returning: () => thenableOf([]) }) }) })),
   },
 }));
@@ -271,5 +277,17 @@ describe("sales-order invoices are revalidated at approval time", () => {
 
     expect(state.invoiceWrites).toHaveLength(1);
     expect(state.invoiceWrites[0].items).toEqual(items);
+  });
+});
+
+describe("purchase requisition approval retries", () => {
+  test("returns the purchase order already linked to the requisition without inserting another", async () => {
+    state.rows.set(purchaseRequisitions, [{ id: 9, companyId: 21, status: "CONVERTED", purchaseOrderId: 45 }]);
+    state.rows.set(purchaseOrders, [{ id: 45, companyId: 21, poNumber: "PO-45" }]);
+    await expect(executeDeferredApprovalAction("purchase_order", 21, {
+      requisitionId: 9,
+      purchaseOrderData: { poNumber: "PO-45" },
+      items: [],
+    }, "reviewer")).resolves.toMatchObject({ purchaseOrderId: 45, poNumber: "PO-45" });
   });
 });

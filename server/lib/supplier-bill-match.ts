@@ -125,7 +125,7 @@ export async function getPurchaseOrderApprovalState(
 
   const status = String(request?.status || "").toLowerCase();
   if (status === "approved") return "APPROVED";
-  if (status === "pending") return "PENDING";
+  if (status === "pending" || status === "processing") return "PENDING";
   if (status === "rejected") return "REJECTED";
   if (status === "cancelled") return "CANCELLED";
   return "NONE";
@@ -143,12 +143,10 @@ export async function assertPurchaseOrderAvailable(
     .limit(1);
   if (!po) fail(`Purchase order #${purchaseOrderId} does not belong to this company.`);
   if (po.status === "CANCELLED") fail(`Purchase order ${po.poNumber} is cancelled.`);
+  if (po.status === "DRAFT") fail(`Purchase order ${po.poNumber} must be sent before it can be received or billed.`);
 
   const approval = await getPurchaseOrderApprovalState(executor, companyId, purchaseOrderId);
   if (approval === "PENDING") fail(`Purchase order ${po.poNumber} is still awaiting approval.`);
-  if (approval === "REJECTED" || approval === "CANCELLED") {
-    fail(`Purchase order ${po.poNumber} is not approved.`);
-  }
 }
 
 export async function assertNoOpenReceivingDocument(

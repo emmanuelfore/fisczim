@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db.js";
+import { purchaseOrderApprovalTotal } from "../lib/purchase-order-amounts.js";
 import {
   approvalRequests,
   costCenters,
@@ -440,7 +441,8 @@ export function createProcurementRouter(requireAuth: any, requireCompanyAccess: 
       if (existing) {
         await db.update(purchaseRequisitions)
           .set({ status: "PO_PENDING_APPROVAL", updatedAt: new Date() })
-          .where(and(eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId)));
+          .where(and(eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId),
+            eq(purchaseRequisitions.status, "QUOTE_SELECTED"), eq(purchaseRequisitions.selectedQuoteId, requisition.selectedQuoteId)));
         return res.status(202).json({ message: "Purchase order already awaits approval", approval: existing });
       }
 
@@ -455,7 +457,6 @@ export function createProcurementRouter(requireAuth: any, requireCompanyAccess: 
         currency: quote.currency,
         taxInclusive: false,
         notes: `Requisition ${requisition.requisitionNumber}; quote ${quote.quoteNumber}`,
-        total: Number(quote.total || 0),
       };
       await requireDepartmentalDimensions(companyId, purchaseOrderData);
       const items = quote.items.map((item) => ({
@@ -468,18 +469,19 @@ export function createProcurementRouter(requireAuth: any, requireCompanyAccess: 
         isRecoverable: true,
       }));
 
+      const total = purchaseOrderApprovalTotal(items, false);
       const gate = await requireApprovalOrContinue({
         userId: req.user.id,
         companyId,
         isSuperAdmin: Boolean(req.user?.isSuperAdmin),
         type: APPROVAL_TYPES.PURCHASE_ORDER,
-        amount: Number(quote.total || 0),
+        amount: total,
         title: `Approve purchase order ${poNumber}`,
         description: "Purchase order created from an approved requisition and selected supplier quote.",
         payload: {
           requisitionId,
           selectedQuoteId: quote.id,
-          purchaseOrderData,
+          purchaseOrderData: { ...purchaseOrderData, total },
           items,
         },
         referenceType: "purchase_requisition",
@@ -489,7 +491,8 @@ export function createProcurementRouter(requireAuth: any, requireCompanyAccess: 
       if (gate.requiresApproval) {
         await db.update(purchaseRequisitions)
           .set({ status: "PO_PENDING_APPROVAL", updatedAt: new Date() })
-          .where(and(eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId)));
+          .where(and(eq(purchaseRequisitions.id, requisitionId), eq(purchaseRequisitions.companyId, companyId),
+            eq(purchaseRequisitions.status, "QUOTE_SELECTED"), eq(purchaseRequisitions.selectedQuoteId, requisition.selectedQuoteId)));
         await logAction(companyId, req.user.id, "PURCHASE_ORDER_APPROVAL_REQUESTED", "purchase_requisition", String(requisitionId), {
           approvalId: gate.request?.id ?? null,
           quoteId: quote.id,

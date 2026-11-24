@@ -385,7 +385,7 @@ export async function createInvoiceFromApproval(
   const isImmediateCashSale = data.isPos === true && String(data.paymentMethod || "").toUpperCase() !== "CREDIT";
   const customerId = data.customerId ? Number(data.customerId) : undefined;
   const invoiceTotal = Number(data.total || 0);
-  if (!isImmediateCashSale && Number.isFinite(customerId) && invoiceTotal > 0) {
+  if (!isImmediateCashSale && (transactionType || data.transactionType) !== "CreditNote" && Number.isFinite(customerId) && invoiceTotal > 0) {
     await storage.assertCustomerCreditWithinLimit(companyId, customerId!, invoiceTotal);
   }
 

@@ -13466,7 +13466,7 @@ export async function registerRoutes(
         items: computed.items,
       };
 
-      if (isIssueTransition && approvalInvoiceData.customerId) {
+      if (isIssueTransition && approvalInvoiceData.customerId && approvalInvoiceData.transactionType !== "CreditNote") {
         try {
           await storage.assertCustomerCreditWithinLimit(
             existingInvoice.companyId,
@@ -13949,7 +13949,7 @@ export async function registerRoutes(
         }
       }
 
-      if (originalInvoice.status !== "issued" && originalInvoice.status !== "paid") {
+      if (!["issued", "partial", "paid", "fiscalized"].includes(originalInvoice.status || "")) {
         return res.status(400).json({ message: "Credit notes can only be created for issued invoices." });
       }
 
@@ -14116,7 +14116,7 @@ export async function registerRoutes(
       const originalInvoice = await invoiceForRequester(req, res, id);
 
       if (!originalInvoice) return;
-      if (originalInvoice.status !== "issued" && originalInvoice.status !== "paid") {
+      if (!["issued", "partial", "paid", "fiscalized"].includes(originalInvoice.status || "")) {
         return res.status(400).json({ message: "Debit notes can only be created for issued invoices." });
       }
 

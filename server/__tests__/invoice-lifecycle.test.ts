@@ -6,6 +6,19 @@ import {
 } from "../lib/invoice-lifecycle.js";
 
 describe("invoice correction lifecycle", () => {
+  test.each(["CreditNote", "DebitNote"])("allows a draft %s with the default fiscalization preference to be issued", (transactionType) => {
+    expect(invoiceImmutableReasons({
+      transactionType,
+      status: "draft",
+      isFiscalized: true,
+      fdmsStatus: "pending",
+    })).toEqual([]);
+  });
+
+  test("protects legacy FDMS records marked fiscalized", () => {
+    expect(invoiceImmutableReasons({ fdmsStatus: "Fiscalized" })).toContain("the FDMS status is fiscalized");
+  });
+
   test("issued invoices are correctable until fiscal or ledger evidence exists", () => {
     expect(CORRECTABLE_INVOICE_STATUSES.has("issued")).toBe(true);
     expect(DRAFT_INVOICE_STATUSES.has("issued")).toBe(false);

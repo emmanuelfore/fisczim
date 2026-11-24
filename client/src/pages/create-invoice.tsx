@@ -664,10 +664,9 @@ export default function CreateInvoicePage() {
     const newTransactionType = existingInvoice?.transactionType === "Quotation" ? "FiscalInvoice" : (existingInvoice?.transactionType || "FiscalInvoice");
 
     const invoiceData = {
-      companyId,
+      ...(!isEditing && { companyId, partnerId: partnerId === "none" ? null : parseInt(partnerId) }),
       invoiceNumber,
       customerId: parseInt(customerId),
-      partnerId: partnerId === "none" ? null : parseInt(partnerId),
       bankName,
       accountName,
       accountNumber,
@@ -860,18 +859,17 @@ export default function CreateInvoicePage() {
 
 
 
+    const newTransactionType = existingInvoice?.transactionType === "Quotation" ? "FiscalInvoice" : (existingInvoice?.transactionType || "FiscalInvoice");
+    const isNote = newTransactionType === "CreditNote" || newTransactionType === "DebitNote";
     const invoiceNumber =
-      isEditing && existingInvoice && existingInvoice.status === "issued"
+      isEditing && existingInvoice && (existingInvoice.status === "issued" || isNote)
         ? existingInvoice.invoiceNumber
         : `INV-${Date.now().toString().slice(-6)}`;
 
-    const newTransactionType = existingInvoice?.transactionType === "Quotation" ? "FiscalInvoice" : (existingInvoice?.transactionType || "FiscalInvoice");
-
     const invoiceData = {
-      companyId,
+      ...(!isEditing && { companyId, partnerId: partnerId === "none" ? null : parseInt(partnerId) }),
       invoiceNumber,
       customerId: parseInt(customerId),
-      partnerId: partnerId === "none" ? null : parseInt(partnerId),
       bankName,
       accountName,
       accountNumber,
@@ -916,7 +914,7 @@ export default function CreateInvoicePage() {
         savedInvoice = await createInvoice.mutateAsync(invoiceData as any);
       }
 
-      if (savedInvoice?.approval) {
+      if (savedInvoice?.approval || savedInvoice?.requiresApproval) {
         toast({
           title: "Invoice Submitted",
           description: savedInvoice.message || "An approver must authorise this invoice before it is posted.",

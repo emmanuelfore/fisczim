@@ -22,10 +22,12 @@ export function invoiceImmutableReasons(invoice: any): string[] {
   if (hasValue(invoice?.verificationCode)) reasons.push("a verification code is present");
   if (hasValue(invoice?.submissionId)) reasons.push("a fiscal submission is present");
   if (invoice?.syncedWithFdms === true) reasons.push("the invoice was synced to FDMS");
-  if (String(invoice?.fdmsStatus || "").trim().toLowerCase() === "issued") {
-    reasons.push("the FDMS status is issued");
+  const fdmsStatus = String(invoice?.fdmsStatus || "").trim().toLowerCase();
+  if (fdmsStatus === "issued" || fdmsStatus === "fiscalized") {
+    reasons.push(`the FDMS status is ${fdmsStatus}`);
   }
-  if (invoice?.isFiscalized === true) reasons.push("the invoice is marked fiscalized");
+  // isFiscalized is the POS fiscalization preference and defaults to true,
+  // including on draft credit and debit notes with no receipt.
   if (hasValue(invoice?.journalEntryId)) reasons.push("a journal entry is attached");
   return reasons;
 }

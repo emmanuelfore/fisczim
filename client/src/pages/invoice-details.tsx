@@ -703,7 +703,7 @@ export default function InvoiceDetailsPage() {
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
-                  {["issued", "paid"].includes(invoice.status || "") &&
+                  {["issued", "partial", "paid"].includes(invoice.status || "") &&
                     !invoice.fiscalCode && (
                       <Button
                         size="sm"
@@ -730,7 +730,7 @@ export default function InvoiceDetailsPage() {
                         )}
                         {invoice.fdmsStatus === "failed" ||
                         invoice.validationStatus === "red"
-                          ? "Result"
+                          ? "Retry Fiscalization"
                           : "Fiscalize"}
                       </Button>
                     )}

@@ -254,7 +254,7 @@ export default function SettingsPage() {
       case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
       case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
       case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
-      case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
+      case 'zimra': return <ZimraDeviceSettings key={activeCompany.id} company={activeCompany} />;
       case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data: any) => {
         await updateCompany.mutateAsync(data);
         toast({

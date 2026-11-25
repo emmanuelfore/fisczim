@@ -151,7 +151,10 @@ export function createRequireAuthOrApiKey(storage: CompanyAuthStorage) {
     if (requestedCompanyId) {
       const hasAccess = await checkCompanyAccess(storage, req.user, requestedCompanyId);
       if (!hasAccess) {
-        return res.status(403).json({ message: "Forbidden: You do not have access to this company" });
+        return res.status(403).json({
+          code: "COMPANY_ACCESS_DENIED",
+          message: "Forbidden: You do not have access to this company",
+        });
       }
     }
 
@@ -173,7 +176,10 @@ export function createRequireOwner(storage: CompanyAuthStorage) {
     if (companyId) {
       const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
-        return res.status(403).json({ message: "Forbidden: You do not have access to this company" });
+        return res.status(403).json({
+          code: "COMPANY_ACCESS_DENIED",
+          message: "Forbidden: You do not have access to this company",
+        });
       }
     }
 

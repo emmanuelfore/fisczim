@@ -13102,8 +13102,8 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Company ID is required" });
 
-      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
-      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
+      const actor = req.user as any;
+      if (!actor?.isSuperAdmin && (!actor?.id || !await storage.getCompanyUserRole(actor.id, companyId))) {
         return res.status(403).json({ message: "You do not have permission to download scripts for this company" });
       }
 

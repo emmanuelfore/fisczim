@@ -14246,18 +14246,20 @@ export async function registerRoutes(
 
       // Older drafts can already have a posted journal. Let the client offer
       // fiscalization of the saved document while keeping its values locked.
-      const [postedEntry] = invoice.status === "draft" ? await db
-        .select({ id: journalEntries.id })
+      const [activeJournal] = invoice.status === "draft" ? await db
+        .select({ status: journalEntries.status })
         .from(journalEntries)
         .where(and(
           eq(journalEntries.companyId, invoice.companyId),
           eq(journalEntries.referenceType, "INVOICE"),
           eq(journalEntries.referenceId, String(invoice.id)),
-          eq(journalEntries.status, "POSTED"),
+          ne(journalEntries.status, "VOID"),
         ))
         .limit(1) : [];
 
-      res.json({ ...invoice, hasPostedJournal: !!postedEntry });
+      const draftIssueBlockedReasons = invoice.status === "draft" ? invoiceImmutabilityReasons(invoice) : [];
+      if (activeJournal) draftIssueBlockedReasons.push("a general-ledger entry already exists");
+      res.json({ ...invoice, hasPostedJournal: activeJournal?.status === "POSTED", draftIssueBlockedReasons });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to fetch invoice" });

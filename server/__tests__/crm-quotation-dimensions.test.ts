@@ -258,13 +258,79 @@ describe("vehicle imports and CRM handoff", () => {
       .toMatchObject({ stage: "delivered", status: "delivered" });
   });
 
+  test("blocks unpaid handover through both entry points unless a reason is recorded", async () => {
+    const reserved = { ...vehicle, status: "reserved", salePrice: "5000.00", saleCurrency: "USD" };
+    const agreement = { id: 9, status: "draft", agreedPrice: "5000.00", accountingModel: "agent", feeRecognition: "on_collection" };
+    for (const suffix of ["/agreement/handover", "/stage"]) {
+      script("vehicles", [reserved]);
+      script("vehicle_sales_agreements", [agreement]);
+      script("vehicle_payment_schedules", [{ amount: "5500.00" }]);
+      script("payments", [{ amount: "1000.00", exchangeRate: "1" }]);
+      const result = await request("POST", url + suffix, { stage: "delivered" });
+      expect(result.status).toBe(409);
+      expect(result.body.error).toContain("4500.00");
+    }
+    expect(state.writes).toHaveLength(0);
+
+    script("vehicles", [reserved]);
+    script("vehicle_sales_agreements", [agreement], [{ ...agreement, status: "completed" }]);
+    script("vehicle_payment_schedules", [{ amount: "5500.00" }]);
+    script("payments", [{ amount: "1000.00", exchangeRate: "1" }]);
+    script("vehicle_stage_events", [{ id: 1, stage: "delivered" }]);
+    const result = await request("POST", url + "/agreement/handover", { earlyHandoverReason: "Release approved under the instalment agreement" });
+    expect(result.status).toBe(200);
+    expect(state.writes.find(write => write.table === "vehicle_stage_events")?.values.notes)
+      .toContain("USD 4500.00 outstanding: Release approved under the instalment agreement");
+  });
+
+  test("validates uploaded vehicle document files before writing", async () => {
+    script("vehicles", [vehicle]);
+    const result = await request("POST", url + "/documents", {
+      kind: "Other", name: "notes.txt", contentBase64: Buffer.from("not a supported document").toString("base64"),
+    });
+    expect(result.status).toBe(400);
+    expect(state.writes).toHaveLength(0);
+  });
+
+  test("saves a typed PDF against the selected company's vehicle", async () => {
+    const metadata = { id: 1, name: "Customs.pdf", kind: "Customs", mimeType: "application/pdf" };
+    const payload = { name: metadata.name, kind: metadata.kind, contentBase64: Buffer.from("%PDF-1.7\n").toString("base64") };
+    script("vehicles", [vehicle]);
+    script("vehicle_documents", [metadata]);
+    const result = await request("POST", url + "/documents", payload);
+    expect(result).toMatchObject({ status: 201, body: metadata });
+    expect(state.writes[0].values).toMatchObject({ vehicleId: 7, mimeType: metadata.mimeType, ...payload });
+    expect(result.body).not.toHaveProperty("contentBase64");
+    script("vehicles", []);
+    expect((await request("GET", url + "/documents")).status).toBe(404);
+  });
+
   test("agreement list reports collected funds and balance in the agreement currency", async () => {
     const agreement = { id: 9, agreedPrice: "2000", currency: "ZWG", exchangeRate: "20" };
     script("vehicle_sales_agreements", [{ agreement, vehicle }]);
     script("payments", [{ vehicleId: 7, amount: "25", exchangeRate: "1" }]);
+    script("vehicle_payment_schedules", [{ vehicleId: 7, total: "2200" }]);
     const result = await request("GET", "/api/companies/21/agreements");
     expect(result.status).toBe(200);
-    expect(result.body).toMatchObject([{ collected: 500, balance: 1500 }]);
+    expect(result.body).toMatchObject([{ collected: 500, balance: 1500, scheduledTotal: 2200, scheduledBalance: 1700 }]);
+  });
+
+  test("collections includes financing and keeps report and next-payment currencies distinct", async () => {
+    script("vehicles", [{
+      vehicle: { ...vehicle, salePrice: "2000.00", saleCurrency: "ZWG", saleExchangeRate: "20" },
+      customerName: "Customer",
+    }]);
+    script("payments", [{ vehicleId: 7, total: "110.00" }]);
+    script("vehicle_payment_schedules", [
+      { id: 1, vehicleId: 7, type: "deposit", amount: "2250.00", dueDate: "2000-01-01" },
+      { id: 2, vehicleId: 7, type: "balance", amount: "250.00", dueDate: "2099-01-01" },
+    ]);
+    const result = await request("GET", "/api/companies/21/vehicles-reports/outstanding");
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject([{
+      totalPayable: 125, paid: 110, balance: 15, overdue: 2.5,
+      nextDue: { dueDate: "2099-01-01", amount: 250, currency: "ZWG" },
+    }]);
   });
 
   test("retrying a completed CRM conversion reuses the customer without adding activity", async () => {

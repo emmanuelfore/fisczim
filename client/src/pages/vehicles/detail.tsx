@@ -1,11 +1,12 @@
 import { Layout } from "@/components/layout";
-import { useEffect, useState } from "react";
-import { Link, useRoute } from "wouter";
+import { useEffect, useId, useState } from "react";
+import { Link, useRoute, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -25,13 +26,18 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PDFDownloadLink } from "@react-pdf/renderer";
+import { VehicleDocumentsTab } from "@/components/vehicles/documents-tab";
+import { PaymentSchedule } from "@/components/vehicles/payment-schedule";
+import { VehicleDealPreview } from "@/components/vehicles/deal-preview";
+import { applyReceiptsToPreview, paymentSchedulePosition } from "@/lib/vehicle-schedule";
 import { VehicleAgreementPDF } from "@/components/vehicles/agreement-pdf";
-import { VehiclePaymentReceiptPDF } from "@/components/vehicles/payment-receipt-pdf";
 import { VehicleAccountStatementPDF } from "@/components/vehicles/vehicle-account-statement-pdf";
 import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { addDays, format } from "date-fns";
-import { ArrowLeft, Bell, Check, CircleDot, Download, Eye, FileText, Landmark, Lock, Mail, MessageCircle, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
+import { calculateVehiclePaymentPlan } from "@shared/vehicle-payment-plan";
+import { ArrowLeft, Bell, Download, Eye, FileText, Landmark, Lock, Mail, MessageCircle, MoreHorizontal, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
 import {
+  type Vehicle,
   COST_CATEGORIES,
   COST_STATUSES,
   VEHICLE_STAGES,
@@ -54,121 +60,318 @@ export default function VehicleDetailPage() {
   const { can } = usePermissions();
   const { data: v, isLoading, error } = useVehicle(companyId, id);
 
+  const search = useSearch();
+  const requestedTab = new URLSearchParams(search).get("tab") ?? "";
+  const linkedTab = ["plan", "payments", "tracking", "vehicle", "documents"].includes(requestedTab) ? requestedTab : "overview";
+  const [tab, setTab] = useState(linkedTab);
+  useEffect(() => setTab(linkedTab), [linkedTab]);
+  const [costTab, setCostTab] = useState<string>();
+  const [vehicleAction, setVehicleAction] = useState<"edit" | "invoice">();
+  const agency = v?.accountingModel !== "principal";
+  const { data: account } = useVehicleCustomerAccount(companyId, agency && v ? id : 0);
+
   if (isLoading) return <Layout><PageSkeleton stats={4} /></Layout>;
   if (error || !v) return <Layout><div className="p-8 text-slate-600">{(error as Error)?.message || "Vehicle not found."}</div></Layout>;
 
-  const s = v.summary;
   const showCosts = can("vehicles.costs");
+  const editable = can("vehicles.manage");
+  const canRecordPayments = can("vehicles.payments");
+  const currency = v.saleCurrency || "USD";
+  const exchangeRate = Number(v.saleExchangeRate) || 1;
+  const schedule = (v.openSchedule ?? []) as NonNullable<Vehicle["openSchedule"]>;
+  const nextDue = schedule.find(line => line.open > 0.004);
+  const nextStatus = nextDue ? paymentSchedulePosition(nextDue, format(new Date(), "yyyy-MM-dd")).status : null;
+  const paid = Number(v.summary.paid) * exchangeRate;
+  const dealTotal = v.invoice && !agency
+    ? Number(v.invoice.total) * exchangeRate / (Number(v.invoice.exchangeRate) || exchangeRate)
+    : v.salePrice == null ? null : Number(v.salePrice);
+  const scheduledTotal = schedule.reduce((sum, line) => sum + line.amount, 0);
+  const scheduledBalance = schedule.reduce((sum, line) => sum + line.open, 0);
+  const customerBalance = schedule.length ? scheduledBalance : dealTotal == null ? null : dealTotal - paid;
+  const supplierBalance = agency ? account?.totals.supplierOutstanding : showCosts
+    ? Number(v.summary.pendingCosts || 0) + Number(v.summary.disputedCosts || 0)
+    : undefined;
+  const processingFee = Number(account?.agreement?.processingFeeAmount ?? 0);
+  const canContinue = v.status !== "cancelled";
+
+  const goTo = (value: string, action?: "edit" | "invoice") => {
+    setVehicleAction(action);
+    setTab(value);
+  };
+  const reviewCosts = () => {
+    setCostTab(agency ? "suppliers" : "costs");
+    goTo("costs-and-suppliers");
+  };
+
+  let nextAction: { label: string; detail: string; run: () => void } | undefined;
+  if (canContinue && !v.customerId && editable) {
+    nextAction = { label: "Assign customer", detail: "Link the customer before setting the price or taking payments.", run: () => goTo("vehicle", "edit") };
+  } else if (canContinue && !v.invoiceId && editable && (dealTotal == null || (agency && account && processingFee <= 0))) {
+    nextAction = { label: "Set price and payment plan", detail: "Enter the agreed amount, deposit and any interest.", run: () => goTo("plan") };
+  } else if (canContinue && !v.invoiceId && editable && (!agency || processingFee > 0)) {
+    nextAction = { label: "Review invoice", detail: agency ? "Review the processing fee and the customer’s import cost breakdown." : "Review the agreed sale price and any tax before issuing the invoice.", run: () => goTo("vehicle", "invoice") };
+  } else if (canContinue && canRecordPayments && customerBalance != null && customerBalance > 0.004) {
+    nextAction = { label: "Record customer payment", detail: nextDue ? "The next unpaid instalment is shown above." : "Record a deposit or other payment received from the customer.", run: () => goTo("payments") };
+  } else if (canContinue && canRecordPayments && supplierBalance != null && supplierBalance > 0.004) {
+    nextAction = { label: "Review supplier costs", detail: "Check the costs still awaiting settlement.", run: reviewCosts };
+  } else if (canContinue && editable && v.status !== "delivered" && v.invoiceId) {
+    nextAction = { label: "Update import tracking", detail: "Record the latest milestone or mark the vehicle delivered at handover.", run: () => goTo("tracking") };
+  }
 
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div>
-            <Link href="/vehicles" className="text-sm text-slate-500 hover:text-slate-800 inline-flex items-center"><ArrowLeft className="w-4 h-4 mr-1" />Vehicles</Link>
-            <h1 className="text-2xl font-bold text-slate-900 mt-1">{v.year} {v.make} {v.model}</h1>
-            <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-slate-500">
-              <span className="font-mono">{v.stockNumber}</span>
-              {v.vin && <span>· VIN {v.vin}</span>}
-              <Badge className={`${stageTone[v.stage] ?? ""} border-0`}>{stageLabel(v.stage)}</Badge>
-              <Badge className={`${statusTone[v.status] ?? ""} border-0 capitalize`}>{v.status}</Badge>
-              <Badge variant="outline" className="capitalize">{(v.accountingModel || s.accountingModel || "agent")} accounting</Badge>
-            </div>
+        <div>
+          <Link href="/vehicles" className="inline-flex items-center text-sm text-slate-500 hover:text-slate-800"><ArrowLeft className="mr-1 h-4 w-4" />Vehicles</Link>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900">{v.year} {v.make} {v.model}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <span className="font-mono">{v.stockNumber}</span>
+            <span>{v.customer?.name || "No customer assigned"}</span>
+            <Badge className={stageTone[v.stage] ?? ""}>{stageLabel(v.stage)}</Badge>
+            <Badge className={statusTone[v.status] ?? ""}>{v.status}</Badge>
+            <Badge variant="outline">{agency ? "Import for customer" : "Vehicle sale"}</Badge>
           </div>
         </div>
 
-        <div className={`grid grid-cols-2 ${showCosts ? "lg:grid-cols-5" : "lg:grid-cols-3"} gap-4`}>
-          {showCosts && <Kpi label="Purchase price" value={fmtMoney(s.purchasePrice)} />}
-          {showCosts && <Kpi label="Landed cost" value={fmtMoney(s.landedCost)} hint={`${fmtMoney(s.importCosts)} import costs`} />}
-          <Kpi label={s.isProjected ? "Target price" : "Selling price"} value={fmtMoney(s.sellingPrice)} hint={s.isProjected ? "Not sold yet" : undefined} />
-          {showCosts && (
-            <Kpi
-              label={(v.accountingModel || s.accountingModel) === "agent"
-                ? "Processing fee revenue"
-                : s.isProjected ? "Projected profit" : "Profit"}
-              value={fmtMoney((v.accountingModel || s.accountingModel) === "agent" ? (s.processingFee ?? 0) : s.profit)}
-              hint={`${s.marginPercent}% margin`}
-              tone={(s.profit ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}
-            />
-          )}
-          <Kpi label="Balance due" value={s.balance > 0 ? fmtMoney(s.balance) : "—"} hint={`${fmtMoney(s.paid)} paid`} tone={s.balance > 0 ? "text-amber-600" : undefined} />
-        </div>
-
-        <Tabs defaultValue="overview">
-          <TabsList className="flex flex-wrap h-auto">
+        <Tabs value={tab} onValueChange={value => goTo(value)}>
+          <TabsList className="h-auto flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            {showCosts && <TabsTrigger value="costs">Cost Sheet ({v.costs.length})</TabsTrigger>}
-            <TabsTrigger value="customer-account">Customer Account</TabsTrigger>
-            <TabsTrigger value="suppliers">Supplier Settlements</TabsTrigger>
-            <TabsTrigger value="tracking">Import Tracking</TabsTrigger>
-            <TabsTrigger value="documents">Documents</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="plan">Price & payment plan</TabsTrigger>
+            <TabsTrigger value="payments">Customer payments</TabsTrigger>
+            {(agency || showCosts) && <TabsTrigger value="costs-and-suppliers">Costs & suppliers</TabsTrigger>}
+            <TabsTrigger value="tracking">Import tracking</TabsTrigger>
+            <TabsTrigger value="vehicle">Vehicle & invoice</TabsTrigger>
+            <TabsTrigger value="documents">Documents & activity</TabsTrigger>
           </TabsList>
-          <TabsContent value="overview"><div className="space-y-6"><DetailsTab v={v} companyId={companyId} editable={can("vehicles.manage")} /><AgreementTab v={v} companyId={companyId} editable={can("vehicles.manage")} /></div></TabsContent>
-          {showCosts && <TabsContent value="costs"><CostsTab v={v} companyId={companyId} /></TabsContent>}
-          <TabsContent value="customer-account"><CustomerAccountTab v={v} companyId={companyId} editable={can("vehicles.payments")} /></TabsContent>
-          <TabsContent value="suppliers"><SupplierSettlementsTab v={v} companyId={companyId} editable={can("vehicles.payments")} /></TabsContent>
-          <TabsContent value="tracking"><TrackingTab v={v} companyId={companyId} editable={can("vehicles.manage")} /></TabsContent>
-          <TabsContent value="documents"><DocumentsTab v={v} companyId={companyId} /></TabsContent>
-          <TabsContent value="activity"><ActivityTab v={v} /></TabsContent>
+          <TabsContent value="overview" className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <Kpi label={schedule.length ? "Payment plan total" : "Customer total"} value={schedule.length || dealTotal != null ? fmtMoney(schedule.length ? scheduledTotal : dealTotal, currency) : "Price needed"} hint={schedule.length ? "Includes deposit and any financing charges" : undefined} />
+              <Kpi label={schedule.length ? "Payment plan balance" : "Customer balance"} value={customerBalance == null ? "—" : fmtMoney(Math.abs(customerBalance), currency)} hint={customerBalance != null && customerBalance < 0 ? "Credit on account" : fmtMoney(paid, currency) + " received"} />
+              <Kpi label={nextStatus === "overdue" ? "Overdue payment" : nextStatus === "due" ? "Payment due today" : "Next payment"} value={nextDue ? fmtMoney(nextDue.open, currency) : "—"} hint={nextDue ? (nextDue.type === "deposit" ? "Deposit" : "Instalment") + " · " + nextDue.dueDate : schedule.length ? "Schedule paid" : "No payment schedule"} tone={nextStatus === "overdue" ? "text-rose-700" : nextStatus === "due" ? "text-amber-800" : undefined} />
+              <Kpi label={agency ? "Still to pay suppliers" : "Costs awaiting settlement"} value={supplierBalance == null ? "—" : fmtMoney(supplierBalance)} />
+            </div>
+            <Card>
+              <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+                <div>
+                  <h2 className="font-semibold text-slate-900">{v.invoice ? "Invoice " + v.invoice.invoiceNumber : "Invoice pending"}</h2>
+                  <p className="mt-1 text-sm text-slate-600">{nextAction?.detail ?? (v.invoice ? "Invoice and receipts are in Documents." : "Review the price and payment plan for this vehicle.")}</p>
+                  {v.invoice && <p className="mt-1 text-sm text-slate-600">{agency ? "Processing-fee invoice" : "Sale invoice"} · {fmtMoney(v.invoice.total, v.invoice.currency || currency)} · {fmtMoney(Math.max(Number(v.invoice.total) - Number(v.invoice.paidAmount || 0), 0), v.invoice.currency || currency)} outstanding</p>}
+                </div>
+                {nextAction && <Button onClick={nextAction.run}>{nextAction.label}</Button>}
+              </CardContent>
+            </Card>
+            {!agency && showCosts && v.summary.negativeMargin && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">The agreed price is {fmtMoney(Math.abs(v.summary.profit))} below the recorded vehicle costs.</p>}
+          </TabsContent>
+          <TabsContent value="plan"><AgreementTab v={v} companyId={companyId} editable={editable} /></TabsContent>
+          <TabsContent value="payments"><PaymentsTab v={v} companyId={companyId} editable={canRecordPayments} /></TabsContent>
+          {(agency || showCosts) && <TabsContent value="costs-and-suppliers">
+            <Tabs value={costTab ?? (showCosts ? "costs" : "suppliers")} onValueChange={setCostTab}>
+              <TabsList className="h-auto flex-wrap">
+                {showCosts && <TabsTrigger value="costs">Cost sheet</TabsTrigger>}
+                {agency && <TabsTrigger value="suppliers">Supplier payments</TabsTrigger>}
+                {agency && <TabsTrigger value="customer-account">Finance details</TabsTrigger>}
+              </TabsList>
+              {showCosts && <TabsContent value="costs"><CostsTab v={v} companyId={companyId} /></TabsContent>}
+              {agency && <TabsContent value="suppliers"><SupplierSettlementsTab v={v} companyId={companyId} editable={canRecordPayments} /></TabsContent>}
+              {agency && <TabsContent value="customer-account"><CustomerAccountTab v={v} companyId={companyId} editable={canRecordPayments} /></TabsContent>}
+            </Tabs>
+          </TabsContent>}
+          <TabsContent value="tracking"><TrackingTab v={v} companyId={companyId} editable={editable} /></TabsContent>
+          <TabsContent value="vehicle"><DetailsTab v={v} companyId={companyId} editable={editable} initialAction={vehicleAction} /></TabsContent>
+          <TabsContent value="documents" className="space-y-4"><VehicleDocumentsTab v={v} companyId={companyId} editable={editable} /><ActivityTab v={v} /></TabsContent>
         </Tabs>
       </div>
     </Layout>
   );
 }
 
-function AgreementTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
-  const { toast } = useToast(); const queryClient = useQueryClient(); const [saving, setSaving] = useState(false);
-  const { run, pending: handoverPending } = useSubmit(companyId);
-  const { data: company } = useCompany(companyId);
-  const { data: accountData } = useVehicleCustomerAccount(companyId, v.id);
-  const { data, isLoading } = useQuery<any>({ queryKey: ["vehicle-agreement", companyId, v.id], queryFn: async () => { const r = await apiFetch(`/api/companies/${companyId}/vehicles/${v.id}/agreement`); if (r.status === 404) return null; if (!r.ok) throw new Error("Failed to load agreement"); return r.json(); } });
-  const [form, setForm] = useState({
-    agreedPrice: String(v.salePrice || ""), depositAmount: "0", months: "24",
-    startDate: format(new Date(), "yyyy-MM-dd"), interestType: "none", interestRate: "0",
-    adminFee: "0", lateFee: "0",
-    accountingModel: v.accountingModel || "agent", processingFeeAmount: "", feeRecognition: "on_handover",
-  });
-  useEffect(() => {
-    if (data?.agreement) setForm({
-      agreedPrice: String(data.agreement.agreedPrice), depositAmount: String(data.agreement.depositAmount),
-      months: String(data.agreement.months), startDate: data.agreement.startDate,
-      interestType: data.agreement.interestType, interestRate: String(data.agreement.interestRate),
-      adminFee: String(data.agreement.adminFee), lateFee: String(data.agreement.lateFee),
-      accountingModel: data.agreement.accountingModel || "agent",
-      processingFeeAmount: String(data.agreement.processingFeeAmount ?? ""),
-      feeRecognition: data.agreement.feeRecognition || "on_handover",
+function agreedInterest(agreement?: {
+  agreedPrice: string; depositAmount: string; months: number; interestType: string;
+  interestRate: string; adminFee: string; startDate: string;
+}) {
+  if (!agreement || agreement.interestType === "none") return undefined;
+  try {
+    const plan = calculateVehiclePaymentPlan({
+      ...agreement,
+      agreedPrice: Number(agreement.agreedPrice),
+      depositAmount: Number(agreement.depositAmount),
+      interestRate: Number(agreement.interestRate),
+      adminFee: Number(agreement.adminFee),
     });
-  }, [data]);
-  const save = async () => { if (!v.customerId) return toast({ title: "Assign a customer before creating an agreement", variant: "destructive" }); setSaving(true); try { const r = await apiFetch(`/api/companies/${companyId}/vehicles/${v.id}/agreement`, { method: "POST", body: JSON.stringify({ ...form, customerId: v.customerId, currency: v.saleCurrency || "USD", exchangeRate: Number(v.saleExchangeRate || 1) }) }); if (!r.ok) throw new Error((await r.json()).error || "Could not save agreement"); await queryClient.invalidateQueries({ queryKey: ["vehicle-agreement", companyId, v.id] }); await queryClient.invalidateQueries({ queryKey: ["vehicle", companyId, v.id] }); toast({ title: "Sales agreement saved" }); } catch (e: any) { toast({ title: "Agreement failed", description: e.message, variant: "destructive" }); } finally { setSaving(false); } };
-  const termsLocked = Boolean(v.invoiceId || v.cogsJournalEntryId || ["sold", "delivered", "cancelled"].includes(v.status));
-  const canHandover = data?.agreement && !["completed", "cancelled"].includes(data.agreement.status)
-    && v.status !== "cancelled" && (v.accountingModel !== "principal" || v.invoiceId || v.status === "delivered");
-  const handover = async () => {
-    try {
-      await run({ path: `/${v.id}/agreement/handover`, method: "POST", body: { notes: null } }, "Handover completed");
-      await queryClient.invalidateQueries({ queryKey: ["vehicle", companyId, v.id] });
-      await queryClient.invalidateQueries({ queryKey: ["vehicle-customer-account", companyId, v.id] });
-    } catch { /* toast shown by useSubmit */ }
+    return Number.isFinite(plan.interest) ? plan.interest : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function AgreementTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
+  const { run, pending } = useSubmit(companyId);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [dealOpen, setDealOpen] = useState(false);
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const { data: company } = useCompany(companyId);
+  const agency = v.accountingModel !== "principal";
+  const { data: accountData } = useVehicleCustomerAccount(companyId, agency ? v.id : 0);
+  const { data, isLoading, isError } = useQuery<any>({
+    queryKey: ["vehicle-agreement", companyId, v.id],
+    queryFn: async () => {
+      const response = await apiFetch("/api/companies/" + companyId + "/vehicles/" + v.id + "/agreement");
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error("Failed to load the payment plan");
+      return response.json();
+    },
+  });
+  const agreement = data?.agreement;
+  const currency = agreement?.currency || v.saleCurrency || "USD";
+  const rate = Number(agreement?.exchangeRate ?? v.saleExchangeRate) || 1;
+  const readTerms = () => agreement ? {
+    agreedPrice: String(agreement.agreedPrice), depositAmount: String(agreement.depositAmount),
+    months: String(agreement.months), startDate: agreement.startDate,
+    interestType: String(agreement.interestType), interestRate: String(agreement.interestRate),
+    adminFee: String(agreement.adminFee), lateFee: String(agreement.lateFee),
+    processingFeeAmount: String(agreement.processingFeeAmount ?? ""),
+    feeRecognition: String(agreement.feeRecognition || "on_handover"),
+    termsText: String(agreement.termsText ?? ""),
+  } : {
+    agreedPrice: String(v.salePrice ?? ""), depositAmount: "0", months: "1",
+    startDate: format(new Date(), "yyyy-MM-dd"), interestType: "none", interestRate: "0",
+    adminFee: "0", lateFee: "0", processingFeeAmount: "", feeRecognition: "on_handover", termsText: "",
   };
-  if (isLoading) return <div className="p-4 text-sm text-slate-500">Loading agreement…</div>;
+  const [form, setForm] = useState(readTerms);
+  const openEditor = () => {
+    setForm(readTerms());
+    setEditorOpen(true);
+  };
+  const update = (field: keyof typeof form, value: string) => setForm(current => ({ ...current, [field]: value }));
+  const price = Number(form.agreedPrice);
+  const deposit = Number(form.depositAmount);
+  const months = Number(form.months);
+  const fee = Number(form.processingFeeAmount);
+  const interestRate = Number(form.interestRate);
+  const adminFee = Number(form.adminFee);
+  const valid = price > 0 && deposit >= 0 && deposit <= price && Number.isInteger(months) && months >= 1 && months <= 120
+    && [price, deposit, fee, interestRate, adminFee, Number(form.lateFee)].every(amount => Number.isFinite(amount) && amount >= 0)
+    && /^\d{4}-\d{2}-\d{2}$/.test(form.startDate) && Number.isFinite(Date.parse(form.startDate));
+  const preview = valid ? calculateVehiclePaymentPlan({
+    agreedPrice: price, depositAmount: deposit, months, interestType: form.interestType, interestRate, adminFee, startDate: form.startDate,
+  }) : null;
+  const termsLocked = Boolean(v.invoiceId || v.cogsJournalEntryId || ["sold", "delivered", "cancelled"].includes(v.status)
+    || (agreement && agreement.status !== "draft"));
+  const canEdit = editable && !termsLocked;
+  const canHandover = editable && agreement && !["completed", "cancelled"].includes(agreement.status)
+    && v.status !== "cancelled" && (agency || v.invoiceId || v.status === "delivered");
+  const costs = accountData?.costSheet ?? [];
+  const listedCosts = costs.reduce((sum, cost) => sum + Math.round(cost.customerCharge * rate * 100), 0) / 100;
+  const priceFromCosts = Math.round((listedCosts + fee) * 100) / 100;
+  const savedSchedule = (data?.schedule ?? v.schedule ?? []) as Array<{ id: number; type: string; dueDate: string; amount: string; paidAmount: string; status: string }>;
+  const openById = new Map<number, number>((v.openSchedule ?? []).map((line: { id: number; open: number }) => [line.id, line.open]));
+  const scheduleLines = savedSchedule.map(line => ({
+    ...line, amount: Number(line.amount), open: openById.get(line.id) ?? Math.max(Number(line.amount) - Number(line.paidAmount || 0), 0),
+  }));
+  const paid = Number(v.summary.paid || 0) * rate;
+  const savedPrice = Number(agreement?.agreedPrice ?? v.salePrice ?? 0);
+  const money = (value: number | string) => fmtMoney(value, currency);
+
+  const save = () => run({
+    path: "/" + v.id + "/agreement",
+    body: {
+      ...form, customerId: v.customerId, currency, exchangeRate: rate,
+      priceType: agreement?.priceType, estimatedDelivery: agreement?.estimatedDelivery,
+      notes: agreement?.notes, termsText: form.termsText.trim() || null,
+    },
+  }, "Payment plan saved").then(() => setEditorOpen(false)).catch(() => undefined);
+
+  const handover = (earlyHandoverReason?: string) => run({ path: "/" + v.id + "/agreement/handover", body: { earlyHandoverReason } }, "Handover completed");
+  if (isLoading) return <p className="p-4 text-sm text-slate-500">Loading payment plan…</p>;
+  if (isError) return <p className="p-4 text-sm text-rose-700">Could not load the payment plan.</p>;
+
   return <div className="space-y-4">
-    <Card><CardHeader><CardTitle>{data?.agreement ? `${data.agreement.agreementNumber} · ${data.agreement.status}` : "Create Sales Agreement"}</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-4">
-      <Field label="Agreed price" value={form.agreedPrice} onChange={value => setForm({ ...form, agreedPrice: value })} /><Field label="Deposit" value={form.depositAmount} onChange={value => setForm({ ...form, depositAmount: value })} /><Field label="Months" value={form.months} onChange={value => setForm({ ...form, months: value })} /><Field label="First payment due" type="date" value={form.startDate} onChange={value => setForm({ ...form, startDate: value })} />
-      {accountData && <div className="md:col-span-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-600">Cost sheet total <span className="font-semibold text-slate-900">{fmtMoney(accountData.totals.costSheetTotal)}</span> · cost lines are customer-funded disbursements, not Prime Imports revenue. Processing fee <span className="font-semibold text-slate-900">{fmtMoney(accountData.totals.processingFee)}</span> · recognised <span className="font-semibold text-emerald-700">{fmtMoney(accountData.totals.feeRecognised)}</span>. {data?.agreement?.handoverAt ? `Handover ${format(new Date(data.agreement.handoverAt), "dd MMM yyyy")}.` : "Handover has not been completed."}</div>}
-      <div><Label>Accounting model</Label><Select value={form.accountingModel} onValueChange={value => setForm({ ...form, accountingModel: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="agent">Agent — fee is our revenue</SelectItem><SelectItem value="principal">Principal — sale less COGS</SelectItem></SelectContent></Select></div>
-      <Field label="Processing fee (our revenue)" value={form.processingFeeAmount} onChange={value => setForm({ ...form, processingFeeAmount: value })} />
-      <div><Label>Fee recognition</Label><Select value={form.feeRecognition} onValueChange={value => setForm({ ...form, feeRecognition: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_handover">On handover (default)</SelectItem><SelectItem value="on_collection">On collection</SelectItem></SelectContent></Select></div>
-      <div><Label>Interest method</Label><Select value={form.interestType} onValueChange={value => setForm({ ...form, interestType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No interest</SelectItem><SelectItem value="percent_pa">Reducing balance (% p.a.)</SelectItem><SelectItem value="flat_rate">Flat rate (% p.a.)</SelectItem><SelectItem value="fixed_amount">Fixed amount</SelectItem></SelectContent></Select></div>
-      <Field label="Interest rate / amount" value={form.interestRate} onChange={value => setForm({ ...form, interestRate: value })} /><Field label="Admin fee (financing)" value={form.adminFee} onChange={value => setForm({ ...form, adminFee: value })} /><Field label="Late fee per instalment" value={form.lateFee} onChange={value => setForm({ ...form, lateFee: value })} />
-      <div className="md:col-span-4 flex flex-wrap gap-2">{editable && <Button onClick={save} disabled={termsLocked || saving || (data?.agreement?.status !== undefined && data.agreement.status !== "draft")}>{saving ? "Saving…" : data?.agreement ? "Update draft terms" : "Create agreement"}</Button>}{editable && canHandover && <Button variant="outline" onClick={handover} disabled={handoverPending}>{handoverPending ? "Completing…" : "Complete handover"}</Button>}{data && company && <PDFDownloadLink document={<VehicleAgreementPDF agreement={data.agreement} vehicle={v} customer={v.customer} company={company} schedule={data.schedule} />} fileName={`Sales-Agreement-${data.agreement.agreementNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : "Print agreement"}</Button>}</PDFDownloadLink>}{v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicle: v, accountingModel: v.accountingModel || (form.accountingModel === "principal" ? "principal" : "agent"), vehicleCosts: v.invoice.vehicleCosts ?? v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : (form.accountingModel === "agent" ? "Print fee invoice" : "Print invoice with costing")}</Button>}</PDFDownloadLink>}</div>
-    </CardContent></Card>
-    {data && <Card><CardHeader><CardTitle>Payment schedule</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Due date</TableHead><TableHead>Amount</TableHead><TableHead>Paid</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{data.schedule.map((line: any) => <TableRow key={line.id}><TableCell className="capitalize">{line.type}</TableCell><TableCell>{line.dueDate}</TableCell><TableCell>{fmtMoney(Number(line.amount))}</TableCell><TableCell>{fmtMoney(Number(line.paidAmount))}</TableCell><TableCell className="capitalize">{line.status}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>}
-    {data?.payments?.length ? <Card><CardHeader><CardTitle>Receipts</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{data.payments.map((payment: any) => <VehicleReceiptLink key={payment.id} companyId={companyId} vehicleId={v.id} paymentId={payment.id} company={company} />)}</CardContent></Card> : null}
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+        <div><CardTitle>Price & payment plan</CardTitle>{agreement && <p className="mt-1 text-sm text-slate-600">{agreement.agreementNumber} · {agreement.status}</p>}</div>
+        <div className="flex flex-wrap gap-2">
+          {savedPrice > 0 && <Button variant="outline" onClick={() => setDealOpen(true)}><Eye className="mr-1 h-4 w-4" />Preview customer deal</Button>}
+          {canEdit && <Button onClick={openEditor} disabled={!v.customerId}>{agreement ? "Edit payment plan" : "Set up payment plan"}</Button>}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {agreement ? <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+          <div><dt className="text-slate-600">Agreed price</dt><dd className="font-semibold">{money(agreement.agreedPrice)}</dd></div>
+          <div><dt className="text-slate-600">Deposit</dt><dd className="font-semibold">{money(agreement.depositAmount)}</dd></div>
+          <div><dt className="text-slate-600">Monthly instalments</dt><dd className="font-semibold">{agreement.months}</dd></div>
+          <div><dt className="text-slate-600">Scheduled total</dt><dd className="font-semibold">{savedSchedule.length ? money(savedSchedule.reduce((sum, line) => sum + Number(line.amount), 0)) : "—"}</dd></div>
+        </dl> : <p className="text-sm text-slate-600">{!v.customerId ? "Assign a customer under Vehicle & invoice to set up a plan." : "No payment plan on file."}</p>}
+        {agreement?.termsText && <details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-medium">Terms and conditions</summary><p className="mt-2 whitespace-pre-wrap text-slate-600">{agreement.termsText}</p></details>}
+        {(canHandover || (agreement && company)) && <div className="flex flex-wrap gap-2">
+          {canHandover && <Button variant="outline" onClick={() => setHandoverOpen(true)} disabled={pending}>Review handover</Button>}
+          {agreement && company && <PDFDownloadLink document={<VehicleAgreementPDF agreement={agreement} vehicle={v} customer={v.customer} company={company} schedule={savedSchedule} costs={costs} />} fileName={agreement.agreementNumber + ".pdf"}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : "Download agreement"}</Button>}</PDFDownloadLink>}
+        </div>}
+      </CardContent>
+    </Card>
+    <Dialog open={dealOpen} onOpenChange={setDealOpen}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader><DialogTitle>Customer deal preview</DialogTitle><DialogDescription>{v.stockNumber} · {v.make} {v.model}{v.customer?.name ? ` · ${v.customer.name}` : ""}</DialogDescription></DialogHeader>
+        <VehicleDealPreview currency={currency} agreedPrice={savedPrice} paid={paid} schedule={scheduleLines}
+          exchangeRate={rate} costs={agency ? costs : undefined} processingFee={agency ? Number(agreement?.processingFeeAmount ?? 0) : undefined}
+          interest={agreedInterest(agreement)} adminFee={Number(agreement?.adminFee ?? 0)}
+          invoice={v.invoice
+            ? { subtotal: Number(v.invoice.subtotal ?? v.invoice.total), tax: Number(v.invoice.taxAmount || 0), total: Number(v.invoice.total), kind: agency ? "Processing-fee invoice" : "Sales invoice", currency: v.invoice.currency || currency }
+            : undefined}
+        />
+      </DialogContent>
+    </Dialog>
+    {canEdit && <Dialog open={editorOpen} onOpenChange={open => { if (!pending) setEditorOpen(open); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader><DialogTitle>{agreement ? "Edit payment plan" : "Set up payment plan"}</DialogTitle><DialogDescription>Set the price, deposit and instalments, then review the total.</DialogDescription></DialogHeader>
+        {agency && costs.length > 0 && <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer text-sm font-semibold">Customer import costs · {money(listedCosts)}</summary>
+          <dl className="mt-2 space-y-2 text-sm">
+            {costs.map(cost => <div className="flex justify-between gap-3" key={cost.id}><dt>{costLabel(cost.category)}{cost.description && " · " + cost.description}</dt><dd>{money(cost.customerCharge * rate)}</dd></div>)}
+          </dl>
+          {canEdit && <Button className="mt-3" type="button" size="sm" variant="outline" onClick={() => update("agreedPrice", priceFromCosts.toFixed(2))}>Use costs + processing fee</Button>}
+          {price > 0 && Math.abs(price - priceFromCosts) > 0.005 && <p className="mt-2 text-sm text-amber-700">The agreed price differs from the listed costs plus the processing fee ({money(priceFromCosts)}).</p>}
+        </details>}
+        <fieldset disabled={!canEdit} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Field label={"Agreed total (" + currency + ")"} value={form.agreedPrice} onChange={value => update("agreedPrice", value)} />
+          {agency && <Field label={"Processing fee included in the total (" + currency + ")"} value={form.processingFeeAmount} onChange={value => update("processingFeeAmount", value)} />}
+          <Field label={"Deposit (" + currency + ")"} value={form.depositAmount} onChange={value => update("depositAmount", value)} />
+          <Field label="Monthly instalments" value={form.months} onChange={value => update("months", value)} />
+          <Field label="Plan start date" type="date" value={form.startDate} onChange={value => update("startDate", value)} />
+          <div><Label htmlFor="vehicle-interest-type">Interest</Label><Select disabled={!canEdit} value={form.interestType} onValueChange={value => update("interestType", value)}><SelectTrigger id="vehicle-interest-type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No interest</SelectItem><SelectItem value="percent_pa">Reducing balance (% per year)</SelectItem><SelectItem value="flat_rate">Flat rate (% per year)</SelectItem><SelectItem value="fixed_amount">Fixed interest amount</SelectItem></SelectContent></Select></div>
+          {form.interestType !== "none" && <Field label={form.interestType === "fixed_amount" ? "Interest amount (" + currency + ")" : "Annual interest rate (%)"} value={form.interestRate} onChange={value => update("interestRate", value)} />}
+          <details className="md:col-span-2 xl:col-span-4 rounded-lg border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Other terms</summary>
+            <div className="mt-3 grid gap-4 md:grid-cols-3">
+              <Field label="Financing admin fee" value={form.adminFee} onChange={value => update("adminFee", value)} />
+              <Field label="Late fee per instalment" value={form.lateFee} onChange={value => update("lateFee", value)} />
+              {agency && <div><Label htmlFor="vehicle-fee-recognition">Recognise the fee</Label><Select disabled={!canEdit} value={form.feeRecognition} onValueChange={value => update("feeRecognition", value)}><SelectTrigger id="vehicle-fee-recognition"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="on_handover">On handover</SelectItem><SelectItem value="on_collection">On collection</SelectItem></SelectContent></Select></div>}
+            </div>
+          </details>
+          <div className="md:col-span-2 xl:col-span-4">
+            <Label htmlFor="vehicle-agreement-terms">Terms and conditions</Label>
+            <Textarea id="vehicle-agreement-terms" rows={4} maxLength={12000} value={form.termsText} onChange={event => update("termsText", event.target.value)} placeholder="Leave blank to use the standard agreement terms." />
+          </div>
+        </fieldset>
+        {preview && Number.isFinite(preview.total) && <details open className="space-y-3 rounded-lg border p-3">
+          <summary className="cursor-pointer font-medium">Preview draft deal</summary>
+          <VehicleDealPreview currency={currency} agreedPrice={price} paid={paid}
+            schedule={applyReceiptsToPreview(preview.lines, paid)} exchangeRate={rate}
+            costs={agency ? costs : undefined} processingFee={agency ? fee : undefined} interest={preview.interest} adminFee={adminFee} />
+        </details>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={pending}>Cancel</Button>
+          <Button onClick={save} disabled={pending || !v.customerId || !preview || !Number.isFinite(preview.total)}>{pending ? "Saving…" : "Save payment plan"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>}
+    {canHandover && <HandoverDialog v={v} open={handoverOpen} onOpenChange={setHandoverOpen} pending={pending} submit={handover} />}
+    {savedSchedule.length > 0 && <Card><CardHeader><CardTitle>Payment schedule</CardTitle></CardHeader><CardContent>
+      <PaymentSchedule currency={currency} lines={scheduleLines} />
+    </CardContent></Card>}
   </div>;
 }
-function VehicleReceiptLink({ companyId, vehicleId, paymentId, company }: any) { const { data } = useQuery<any>({ queryKey: ["vehicle-payment-receipt", companyId, vehicleId, paymentId], queryFn: async () => { const r = await apiFetch(`/api/companies/${companyId}/vehicles/${vehicleId}/payments/${paymentId}/receipt`); if (!r.ok) throw new Error("Failed to prepare receipt"); return r.json(); } }); if (!data || !company) return <Button variant="outline" size="sm" disabled>Preparing receipt…</Button>; return <PDFDownloadLink document={<VehiclePaymentReceiptPDF receipt={data} company={company} />} fileName={`${data.receiptNumber}.pdf`}>{({ loading }) => <Button variant="outline" size="sm" disabled={loading}>{loading ? "Preparing…" : `Receipt ${data.receiptNumber}`}</Button>}</PDFDownloadLink>; }
-function Field({ label, value, onChange, type = "number" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { return <div><Label>{label}</Label><Input type={type} value={value} onChange={e => onChange(e.target.value)} /></div>; }
+
+function Field({ label, value, onChange, type = "number" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { const id = useId(); return <div><Label htmlFor={id}>{label}</Label><Input id={id} type={type} step={type === "number" ? "any" : undefined} value={value} onChange={e => onChange(e.target.value)} /></div>; }
 
 function MoneyLine({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return <div className="flex items-center justify-between gap-3"><span className="text-slate-500">{label}</span><span className={`font-semibold ${tone ?? "text-slate-900"}`}>{fmtMoney(value)}</span></div>;
@@ -305,6 +508,7 @@ function SupplierSettlementsTab({ v, companyId, editable }: { v: any; companyId:
   const { data: bankAccounts = [] } = useBankAccounts(companyId);
   const { data: suppliers = [] } = useSuppliers(companyId);
   const { run, pending } = useSubmit(companyId);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [costId, setCostId] = useState("");
   const [amount, setAmount] = useState("");
   const [bankAccountId, setBankAccountId] = useState("none");
@@ -312,60 +516,74 @@ function SupplierSettlementsTab({ v, companyId, editable }: { v: any; companyId:
   const [reference, setReference] = useState("");
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
-  useEffect(() => {
-    if (!costId && data?.costSheet?.length) {
-      const first = data.costSheet.find((c: any) => c.held > 0.004) ?? data.costSheet[0];
-      setCostId(String(first.id));
-    }
-  }, [data, costId]);
-  const selected = data?.costSheet.find((c: any) => String(c.id) === costId);
-  useEffect(() => { if (selected) setAmount(Math.max(Number(selected.supplierOutstanding ?? 0), 0).toFixed(2)); }, [costId]);
-
+  const selected = data?.costSheet.find(cost => String(cost.id) === costId);
+  const currency = v.saleCurrency || "USD";
+  const rate = Number(v.saleExchangeRate) || 1;
+  const openPayment = (cost: NonNullable<typeof selected>) => {
+    setCostId(String(cost.id));
+    setAmount((Math.max(cost.supplierOutstanding, 0) * rate).toFixed(2));
+    setSupplierId("none");
+    setReference("");
+    setPaymentOpen(true);
+  };
   const submit = async () => {
     if (!selected) return;
-    await run({
-      path: `/${v.id}/third-party-payments`,
-      body: {
-        costId: selected.id, amount: Number(amount), currency: v.saleCurrency || "USD",
-        exchangeRate: Number(v.saleExchangeRate || 1), paymentDate, reference: reference || null,
-        bankAccountId: bankAccountId === "none" ? null : Number(bankAccountId),
-        supplierId: supplierId === "none" ? null : Number(supplierId),
-        paymentMethod: "bank_transfer",
-      },
-    }, "Supplier settlement recorded");
-    setReference("");
+    try {
+      await run({
+        path: `/${v.id}/third-party-payments`,
+        body: {
+          costId: selected.id, amount: Number(amount), currency,
+          exchangeRate: rate, paymentDate, reference: reference || null,
+          bankAccountId: bankAccountId === "none" ? null : Number(bankAccountId),
+          supplierId: supplierId === "none" ? null : Number(supplierId),
+          paymentMethod: "bank_transfer",
+        },
+      }, "Supplier settlement recorded");
+      setPaymentOpen(false);
+    } catch { /* useSubmit displays the error */ }
   };
 
   if (isLoading) return <div className="p-4 text-sm text-slate-500">Loading supplier obligations…</div>;
   if (!data) return <div className="p-4 text-sm text-rose-600">Supplier settlements are only available for agency vehicles.</div>;
 
   return <div className="space-y-4">
-    <Card><CardHeader><CardTitle>Outstanding supplier obligations</CardTitle></CardHeader><CardContent>
-      <Table><TableHeader><TableRow><TableHead>Cost</TableHead><TableHead>Supplier</TableHead><TableHead>Actual cost</TableHead><TableHead>Funded by customer</TableHead><TableHead>Settled</TableHead><TableHead>Outstanding</TableHead></TableRow></TableHeader><TableBody>
+    <Card><CardHeader><CardTitle>Supplier balances</CardTitle></CardHeader><CardContent>
+      <Table><TableHeader><TableRow><TableHead>Supplier cost</TableHead><TableHead className="text-right">Paid</TableHead><TableHead className="text-right">Still to pay</TableHead>{editable && <TableHead />}</TableRow></TableHeader><TableBody>
+        {!data.costSheet.length && <TableRow><TableCell colSpan={editable ? 4 : 3} className="py-6 text-center text-slate-600">No supplier costs recorded.</TableCell></TableRow>}
         {data.costSheet.map((c) => <TableRow key={c.id}>
-          <TableCell><div className="font-medium">{costLabel(c.category)}</div><div className="text-xs text-slate-400">{c.description || "—"}</div></TableCell>
-          <TableCell>{suppliers.find((s: any) => s.id === c.supplierId)?.name || c.payee || "—"}</TableCell>
-          <TableCell>{fmtMoney(c.actual)}</TableCell><TableCell>{fmtMoney(c.allocated)}</TableCell><TableCell>{fmtMoney(c.settled)}</TableCell>
-          <TableCell className={c.supplierOutstanding > 0 ? "text-amber-600 font-semibold" : "text-emerald-600"}>{fmtMoney(c.supplierOutstanding)}</TableCell>
+          <TableCell>
+            <div className="font-medium">{costLabel(c.category)}</div>
+            <div className="text-xs text-slate-600">{[suppliers.find((s: any) => s.id === c.supplierId)?.name || c.payee, c.description].filter(Boolean).join(" · ")}</div>
+          </TableCell>
+          <TableCell className="text-right">{fmtMoney(c.settled)}</TableCell>
+          <TableCell className={`text-right ${c.supplierOutstanding > 0 ? "font-semibold text-amber-700" : "text-emerald-700"}`}>{fmtMoney(c.supplierOutstanding)}</TableCell>
+          {editable && <TableCell className="text-right">{c.supplierOutstanding > 0.004 && <Button size="sm" variant="outline" onClick={() => openPayment(c)}>Record payment</Button>}</TableCell>}
         </TableRow>)}
       </TableBody></Table>
     </CardContent></Card>
 
-    {editable && <Card><CardHeader><CardTitle>Record supplier payment</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-4">
-      <div><Label>Cost line</Label><Select value={costId} onValueChange={setCostId}><SelectTrigger><SelectValue placeholder="Choose cost" /></SelectTrigger><SelectContent>{data.costSheet.map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{costLabel(c.category)} · {fmtMoney(c.actual)}</SelectItem>)}</SelectContent></Select></div>
-      <Field label="Amount paid" value={amount} onChange={setAmount} />
+    {editable && <Dialog open={paymentOpen} onOpenChange={open => { if (!pending) setPaymentOpen(open); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader><DialogTitle>Record supplier payment</DialogTitle><DialogDescription>{selected ? costLabel(selected.category) : "Select a supplier cost"}{selected?.description ? " · " + selected.description : ""}</DialogDescription></DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+      <Field label={"Amount paid (" + currency + ")"} value={amount} onChange={setAmount} />
       <div><Label>Paid from</Label><Select value={bankAccountId} onValueChange={setBankAccountId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Choose bank account</SelectItem>{bankAccounts.map((b: any) => <SelectItem key={b.id} value={String(b.id)}>{b.name || b.code}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Supplier</Label><Select value={supplierId} onValueChange={setSupplierId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Use cost supplier</SelectItem>{suppliers.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent></Select></div>
       <Field label="Payment date" type="date" value={paymentDate} onChange={setPaymentDate} />
       <Field label="Reference" type="text" value={reference} onChange={setReference} />
-      <div className="md:col-span-2 flex items-end"><Button onClick={submit} disabled={pending || !selected || bankAccountId === "none"}>{pending ? "Saving…" : "Record settlement"}</Button></div>
-      {selected && <p className="md:col-span-4 text-xs text-slate-500">
+        </div>
+      {selected && <p className="text-xs text-slate-500">
         Outstanding supplier obligation: <strong className="text-slate-700">{fmtMoney(selected.supplierOutstanding)}</strong>
         {Number(selected.held) < Number(selected.supplierOutstanding) && (
           <> · Only {fmtMoney(selected.held)} is funded by the customer so far. Settling the balance means Prime Imports advances {fmtMoney(Number(selected.supplierOutstanding) - Number(selected.held))}, carried as a receivable from the customer.</>
         )}
       </p>}
-    </CardContent></Card>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPaymentOpen(false)} disabled={pending}>Cancel</Button>
+          <Button onClick={submit} disabled={pending || !selected || !(Number(amount) > 0) || bankAccountId === "none"}>{pending ? "Saving…" : "Record payment"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>}
 
     <Card><CardHeader><CardTitle>Settlement history</CardTitle></CardHeader><CardContent>
       <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Cost</TableHead><TableHead>Reference</TableHead><TableHead>Amount</TableHead></TableRow></TableHeader><TableBody>
@@ -374,15 +592,6 @@ function SupplierSettlementsTab({ v, companyId, editable }: { v: any; companyId:
       </TableBody></Table>
     </CardContent></Card>
   </div>;
-}
-
-function DocumentsTab({ v, companyId }: { v: any; companyId: number }) {
-  const { data: company } = useCompany(companyId);
-  return <Card><CardHeader><CardTitle>Vehicle documents</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">
-    {v.invoice && company && <PDFDownloadLink document={<InvoicePDF invoice={{ ...v.invoice, vehicle: v, vehicleCosts: v.invoice.vehicleCosts ?? v.costs }} company={company} customer={v.customer} />} fileName={`Invoice-${v.invoice.invoiceNumber}.pdf`}>{({ loading }) => <Button variant="outline" disabled={loading}>{loading ? "Preparing…" : (v.accountingModel === "agent" ? "Processing fee invoice" : "Sales invoice")}</Button>}</PDFDownloadLink>}
-    {v.payments.map((p: any) => <VehicleReceiptLink key={p.id} companyId={companyId} vehicleId={v.id} paymentId={p.id} company={company} />)}
-    {!v.invoice && !v.payments.length && <p className="text-sm text-slate-400">No documents have been generated for this vehicle.</p>}
-  </CardContent></Card>;
 }
 
 function ActivityTab({ v }: { v: any }) {
@@ -446,7 +655,7 @@ function useSubmit(companyId: number) {
 
 // ── Details & sale ───────────────────────────────────────────────────────────
 
-function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
+function DetailsTab({ v, companyId, editable, initialAction }: { v: any; companyId: number; editable: boolean; initialAction?: "edit" | "invoice" }) {
   const { data: company } = useCompany(companyId);
   const { data: customers = [] } = useCustomers(companyId);
   const { data: consignments = [] } = useConsignments(companyId);
@@ -463,9 +672,9 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   const [supplierId, setSupplierId] = useState<string>(v.supplierId ? String(v.supplierId) : "none");
   const [salespersonId, setSalespersonId] = useState<string>(v.salespersonId ? String(v.salespersonId) : "none");
   const [enquiryId, setEnquiryId] = useState<string>(v.enquiryId ? String(v.enquiryId) : "none");
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialAction === "edit");
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(initialAction === "invoice");
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: format(addDays(new Date(), 7), "yyyy-MM-dd"),
     taxTypeId: "none",
@@ -522,6 +731,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
   };
 
   const isAgencyDeal = (v.accountingModel || accountData?.agreement?.accountingModel || "agent") !== "principal";
+  const invoiceCosts = isAgencyDeal ? accountData?.costSheet ?? [] : [];
   const saleRate = Number(v.saleExchangeRate || 1) || 1;
   const selectedInvoiceTaxType = invoiceTaxTypes.find((t) => String(t.id) === invoiceForm.taxTypeId);
   // Agency deals invoice only Prime Imports' processing fee. The full vehicle
@@ -900,7 +1110,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                     />
                     <Read label="Sale currency" value={v.saleCurrency || "USD"} />
                     {v.saleCurrency && v.saleCurrency !== "USD" && (
-                      <Read label={`USD per 1 ${v.saleCurrency}`} value={Number(v.saleExchangeRate || 1)} />
+                      <Read label={`${v.saleCurrency} per 1 USD`} value={Number(v.saleExchangeRate || 1)} />
                     )}
                   </div>
                 </>
@@ -979,7 +1189,7 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
                 ) : editable ? (
                   <div className="space-y-2">
                     <Button id="vehicle-create-invoice" variant="outline" className="w-full" onClick={() => setInvoiceOpen(true)} disabled={pending || !v.customerId || v.salePrice == null}>
-                      <FileText className="w-4 h-4 mr-1" />Create invoice from sale
+                      <FileText className="w-4 h-4 mr-1" />{isAgencyDeal ? "Review processing-fee invoice" : "Review sale invoice"}
                     </Button>
                     <div className="flex gap-2">
                       <Input id="vehicle-attach-invoice" placeholder="Existing invoice number" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
@@ -1016,44 +1226,21 @@ function DetailsTab({ v, companyId, editable }: { v: any; companyId: number; edi
       </div>
 
       <Dialog open={invoiceOpen} onOpenChange={setInvoiceOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Create sales invoice</DialogTitle>
+            <DialogTitle>{isAgencyDeal ? "Review processing-fee invoice" : "Review sale invoice"}</DialogTitle>
             <DialogDescription>
-              Invoice {v.stockNumber} · {v.year} {v.make} {v.model} — {isAgencyDeal
-                ? "Prime Imports processing fee only. The vehicle cost sheet is a customer obligation, not company revenue."
-                : "for the agreed sale price."}
+              {v.stockNumber} · {v.make} {v.model}{v.customer?.name ? " · " + v.customer.name : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-lg bg-slate-50 p-3 text-sm space-y-1.5">
-              {isAgencyDeal && (
-                <div className="flex justify-between text-slate-500">
-                  <span>Customer deal value (not invoiced)</span>
-                  <span>{Number(v.salePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-slate-600">{isAgencyDeal ? "Processing fee (invoice subtotal)" : "Agreed sale price"}</span>
-                <span>{(isAgencyDeal ? processingFee : Number(v.salePrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
-              </div>
-              {saleRate !== 1 && !isAgencyDeal && (
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>Converted at {saleRate} USD per 1 {invoiceCurrency}</span>
-                  <span>{fmtMoney(invoiceSubtotal * saleRate)}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-slate-600">
-                  Tax {isAgencyDeal ? "(agency fee — no sales VAT)" : selectedInvoiceTaxType ? `(${selectedInvoiceTaxType.name} ${invoiceTaxRate}%)` : "(none)"}
-                </span>
-                <span>{invoiceTax.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
-              </div>
-              <div className="flex justify-between border-t pt-1.5 font-bold">
-                <span>Invoice total</span>
-                <span>{invoiceTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })} {invoiceCurrency}</span>
-              </div>
-            </div>
+            <VehicleDealPreview currency={invoiceCurrency} agreedPrice={Number(v.salePrice || 0)}
+              paid={Number(v.summary.paid || 0) * saleRate} schedule={v.openSchedule ?? []}
+              exchangeRate={saleRate} costs={isAgencyDeal ? invoiceCosts : undefined}
+              processingFee={isAgencyDeal ? processingFee : undefined}
+              interest={agreedInterest(accountData?.agreement)} adminFee={Number(accountData?.agreement?.adminFee ?? 0)}
+              invoice={{ subtotal: invoiceSubtotal, tax: invoiceTax, total: invoiceTotal, kind: isAgencyDeal ? "Processing-fee invoice" : "Sales invoice" }}
+            />
             <div className={isAgencyDeal ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
               <div className="space-y-1.5">
                 <Label htmlFor="vehicle-invoice-due">Due date</Label>
@@ -1202,6 +1389,10 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
   const { taxTypes } = useTaxConfig(companyId);
   const costTaxTypes = ((taxTypes.data ?? []) as any[]).filter((t) => t.isActive !== false);
   const [form, setForm] = useState({ ...emptyCost });
+  const [addOpen, setAddOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const pageSize = 6;
+  const currentPage = Math.min(page, Math.max(Math.ceil(v.costs.length / pageSize) - 1, 0));
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ ...emptyCost });
   const [payFor, setPayFor] = useState<any | null>(null);
@@ -1210,7 +1401,6 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
     paymentDate: format(new Date(), "yyyy-MM-dd"),
     reference: "",
   });
-  const base = Number(form.amount || 0) * Number(form.exchangeRate || 1);
   const costsLocked = !!v.cogsJournalEntryId;
 
   const needsBank = (form.settlementMethod || "cash") !== "supplier_bill";
@@ -1218,8 +1408,11 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
   const add = async () => {
     if (!form.amount || costsLocked) return;
     if (needsBank && form.bankAccountId === "none") return;
-    await run({ path: `/${v.id}/costs`, body: costBody(form) }, "Cost added");
-    setForm({ ...emptyCost, category: form.category === "purchase" ? "shipping" : form.category });
+    try {
+      await run({ path: `/${v.id}/costs`, body: costBody(form) }, "Cost added");
+      setForm({ ...emptyCost, category: form.category === "purchase" ? "shipping" : form.category });
+      setAddOpen(false);
+    } catch { /* useSubmit displays the error */ }
   };
 
   const openEdit = (c: any) => {
@@ -1298,18 +1491,12 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
 
   return (
     <>
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-4">
-          <Card className="border-slate-200/80">
-            <CardHeader>
-              <CardTitle className="text-base">Add cost</CardTitle>
-              {costsLocked && (
-                <p className="text-xs text-slate-500">
-                  COGS has been posted for this vehicle, so costs are locked.
-                </p>
-              )}
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+      <div className="space-y-4">
+        <div>
+          <Dialog open={addOpen} onOpenChange={open => { if (!pending) setAddOpen(open); }}>
+            <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
+              <DialogHeader><DialogTitle>Add cost</DialogTitle><DialogDescription>Record a vehicle purchase or import expense.</DialogDescription></DialogHeader>
+              <div className="grid grid-cols-2 items-end gap-3 md:grid-cols-4">
               <div className="space-y-1.5 col-span-2">
                 <Label>Category</Label>
                 <Select value={form.category} onValueChange={(x) => setForm({ ...form, category: x })} disabled={costsLocked}>
@@ -1374,30 +1561,40 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
               </div>
               <div className="space-y-1.5 col-span-2"><Label>Paid to</Label><Input id="cost-payee" disabled={costsLocked} value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Reference</Label><Input id="cost-reference" disabled={costsLocked} value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>
-              <Button id="cost-add" onClick={add} disabled={pending || costsLocked || !form.amount || (needsBank && form.bankAccountId === "none")}><Plus className="w-4 h-4 mr-1" />{fmtMoney(base)}</Button>
-            </CardContent>
-          </Card>
-
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddOpen(false)} disabled={pending}>Cancel</Button>
+                <Button id="cost-add" onClick={add} disabled={pending || costsLocked || !(Number(form.amount) > 0) || (needsBank && form.bankAccountId === "none")}>{pending ? "Saving…" : "Add cost"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Card className="border-slate-200/80">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+              <div><CardTitle>Cost sheet</CardTitle>{costsLocked && <p className="mt-1 text-sm text-slate-500">Cost of sales has been posted. Costs are locked.</p>}</div>
+              {!costsLocked && <Button onClick={() => setAddOpen(true)}><Plus className="mr-1 h-4 w-4" />Add cost</Button>}
+            </CardHeader>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead><TableHead>Category</TableHead><TableHead>Details</TableHead><TableHead>Status</TableHead>
-                  <TableHead className="text-right">Estimate (USD)</TableHead><TableHead className="text-right">Actual (USD)</TableHead><TableHead className="text-right">Customer charge (USD)</TableHead><TableHead className="text-right">Foreign amount</TableHead><TableHead />
+                  <TableHead>Cost</TableHead><TableHead className="hidden sm:table-cell">Status</TableHead>
+                  <TableHead className="text-right">Actual cost</TableHead><TableHead className="hidden text-right md:table-cell">Customer charge</TableHead><TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {v.costs.length === 0 ? (
-                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-slate-500">No costs yet. Start with the purchase price.</TableCell></TableRow>
-                ) : v.costs.map((c: any) => (
+                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No costs yet. Start with the purchase price.</TableCell></TableRow>
+                ) : v.costs.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map((c: any) => (
                   <TableRow key={c.id}>
-                    <TableCell className="text-xs">{c.costDate ?? "—"}</TableCell>
                     <TableCell>
-                      <div>{costLabel(c.category)}</div>
+                      <div className="font-medium">{costLabel(c.category)}</div>
+                      <p className="text-xs text-slate-600">{[c.description, c.supplierId ? supplierName(c.supplierId) : c.payee].filter(Boolean).join(" · ")}</p>
+                      <details className="mt-1 space-y-1 text-xs text-slate-500">
+                        <summary className="cursor-pointer">Cost details</summary>
+                        <div className="sm:hidden">{costStatusLabel(c.status ?? "pending")}</div>
+                        <div className="md:hidden">Customer charge {fmtMoney(c.customerChargeBaseAmount)}</div>
+                        <div>{[c.costDate, c.reference].filter(Boolean).join(" · ")}</div>
+                        <div>Estimate {fmtMoney(c.estimatedBaseAmount)} · Original amount {fmtMoney(c.amount, c.currency)}</div>
                       {c.source && c.source !== "manual" && <div className="text-[10px] uppercase tracking-wide text-slate-400">auto · {c.source}</div>}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-500">
-                      {[c.description, c.supplierId ? supplierName(c.supplierId) : null, c.payee, c.reference].filter(Boolean).join(" · ") || "—"}
                       {c.dueDate && <div className="text-[10px] text-slate-400">Due {c.dueDate}</div>}
                       <div className="text-[10px] text-slate-400">
                         {c.settlementMethod === "supplier_bill" ? "Supplier bill" : c.settlementMethod === "bank_transfer" ? "Bank transfer" : "Cash"}
@@ -1415,60 +1612,44 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
                         </div>
                       )}
                       {c.includeInCustomerStatement === false && <div className="text-[10px] text-slate-400">Excluded from customer statement</div>}
+                      </details>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <Badge className={`${costStatusTone[c.status ?? "pending"] ?? ""} border-0 text-[10px]`}>{costStatusLabel(c.status ?? "pending")}</Badge>
                     </TableCell>
-                    <TableCell className="text-right text-xs">{fmtMoney(c.estimatedBaseAmount)}</TableCell>
                     <TableCell className="text-right font-medium">{fmtMoney(c.baseAmount)}</TableCell>
-                    <TableCell className="text-right text-xs text-sky-700">{fmtMoney(c.customerChargeBaseAmount)}</TableCell>
-                    <TableCell className="text-right text-xs text-slate-500">{Number(c.amount).toLocaleString()} {c.currency}{c.currency !== "USD" ? ` @ ${Number(c.exchangeRate)}` : ""}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      {!c.costJournalEntryId && !costsLocked && c.status !== "cancelled" && c.status !== "disputed" && (c.status === "paid" || c.settlementMethod === "supplier_bill") && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title={c.settlementMethod === "supplier_bill" ? "Post supplier bill to inventory / AP" : "Post to inventory and pay from bank/cash"}
-                          onClick={() => confirm(
-                            c.settlementMethod === "supplier_bill"
-                              ? `Post ${fmtMoney(c.baseAmount)} as a supplier bill (Dr inventory, Cr accounts payable)?`
-                              : `Post ${fmtMoney(c.baseAmount)} to inventory and pay it from ${bankName(c.bankAccountId) ?? "bank/cash"}?`,
-                          ) && postCost(c)}
-                        >
-                          <Landmark className="w-4 h-4 text-slate-400" />
-                        </Button>
-                      )}
-                      {c.supplierInvoiceId && !c.paymentJournalEntryId && !costsLocked && (
-                        <Button size="icon" variant="ghost" title="Pay supplier bill" onClick={() => openPay(c)}>
-                          <CircleDot className="w-4 h-4 text-sky-500" />
-                        </Button>
-                      )}
-                      {(c.costJournalEntryId || c.paymentJournalEntryId || c.supplierInvoiceId) && !costsLocked && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title="Reverse this cost"
-                          onClick={() => confirm("Reverse the journal entries for this cost?") && reverseCost(c)}
-                        >
-                          <Undo2 className="w-4 h-4 text-amber-500" />
-                        </Button>
-                      )}
-                      <Button size="icon" variant="ghost" disabled={costsLocked} onClick={() => openEdit(c)}>
-                        <Pencil className="w-4 h-4 text-slate-400" />
-                      </Button>
-                      <Button size="icon" variant="ghost" disabled={costsLocked} onClick={() => confirm("Delete this cost line?") && run({ path: `/${v.id}/costs/${c.id}`, method: "DELETE" })}>
-                        <Trash2 className="w-4 h-4 text-slate-400" />
-                      </Button>
+                    <TableCell className="hidden text-right text-xs text-sky-700 md:table-cell">{fmtMoney(c.customerChargeBaseAmount)}</TableCell>
+                    <TableCell className="text-right">
+                      {!costsLocked && <DropdownMenu>
+                        <DropdownMenuTrigger asChild><Button size="icon" variant="ghost" aria-label={"Actions for " + costLabel(c.category)}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => openEdit(c)}>Edit cost</DropdownMenuItem>
+                          {!c.costJournalEntryId && c.status !== "cancelled" && c.status !== "disputed" && (c.status === "paid" || c.settlementMethod === "supplier_bill") &&
+                            <DropdownMenuItem onSelect={() => { if (confirm("Post this cost to the ledger?")) void postCost(c); }}>{c.settlementMethod === "supplier_bill" ? "Post supplier bill" : "Post and pay cost"}</DropdownMenuItem>}
+                          {c.supplierInvoiceId && !c.paymentJournalEntryId && <DropdownMenuItem onSelect={() => openPay(c)}>Pay supplier bill</DropdownMenuItem>}
+                          {(c.costJournalEntryId || c.paymentJournalEntryId || c.supplierInvoiceId) &&
+                            <DropdownMenuItem onSelect={() => { if (confirm("Reverse the journal entries for this cost?")) void reverseCost(c); }}>Reverse cost posting</DropdownMenuItem>}
+                          <DropdownMenuItem className="text-rose-700" onSelect={() => { if (confirm("Delete this cost line?")) void run({ path: "/" + v.id + "/costs/" + c.id, method: "DELETE" }); }}>Delete cost</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            {v.costs.length > pageSize && <div className="flex flex-wrap items-center justify-between gap-2 border-t p-3 text-sm">
+              <span>{currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, v.costs.length)} of {v.costs.length} costs</span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0}>Previous</Button>
+                <Button size="sm" variant="outline" onClick={() => setPage(currentPage + 1)} disabled={(currentPage + 1) * pageSize >= v.costs.length}>Next</Button>
+              </div>
+            </div>}
           </Card>
         </div>
 
         <Card className="border-slate-200/80 h-fit">
-          <CardHeader><CardTitle className="text-base">Landed cost breakdown</CardTitle></CardHeader>
+          <details>
+          <summary className="cursor-pointer px-5 py-4 text-sm font-semibold">Landed cost breakdown · {fmtMoney(v.summary.landedCost)}</summary>
           <CardContent className="space-y-2 text-sm">
             {COST_CATEGORIES.map((c) => (
               <div key={c.value} className="flex justify-between">
@@ -1485,6 +1666,7 @@ function CostsTab({ v, companyId }: { v: any; companyId: number }) {
               <span>Profit ({v.summary.marginPercent}%)</span><span>{fmtMoney(v.summary.profit)}</span>
             </div>
           </CardContent>
+          </details>
         </Card>
       </div>
 
@@ -1619,20 +1801,68 @@ function waLink(phone: string | null | undefined, text: string) {
   return digits ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}` : null;
 }
 
+function HandoverDialog({ v, open, onOpenChange, pending, submit }: {
+  v: any;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  pending: boolean;
+  submit: (earlyHandoverReason?: string) => Promise<unknown>;
+}) {
+  const [reason, setReason] = useState("");
+  const schedule = (v.openSchedule ?? []) as NonNullable<Vehicle["openSchedule"]>;
+  const rate = Number(v.saleExchangeRate) || 1;
+  const stockInvoice = v.accountingModel === "principal" ? v.invoice : null;
+  const invoiceRate = Number(stockInvoice?.exchangeRate) || rate;
+  const total = Math.max(Number(v.salePrice || 0), schedule.reduce((sum, line) => sum + line.amount, 0),
+    Number(stockInvoice?.total || 0) * rate / invoiceRate);
+  const paid = Math.max(Number(v.summary.paid || 0) * rate, Number(stockInvoice?.paidAmount || 0) * rate / invoiceRate);
+  const balance = Math.round((total - paid) * 100) / 100;
+  const early = balance > 0;
+  useEffect(() => { if (!open) setReason(""); }, [open]);
+
+  const confirm = async () => {
+    try {
+      await submit(early ? reason.trim() : undefined);
+      onOpenChange(false);
+    } catch { /* useSubmit displays the error */ }
+  };
+  return <Dialog open={open} onOpenChange={value => { if (!pending) onOpenChange(value); }}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Confirm vehicle handover</DialogTitle>
+        <DialogDescription>{early
+          ? `The customer still owes ${fmtMoney(balance, v.saleCurrency || "USD")}. Record payment first, or give a reason for releasing the vehicle before full payment.`
+          : "This marks the vehicle as delivered."}</DialogDescription>
+      </DialogHeader>
+      {early && <div><Label htmlFor="early-handover-reason">Reason for early handover</Label>
+        <Textarea id="early-handover-reason" rows={3} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} />
+      </div>}
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>Cancel</Button>
+        <Button onClick={confirm} disabled={pending || (early && !reason.trim())}>{pending ? "Saving…" : early ? "Confirm early handover" : "Complete handover"}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
+
 function TrackingTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
   const { run, pending } = useSubmit(companyId);
   const currentIdx = VEHICLE_STAGES.findIndex((s) => s.value === v.stage);
   const [stage, setStage] = useState(VEHICLE_STAGES[Math.min(currentIdx + 1, VEHICLE_STAGES.length - 1)].value as string);
   const [notes, setNotes] = useState("");
+  const [handoverOpen, setHandoverOpen] = useState(false);
   const [eventDate, setEventDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [notify, setNotify] = useState(!!v.customerId);
   useEffect(() => setStage(VEHICLE_STAGES[Math.min(currentIdx + 1, VEHICLE_STAGES.length - 1)].value), [v.stage]);
 
-  const submit = async () => {
+  const submit = async (earlyHandoverReason?: string) => {
     // Open WhatsApp inside the click handler (before any await) or popup blockers eat it.
     const link = notify && v.customer?.phone ? waLink(v.customer.phone, customerMessage(v, stage, notes)) : null;
-    if (link) window.open(link, "_blank", "noopener");
-    const event = await run({ path: `/${v.id}/stage`, body: { stage, notes: notes || null, eventDate, notifyCustomer: notify } }, `Moved to ${stageLabel(stage)}`);
+    if (link && stage !== "delivered") window.open(link, "_blank", "noopener");
+    const event = await run({ path: `/${v.id}/stage`, body: { stage, notes: notes || null, eventDate, notifyCustomer: notify, earlyHandoverReason } }, `Moved to ${stageLabel(stage)}`);
+    if (link && stage === "delivered") {
+      window.open(link, "_blank", "noopener");
+    }
     if (link) await run({ path: `/${v.id}/stage/${event.id}/notified`, body: { via: "whatsapp" } });
     setNotes("");
   };
@@ -1642,20 +1872,13 @@ function TrackingTab({ v, companyId, editable }: { v: any; companyId: number; ed
       <Card className="lg:col-span-2 border-slate-200/80">
         <CardHeader><CardTitle className="text-base">Progress</CardTitle></CardHeader>
         <CardContent>
-          <div className="flex items-center mb-8 overflow-x-auto pb-2">
-            {VEHICLE_STAGES.map((s, i) => (
-              <div key={s.value} className="flex items-center flex-1 min-w-[90px]">
-                <div className="flex flex-col items-center text-center flex-1">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${i < currentIdx ? "bg-emerald-500 text-white" : i === currentIdx ? "bg-blue-600 text-white ring-4 ring-blue-100" : "bg-slate-100 text-slate-400"}`}>
-                    {i < currentIdx ? <Check className="w-4 h-4" /> : <CircleDot className="w-4 h-4" />}
-                  </div>
-                  <span className={`text-[11px] mt-1.5 ${i <= currentIdx ? "text-slate-800 font-medium" : "text-slate-400"}`}>{s.label}</span>
-                </div>
-                {i < VEHICLE_STAGES.length - 1 && <div className={`h-0.5 flex-1 -mt-5 ${i < currentIdx ? "bg-emerald-400" : "bg-slate-200"}`} />}
-              </div>
-            ))}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-4">
+            <div><p className="text-sm text-slate-600">Current stage</p><p className="font-semibold">{stageLabel(v.stage)}</p></div>
+            {currentIdx >= 0 && currentIdx + 1 < VEHICLE_STAGES.length && <div><p className="text-sm text-slate-600">Next milestone</p><p className="font-medium">{VEHICLE_STAGES[currentIdx + 1].label}</p></div>}
+            {v.eta && v.status !== "delivered" && <div><p className="text-sm text-slate-600">Estimated arrival</p><p className="font-medium">{v.eta}</p></div>}
           </div>
-
+          <h3 className="mb-3 font-medium">Tracking history</h3>
+          {v.stages.length === 0 && <p className="text-sm text-slate-600">No tracking updates recorded.</p>}
           <ol className="relative border-l border-slate-200 ml-3 space-y-5">
             {[...v.stages].reverse().map((e: any) => (
               <li key={e.id} className="ml-5">
@@ -1676,7 +1899,7 @@ function TrackingTab({ v, companyId, editable }: { v: any; companyId: number; ed
         </CardContent>
       </Card>
 
-      {editable && (
+      {editable && !["delivered", "cancelled"].includes(v.status) && (
         <Card className="border-slate-200/80 h-fit">
           <CardHeader><CardTitle className="text-base">Update stage</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -1696,126 +1919,38 @@ function TrackingTab({ v, companyId, editable }: { v: any; companyId: number; ed
                 <MessageCircle className="w-4 h-4 shrink-0" />{customerMessage(v, stage, notes)}
               </div>
             )}
-            <Button id="stage-submit" className="w-full" onClick={submit} disabled={pending}>Save stage</Button>
+            <Button id="stage-submit" className="w-full" onClick={() => stage === "delivered" ? setHandoverOpen(true) : void submit().catch(() => undefined)} disabled={pending}>{stage === "delivered" ? "Review handover" : "Save stage"}</Button>
           </CardContent>
         </Card>
       )}
+      {editable && <HandoverDialog v={v} open={handoverOpen} onOpenChange={setHandoverOpen} pending={pending} submit={submit} />}
     </div>
   );
 }
 
 // ── Payments & schedule ──────────────────────────────────────────────────────
 
-const PLAN_MONTH_OPTIONS = [2, 4, 6, 12, 18, 24, 30, 36];
-
 function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; editable: boolean }) {
   const { run, pending } = useSubmit(companyId);
-  const { toast } = useToast();
   const { data: bankAccounts = [] } = useBankAccounts(companyId);
-  const [pay, setPay] = useState({ amount: "", currency: "USD", exchangeRate: "1", paymentMethod: "Transfer", bankAccountId: "none", reference: "", paymentDate: format(new Date(), "yyyy-MM-dd") });
-  const [lines, setLines] = useState<{ type: string; dueDate: string; amount: string }[]>([]);
-  const [plan, setPlan] = useState({
-    deposit: "",
-    months: "4",
-    startDate: format(new Date(), "yyyy-MM-dd"),
-  });
-  useEffect(() => setLines(v.schedule.map((l: any) => ({ type: l.type, dueDate: l.dueDate, amount: String(l.amount) }))), [v.schedule]);
-
-  const record = async () => {
-    if (pay.bankAccountId === "none") return;
-    await run({ path: `/${v.id}/payments`, body: { ...pay, bankAccountId: Number(pay.bankAccountId), reference: pay.reference || null } }, "Payment recorded");
-    setPay({ ...pay, amount: "", reference: "" });
-  };
-  const saveSchedule = () => run({ path: `/${v.id}/schedule`, method: "PUT", body: { lines: lines.filter((l) => l.dueDate && Number(l.amount) > 0) } }, "Schedule saved");
-  const scheduled = lines.reduce((s, l) => s + Number(l.amount || 0), 0);
+  const currency = v.saleCurrency || "USD";
+  const [pay, setPay] = useState({ amount: "", currency, exchangeRate: String(v.saleExchangeRate || 1), paymentMethod: "Transfer", bankAccountId: "none", reference: "", paymentDate: format(new Date(), "yyyy-MM-dd") });
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
-  const openLines = (v.openSchedule ?? []).filter((l: any) => l.open > 0.004);
-
-  const planTotal = Number(v.summary.sellingPrice || 0);
-  const planDeposit = Number(plan.deposit || 0);
-  const planMonths = Number(plan.months || 0);
-  const planOutstanding = Math.max(planTotal - planDeposit, 0);
-  const planMonthly = planMonths > 0 ? planOutstanding / planMonths : 0;
-  // Schedule generation now auto-creates the invoice, so salePrice is required
-  // (targetPrice is a planning figure only and cannot anchor a binding invoice).
-  const planValid =
-    !!v.customerId &&
-    v.salePrice != null &&
-    planTotal > 0 &&
-    planDeposit > 0 &&
-    planDeposit < planTotal &&
-    PLAN_MONTH_OPTIONS.includes(planMonths);
-
-  const generatePlan = async () => {
-    if (!planValid) return;
+  const openLines = ((v.openSchedule ?? []) as NonNullable<Vehicle["openSchedule"]>).filter(line => line.open > 0.004);
+  const record = async () => {
     try {
-      const result = await run(
-        {
-          path: `/${v.id}/schedule/generate`,
-          body: { months: planMonths, deposit: planDeposit, startDate: plan.startDate },
-        },
-        // Pass undefined so useSubmit doesn't auto-toast; we toast below with
-        // richer info once we have the result.
-        undefined,
-      );
-      setPlan({ ...plan, deposit: "" });
-      toast({
-        title: result?.invoiceCreated
-          ? `Invoice ${result?.invoice?.invoiceNumber ?? ""} raised & payment plan created`
-          : "Payment schedule updated",
-        description: result?.invoiceCreated
-          ? "The sales invoice has been created automatically. You can add tax on the invoice page."
-          : undefined,
-      });
-    } catch {
-      // useSubmit has already shown the failure toast.
-    }
+      await run({ path: "/" + v.id + "/payments", body: { ...pay, bankAccountId: Number(pay.bankAccountId), reference: pay.reference || null } }, "Payment recorded");
+      setPay(current => ({ ...current, amount: "", reference: "" }));
+      setPaymentOpen(false);
+    } catch { /* useSubmit displays the error */ }
   };
-
-
-  const planMonthsOnFile = lines.filter((l) => l.type !== "deposit").length;
-
-  // Apply cumulative payments to schedule lines in due order to show status.
-  let remaining = v.summary.paid;
-  const today = format(new Date(), "yyyy-MM-dd");
-
-  return (
-    <div className="space-y-6">
-    <div className="grid lg:grid-cols-2 gap-6">
-      <Card className="border-slate-200/80">
-        <CardHeader><CardTitle className="text-base">Payments received</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          {editable && (
-            v.customerId ? (
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <div className="space-y-1.5"><Label>Amount</Label><Input id="pay-amount" type="number" step="0.01" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
-                <div className="space-y-1.5"><Label>Date</Label><Input id="pay-date" type="date" value={pay.paymentDate} onChange={(e) => setPay({ ...pay, paymentDate: e.target.value })} /></div>
-                <div className="space-y-1.5">
-                  <Label>Method</Label>
-                  <Select value={pay.paymentMethod} onValueChange={(x) => setPay({ ...pay, paymentMethod: x })}>
-                    <SelectTrigger id="pay-method"><SelectValue /></SelectTrigger>
-                    <SelectContent>{["Transfer", "Cash", "Card", "Ecocash", "Cheque"].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Bank / cash account</Label>
-                  <Select value={pay.bankAccountId} onValueChange={(x) => setPay({ ...pay, bankAccountId: x })}>
-                    <SelectTrigger id="pay-bank"><SelectValue placeholder="Choose account" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Choose account</SelectItem>
-                      {bankAccounts.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5"><Label>Reference</Label><Input id="pay-ref" value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} /></div>
-                <div className="space-y-1.5"><Label>Currency</Label><Input id="pay-currency" value={pay.currency} onChange={(e) => setPay({ ...pay, currency: e.target.value.toUpperCase(), exchangeRate: e.target.value.toUpperCase() === "USD" ? "1" : pay.exchangeRate })} /></div>
-                <div className="space-y-1.5"><Label>USD per 1 {pay.currency}</Label><Input id="pay-rate" type="number" step="0.000001" disabled={pay.currency === "USD"} value={pay.exchangeRate} onChange={(e) => setPay({ ...pay, exchangeRate: e.target.value })} /></div>
-                <Button id="pay-submit" className="col-span-2" onClick={record} disabled={pending || !pay.amount || pay.bankAccountId === "none"}>Record payment</Button>
-              </div>
-            ) : (
-              <p className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">Assign a customer on the Details tab before recording payments.</p>
-            )
-          )}
+  return <div className="space-y-4">
+    <Card><CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+      <CardTitle>Customer payments</CardTitle>
+      {editable && <Button onClick={() => setPaymentOpen(true)} disabled={!v.customerId}>Record payment</Button>}
+    </CardHeader><CardContent>
+      {editable && !v.customerId && <p className="mb-3 text-sm text-slate-600">Assign a customer under Vehicle & invoice before recording payments.</p>}
           <Table>
             <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Method</TableHead><TableHead>Ref</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
             <TableBody>
@@ -1831,146 +1966,47 @@ function PaymentsTab({ v, companyId, editable }: { v: any; companyId: number; ed
               ))}
             </TableBody>
           </Table>
-          <div className="flex justify-between text-sm border-t pt-3">
-            <span className="text-slate-600">Paid {fmtMoney(v.summary.paid)} of {fmtMoney(v.summary.sellingPrice)}</span>
-            <span className="font-bold text-amber-600">{v.summary.balance > 0 ? `${fmtMoney(v.summary.balance)} due` : "Settled"}</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-slate-200/80">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Payment schedule</CardTitle>
-          <Badge className="border-0 bg-slate-100 text-slate-600">
-            {planMonthsOnFile > 0 ? `${planMonthsOnFile}-month plan` : "No plan"}
-          </Badge>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {editable && (
-            <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Automatic payment plan</p>
-                <p className="text-[11px] text-slate-500">
-                  A deposit is required. The balance is split into 2–36 equal monthly instalments.
-                </p>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="plan-deposit" className="text-xs">Deposit * (USD)</Label>
-                  <Input
-                    id="plan-deposit"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Required"
-                    value={plan.deposit}
-                    onChange={(e) => setPlan({ ...plan, deposit: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Months</Label>
-                  <Select value={plan.months} onValueChange={(x) => setPlan({ ...plan, months: x })}>
-                    <SelectTrigger id="plan-months"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PLAN_MONTH_OPTIONS.map((m) => (
-                        <SelectItem key={m} value={String(m)}>{m} month{m === 1 ? "" : "s"}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="plan-start" className="text-xs">Deposit date</Label>
-                  <Input
-                    id="plan-start"
-                    type="date"
-                    value={plan.startDate}
-                    onChange={(e) => setPlan({ ...plan, startDate: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 rounded-lg bg-white/70 px-3 py-2 text-center text-[11px]">
-                <div>
-                  <p className="text-slate-400">Sale price</p>
-                  <p className="font-semibold text-slate-800">{fmtMoney(planTotal)}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Monthly</p>
-                  <p className="font-semibold text-slate-800">{planDeposit > 0 ? fmtMoney(planMonthly) : "—"}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Balance after deposit</p>
-                  <p className="font-semibold text-slate-800">{planDeposit > 0 ? fmtMoney(planOutstanding) : "—"}</p>
-                </div>
-              </div>
-              {!v.customerId && (
-                <p className="text-[11px] text-amber-700">Assign a customer on the Details tab first.</p>
-              )}
-              {!v.customerId && null /* handled above */}
-              {v.salePrice == null && (
-                <p className="text-[11px] text-amber-700">Set the agreed sale price on the Details tab first — the schedule will raise the invoice automatically.</p>
-              )}
-              {v.salePrice != null && !v.invoiceId && (
-                <p className="text-[11px] text-sky-700">
-                  Generating the schedule will automatically create the sales invoice for {fmtMoney(v.salePrice, v.saleCurrency || "USD")}.
-                  {v.saleCurrency && v.saleCurrency !== "USD" && ` (USD ${fmtMoney(planTotal)})`}
-                </p>
-              )}
-              {v.invoiceId && (
-                <p className="text-[11px] text-emerald-700">Invoice already raised — regenerating will update the schedule only.</p>
-              )}
-              {v.customerId && v.salePrice != null && planDeposit <= 0 && (
-                <p className="text-[11px] text-amber-700">Enter a deposit greater than zero.</p>
-              )}
-              {planDeposit >= planTotal && planTotal > 0 && (
-                <p className="text-[11px] text-rose-600">The deposit must be less than the sale price.</p>
-              )}
-              <Button id="plan-generate" size="sm" className="w-full" onClick={generatePlan} disabled={pending || !planValid}>
-                {v.invoiceId ? `Regenerate ${planMonths}-month schedule` : `Generate ${planMonths}-month plan & raise invoice`}
-              </Button>
-            </div>
-          )}
-
-          {lines.map((l, i) => {
-            const covered = Math.min(remaining, Number(l.amount || 0));
-            remaining -= covered;
-            const open = Number(l.amount || 0) - covered;
-            const state = open <= 0.004 ? "paid" : l.dueDate && l.dueDate <= today ? "overdue" : "upcoming";
-            return (
-              <div key={i} className="grid grid-cols-[110px_1fr_1fr_auto_auto] gap-2 items-center">
-                <Select disabled={!editable} value={l.type} onValueChange={(x) => setLines(lines.map((y, j) => (j === i ? { ...y, type: x } : y)))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{["deposit", "instalment", "balance"].map((t) => <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>)}</SelectContent>
-                </Select>
-                <Input disabled={!editable} type="date" value={l.dueDate} onChange={(e) => setLines(lines.map((y, j) => (j === i ? { ...y, dueDate: e.target.value } : y)))} />
-                <Input disabled={!editable} type="number" step="0.01" value={l.amount} onChange={(e) => setLines(lines.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)))} />
-                <Badge className={`border-0 ${state === "paid" ? "bg-emerald-100 text-emerald-700" : state === "overdue" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{state}</Badge>
-                {editable && <Button size="icon" variant="ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4 text-slate-400" /></Button>}
-              </div>
-            );
-          })}
-          {lines.length === 0 && <p className="text-sm text-slate-500">No schedule. Add a deposit and balance to track due dates and overdue amounts.</p>}
-          {editable && (
-            <div className="flex flex-wrap gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setLines([...lines, { type: lines.length ? "instalment" : "deposit", dueDate: today, amount: "" }])}><Plus className="w-4 h-4 mr-1" />Add line</Button>
-              <Button id="schedule-save" size="sm" onClick={saveSchedule} disabled={pending}>Save schedule</Button>
-              <span className={`text-xs ml-auto self-center ${Math.abs(scheduled - v.summary.sellingPrice) > 0.01 && !v.summary.isProjected ? "text-amber-600" : "text-slate-500"}`}>
-                Scheduled {fmtMoney(scheduled)}{!v.summary.isProjected ? ` / ${fmtMoney(v.summary.sellingPrice)}` : ""}
-              </span>
-            </div>
-          )}
-          {editable && openLines.length > 0 && (
-            <Button id="vehicle-reminder-btn" variant="outline" size="sm" className="w-full" onClick={() => setReminderOpen(true)}>
-              <Bell className="w-4 h-4 mr-1" />Send payment reminder
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-
+    </CardContent></Card>
+    {editable && v.customerId && <Dialog open={paymentOpen} onOpenChange={open => { if (!pending) setPaymentOpen(open); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader><DialogTitle>Record customer payment</DialogTitle><DialogDescription>Enter the deposit or instalment received.</DialogDescription></DialogHeader>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 items-end">
+      <div className="space-y-1.5"><Label>Amount</Label><Input id="pay-amount" type="number" step="0.01" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label>Date</Label><Input id="pay-date" type="date" value={pay.paymentDate} onChange={(e) => setPay({ ...pay, paymentDate: e.target.value })} /></div>
+      <div className="space-y-1.5">
+        <Label>Method</Label>
+        <Select value={pay.paymentMethod} onValueChange={(x) => setPay({ ...pay, paymentMethod: x })}>
+          <SelectTrigger id="pay-method"><SelectValue /></SelectTrigger>
+          <SelectContent>{["Transfer", "Cash", "Card", "Ecocash", "Cheque"].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Bank / cash account</Label>
+        <Select value={pay.bankAccountId} onValueChange={(x) => setPay({ ...pay, bankAccountId: x })}>
+          <SelectTrigger id="pay-bank"><SelectValue placeholder="Choose account" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Choose account</SelectItem>
+            {bankAccounts.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5"><Label>Reference</Label><Input id="pay-ref" value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label>Currency</Label><Input id="pay-currency" value={pay.currency} onChange={(e) => setPay({ ...pay, currency: e.target.value.toUpperCase(), exchangeRate: e.target.value.toUpperCase() === "USD" ? "1" : pay.exchangeRate })} /></div>
+      <div className="space-y-1.5"><Label>{pay.currency} per 1 USD</Label><Input id="pay-rate" type="number" step="0.000001" disabled={pay.currency === "USD"} value={pay.exchangeRate} onChange={(e) => setPay({ ...pay, exchangeRate: e.target.value })} /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPaymentOpen(false)} disabled={pending}>Cancel</Button>
+<Button id="pay-submit" onClick={record} disabled={pending || !(Number(pay.amount) > 0) || !(Number(pay.exchangeRate) > 0) || pay.bankAccountId === "none"}>Record payment</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>}
+    {openLines.length > 0 && <Card><CardHeader><CardTitle>Unpaid instalments</CardTitle></CardHeader><CardContent className="space-y-3">
+      <PaymentSchedule lines={openLines} currency={currency} />
+      {editable && <Button variant="outline" onClick={() => setReminderOpen(true)}><Bell className="mr-1 h-4 w-4" />Send payment reminder</Button>}
+    </CardContent></Card>}
     <ReminderHistory reminders={v.reminders ?? []} />
-    <ReminderDialog v={v} companyId={companyId} lines={openLines} open={reminderOpen} onOpenChange={setReminderOpen} />
-    </div>
-  );
+    {editable && <ReminderDialog v={v} companyId={companyId} lines={openLines} open={reminderOpen} onOpenChange={setReminderOpen} />}
+  </div>;
 }
 
 function defaultReminder(v: any, lines: any[]) {

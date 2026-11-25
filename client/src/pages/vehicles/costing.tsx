@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { VehicleModuleNav } from "@/components/vehicles/module-nav";
 import { Fragment, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { QuickAddCostDialog } from "@/components/vehicles/quick-add-cost-dialog";
@@ -111,7 +112,7 @@ export default function VehicleCostingPage() {
   const canEditCosts = can("vehicles.costs");
 
   const filters = { from, to, supplierId, status, stage, search };
-  const { data, isLoading } = useVehicleReport<{ totals: any; items: CostingRow[] }>(companyId, "costing", allowed, filters);
+  const { data, isLoading, isError, refetch } = useVehicleReport<{ totals: any; items: CostingRow[] }>(companyId, "costing", allowed, filters);
   const { data: consignmentData, isLoading: consignmentLoading } = useVehicleReport<{ items: ConsignmentRow[] }>(
     companyId,
     "consignments",
@@ -184,6 +185,8 @@ export default function VehicleCostingPage() {
           </Button>
         </div>
 
+        <VehicleModuleNav />
+        {isError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">Could not load this report. <Button variant="link" onClick={() => refetch()}>Retry</Button></div>}
         <Tabs defaultValue="costing">
           <TabsList>
             <TabsTrigger value="costing">Costing</TabsTrigger>
@@ -194,8 +197,8 @@ export default function VehicleCostingPage() {
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               <SummaryStatCard label={`Landed cost (${totals?.vehicles ?? 0} vehicles)`} value={fmtMoney(totals?.landedCost)} icon={Package} tone="blue" />
               <SummaryStatCard label="Import costs" value={fmtMoney(totals?.importCosts)} icon={Wallet} tone="violet" />
-              <SummaryStatCard label="Customer-funded costs (agent)" value={fmtMoney(items.filter((i) => i.accountingModel !== "principal").reduce((s, i) => s + i.landedCost, 0))} icon={Wallet} tone="blue" />
-              <SummaryStatCard label="Processing fee revenue" value={fmtMoney(items.reduce((s, i) => s + (i.processingFee ?? 0), 0))} icon={Banknote} tone="emerald" />
+              <SummaryStatCard label="Recorded customer import costs" value={fmtMoney(items.filter((i) => i.accountingModel !== "principal").reduce((s, i) => s + i.landedCost, 0))} icon={Wallet} tone="blue" />
+              <SummaryStatCard label="Agreed processing fees" value={fmtMoney(items.reduce((s, i) => s + (i.processingFee ?? 0), 0))} icon={Banknote} tone="emerald" />
               <SummaryStatCard label="Pending / unpaid costs" value={fmtMoney(totals?.pendingCosts)} icon={Banknote} tone="amber" />
               <SummaryStatCard label="Paid costs" value={fmtMoney(totals?.paidCosts)} icon={TrendingUp} tone="emerald" />
             </div>
@@ -336,7 +339,7 @@ export default function VehicleCostingPage() {
                                 </TableCell>
                                 <TableCell className="text-right whitespace-nowrap">{i.accountingModel === "agent" ? fmtMoney(i.processingFee ?? 0) : <span className="text-slate-300">—</span>}</TableCell>
                                 <TableCell className={`text-right font-bold whitespace-nowrap ${i.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(i.profit)}</TableCell>
-                                <TableCell className={`text-right whitespace-nowrap ${i.marginPercent < 0 ? "text-rose-600" : ""}`}>{i.marginPercent}%</TableCell>
+                                <TableCell className={`text-right whitespace-nowrap ${i.marginPercent < 0 ? "text-rose-600" : ""}`}>{i.accountingModel === "principal" ? i.marginPercent + "%" : "—"}</TableCell>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
                                   {canEditCosts && (
                                     <Button

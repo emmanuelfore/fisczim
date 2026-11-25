@@ -12,13 +12,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 import { LoadingRows } from "@/components/ui/page-skeleton";
+import { VehicleModuleNav } from "@/components/vehicles/module-nav";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useMatchingEnquiries } from "@/hooks/use-crm";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSuppliers } from "@/hooks/use-suppliers";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { Car, ChevronDown, ChevronRight, CircleDollarSign, Mail, MessageCircle, Plus, Search, Ship, TrendingUp, AlertTriangle } from "lucide-react";
+import { Car, ChevronDown, ChevronRight, CircleDollarSign, Mail, MessageCircle, Plus, Search, Ship, AlertTriangle } from "lucide-react";
 import {
   VEHICLE_STAGES,
   fmtMoney,
@@ -56,21 +57,30 @@ export default function VehiclesPage() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [tab, setTab] = useState("vehicles");
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [creating, setCreating] = useState(false);
   const [expandedBalance, setExpandedBalance] = useState<number | null>(null);
 
-  const { data: vehicles = [], isLoading } = useVehicles(companyId, { stage: stage === "all" ? undefined : stage, search: search || undefined });
-  const { data: outstanding = [] } = useVehicleReport<any[]>(companyId, "outstanding");
+  const { data: vehicles = [], isLoading, isError, refetch } = useVehicles(companyId, {
+    stage: stage === "all" ? undefined : stage,
+    status: status === "all" ? undefined : status,
+    search: search.trim() || undefined,
+  });
+  const { data: outstanding = [], isLoading: loadingBalances, isError: balancesError, refetch: refetchBalances } = useVehicleReport<any[]>(companyId, "outstanding");
   const { toast } = useToast();
   const action = useVehicleAction(companyId);
-  const showCosts = can("vehicles.costs");
   const canRemind = can("vehicles.payments");
+  const filtered = Boolean(search.trim()) || stage !== "all" || status !== "all";
+  const clearFilters = () => { setSearch(""); setStage("all"); setStatus("all"); };
+  const balances = outstanding.filter(row => !overdueOnly || row.overdue > 0);
 
   const remind = async (r: any) => {
     const due = r.overdue > 0
       ? `overdue amount ${fmtMoney(r.overdue)}`
       : r.nextDue
-        ? `${fmtMoney(r.nextDue.amount)} due ${r.nextDue.dueDate}`
+        ? `${fmtMoney(r.nextDue.amount, r.nextDue.currency)} due ${r.nextDue.dueDate}`
         : `${fmtMoney(r.balance)} outstanding`;
     const text = `Hi ${r.customerName || ""}, this is a friendly payment reminder for your ${r.description} (Stock ${r.stockNumber}). ${due}. Total outstanding: ${fmtMoney(r.balance)}. Please contact us to arrange payment.`;
     try {
@@ -92,11 +102,10 @@ export default function VehiclesPage() {
   };
 
   const stats = useMemo(() => {
-    const inTransit = vehicles.filter((v) => !["purchased", "delivered"].includes(v.stage)).length;
+    const inTransit = vehicles.filter(v => !["delivered", "cancelled"].includes(v.status) && !["purchased", "delivered"].includes(v.stage)).length;
     const owed = outstanding.reduce((s: number, r: any) => s + r.balance, 0);
     const overdue = outstanding.reduce((s: number, r: any) => s + r.overdue, 0);
-    const profit = vehicles.reduce((s, v) => s + (v.summary.profit ?? 0), 0);
-    return { inTransit, owed, overdue, profit };
+    return { inTransit, owed, overdue };
   }, [vehicles, outstanding]);
 
   return (
@@ -105,14 +114,8 @@ export default function VehiclesPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Vehicle Imports</h1>
-            <p className="text-sm text-slate-500">Landed cost, import tracking and customer balances per vehicle</p>
           </div>
           <div className="flex gap-2">
-            {showCosts && (
-              <Button variant="outline" asChild>
-                <Link href="/vehicles/profitability"><TrendingUp className="w-4 h-4 mr-2" />Profitability</Link>
-              </Button>
-            )}
             {can("vehicles.manage") && (
               <Button id="new-vehicle-btn" onClick={() => setCreating(true)}>
                 <Plus className="w-4 h-4 mr-2" />New Vehicle
@@ -120,19 +123,18 @@ export default function VehiclesPage() {
             )}
           </div>
         </div>
+        <VehicleModuleNav />
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <SummaryStatCard label="Vehicles" value={vehicles.length} icon={Car} tone="slate" />
-          <SummaryStatCard label="In the pipeline" value={stats.inTransit} icon={Ship} tone="blue" />
-          <SummaryStatCard label="Owed by customers" value={fmtMoney(stats.owed)} icon={CircleDollarSign} tone="amber" />
-          {showCosts ? (
-            <SummaryStatCard label="Profit (incl. projected)" value={fmtMoney(stats.profit)} icon={TrendingUp} tone="emerald" />
-          ) : (
-            <SummaryStatCard label="Overdue" value={fmtMoney(stats.overdue)} icon={AlertTriangle} tone="rose" />
-          )}
+          <SummaryStatCard label={filtered ? "Matching vehicles" : "Vehicles"} value={isLoading || isError ? "—" : vehicles.length} icon={Car} tone="slate" />
+          <SummaryStatCard label={filtered ? "In transit · filtered" : "In transit"} value={isLoading || isError ? "—" : stats.inTransit} icon={Ship} tone="blue" />
+          <SummaryStatCard label="Owed by customers" value={loadingBalances || balancesError ? "—" : fmtMoney(stats.owed)} icon={CircleDollarSign} tone="amber" />
+          <button type="button" className="rounded-xl text-left" onClick={() => { setOverdueOnly(true); setTab("balances"); }}>
+            <SummaryStatCard label="Overdue balances" value={loadingBalances || balancesError ? "—" : fmtMoney(stats.overdue)} icon={AlertTriangle} tone="rose" />
+          </button>
         </div>
 
-        <Tabs defaultValue="vehicles">
+        <Tabs value={tab} onValueChange={value => { setTab(value); if (value === "balances") setOverdueOnly(false); }}>
           <TabsList>
             <TabsTrigger value="vehicles">Vehicles</TabsTrigger>
             <TabsTrigger value="balances">
@@ -145,58 +147,56 @@ export default function VehiclesPage() {
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input id="vehicle-search" className="pl-9" placeholder="Stock no., VIN, make, model, container…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Input id="vehicle-search" aria-label="Search vehicles" className="pl-9" placeholder="Vehicle, customer, stock no. or VIN" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <Select value={stage} onValueChange={setStage}>
-                <SelectTrigger className="sm:w-52" id="vehicle-stage-filter"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="sm:w-44" id="vehicle-stage-filter" aria-label="Filter by import stage"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All stages</SelectItem>
                   {VEHICLE_STAGES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="sm:w-40" aria-label="Filter by sale status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sale statuses</SelectItem>
+                  {Object.keys(statusTone).map(value => <SelectItem key={value} value={value} className="capitalize">{value}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {filtered && <Button variant="ghost" onClick={clearFilters}>Clear filters</Button>}
             </div>
 
             <Card className="border-slate-200/80">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Stock #</TableHead>
                     <TableHead>Vehicle</TableHead>
                     <TableHead>Stage</TableHead>
-                    <TableHead>Customer</TableHead>
-                    {showCosts && <TableHead className="text-right">Landed cost</TableHead>}
-                    <TableHead className="text-right">Selling price</TableHead>
-                    {showCosts && <TableHead className="text-right">Profit</TableHead>}
-                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead className="hidden sm:table-cell">Customer</TableHead>
+                    <TableHead className="hidden text-right md:table-cell">Agreed / target price</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={8}><LoadingRows rows={5} /></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4}><LoadingRows rows={5} /></TableCell></TableRow>
+                  ) : isError ? (
+                    <TableRow><TableCell colSpan={4} className="py-8 text-center">Could not load vehicles. <Button variant="link" onClick={() => refetch()}>Retry</Button></TableCell></TableRow>
                   ) : vehicles.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="text-center py-12 text-slate-500">No vehicles yet.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="text-center py-12 text-slate-600">{filtered ? "No vehicles match these filters." : "No vehicles yet."}</TableCell></TableRow>
                   ) : (
                     vehicles.map((v) => (
-                      <TableRow key={v.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/vehicles/${v.id}`)}>
-                        <TableCell className="font-mono text-xs">{v.stockNumber}</TableCell>
+                      <TableRow key={v.id}>
                         <TableCell>
-                          <div className="font-semibold text-slate-900">{v.year} {v.make} {v.model}</div>
-                          <div className="text-xs text-slate-500">{v.vin || "No VIN"}{v.containerNumber ? ` · ${v.containerNumber}` : ""}</div>
+                          <Link href={`/vehicles/${v.id}`} className="font-semibold text-blue-700 hover:underline">{v.year} {v.make} {v.model}</Link>
+                          <div className="text-xs text-slate-600">{v.stockNumber} · {v.accountingModel === "principal" ? "Vehicle sale" : "Customer import"}</div>
+                          <div className="text-xs text-slate-600 sm:hidden">{v.customerName || "Unassigned"}</div>
                         </TableCell>
-                        <TableCell><Badge className={`${stageTone[v.stage] ?? ""} border-0`}>{stageLabel(v.stage)}</Badge></TableCell>
-                        <TableCell>{v.customerName || <span className="text-slate-400">Unassigned</span>}</TableCell>
-                        {showCosts && <TableCell className="text-right">{fmtMoney(v.summary.landedCost)}</TableCell>}
-                        <TableCell className="text-right">
-                          {fmtMoney(v.summary.sellingPrice)}
+                        <TableCell><div className="flex flex-wrap gap-1"><Badge className={stageTone[v.stage] ?? ""}>{stageLabel(v.stage)}</Badge><Badge className={`capitalize ${statusTone[v.status] ?? ""}`}>{v.status}</Badge></div></TableCell>
+                        <TableCell className="hidden sm:table-cell">{v.customerName || <span className="text-slate-500">Unassigned</span>}</TableCell>
+                        <TableCell className="hidden text-right md:table-cell">
+                          {v.salePrice != null ? fmtMoney(v.salePrice, v.saleCurrency || "USD") : fmtMoney(v.summary.sellingPrice)}
                           {v.summary.isProjected && <span className="block text-[10px] text-slate-400">target</span>}
                         </TableCell>
-                        {showCosts && (
-                          <TableCell className={`text-right font-semibold ${(v.summary.profit ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                            {fmtMoney(v.summary.profit)}
-                            <span className="block text-[10px] text-slate-400 font-normal">{v.summary.marginPercent}%</span>
-                          </TableCell>
-                        )}
-                        <TableCell className="text-right">{v.summary.balance > 0 ? fmtMoney(v.summary.balance) : "—"}</TableCell>
                       </TableRow>
                     ))
                   )}
@@ -205,7 +205,11 @@ export default function VehiclesPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="balances">
+          <TabsContent value="balances" className="space-y-3">
+            <div className="flex items-center gap-2" aria-label="Balance filter">
+              <Button size="sm" variant={overdueOnly ? "outline" : "default"} aria-pressed={!overdueOnly} onClick={() => setOverdueOnly(false)}>All balances</Button>
+              <Button size="sm" variant={overdueOnly ? "default" : "outline"} aria-pressed={overdueOnly} onClick={() => setOverdueOnly(true)}>Overdue only</Button>
+            </div>
             <Card className="border-slate-200/80">
               <Table>
                 <TableHeader>
@@ -213,7 +217,7 @@ export default function VehiclesPage() {
                     <TableHead className="w-8" />
                     <TableHead>Customer</TableHead>
                     <TableHead>Vehicle</TableHead>
-                    <TableHead className="text-right">Sale price</TableHead>
+                    <TableHead className="hidden text-right lg:table-cell">Total payable</TableHead>
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
@@ -222,14 +226,16 @@ export default function VehiclesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {outstanding.length === 0 ? (
-                    <TableRow><TableCell colSpan={9} className="text-center py-12 text-slate-500">No outstanding balances.</TableCell></TableRow>
+                  {loadingBalances ? <TableRow><TableCell colSpan={9}><LoadingRows rows={4} /></TableCell></TableRow> : balancesError ? (
+                    <TableRow><TableCell colSpan={9} className="text-center py-8">Could not load balances. <Button variant="link" onClick={() => refetchBalances()}>Retry</Button></TableCell></TableRow>
+                  ) : balances.length === 0 ? (
+                    <TableRow><TableCell colSpan={9} className="text-center py-12 text-slate-600">{overdueOnly ? "No overdue balances." : "No outstanding balances."}</TableCell></TableRow>
                   ) : (
-                    outstanding.map((r: any) => {
+                    balances.map((r: any) => {
                       const expanded = expandedBalance === r.vehicleId;
                       return (
                         <Fragment key={r.vehicleId}>
-                          <TableRow className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/vehicles/${r.vehicleId}`)}>
+                          <TableRow>
                             <TableCell>
                               <Button
                                 size="icon"
@@ -245,13 +251,13 @@ export default function VehiclesPage() {
                               <div className="font-medium">{r.customerName}</div>
                               <div className="text-xs text-slate-500">{r.customerPhone || r.customerEmail}</div>
                             </TableCell>
-                            <TableCell>{r.stockNumber} · {r.description}</TableCell>
-                            <TableCell className="text-right">{fmtMoney(r.salePrice)}</TableCell>
+                            <TableCell><Link className="font-medium text-blue-700 hover:underline" href={`/vehicles/${r.vehicleId}?tab=payments`}>{r.stockNumber} · {r.description}</Link></TableCell>
+                            <TableCell className="hidden text-right lg:table-cell">{fmtMoney(r.totalPayable ?? r.salePrice)}</TableCell>
                             <TableCell className="text-right">{fmtMoney(r.paid)}</TableCell>
                             <TableCell className="text-right font-semibold">{fmtMoney(r.balance)}</TableCell>
                             <TableCell className={`text-right ${r.overdue > 0 ? "text-rose-600 font-semibold" : "text-slate-400"}`}>{r.overdue > 0 ? fmtMoney(r.overdue) : "—"}</TableCell>
                             <TableCell>
-                              {r.nextDue ? `${r.nextDue.dueDate} · ${fmtMoney(r.nextDue.amount)}` : "—"}
+                              {r.nextDue ? `${r.nextDue.dueDate} · ${fmtMoney(r.nextDue.amount, r.nextDue.currency)}` : "—"}
                               {r.lastReminderAt && <span className="block text-[10px] text-slate-400">reminded {format(new Date(r.lastReminderAt), "d MMM")}</span>}
                             </TableCell>
                             <TableCell className="text-right">
@@ -348,7 +354,7 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
   };
 
   const submit = async () => {
-    if (!form.make || !form.model) return toast({ title: "Make and model are required", variant: "destructive" });
+    if (!form.make.trim() || !form.model.trim()) return toast({ title: "Make and model are required", variant: "destructive" });
     try {
       const created = await action.mutateAsync({
         path: "",
@@ -389,17 +395,30 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>New vehicle</DialogTitle>
           <DialogDescription>A stock number is assigned automatically. Add costs and the customer on the next screen.</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-4">
-          {field("make", "Make *", { placeholder: "Toyota" })}
-          {field("model", "Model *", { placeholder: "Hilux" })}
+          {field("make", "Make", { placeholder: "Hyundai", required: true })}
+          {field("model", "Model", { placeholder: "Tucson", required: true })}
           {field("year", "Year", { type: "number" })}
-          {field("colour", "Colour")}
           {field("vin", "VIN / chassis no.")}
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor="nv-accounting-model">Deal type</Label>
+            <Select value={accountingModel} onValueChange={value => setAccountingModel(value as "agent" | "principal")}>
+              <SelectTrigger id="nv-accounting-model"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="agent">Import for a customer</SelectItem><SelectItem value="principal">Buy and resell as stock</SelectItem></SelectContent>
+            </Select>
+            <p className="text-xs text-slate-600">{accountingModel === "agent" ? "Track supplier costs and invoice the processing fee." : "Track landed costs and invoice the agreed sale price."}</p>
+          </div>
+        </div>
+        <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Supplier, CRM and other details</summary>
+          <div className="mt-3 grid grid-cols-2 gap-4">
+          {field("colour", "Colour")}
+
           {field("mileage", "Mileage (km)", { type: "number" })}
           {field("supplierName", "Supplier / auction house")}
           <div className="space-y-1.5">
@@ -425,17 +444,6 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
           {field("auctionRef", "Auction / lot ref")}
           {field("targetPrice", "Target retail price (USD)", { type: "number", step: "0.01" })}
           <div className="col-span-2 space-y-1.5">
-            <Label>Accounting model</Label>
-            <Select value={accountingModel} onValueChange={(v) => setAccountingModel(v as "agent" | "principal")}>
-              <SelectTrigger id="nv-accounting-model"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="agent">Agent — customer funds held; only our fee is revenue</SelectItem>
-                <SelectItem value="principal">Principal — we buy and resell; sale less COGS is profit</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-slate-400">Default is Agent. This controls costing, invoices and reports.</p>
-          </div>
-          <div className="col-span-2 space-y-1.5">
             <Label>Matching lead (optional)</Label>
             <Select value={enquiryId} onValueChange={pickEnquiry}>
               <SelectTrigger id="nv-enquiry"><SelectValue placeholder="No linked lead" /></SelectTrigger>
@@ -458,10 +466,11 @@ function NewVehicleDialog({ companyId, open, onOpenChange, onCreated }: { compan
                   : "Enter a make and model to find matching open leads."}
             </p>
           </div>
-        </div>
+          </div>
+        </details>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button id="create-vehicle-submit" onClick={submit} disabled={action.isPending}>Create vehicle</Button>
+          <Button id="create-vehicle-submit" onClick={submit} disabled={action.isPending || !form.make.trim() || !form.model.trim()}>Create vehicle</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

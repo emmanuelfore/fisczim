@@ -1011,6 +1011,16 @@ export const vehicles = pgTable("vehicles", {
   companyStockUnique: unique("vehicles_company_stock_unique").on(table.companyId, table.stockNumber),
 }));
 
+export const vehicleDocuments = pgTable("vehicle_documents", {
+  id: serial("id").primaryKey(),
+  vehicleId: integer("vehicle_id").notNull().references(() => vehicles.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  kind: text("kind").notNull(),
+  mimeType: text("mime_type").notNull(),
+  contentBase64: text("content_base64").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, table => ({ vehicleIdx: index("vehicle_documents_vehicle_idx").on(table.vehicleId) }));
+
 export const vehicleCosts = pgTable("vehicle_costs", {
   id: serial("id").primaryKey(),
   vehicleId: integer("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }).notNull(),

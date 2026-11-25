@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { VehicleModuleNav } from "@/components/vehicles/module-nav";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
@@ -53,6 +54,7 @@ type VehicleRow = {
   customerId: number | null;
   customerName?: string | null;
   status: string;
+  accountingModel?: "agent" | "principal";
   summary?: { sellingPrice?: number; paid?: number; balance?: number; isProjected?: boolean };
 };
 
@@ -146,16 +148,18 @@ function VehicleStatementDownload({ companyId, vehicles, company, companyName }:
 }
 
 function VehicleAllocationSummary({ companyId, vehicles }: { companyId: number; vehicles: VehicleRow[] }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <Card className="no-print border-slate-200/80 shadow-sm">
       <CardContent className="space-y-2 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer funds &amp; supplier obligations by vehicle</p>
+        <Button size="sm" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+          {expanded ? "Hide vehicle funding details" : "Show vehicle funding details"}
+        </Button>
+        {expanded && <>
         <div className="grid gap-2 md:grid-cols-2">
           {vehicles.map((v) => <VehicleAllocationRow key={v.id} companyId={companyId} vehicle={v} />)}
         </div>
-        <p className="text-[11px] text-slate-400">
-          These amounts are shown for reference only. The statement above remains the invoice-and-payment ledger view.
-        </p>
+        </>}
       </CardContent>
     </Card>
   );
@@ -233,6 +237,7 @@ export default function VehicleStatementsPage() {
   const customerPhone = stmt?.customer?.phone || "";
   const printDate = fmtDate(new Date().toISOString());
   const selectedCustomerVehicles = vehicleCustomers.find((c) => String(c.id) === selectedCustomerId)?.vehicles ?? [];
+  const agencyVehicles = selectedCustomerVehicles.filter(vehicle => vehicle.accountingModel !== "principal");
 
   const selectCustomer = (id: number) => {
     setSelectedCustomerId(String(id));
@@ -253,6 +258,7 @@ export default function VehicleStatementsPage() {
         }
       `}</style>
 
+      <div className="no-print mb-5 space-y-3"><h1 className="text-2xl font-bold text-slate-900">Vehicle customer statements</h1><VehicleModuleNav /></div>
       <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
         {/* ── Left rail: customer picker ── */}
         <div className="no-print space-y-4">
@@ -389,10 +395,10 @@ export default function VehicleStatementsPage() {
             </CardContent>
           </Card>
 
-          {selectedCustomerId && selectedCustomerVehicles.length > 0 && (
+          {selectedCustomerId && agencyVehicles.length > 0 && (
             <VehicleStatementDownload
               companyId={activeCompanyId || 0}
-              vehicles={selectedCustomerVehicles}
+              vehicles={agencyVehicles}
               company={company}
               companyName={companyName}
             />
@@ -435,17 +441,15 @@ export default function VehicleStatementsPage() {
                   <CardContent className="flex flex-wrap items-center gap-2 p-3">
                     <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Vehicles</span>
                     {selectedCustomerVehicles.map((v) => (
-                      <Badge key={v.id} variant="outline" className="bg-slate-50 font-normal">
+                      <Link key={v.id} href={`/vehicles/${v.id}?tab=payments`} className="rounded-full border bg-slate-50 px-2 py-1 text-xs text-blue-700 hover:underline">
                         {v.stockNumber} · {v.year ? `${v.year} ` : ""}{v.make} {v.model}
-                      </Badge>
+                      </Link>
                     ))}
                   </CardContent>
                 </Card>
               )}
 
-              {selectedCustomerVehicles.length > 0 && (
-                <VehicleAllocationSummary companyId={activeCompanyId || 0} vehicles={selectedCustomerVehicles} />
-              )}
+              {agencyVehicles.length > 0 && <VehicleAllocationSummary companyId={activeCompanyId || 0} vehicles={agencyVehicles} />}
 
               <div
                 id="statement-root"

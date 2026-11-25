@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { addVehiclePaymentMonths, calculateVehiclePaymentPlan } from "../../shared/vehicle-payment-plan.js";
 import { db } from "../db.js";
 import {
   vehicles,
   vehicleCosts,
   vehicleStageEvents,
+  vehicleDocuments,
   vehiclePaymentSchedules,
   vehicleReminders,
   vehicleStockCounters,
@@ -294,31 +296,6 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   });
   /** vehicle_payment_schedules has no currency column: amounts are in vehicle.saleCurrency. */
   const schedulePaid = (vehicle: any, paidBase: number) => fromBase(paidBase, vehicle?.saleExchangeRate);
-
-  /** Add whole months to a YYYY-MM-DD date, clamping to the last day of the month. */
-  function addMonthsIso(iso: string, months: number): string {
-    const [y, m, d] = iso.split("-").map(Number);
-    const target = new Date(Date.UTC(y, m - 1 + months, 1));
-    const daysInMonth = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-    target.setUTCDate(Math.min(d, daysInMonth));
-    return target.toISOString().slice(0, 10);
-  }
-
-  type AgreementTerms = { agreedPrice: number; depositAmount: number; months: number; interestType: string; interestRate: number; adminFee: number; startDate: string };
-  function agreementPlan(t: AgreementTerms) {
-    const principal = round2(t.agreedPrice - t.depositAmount);
-    if (principal < 0 || t.months < 1) throw Object.assign(new Error("Deposit and term are invalid"), { status: 400 });
-    let financed = principal + t.adminFee;
-    if (t.interestType === "fixed_amount") financed += t.interestRate;
-    else if (t.interestType === "flat_rate") financed += principal * (t.interestRate / 100) * (t.months / 12);
-    const monthlyRate = t.interestType === "percent_pa" ? t.interestRate / 100 / 12 : 0;
-    const total = monthlyRate > 0 ? financed * (monthlyRate * Math.pow(1 + monthlyRate, t.months)) / (Math.pow(1 + monthlyRate, t.months) - 1) * t.months : financed;
-    const totalCents = Math.round(total * 100), baseCents = Math.floor(totalCents / t.months);
-    const lines = [{ type: "deposit", dueDate: t.startDate, amount: round2(t.depositAmount) }];
-    let allocated = 0;
-    for (let i = 1; i <= t.months; i++) { const cents = i === t.months ? totalCents - allocated : baseCents; allocated += cents; lines.push({ type: i === t.months ? "balance" : "instalment", dueDate: addMonthsIso(t.startDate, i), amount: cents / 100 }); }
-    return { lines, financed: round2(total), balance: round2(total - t.depositAmount) };
-  }
 
   async function refreshScheduleSettlement(tx: any, companyId: number, vehicleId: number) {
     const [lines, paidRows] = await Promise.all([
@@ -880,7 +857,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           dueDate: line.dueDate,
           amount,
           open,
-          state: open <= 0.004 ? "paid" : line.dueDate <= today ? "overdue" : "upcoming",
+          state: open <= 0.004 ? "paid" : line.dueDate < today ? "overdue" : "upcoming",
           lastReminderAt: line.lastReminderAt ?? null,
         };
       });
@@ -1128,12 +1105,12 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (status) conds.push(eq(vehicles.status, status));
       if (search) {
         const q = `%${search}%`;
-        conds.push(or(ilike(vehicles.stockNumber, q), ilike(vehicles.vin, q), ilike(vehicles.make, q), ilike(vehicles.model, q), ilike(vehicles.containerNumber, q))!);
+        conds.push(or(ilike(vehicles.stockNumber, q), ilike(vehicles.vin, q), ilike(vehicles.make, q), ilike(vehicles.model, q), ilike(vehicles.containerNumber, q), ilike(customers.name, q))!);
       }
       const rows = await db
         .select({ vehicle: vehicles, customerName: customers.name })
         .from(vehicles)
-        .leftJoin(customers, eq(customers.id, vehicles.customerId))
+        .leftJoin(customers, and(eq(customers.id, vehicles.customerId), eq(customers.companyId, companyId)))
         .where(and(...conds))
         .orderBy(desc(vehicles.createdAt));
       const { costs, paid, invoiceBase, fees } = await totalsFor(rows.map((r) => r.vehicle.id));
@@ -1990,11 +1967,67 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
   // ── import tracking ────────────────────────────────────────────────────────
 
+  const documentMetadata = {
+    id: vehicleDocuments.id, name: vehicleDocuments.name, kind: vehicleDocuments.kind,
+    mimeType: vehicleDocuments.mimeType, createdAt: vehicleDocuments.createdAt,
+  };
+  const maxDocumentBytes = 5 * 1024 * 1024;
+  const documentPath = "/companies/:companyId/vehicles/:id/documents";
+
+  router.get(documentPath, ...need("vehicles.view"), async (req, res, next) => {
+    try {
+      const vehicle = await loadVehicle(Number(req.params.companyId), Number(req.params.id));
+      if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
+      const rows = await db.select(documentMetadata).from(vehicleDocuments)
+        .where(eq(vehicleDocuments.vehicleId, vehicle.id)).orderBy(desc(vehicleDocuments.id));
+      res.json(rows);
+    } catch (error) { next(error); }
+  });
+
+  router.post(documentPath, ...need("vehicles.manage"), async (req, res, next) => {
+    try {
+      const vehicle = await loadVehicle(Number(req.params.companyId), Number(req.params.id));
+      if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
+      const input = z.object({
+        name: z.string().trim().min(1).max(180),
+        kind: z.enum(["Supplier invoice", "Shipping", "Customs", "Signed agreement", "Other"]),
+        contentBase64: z.string().min(4).max(Math.ceil(maxDocumentBytes / 3) * 4).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+      }).parse(req.body);
+      const bytes = Buffer.from(input.contentBase64, "base64");
+      if (bytes.length > maxDocumentBytes) return res.status(400).json({ error: "The document exceeds 5 MB" });
+      const mimeType = bytes.subarray(0, 5).toString() === "%PDF-" ? "application/pdf"
+        : bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a" ? "image/png"
+        : bytes.subarray(0, 3).toString("hex") === "ffd8ff" ? "image/jpeg" : null;
+      if (!mimeType) return res.status(400).json({ error: "Choose a PDF, PNG, or JPEG document" });
+      const [document] = await db.insert(vehicleDocuments).values({ ...input, mimeType, vehicleId: vehicle.id })
+        .returning(documentMetadata);
+      res.status(201).json(document);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Enter a document name, type, and a file up to 5 MB" });
+      next(error);
+    }
+  });
+
+  router.get(documentPath + "/:documentId", ...need("vehicles.view"), async (req, res, next) => {
+    try {
+      const vehicle = await loadVehicle(Number(req.params.companyId), Number(req.params.id));
+      if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
+      const [document] = await db.select().from(vehicleDocuments).where(and(
+        eq(vehicleDocuments.vehicleId, vehicle.id), eq(vehicleDocuments.id, Number(req.params.documentId)),
+      ));
+      if (!document) return res.status(404).json({ error: "Document not found" });
+      res.set({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" })
+        .type(document.mimeType).send(Buffer.from(document.contentBase64, "base64"));
+    } catch (error) { next(error); }
+  });
+
+  const earlyHandoverReason = z.string().trim().min(1).max(1000).nullish();
+
   async function completeHandover(
     tx: any,
     companyId: number,
     vehicle: typeof vehicles.$inferSelect,
-    details: { notes?: string | null; eventDate?: Date; notifyCustomer?: boolean; notifiedVia?: string | null; createdBy?: string },
+    details: { notes?: string | null; eventDate?: Date; notifyCustomer?: boolean; notifiedVia?: string | null; createdBy?: string; earlyHandoverReason?: string | null },
     requireAgreement = false,
   ) {
     const [existing] = await tx.select().from(vehicleSalesAgreements).where(and(
@@ -2010,12 +2043,40 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       throw Object.assign(new Error("Create or attach an invoice before marking the vehicle as delivered"), { status: 400 });
     }
 
+    let notes = details.notes ?? null;
+    if (vehicle.status !== "delivered") {
+      const [schedule, receipts, invoiceRows] = await Promise.all([
+        tx.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicle.id)),
+        tx.select().from(payments).where(and(eq(payments.vehicleId, vehicle.id), eq(payments.companyId, companyId))),
+        vehicle.invoiceId && !isAgencyVehicle(vehicle) ? tx.select().from(invoices)
+          .where(and(eq(invoices.id, vehicle.invoiceId), eq(invoices.companyId, companyId))) : [],
+      ]);
+      const toVehicleCurrency = (amount: unknown, rate: unknown) => schedulePaid(vehicle, toBase(amount, rate));
+      const invoice = invoiceRows[0];
+      const total = Math.max(
+        Number(existing?.agreedPrice ?? vehicle.salePrice ?? 0),
+        schedule.reduce((sum: number, line: { amount: string }) => sum + Number(line.amount), 0),
+        invoice ? toVehicleCurrency(invoice.total, invoice.exchangeRate) : 0,
+      );
+      const paid = Math.max(
+        schedulePaid(vehicle, receipts.reduce((sum: number, receipt: typeof payments.$inferSelect) => sum + baseAmountOf(receipt), 0)),
+        invoice ? toVehicleCurrency(invoice.paidAmount, invoice.exchangeRate) : 0,
+      );
+      const outstanding = round2(total - paid);
+      if (outstanding > 0) {
+        if (!details.earlyHandoverReason) {
+          throw Object.assign(new Error(`The customer still owes ${vehicle.saleCurrency || "USD"} ${outstanding.toFixed(2)}. Enter a reason to hand over before full payment.`), { status: 409 });
+        }
+        notes = [notes, `Early handover with ${vehicle.saleCurrency || "USD"} ${outstanding.toFixed(2)} outstanding: ${details.earlyHandoverReason}`].filter(Boolean).join("\n");
+      }
+    }
+
     let agreement = existing;
     if (existing && existing.status !== "completed") {
       [agreement] = await tx.update(vehicleSalesAgreements).set({
         handoverAt: details.eventDate ?? new Date(),
         handoverBy: details.createdBy,
-        handoverNotes: details.notes ?? null,
+        handoverNotes: notes,
         status: "completed",
         updatedAt: new Date(),
       }).where(eq(vehicleSalesAgreements.id, existing.id)).returning();
@@ -2038,7 +2099,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       vehicleId: vehicle.id,
       stage: "delivered",
       eventDate: agreement?.handoverAt ?? details.eventDate ?? new Date(),
-      notes: details.notes ?? agreement?.handoverNotes ?? null,
+      notes: notes ?? agreement?.handoverNotes ?? null,
       notifyCustomer: !!details.notifyCustomer,
       notifiedAt: notified ? new Date() : null,
       notifiedVia: notified ? details.notifiedVia : null,
@@ -2059,6 +2120,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           eventDate: z.coerce.date().optional(),
           notifyCustomer: z.boolean().optional(),
           notifiedVia: z.string().optional().nullable(),
+          earlyHandoverReason,
         })
         .parse(req.body);
       
@@ -3486,7 +3548,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         if (!customerId) throw Object.assign(new Error("Assign a customer first"), { status: 400 });
         const refError = await assertOwnedRefs(companyId, { customerId, salespersonId: body.salespersonId ?? v.salespersonId }, tx);
         if (refError) throw Object.assign(new Error(refError), { status: 400 });
-        const terms = { ...body, depositAmount: body.depositAmount, agreedPrice: body.agreedPrice }; const plan = agreementPlan(terms);
+        const plan = calculateVehiclePaymentPlan(body);
         let [existing] = await tx.select().from(vehicleSalesAgreements).where(eq(vehicleSalesAgreements.vehicleId, vehicleId)).for("update");
         if (existing && existing.status !== "draft") throw Object.assign(new Error("Only draft agreements can be replaced"), { status: 409 });
         // An existing vehicle/agreement model wins: saving a draft agreement must
@@ -3527,7 +3589,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   router.post("/companies/:companyId/vehicles/:id/agreement/handover", ...need("vehicles.manage"), async (req: any, res) => {
     try {
       const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);
-      const notes = z.object({ notes: z.string().max(4000).nullable().optional() }).parse(req.body ?? {});
+      const notes = z.object({ notes: z.string().max(4000).nullable().optional(), earlyHandoverReason }).parse(req.body ?? {});
       const agreement = await db.transaction(async (tx: any) => {
         const v = await lockedVehicle(tx, companyId, vehicleId);
         if (!v) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
@@ -3559,9 +3621,21 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       if (group) group.push(receipt);
       else receiptsByVehicle.set(receipt.vehicleId, [receipt]);
     }
+    const scheduleTotals = ids.length ? await db.select({
+      vehicleId: vehiclePaymentSchedules.vehicleId,
+      total: sql<string>`sum(${vehiclePaymentSchedules.amount})`,
+    }).from(vehiclePaymentSchedules).where(inArray(vehiclePaymentSchedules.vehicleId, ids))
+      .groupBy(vehiclePaymentSchedules.vehicleId) : [];
+    const scheduledByVehicle = new Map(scheduleTotals.map(row => [row.vehicleId, Number(row.total)]));
     res.json(rows.map(row => {
       const collected = agreementCollected(receiptsByVehicle.get(row.vehicle.id) ?? [], row.agreement.exchangeRate);
-      return { ...row, collected, balance: round2(Number(row.agreement.agreedPrice) - collected) };
+      const scheduledTotal = scheduledByVehicle.get(row.vehicle.id);
+      return {
+        ...row, collected,
+        balance: round2(Number(row.agreement.agreedPrice) - collected),
+        scheduledTotal,
+        scheduledBalance: scheduledTotal == null ? undefined : round2(scheduledTotal - collected),
+      };
     }));
   });
   router.get("/companies/:companyId/vehicles/overdue-schedule", ...need("vehicles.view"), async (req: any, res) => { const rows = await db.select({ count: sql<number>`count(*)` }).from(vehiclePaymentSchedules).innerJoin(vehicles, eq(vehicles.id, vehiclePaymentSchedules.vehicleId)).where(and(eq(vehicles.companyId, Number(req.params.companyId)), eq(vehiclePaymentSchedules.status, "overdue"))); res.json({ count: Number(rows[0]?.count || 0) }); });
@@ -3638,7 +3712,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       // Build the schedule line dates first so we can use the last one as
       // the invoice due date.
       const baseCentsEstimate = Math.floor(Math.round((subtotal - body.deposit) * 100) / body.months);
-      const lastInstalmentDate = addMonthsIso(startDate, body.months);
+      const lastInstalmentDate = addVehiclePaymentMonths(startDate, body.months);
 
       // ── Run everything in one transaction ──────────────────────────────
       const result = await db.transaction(async (tx: any) => {
@@ -3774,7 +3848,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
           allocated += cents;
           planLines.push({
             type: i === body.months ? "balance" : "instalment",
-            dueDate: addMonthsIso(startDate, i),
+            dueDate: addVehiclePaymentMonths(startDate, i),
             amount: cents / 100,
           });
         }
@@ -3874,8 +3948,8 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
   });
 
   /**
-   * Outstanding balances: schedule lines due on/before today that are not yet
-   * covered by cumulative payments (payments are applied to lines in due order).
+   * Outstanding balances include financing in the payment schedule.
+   * Report totals use base currency and the next payment uses the deal currency.
    */
   router.get("/companies/:companyId/vehicles-reports/outstanding", ...need("vehicles.view"), async (req: any, res) => {
     try {
@@ -3883,7 +3957,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
       const rows = await db
         .select({ vehicle: vehicles, customerName: customers.name, customerPhone: customers.phone, customerEmail: customers.email })
         .from(vehicles)
-        .leftJoin(customers, eq(customers.id, vehicles.customerId))
+        .leftJoin(customers, and(eq(customers.id, vehicles.customerId), eq(customers.companyId, companyId)))
         .where(and(eq(vehicles.companyId, companyId), sql`${vehicles.salePrice} IS NOT NULL`, sql`${vehicles.status} <> 'cancelled'`));
       const ids = rows.map((r) => r.vehicle.id);
       const { costs, paid, invoiceBase, fees } = await totalsFor(ids);
@@ -3899,7 +3973,10 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             schedulePaid(r.vehicle, summary.paid),
           );
           const openLines = lines.filter((l) => l.open > 0.004);
-          const overdue = money(openLines.filter((l) => l.state === "overdue").reduce((s, l) => s + l.open, 0));
+          const rate = r.vehicle.saleExchangeRate;
+          const overdue = toBase(openLines.filter(l => l.state === "overdue").reduce((sum, line) => sum + line.open, 0), rate);
+          const scheduledTotal = toBase(lines.reduce((sum, line) => sum + line.amount, 0), rate);
+          const totalPayable = Math.max(summary.amountDue, scheduledTotal);
           const next = openLines.find((l) => l.state === "upcoming");
           const lastReminderAt = openLines
             .map((l) => l.lastReminderAt)
@@ -3914,10 +3991,11 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
             customerPhone: r.customerPhone,
             customerEmail: r.customerEmail,
             salePrice: summary.sellingPrice,
+            totalPayable,
             paid: summary.paid,
-            balance: summary.balance,
+            balance: money(totalPayable - summary.paid),
             overdue,
-            nextDue: next ? { dueDate: next.dueDate, amount: next.open } : null,
+            nextDue: next ? { dueDate: next.dueDate, amount: next.open, currency: r.vehicle.saleCurrency || "USD" } : null,
             lastReminderAt,
             schedule: openLines,
           };

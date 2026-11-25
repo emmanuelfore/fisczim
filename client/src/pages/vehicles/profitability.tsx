@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { VehicleModuleNav } from "@/components/vehicles/module-nav";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +63,7 @@ export default function VehicleProfitabilityPage() {
   const allowed = can("vehicles.costs");
 
   const filters = { from, to, supplierId, status, stage, search };
-  const { data, isLoading } = useVehicleReport<{ totals: any; items: Row[] }>(companyId, "profitability", allowed, filters);
+  const { data, isLoading, isError, refetch } = useVehicleReport<{ totals: any; items: Row[] }>(companyId, "profitability", allowed, filters);
 
   const items = useMemo(
     () => (data?.items ?? []).filter((i) =>
@@ -108,25 +109,27 @@ export default function VehicleProfitabilityPage() {
           <div>
             <Link href="/vehicles" className="text-sm text-slate-500 hover:text-slate-800 inline-flex items-center"><ArrowLeft className="w-4 h-4 mr-1" />Vehicles</Link>
             <h1 className="text-2xl font-bold text-slate-900 mt-1">Vehicle Profitability</h1>
-            <p className="text-sm text-slate-500">Agent deals recognise only the processing fee; principal deals recognise sale revenue less cost of sales. Vehicle selling prices are never summed as revenue.</p>
+            <p className="text-sm text-slate-500">Review agreed fees, stock sale prices, and margins by vehicle.</p>
           </div>
           <Button variant="outline" onClick={exportCsv} disabled={!items.length}><Download className="w-4 h-4 mr-2" />Export CSV</Button>
         </div>
 
+        <VehicleModuleNav />
+        {isError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">Could not load this report. <Button variant="link" onClick={() => refetch()}>Retry</Button></div>}
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <SummaryStatCard label={`Revenue (${sold.length} sold)`} value={fmtMoney(agencyFeeRevenue + principalSales)} icon={Banknote} tone="blue" />
-          <SummaryStatCard label="· Agent fee revenue" value={fmtMoney(agencyFeeRevenue)} icon={Banknote} tone="emerald" />
-          <SummaryStatCard label="· Principal sales revenue" value={fmtMoney(principalSales)} icon={Banknote} tone="blue" />
-          <SummaryStatCard label="Customer-funded costs (not revenue)" value={fmtMoney(customerFunded)} icon={Wallet} tone="violet" />
-          <SummaryStatCard label="Realised profit / fee" value={fmtMoney(sold.reduce((s, i) => s + i.profit, 0))} icon={TrendingUp} tone="emerald" />
+          <SummaryStatCard label={`Agreed sales and fees (${sold.length} priced)`} value={fmtMoney(agencyFeeRevenue + principalSales)} icon={Banknote} tone="blue" />
+          <SummaryStatCard label="Agreed processing fees" value={fmtMoney(agencyFeeRevenue)} icon={Banknote} tone="emerald" />
+          <SummaryStatCard label="Agreed stock sales" value={fmtMoney(principalSales)} icon={Banknote} tone="blue" />
+          <SummaryStatCard label="Recorded customer import costs" value={fmtMoney(customerFunded)} icon={Wallet} tone="violet" />
+          <SummaryStatCard label="Estimated stock profit / fees" value={fmtMoney(sold.reduce((s, i) => s + i.profit, 0))} icon={TrendingUp} tone="emerald" />
           <SummaryStatCard label="Stock at landed cost" value={fmtMoney(t?.stockValue)} icon={Package} tone="slate" />
         </div>
 
         <Card className="border-slate-200/80 bg-slate-50/60">
-          <CardContent className="p-4 text-xs text-slate-600 space-y-1">
+          <CardContent className="p-4 text-xs text-slate-600"><details className="space-y-2"><summary className="cursor-pointer font-medium">How the report groups deals</summary>
             <p><strong className="text-slate-900">Agent model:</strong> the customer funds purchase, shipping, duty and other third-party costs. Prime Imports recognises only the processing fee as revenue; customer money held for suppliers is a liability, not turnover. Cost-sheet lines are disbursements, not cost of sales.</p>
             <p><strong className="text-slate-900">Principal model:</strong> Prime Imports is the buyer and reseller. Sale price is revenue, landed cost is cost of sales and the difference is gross profit.</p>
-          </CardContent>
+          </details></CardContent>
         </Card>
 
         {alerts.length > 0 && (

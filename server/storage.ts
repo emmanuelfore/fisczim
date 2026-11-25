@@ -2516,7 +2516,9 @@ export class DatabaseStorage implements IStorage {
       fdmsStatus,
       validationStatus,
       lastValidationAttempt,
-      status: syncedWithFdms ? "issued" : "draft"
+      status: syncedWithFdms
+        ? sql`case when ${invoices.status} in ('issued', 'partial', 'paid') then ${invoices.status} else 'issued' end`
+        : invoices.status,
     };
     // Strip null/undefined values to prevent drizzle Object.entries(null) crash on JSONB columns
     for (const key of Object.keys(setData)) {

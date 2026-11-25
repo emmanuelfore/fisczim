@@ -44,6 +44,7 @@ import { DayManagementControls } from "@/components/zimra/day-management-control
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
 import { useBranchContext } from "@/lib/branch-context";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { api } from "@shared/routes";
 
 interface ZimraDeviceSettingsProps {
   company: any;
@@ -816,10 +817,11 @@ function AdvancedResetControls({ company }: { company: any }) {
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      queryClient.invalidateQueries({ queryKey: [api.companies.get.path, company.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", company.id, "branches"] });
       toast({
         title: "Counters Fixed",
-        description: "Hardware configuration has been manualy corrected.",
+        description: "Hardware counters have been updated.",
         className: "bg-orange-100 text-orange-900",
       });
     },

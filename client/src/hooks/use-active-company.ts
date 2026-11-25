@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { useCompanies } from "./use-companies";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useCompanies, useCompany } from "./use-companies";
 import { useAuth } from "./use-auth";
 
 export function useActiveCompany(
@@ -72,4 +72,14 @@ export function useActiveCompany(
         setCompany,
         isLoading: enabled ? isLoading : false
     };
+}
+
+export function useActiveCompanyDetails() {
+    const { activeCompany: summary, activeCompanyId, isLoading } = useActiveCompany();
+    const { data: details, isLoading: isLoadingDetails } = useCompany(activeCompanyId ?? 0, false);
+    const activeCompany = useMemo(() => details && summary
+        ? { ...details, role: summary.role }
+        : null, [details, summary]);
+
+    return { activeCompany, isLoading: isLoading || isLoadingDetails };
 }

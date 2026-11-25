@@ -159,6 +159,7 @@ describe("company auth hardening", () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.body.message).toContain("do not have access");
+    expect(res.body.code).toBe("COMPANY_ACCESS_DENIED");
     expect(next).not.toHaveBeenCalled();
   });
 

@@ -4,7 +4,7 @@ import { seedCompanyStatutoryConfig } from "./lib/statutory-config-seeding.js";
 import {
   users, companies, customers, products, invoices, invoiceItems, companyUsers, productTaxLevies,
   companyRoles, companyRolePermissions, approvalRequests, companyPartners,
-  type User, type InsertUser, type Company, type InsertCompany,
+  type User, type InsertUser, type Company, type InsertCompany, type CompanyListEntry, companyListColumns,
   type CompanyRole, type InsertCompanyRole, type ApprovalRequest, type InsertApprovalRequest,
   type CompanyPartner, type InsertCompanyPartner,
   type Customer, type Product, type Invoice, type InvoiceItem, type InsertInvoiceItem,
@@ -77,7 +77,7 @@ import { addToBucket, daysOverdue, emptyAgingAmounts, legacyAgingFields, resolve
 import { throughEndOfDay } from "../shared/report-dates.js";
 import { CORRECTABLE_INVOICE_STATUSES, DRAFT_INVOICE_STATUSES, invoiceImmutableReasons } from "./lib/invoice-lifecycle.js";
 import { db } from "./db.js";
-import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
+import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not, getTableColumns } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -212,6 +212,7 @@ export interface IStorage {
   // Companies
   createCompany(company: InsertCompany, userId: string): Promise<Company>;
   getCompanies(userId: string, knownUser?: User | null): Promise<Company[]>;
+  getCompanies(userId: string, knownUser: User | null | undefined, view: "summary"): Promise<CompanyListEntry[]>;
   getCompany(id: number): Promise<Company | undefined>;
   getCompanyByApiKey(apiKey: string): Promise<Company | undefined>;
   updateCompany(id: number, data: Partial<InsertCompany>): Promise<Company>;
@@ -749,10 +750,8 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Account ${identifier} not found for company ${companyId}`);
       }
 
-      // Source documents should supply both analytical dimensions. Where they
-      // do not, fall back to the account defaults. Once a company has
-      // departments configured, posting without either dimension is rejected
-      // so transactions cannot silently land in an "Unassigned" bucket.
+      // Use source dimensions or account defaults when available. A company
+      // can use analytical dimensions on some transactions and omit them on others.
       const costCenterId = line.costCenterId
         ? Number(line.costCenterId)
         : (account.defaultCostCenterId ?? null);
@@ -777,17 +776,6 @@ export class DatabaseStorage implements IStorage {
           .where(and(eq(departments.id, departmentId), eq(departments.companyId, companyId)))
           .limit(1);
         if (!department) throw new Error(`Department ${departmentId} not found for company ${companyId}`);
-      }
-
-      const [configuredDepartments] = await tx.select({ id: departments.id }).from(departments)
-        .where(eq(departments.companyId, companyId)).limit(1);
-      const [configuredCostCenters] = await tx.select({ id: costCenters.id }).from(costCenters)
-        .where(eq(costCenters.companyId, companyId)).limit(1);
-      if ((configuredDepartments || configuredCostCenters) && (!departmentId || !costCenterId)) {
-        throw new Error(
-          `Department and cost centre are required before posting account ${account.code}. ` +
-          `Select them on the source document or configure an account default.`,
-        );
       }
 
       const segmentId = line.segmentId ? Number(line.segmentId) : null;
@@ -993,13 +981,16 @@ export class DatabaseStorage implements IStorage {
   // Companies
   // `knownUser` lets callers that already resolved the authenticated user (the
   // auth middleware caches it per request) skip a second DB round-trip here.
-  async getCompanies(userId: string, knownUser?: User | null): Promise<(Company & { role: string })[]> {
+  async getCompanies(userId: string, knownUser?: User | null): Promise<(Company & { role: string })[]>;
+  async getCompanies(userId: string, knownUser: User | null | undefined, view: "summary"): Promise<CompanyListEntry[]>;
+  async getCompanies(userId: string, knownUser?: User | null, view?: "summary"): Promise<CompanyListEntry[]> {
     const user = knownUser ?? await this.getUser(userId);
+    const columns = view === "summary" ? companyListColumns : getTableColumns(companies);
     const isSystemAdmin = user?.email ? Buffer.from(String(user.email).toLowerCase()).toString('base64') === "YWRtaW5AemltcmEuY28uenc=" : false;
     console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}, isSystemAdmin: ${isSystemAdmin}`);
 
     if (user?.isSuperAdmin) {
-      let allCompanies = await db.select().from(companies);
+      let allCompanies = await db.select(columns).from(companies);
 
       // Deployment scoping (lekuka branch): a country-scoped deployment
       // only exposes that country's clients to superadmins. Set
@@ -1032,7 +1023,7 @@ export class DatabaseStorage implements IStorage {
 
     const result = await db
       .select({
-        company: companies,
+        company: columns,
         role: companyUsers.role
       })
       .from(companyUsers)

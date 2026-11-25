@@ -140,6 +140,8 @@ vi.mock("../storage.js", () => ({
       return { id: 1, quotationNumber: "QT-1" };
     }),
     assertCustomerCreditWithinLimit: vi.fn(async () => {}),
+    getSystemAccountCode: vi.fn(async () => "2200"),
+    createInvoice: vi.fn(),
   },
 }));
 
@@ -150,6 +152,8 @@ vi.mock("../lib/approved-invoice-fiscalization.js", () => ({
 const { createCrmRouter } = await import("../routes/crm.js");
 const { createVehiclesRouter } = await import("../routes/vehicles.js");
 const { executeDeferredApprovalAction } = await import("../lib/approval-executors.js");
+const { resolveInvoiceAnalytics } = await import("../lib/departmental.js");
+const { storage } = await import("../storage.js");
 
 const enquiry = {
   id: 5,
@@ -218,6 +222,35 @@ const quotationWrites = () => state.writes.filter((w) => w.table === "quotations
 describe("vehicle imports and CRM handoff", () => {
   const vehicle = { id: 7, companyId: 21, status: "available", stage: "cleared", accountingModel: "agent" };
   const url = "/api/companies/21/vehicles/7";
+
+  test("issues an agency vehicle invoice with unassigned ledger lines in a company that uses dimensions", async () => {
+    const { DatabaseStorage } = await vi.importActual<typeof import("../storage.js")>("../storage.js");
+    const ledger = new DatabaseStorage();
+    const invoice = { id: 13, invoiceNumber: "INV-13", total: "500.00", syncedWithFdms: true };
+    script("vehicles", [{ ...vehicle, customerId: 3, salePrice: "5000.00" }], [], [{ ...vehicle, invoiceId: 13 }]);
+    script("vehicle_sales_agreements", [{ id: 9, processingFeeAmount: "500.00" }]);
+    script("invoices", [invoice]);
+    script("accounts", [{ id: 1, code: "1100" }], [{ id: 2, code: "2200" }]);
+    script("departments", [{ id: 7 }]);
+    script("cost_centers", [{ id: 8 }]);
+
+    vi.mocked(storage.createInvoice).mockImplementationOnce(async (data, tx) => {
+      expect(data).toMatchObject({ customerId: 3, total: "500.00", revenueAccountCode: "2200" });
+      const lines = await ledger["normalizeLedgerLines"](21, [
+        { accountCode: "1100", debit: Number(data.total) },
+        { accountCode: "2200", credit: Number(data.total) },
+      ], tx);
+      expect(lines).toMatchObject([
+        { type: "DEBIT", amount: 500, departmentId: null, costCenterId: null },
+        { type: "CREDIT", amount: 500, departmentId: null, costCenterId: null },
+      ]);
+      return invoice as Awaited<ReturnType<typeof storage.createInvoice>>;
+    });
+
+    const result = await request("POST", `${url}/invoice`, {});
+    expect(result.status).toBe(201);
+    expect(result.body.invoice).toMatchObject(invoice);
+  });
 
   test("a new reservation cannot overwrite an existing reservation", async () => {
     script("vehicles", [{ ...vehicle, status: "reserved", customerId: 3 }]);
@@ -365,6 +398,23 @@ describe("vehicle imports and CRM handoff", () => {
     expect((await request("POST", url)).body).toMatchObject({ customerId: 12 });
     expect(state.writes.filter((write) => write.table === "customers")).toHaveLength(1);
     expect(state.writes.filter((write) => write.table === "enquiry_activities")).toHaveLength(1);
+  });
+});
+
+describe("optional invoice dimensions", () => {
+  test("allows omitted or partial dimensions while validating supplied IDs", async () => {
+    const departments = [{ id: 7, costCenterId: null }, { id: 9, costCenterId: 8 }];
+    const costCenters = [{ id: 8 }, { id: 10 }];
+    script("departments", departments, departments, departments, departments);
+    script("cost_centers", costCenters, costCenters, costCenters, costCenters);
+
+    await expect(resolveInvoiceAnalytics(21, {}, [], { optional: true })).resolves.toBeNull();
+    await expect(resolveInvoiceAnalytics(21, { departmentId: 7 }, [], { optional: true }))
+      .resolves.toEqual({ departmentId: 7, costCenterId: null });
+    await expect(resolveInvoiceAnalytics(21, { departmentId: 9 }, [], { optional: true }))
+      .resolves.toEqual({ departmentId: 9, costCenterId: 8 });
+    await expect(resolveInvoiceAnalytics(21, { costCenterId: 99 }, [], { optional: true }))
+      .rejects.toThrow("Cost centre 99 is not valid for this company");
   });
 });
 

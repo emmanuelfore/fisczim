@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   insertUserSchema,
   insertCompanySchema,
+  type CompanyListEntry,
   insertCustomerSchema,
   insertProductSchema,
   insertInvoiceSchema,
@@ -100,7 +101,11 @@ export const api = {
       path: '/api/companies',
       responses: {
         200: z.array(z.custom<typeof companies.$inferSelect & { role: string }>()),
-      }
+      },
+      summary: {
+        query: '?view=summary',
+        response: z.array(z.custom<CompanyListEntry>()),
+      },
     },
     create: {
       method: 'POST' as const,

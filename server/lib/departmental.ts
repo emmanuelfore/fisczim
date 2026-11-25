@@ -29,12 +29,12 @@ function toId(value: number | string | null | undefined): number | null {
 
 /**
  * Resolves and validates the analytical dimensions for a company.
- * Returns null when the company has no departments/cost centres configured,
- * so legacy tenants are unaffected.
+ * Returns null when there is no dimension to assign.
  */
 export async function resolveDepartmentalDimensions(
   companyId: number,
   input: DepartmentalInput = {},
+  options: { optional?: boolean } = {},
 ): Promise<DepartmentalDimensions | null> {
   const configuredDepartments = await db
     .select({ id: departments.id, costCenterId: departments.costCenterId })
@@ -45,10 +45,9 @@ export async function resolveDepartmentalDimensions(
     .from(costCenters)
     .where(eq(costCenters.companyId, companyId));
 
-  if (!configuredDepartments.length && !configuredCostCenters.length) return null;
-
   let departmentId = toId(input.departmentId);
   let costCenterId = toId(input.costCenterId);
+  if (!configuredDepartments.length && !configuredCostCenters.length && !departmentId && !costCenterId) return null;
 
   if (departmentId) {
     const department = configuredDepartments.find((d) => d.id === departmentId);
@@ -73,10 +72,10 @@ export async function resolveDepartmentalDimensions(
     costCenterId = configuredCostCenters[0].id;
   }
 
-  if (!departmentId || !costCenterId) {
+  if (!options.optional && (!departmentId || !costCenterId)) {
     throw validationError("Department and cost centre are required for this transaction");
   }
-  return { departmentId, costCenterId };
+  return departmentId || costCenterId ? { departmentId, costCenterId } : null;
 }
 
 /** Fails the request when the company uses departments but no dimensions were captured. */
@@ -89,16 +88,17 @@ export async function requireDepartmentalDimensions(
 
 /**
  * Auto-captures department/cost centre from line products, then the dispatch
- * location, before requiring an explicit selection. Used by POS and other
- * fast-entry flows that do not yet expose the analytical fields.
+ * location. Invoice callers can allow unresolved dimensions while other
+ * document workflows can require a complete pair.
  */
 export async function resolveInvoiceAnalytics(
   companyId: number,
   input: DepartmentalInput & { locationId?: number | string | null },
   items: Array<{ productId?: number | string | null }> = [],
+  options: { optional?: boolean } = {},
 ): Promise<DepartmentalDimensions | null> {
   const explicit = toId(input.departmentId) || toId(input.costCenterId)
-    ? await resolveDepartmentalDimensions(companyId, input)
+    ? await resolveDepartmentalDimensions(companyId, input, options)
     : null;
   if (explicit) return explicit;
 
@@ -112,7 +112,7 @@ export async function resolveInvoiceAnalytics(
       .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
     for (const product of productRows) {
       if (!product.departmentId && !product.costCenterId) continue;
-      const resolved = await resolveDepartmentalDimensions(companyId, product);
+      const resolved = await resolveDepartmentalDimensions(companyId, product, options);
       if (resolved) return resolved;
     }
   }
@@ -125,10 +125,10 @@ export async function resolveInvoiceAnalytics(
       .where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)))
       .limit(1);
     if (location?.departmentId) {
-      const resolved = await resolveDepartmentalDimensions(companyId, { departmentId: location.departmentId });
+      const resolved = await resolveDepartmentalDimensions(companyId, { departmentId: location.departmentId }, options);
       if (resolved) return resolved;
     }
   }
 
-  return await resolveDepartmentalDimensions(companyId, input);
+  return await resolveDepartmentalDimensions(companyId, input, options);
 }

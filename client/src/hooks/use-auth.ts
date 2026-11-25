@@ -177,20 +177,18 @@ export function useAuth() {
   };
 
   const loginWithPassword = async ({ email, password }: any) => {
+    const isPosLogin = window.location.pathname.startsWith("/pos");
     // Try online login first; fall back to offline credentials if network fails
-    if (getIsOnline()) {
+    if (!isPosLogin || getIsOnline()) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
       try {
-        const loginPromise = auth.login(email, password);
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error("Login request timed out")), 12000);
-        });
-        const data = await Promise.race([loginPromise, timeoutPromise]) as Awaited<ReturnType<typeof auth.login>>;
+        const data = await auth.login(email, password, controller.signal);
 
         if (data.user) {
           try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
           queryClient.setQueryData(["/api/user"], data.user);
 
-          const isPosLogin = window.location.pathname.startsWith("/pos");
           // Only the POS flow prepares IndexedDB, and it never delays login.
           if (isPosLogin) {
             void import("@/lib/offline-db").then(({ saveOfflineCredentials }) =>
@@ -207,9 +205,16 @@ export function useAuth() {
         // error carries no HTTP status) fall through to offline credentials.
         // Otherwise we build a tokenless offline session that bounces straight
         // back to login with "session expired" on the first online request.
-        if (typeof err?.status === "number") throw err;
+        if (!controller.signal.aborted && typeof err?.status === "number") throw err;
+        if (!isPosLogin) {
+          throw new Error(controller.signal.aborted
+            ? "The sign-in server took too long to respond. Please try again."
+            : "Could not connect to the sign-in server. Please try again.");
+        }
         // Network error — fall through to offline path
         console.warn("[Auth] Online login unreachable, trying offline credentials:", err?.message);
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     }
 

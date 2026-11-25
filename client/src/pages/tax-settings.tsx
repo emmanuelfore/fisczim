@@ -39,7 +39,7 @@ import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { DayManagementControls } from "@/components/zimra/day-management-controls";
 
-import { useActiveCompany } from "@/hooks/use-active-company";
+import { useActiveCompanyDetails } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { LekakuDeviceConfig } from "@/components/settings/lekaku-device-config";
@@ -51,7 +51,7 @@ function cleanDeviceId(value: unknown) {
 
 export default function TaxSettingsPage() {
   const { authorityShortName, isLesotho } = useFiscalAuthority();
-  const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
+  const { activeCompany, isLoading: isLoadingActive } = useActiveCompanyDetails();
   const currentCompany = activeCompany;
   const isLoading = isLoadingActive;
 

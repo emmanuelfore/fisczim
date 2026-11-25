@@ -113,7 +113,7 @@ export default function SupplierInvoiceFormPage() {
   });
 
   const expenseAccounts = accounts.filter(
-    (account) => ["ASSET", "EXPENSE"].includes(account.type) && account.isActive,
+    (account) => account.type === "EXPENSE" && account.isActive,
   );
 
   const { data: purchaseOrders = [] } = usePurchaseOrders(companyId);

@@ -566,7 +566,7 @@ export default function CreateGrv() {
             <DialogTitle>Select GL Account</DialogTitle>
           </DialogHeader>
           <div className="py-4 space-y-2 max-h-96 overflow-y-auto">
-            {(accounts || []).filter((a: any) => a.type === "EXPENSE" || a.type === "COST_OF_SALES").map((acc: any) => (
+            {accounts.filter((account) => account.type === "EXPENSE" && account.isActive).map((acc: any) => (
               <div 
                 key={acc.code} 
                 className="flex flex-col p-3 rounded-lg border border-slate-100 hover:border-blue-200 hover:bg-blue-50 cursor-pointer"

@@ -264,12 +264,13 @@ export async function resolveInvoiceDimensions(
         locationId: input.locationId as any,
       },
       items.map((item) => ({ productId: item.productId as any })),
+      { optional: true },
     );
     return dimensions ?? null;
   } catch (err: any) {
     throw new InvoiceAuthorityError(
       "DIMENSION_REQUIRED",
-      err?.message || "Department and cost centre are required for this transaction",
+      err?.message || "Invalid invoice department or cost centre",
       Number(err?.statusCode) || 422,
     );
   }

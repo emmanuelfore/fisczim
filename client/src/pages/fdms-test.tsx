@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useCompanies } from "@/hooks/use-companies";
+import { useActiveCompanyDetails } from "@/hooks/use-active-company";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,12 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export default function FdmsTestPage() {
   const { toast } = useToast();
-  const rawId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-  const storedCompanyId = isNaN(rawId) ? 0 : rawId;
-
-  const { data: companies } = useCompanies();
-  const currentCompany =
-    companies?.find((c) => c.id === storedCompanyId) || companies?.[0];
+  const { activeCompany: currentCompany } = useActiveCompanyDetails();
   const companyId = currentCompany?.id || 0;
 
   const [responseLog, setResponseLog] = useState<string>("Ready to test...");

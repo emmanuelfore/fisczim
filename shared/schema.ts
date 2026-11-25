@@ -1954,6 +1954,45 @@ export type ResetToken = typeof resetTokens.$inferSelect;
 export type InsertResetToken = z.infer<typeof insertResetTokenSchema>;
 
 export type Company = typeof companies.$inferSelect;
+export const companyListColumns = {
+  id: companies.id,
+  name: companies.name,
+  tradingName: companies.tradingName,
+  address: companies.address,
+  city: companies.city,
+  country: companies.country,
+  currency: companies.currency,
+  fiscalProvider: companies.fiscalProvider,
+  phone: companies.phone,
+  email: companies.email,
+  website: companies.website,
+  logoUrl: companies.logoUrl,
+  tin: companies.tin,
+  vatNumber: companies.vatNumber,
+  bpNumber: companies.bpNumber,
+  vatEnabled: companies.vatEnabled,
+  fdmsDeviceId: companies.fdmsDeviceId,
+  fdmsDeviceSerialNo: companies.fdmsDeviceSerialNo,
+  zimraEnvironment: companies.zimraEnvironment,
+  primaryColor: companies.primaryColor,
+  branchName: companies.branchName,
+  bankName: companies.bankName,
+  accountNumber: companies.accountNumber,
+  accountName: companies.accountName,
+  branchCode: companies.branchCode,
+  vatRegistered: companies.vatRegistered,
+  posSettings: companies.posSettings,
+  registeredMacAddress: companies.registeredMacAddress,
+  restaurantSettings: companies.restaurantSettings,
+  pharmacySettings: companies.pharmacySettings,
+  busSettings: companies.busSettings,
+  featureSettings: companies.featureSettings,
+  appMode: companies.appMode,
+  invoiceTerms: companies.invoiceTerms,
+  lekukaGatewayUrl: companies.lekukaGatewayUrl,
+  cfg1: companies.cfg1,
+};
+export type CompanyListEntry = Pick<Company, keyof typeof companyListColumns> & { role: string };
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;

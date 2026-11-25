@@ -398,6 +398,18 @@ export async function registerRoutes(
 
   const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+  const getInvoicePriceExchangeRate = async (companyId: number, currency: string) => {
+    const [configuredCurrency] = await db.select({ exchangeRate: currencies.exchangeRate })
+      .from(currencies)
+      .where(and(eq(currencies.companyId, companyId), eq(currencies.code, currency)))
+      .limit(1);
+    const rate = Number(configuredCurrency?.exchangeRate ?? (currency === "USD" ? 1 : NaN));
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw validationFailure(`No valid exchange rate is configured for ${currency}`);
+    }
+    return rate;
+  };
+
   type ResolvedLinePrice = {
     productId: number;
     variationId: number | null;
@@ -434,6 +446,7 @@ export async function registerRoutes(
       departmentId?: number | string | null;
       customerId?: number | string | null;
       asOf?: Date;
+      priceExchangeRate?: number;
       declared?: { subtotal?: unknown; taxAmount?: unknown; total?: unknown; discountAmount?: unknown };
     } = {},
   ): Promise<ComputedInvoiceAmounts> => {
@@ -501,11 +514,11 @@ export async function registerRoutes(
           asOf,
           fallbackUnitPrice: product.price,
         });
-        unitPrice = resolved.unitPrice;
+        unitPrice = roundMoney(resolved.unitPrice * (options.priceExchangeRate ?? 1));
         pricing.push({
           productId: Number(product.id),
           variationId: raw?.variationId != null ? Number(raw.variationId) : null,
-          unitPrice: resolved.unitPrice,
+          unitPrice,
           source: resolved.source,
           priceListId: resolved.priceListId,
           priceListItemId: resolved.priceListItemId,
@@ -2621,9 +2634,10 @@ export async function registerRoutes(
       // The auth middleware already resolved (and cached) this request's user.
       // Reusing it avoids a second multi-second DB checkout on a route that
       // runs during every login.
-      const companies = await withDbRetry(() =>
-        storage.getCompanies((req as any).user?.id, (req as any).user),
-      );
+      const user = (req as any).user;
+      const companies = await withDbRetry(() => req.query.view === "summary"
+        ? storage.getCompanies(user?.id, user, "summary")
+        : storage.getCompanies(user?.id, user));
       res.json(companies);
     } catch (err: any) {
       console.error("List Companies Error:", err);
@@ -2801,7 +2815,7 @@ export async function registerRoutes(
 
       // ZIMRA Auto-Repair: QR URL
       // If QR URL is missing but we have ZIMRA credentials, fetch it now.
-      if (!company.qrUrl && company.fdmsDeviceId && company.zimraPrivateKey && company.zimraCertificate) {
+      if (req.query.repairQrUrl !== "false" && !company.qrUrl && company.fdmsDeviceId && company.zimraPrivateKey && company.zimraCertificate) {
         try {
           console.log(`[ZIMRA] Auto-fetching missing QR URL for Company ${company.id}`);
           const device = new ZimraDevice({
@@ -12471,12 +12485,12 @@ export async function registerRoutes(
       const requestBranchId = getBranchId(req);
       const company = await storage.getCompany(companyId);
 
-      // Every posted invoice must carry analytical dimensions. Fast-entry POS
-      // flows get them from the product or dispatch warehouse automatically.
+      // Use invoice, product, or dispatch warehouse dimensions when available.
       const invoiceAnalytics = await resolveInvoiceAnalytics(
         companyId,
         input as any,
         (input.items || []) as any,
+        { optional: true },
       );
       if (invoiceAnalytics) {
         (input as any).departmentId = invoiceAnalytics.departmentId;
@@ -12583,13 +12597,20 @@ export async function registerRoutes(
       // Money is recomputed after department/customer context is final: line
       // prices come from company price lists, and client totals are only
       // compared. Approval thresholds use the pre-discount gross total.
+      // Invoice forms submit document-currency prices. POS submits catalogue
+      // amounts and handles tender conversion separately.
+      const priceExchangeRate = effectiveIsPos
+        ? undefined
+        : await getInvoicePriceExchangeRate(companyId, input.currency || "USD");
       const computed = await computeInvoiceAmountsServer(companyId, input.items, {
         taxInclusive: input.taxInclusive ?? (company as any)?.taxInclusive ?? false,
         departmentId: (input as any).departmentId,
         customerId: input.customerId,
         asOf: input.issueDate instanceof Date ? input.issueDate : new Date(),
+        priceExchangeRate,
         declared: input as any,
       });
+      if (priceExchangeRate !== undefined) input.exchangeRate = priceExchangeRate.toFixed(6);
       (input as any).items = computed.items;
       (input as any).subtotal = computed.subtotal.toFixed(2);
       (input as any).taxAmount = computed.taxAmount.toFixed(2);
@@ -13102,8 +13123,8 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Company ID is required" });
 
-      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
-      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
+      const actor = req.user as any;
+      if (!actor?.isSuperAdmin && (!actor?.id || !await storage.getCompanyUserRole(actor.id, companyId))) {
         return res.status(403).json({ message: "You do not have permission to download scripts for this company" });
       }
 
@@ -13419,16 +13440,29 @@ export async function registerRoutes(
       }
 
       const lineSource = input.items || existingInvoice.items || [];
+      // The stored discount includes line discounts that were already deducted
+      // from the subtotal and tax. Only carry forward the payable reduction.
+      const savedHeaderDiscount = Math.max(0, Math.min(
+        Number(existingInvoice.discountAmount ?? 0),
+        roundMoney(Number(existingInvoice.subtotal) + Number(existingInvoice.taxAmount) - Number(existingInvoice.total)),
+      ));
+      const invoiceCurrency = input.currency || existingInvoice.currency || "USD";
+      const savedRate = Number(existingInvoice.exchangeRate);
+      const priceExchangeRate = existingInvoice.isPos ? undefined
+        : invoiceCurrency === existingInvoice.currency && Number.isFinite(savedRate) && savedRate > 0
+          ? savedRate
+          : await getInvoicePriceExchangeRate(existingInvoice.companyId, invoiceCurrency);
       const computed = await computeInvoiceAmountsServer(existingInvoice.companyId, lineSource, {
         taxInclusive: input.taxInclusive ?? existingInvoice.taxInclusive ?? false,
         departmentId: input.departmentId ?? existingInvoice.departmentId,
         customerId: input.customerId ?? existingInvoice.customerId,
         asOf: input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || existingInvoice.issueDate || Date.now()),
+        priceExchangeRate,
         declared: {
           subtotal: input.subtotal,
           taxAmount: input.taxAmount,
           total: input.total,
-          discountAmount: input.discountAmount ?? existingInvoice.discountAmount,
+          discountAmount: input.discountAmount ?? savedHeaderDiscount,
         },
       });
 
@@ -13446,6 +13480,7 @@ export async function registerRoutes(
       updateData.subtotal = computed.subtotal.toFixed(2);
       updateData.taxAmount = computed.taxAmount.toFixed(2);
       updateData.total = computed.total.toFixed(2);
+      if (priceExchangeRate !== undefined) updateData.exchangeRate = priceExchangeRate.toFixed(6);
       updateData.discountAmount = computed.discountAmount.toFixed(2);
       if (input.items) updateData.items = computed.items;
 
@@ -13617,6 +13652,7 @@ export async function registerRoutes(
           locationId: (req.body as any)?.locationId,
         } as any,
         rawItems as any,
+        { optional: true },
       );
 
       const computed = await computeInvoiceAmountsServer(company.id, rawItems, {

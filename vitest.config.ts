@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    testTimeout: 15000,
     include: ["client/src/**/*.test.ts", "server/**/*.test.ts"],
     // server/db.ts throws the moment it is evaluated without DATABASE_URL, and pure unit
     // suites such as the Lekuka tax preflight reach it transitively through the

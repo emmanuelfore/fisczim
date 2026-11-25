@@ -169,11 +169,12 @@ class AuthClient {
     return data;
   }
 
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(email: string, password: string, signal?: AbortSignal): Promise<AuthResponse> {
     const response = await fetch(`${API_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
+      signal,
     });
 
     if (!response.ok) {

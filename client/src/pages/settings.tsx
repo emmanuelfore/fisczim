@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useActiveCompany } from "@/hooks/use-active-company";
+import { useActiveCompanyDetails } from "@/hooks/use-active-company";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { getDefaultCountry, isLesothoInstance } from "@/lib/country-detect";
@@ -64,7 +64,7 @@ export default function SettingsPage() {
   const { t } = useI18n();
   const { can } = usePermissions();
   const canManageAccounting = can("settings.accounting");
-  const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
+  const { activeCompany, isLoading: isLoadingActive } = useActiveCompanyDetails();
   const fa = useFiscalAuthority();
   const updateCompany = useUpdateCompany(activeCompany?.id || 0);
 
@@ -254,7 +254,7 @@ export default function SettingsPage() {
       case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
       case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
       case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
-      case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
+      case 'zimra': return <ZimraDeviceSettings key={activeCompany.id} company={activeCompany} />;
       case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data: any) => {
         await updateCompany.mutateAsync(data);
         toast({

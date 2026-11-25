@@ -37,12 +37,12 @@ export function useCompanies(
         throw new Error("Offline and no cached companies available");
       }
       try {
-        const res = await withCompanyLoadTimeout(apiFetch(api.companies.list.path));
+        const res = await withCompanyLoadTimeout(apiFetch(api.companies.list.path + api.companies.list.summary.query));
         if (res.status === 401) {
           throw new Error("Unauthorized while fetching companies");
         }
         if (!res.ok) throw new Error(`Failed to fetch companies (${res.status})`);
-        const companies = api.companies.list.responses[200].parse(await res.json());
+        const companies = api.companies.list.summary.response.parse(await res.json());
         // POS storage is useful offline, but it must never hold the primary
         // application route in a loading state.
         if (companies) {
@@ -73,9 +73,9 @@ export function useCompanies(
   });
 }
 
-export function useCompany(id: number) {
+export function useCompany(id: number, repairQrUrl = true) {
   return useQuery({
-    queryKey: [api.companies.get.path, id],
+    queryKey: [api.companies.get.path, id, ...(repairQrUrl ? [] : ["skip-qr-repair"])],
     queryFn: async () => {
       if (!getIsOnline()) {
         const cached = await getCachedCompanySettings(id);
@@ -85,7 +85,7 @@ export function useCompany(id: number) {
       }
       try {
         const url = buildUrl(api.companies.get.path, { id });
-        const res = await apiFetch(url);
+        const res = await apiFetch(repairQrUrl ? url : url + "?repairQrUrl=false");
         if (res.status === 401) {
           const cached = await getCachedCompanySettings(id);
           if (cached) return cached;

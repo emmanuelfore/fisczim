@@ -409,7 +409,7 @@ export async function createInvoiceFromApproval(
     await assertSalesOrderFulfilmentStillValid(companyId, payload, data, items);
   }
 
-  const analytics = await requireDepartmentalDimensions(companyId, data);
+  const analytics = await resolveInvoiceAnalytics(companyId, data as any, items as any, { optional: true });
   const invoiceData = {
     ...data,
     ...(analytics || {}),

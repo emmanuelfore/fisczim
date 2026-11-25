@@ -435,7 +435,9 @@ export async function createInvoiceFromApproval(
           .where(and(eq(quotations.id, quotationId), eq(quotations.companyId, companyId)));
         return created;
       })
-    : await storage.createInvoice(invoiceData);
+    : payload.draftNoteId === undefined
+      ? await storage.createInvoice(invoiceData)
+      : await storage.createInvoice(invoiceData, undefined, Number(payload.draftNoteId));
   await enqueueApprovedInvoiceFiscalization(invoice.id, companyId, userId);
 
   return {

@@ -303,7 +303,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/invoices/:id',
       responses: {
-        200: z.custom<typeof invoices.$inferSelect & { items: any[]; customer?: typeof customers.$inferSelect }>(),
+        200: z.custom<typeof invoices.$inferSelect & { items: any[]; customer?: typeof customers.$inferSelect; hasPostedJournal?: boolean }>(),
         404: errorSchemas.notFound,
       }
     },

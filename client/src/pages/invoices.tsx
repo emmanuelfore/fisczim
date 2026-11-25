@@ -292,7 +292,7 @@ export function InvoicePreviewPanel({
           >
             <Eye className="w-3 h-3" /> Full View
           </Button>
-          {["issued", "partial", "paid"].includes(invoice.status || "") &&
+          {(invoice.hasPostedJournal || ["issued", "partial", "paid"].includes(invoice.status || "")) &&
             !invoice.fiscalCode && (
               <Button
                 size="sm"
@@ -458,13 +458,13 @@ export function InvoicePreviewPanel({
         <div className="px-4 pt-2 shrink-0">
           <ValidationErrorsDisplay
             errors={(invoice as any).validationErrors}
-            onEdit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
+            onEdit={!invoice.hasPostedJournal && !invoice.syncedWithFdms && !invoice.fiscalCode &&
               (invoice.status === "draft" || (invoice.status === "issued" &&
                 invoice.transactionType !== "CreditNote" && invoice.transactionType !== "DebitNote"))
               ? () => setLocation(`/invoices/new?edit=${invoiceId}`)
               : undefined}
             onResubmit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
-              ["issued", "partial", "paid"].includes(invoice.status || "")
+              (invoice.hasPostedJournal || ["issued", "partial", "paid"].includes(invoice.status || ""))
               ? () => fiscalize.mutate(invoiceId)
               : undefined}
             isResubmitting={fiscalize.isPending || isFiscalizing}

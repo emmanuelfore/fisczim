@@ -703,7 +703,7 @@ export default function InvoiceDetailsPage() {
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
-                  {["issued", "partial", "paid"].includes(invoice.status || "") &&
+                  {(invoice.hasPostedJournal || ["issued", "partial", "paid"].includes(invoice.status || "")) &&
                     !invoice.fiscalCode && (
                       <Button
                         size="sm"
@@ -868,7 +868,7 @@ export default function InvoiceDetailsPage() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      {invoice.status === "draft" && (
+                      {invoice.status === "draft" && !invoice.hasPostedJournal && (
                         <DropdownMenuItem
                           onClick={() =>
                             setLocation(`/invoices/new?edit=${invoiceId}`)
@@ -931,13 +931,13 @@ export default function InvoiceDetailsPage() {
                 <div className="px-4 pt-2 shrink-0">
                   <ValidationErrorsDisplay
                     errors={(invoice as any).validationErrors}
-                    onEdit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
+                    onEdit={!invoice.hasPostedJournal && !invoice.syncedWithFdms && !invoice.fiscalCode &&
                       (invoice.status === "draft" || (invoice.status === "issued" &&
                         invoice.transactionType !== "CreditNote" && invoice.transactionType !== "DebitNote"))
                       ? () => setLocation(`/invoices/new?edit=${invoiceId}`)
                       : undefined}
                     onResubmit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
-                      ["issued", "partial", "paid"].includes(invoice.status || "")
+                      (invoice.hasPostedJournal || ["issued", "partial", "paid"].includes(invoice.status || ""))
                       ? () => fiscalize.mutate(invoiceId)
                       : undefined}
                     isResubmitting={fiscalize.isPending || isFiscalizing}

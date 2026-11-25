@@ -574,7 +574,7 @@ export default function CreateInvoicePage() {
   const { subtotal, taxAmount, total } = calculateTotals();
   const hasDirectAccess = !requiresApproval("invoice_issue", total);
   const canFiscalizeSavedDocument = !!existingInvoice &&
-    ["issued", "partial", "paid"].includes(existingInvoice.status || "") &&
+    (existingInvoice.hasPostedJournal || ["issued", "partial", "paid"].includes(existingInvoice.status || "")) &&
     !existingInvoice.fiscalCode &&
     !existingInvoice.syncedWithFdms;
 
@@ -1167,7 +1167,7 @@ export default function CreateInvoicePage() {
             </Button>
             <Button
               onClick={() => handleActionClick("issue")}
-              disabled={loadingAction !== null || isLockedByOther}
+              disabled={loadingAction !== null || isLockedByOther || existingInvoice?.hasPostedJournal}
               className="h-9 gap-2 bg-[#2563EB] text-white shadow-sm hover:bg-[#1D4ED8]"
             >
               {loadingAction === "issue" ? (
@@ -2624,7 +2624,7 @@ export default function CreateInvoicePage() {
                       variant="outline"
                       className="h-11 rounded-xl gap-2 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
                       onClick={() => handleActionClick("issue")}
-                      disabled={loadingAction !== null || isLockedByOther}
+                      disabled={loadingAction !== null || isLockedByOther || existingInvoice?.hasPostedJournal}
                     >
                       {loadingAction === "issue" ? (
                         <Loader2 className="h-4 w-4 animate-spin" />

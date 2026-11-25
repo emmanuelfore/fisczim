@@ -747,14 +747,16 @@ function DetailsTab({ v, companyId, editable, initialAction }: { v: any; company
 
   const createInvoice = async () => {
     try {
-      await run({
+      const result = await run({
         path: `/${v.id}/invoice`,
         body: {
           dueDate: invoiceForm.dueDate || undefined,
           taxTypeId: invoiceForm.taxTypeId === "none" ? null : Number(invoiceForm.taxTypeId),
           notes: invoiceForm.notes.trim() || null,
         },
-      }, "Invoice created");
+      });
+      toast({ title: result?.invoice?.invoiceNumber ? `Invoice ${result.invoice.invoiceNumber} created` : "Invoice created",
+        description: result?.fiscalizationWarning });
       setInvoiceOpen(false);
     } catch {
       // useSubmit has already shown the failure toast.

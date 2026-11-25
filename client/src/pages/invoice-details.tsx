@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
 import { currencyLabel, formatCurrencyAmount } from "@shared/currency";
-import { vehicleInvoiceDisbursements } from "@/lib/vehicle-invoice-costs";
+import { vehicleInvoiceDisbursements, vehicleDealTotals } from "@/lib/vehicle-invoice-costs";
 import {
   useInvoices,
   useInvoice,
@@ -1195,16 +1195,16 @@ export default function InvoiceDetailsPage() {
                             </div>
                           </div>
 
-                          {(invoice as any)?.vehicleCosts && (invoice as any).vehicleCosts.length > 0 && (() => {
+                          {((invoice as any)?.vehicleCosts?.length > 0 || (invoice as any)?.vehicle?.dealSummary) && (() => {
                             const inv = invoice as any;
-                            const costs = inv.vehicleCosts.filter((c: any) => c.status !== "cancelled");
+                            const costs = (inv.vehicleCosts ?? []).filter((c: any) => c.status !== "cancelled");
                             const landed = costs.reduce((sum: number, c: any) => sum + Number(c.baseAmount ?? c.amount ?? 0), 0);
                             const saleRate = Number(inv.exchangeRate || 1) || 1;
                             const sale = inv.currency === "USD" ? Number(inv.total || 0) : (Number(inv.total || 0) / saleRate);
                             const profit = sale - landed;
                             const isAgency = inv.vehicle && inv.vehicle.accountingModel !== "principal";
                             const disbursements = isAgency ? vehicleInvoiceDisbursements(costs, inv.exchangeRate) : [];
-                            if (isAgency && !disbursements.length) return null;
+                            if (isAgency && !disbursements.length && !inv.vehicle?.dealSummary) return null;
                             if (isAgency) return (
                               <div className="rounded-xl border border-slate-200 p-4 space-y-2 bg-slate-50/50">
                                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
@@ -1225,6 +1225,11 @@ export default function InvoiceDetailsPage() {
                                     <dt>Total customer-funded costs</dt>
                                     <dd>{formatCurrencyAmount(disbursements.reduce((sum, cost) => sum + cost.amount, 0), inv.currency)}</dd>
                                   </div>
+                                  {vehicleDealTotals(disbursements, Number(inv.total), inv.vehicle?.dealSummary).map(row => (
+                                    <div key={row.label} className="flex justify-between gap-3 py-2 font-semibold">
+                                      <dt>{row.label}</dt><dd>{formatCurrencyAmount(row.amount, inv.currency)}</dd>
+                                    </div>
+                                  ))}
                                 </dl>
                                 {inv.vehicle?.id && (
                                   <Link href={`/vehicles/${inv.vehicle.id}`} className="text-[11px] text-blue-600 hover:underline font-semibold">

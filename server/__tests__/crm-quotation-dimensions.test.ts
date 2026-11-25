@@ -230,18 +230,18 @@ describe("vehicle imports and CRM handoff", () => {
     script("vehicles", [{ ...vehicle, customerId: 3, salePrice: "5000.00" }], [], [{ ...vehicle, invoiceId: 13 }]);
     script("vehicle_sales_agreements", [{ id: 9, processingFeeAmount: "500.00" }]);
     script("invoices", [invoice]);
-    script("accounts", [{ id: 1, code: "1100" }], [{ id: 2, code: "2200" }]);
+    script("accounts", [{ id: 1, code: "1200", name: "Trade Receivables" }], [{ id: 2, code: "2200" }]);
     script("departments", [{ id: 7 }]);
     script("cost_centers", [{ id: 8 }]);
 
     vi.mocked(storage.createInvoice).mockImplementationOnce(async (data, tx) => {
       expect(data).toMatchObject({ customerId: 3, total: "500.00", revenueAccountCode: "2200" });
       const lines = await ledger["normalizeLedgerLines"](21, [
-        { accountCode: "1100", debit: Number(data.total) },
+        { accountCode: "1200", debit: Number(data.total) },
         { accountCode: "2200", credit: Number(data.total) },
       ], tx);
       expect(lines).toMatchObject([
-        { type: "DEBIT", amount: 500, departmentId: null, costCenterId: null },
+        { accountCode: "1200", type: "DEBIT", amount: 500, departmentId: null, costCenterId: null },
         { type: "CREDIT", amount: 500, departmentId: null, costCenterId: null },
       ]);
       return invoice as Awaited<ReturnType<typeof storage.createInvoice>>;
@@ -250,6 +250,23 @@ describe("vehicle imports and CRM handoff", () => {
     const result = await request("POST", `${url}/invoice`, {});
     expect(result.status).toBe(201);
     expect(result.body.invoice).toMatchObject(invoice);
+  });
+
+  test("returns the saved fee invoice when the post-commit fiscalization lookup fails", async () => {
+    const invoice = { id: 13, invoiceNumber: "INV-13", total: "50.00", syncedWithFdms: false, isFiscalized: false };
+    const reserved = { ...vehicle, status: "reserved", customerId: 3, salePrice: "5000.00" };
+    script("vehicles", [reserved], [], [{ ...reserved, status: "sold", invoiceId: invoice.id }]);
+    script("vehicle_sales_agreements", [{ id: 9, processingFeeAmount: "50.00" }]);
+    script("invoices", [], [invoice]);
+    vi.mocked(storage.createInvoice).mockResolvedValueOnce(invoice as Awaited<ReturnType<typeof storage.createInvoice>>);
+
+    const result = await request("POST", `${url}/invoice`, {});
+    expect(result.status).toBe(201);
+    expect(result.body).toMatchObject({
+      invoice: { id: 13, invoiceNumber: "INV-13" },
+      fiscalizationWarning: expect.stringContaining("The invoice was saved"),
+    });
+    expect(state.writes.find(write => write.table === "vehicles")?.values).toMatchObject({ invoiceId: 13 });
   });
 
   test("a new reservation cannot overwrite an existing reservation", async () => {

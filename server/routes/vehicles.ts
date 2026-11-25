@@ -2899,14 +2899,30 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         return { invoice: created, ...paymentResult, cogs, enquiry, commission };
       });
 
-      // Runs after commit: fiscalization talks to the device and re-reads the
-      // invoice, so it cannot share the sale transaction.
-      const invoice = await ensureVehicleInvoiceFiscalized(
-        result.invoice.id,
-        companyId,
-        req.user?.id,
-        req.user?.isSuperAdmin,
-      );
+      // Fiscalization runs after the sale commits. Report a saved invoice
+      // separately from a failed submission so staff don't retry creation.
+      let invoice: typeof invoices.$inferSelect;
+      let fiscalizationWarning: string | undefined;
+      try {
+        invoice = await ensureVehicleInvoiceFiscalized(
+          result.invoice.id,
+          companyId,
+          req.user?.id,
+          req.user?.isSuperAdmin,
+        );
+      } catch (error) {
+        console.error("Vehicle invoice fiscalization failed after creation", { companyId, vehicleId, invoiceId: result.invoice.id }, error);
+        const [savedInvoice] = await db.select().from(invoices).where(and(
+          eq(invoices.id, result.invoice.id), eq(invoices.companyId, companyId),
+        ));
+        if (!savedInvoice) {
+          throw Object.assign(new Error("Could not confirm that the vehicle invoice was saved. Refresh the vehicle before retrying."), { status: 500 });
+        }
+        invoice = savedInvoice;
+        if (!savedInvoice.isFiscalized && !savedInvoice.syncedWithFdms) {
+          fiscalizationWarning = "The invoice was saved. Open it to review or retry fiscalization.";
+        }
+      }
 
       const vehicleCostsRows = await db
         .select()
@@ -2925,7 +2941,7 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
         vehicleCosts: vehicleCostsRows,
       };
 
-      res.status(201).json({ ...result, invoice: fullInvoice });
+      res.status(201).json({ ...result, invoice: fullInvoice, fiscalizationWarning });
     } catch (error: any) {
       console.error(error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });

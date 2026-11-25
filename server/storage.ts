@@ -70,7 +70,7 @@ import {
   type PayrollElement, type InsertPayrollElement,
   type PayrollCalculationAudit, type InsertPayrollCalculationAudit,
   jobLogs, type JobLog, type InsertJobLog,
-  vehicles, vehicleCosts
+  vehicles, vehicleCosts, vehicleSalesAgreements, vehiclePaymentSchedules
 } from "../shared/schema.js";
 import { baseCurrencyOf, defaultCurrencySeeds } from "../shared/currency.js";
 import { addToBucket, daysOverdue, emptyAgingAmounts, legacyAgingFields, resolveDueDate, type AgingAmounts } from "../shared/aging.js";
@@ -1770,7 +1770,7 @@ export class DatabaseStorage implements IStorage {
     const [linkedVehicle] = await db
       .select()
       .from(vehicles)
-      .where(eq(vehicles.invoiceId, id))
+      .where(and(eq(vehicles.invoiceId, id), eq(vehicles.companyId, invoice.companyId)))
       .limit(1);
 
     let vehicleCostsRows: any[] = [];
@@ -1780,6 +1780,29 @@ export class DatabaseStorage implements IStorage {
         .from(vehicleCosts)
         .where(and(eq(vehicleCosts.vehicleId, linkedVehicle.id), ne(vehicleCosts.status, "cancelled")))
         .orderBy(asc(vehicleCosts.costDate), asc(vehicleCosts.id));
+    }
+
+    let dealSummary;
+    if (linkedVehicle && linkedVehicle.accountingModel !== "principal") {
+      const [agreement] = await db.select({
+        price: vehicleSalesAgreements.agreedPrice,
+        status: vehicleSalesAgreements.status,
+      }).from(vehicleSalesAgreements).where(and(
+        eq(vehicleSalesAgreements.vehicleId, linkedVehicle.id),
+        eq(vehicleSalesAgreements.companyId, invoice.companyId),
+        eq(vehicleSalesAgreements.currency, invoice.currency),
+      ));
+      if (agreement) {
+        const [receipts] = await db.select({
+          total: sql<string>`coalesce(sum(${payments.amount} / nullif(coalesce(${payments.exchangeRate}, 1), 0)), 0)`,
+        }).from(payments).where(and(eq(payments.companyId, invoice.companyId),
+          or(eq(payments.vehicleId, linkedVehicle.id), eq(payments.invoiceId, invoice.id))));
+        const [schedule] = await db.select({ total: sql<string | null>`sum(${vehiclePaymentSchedules.amount})` })
+          .from(vehiclePaymentSchedules).where(and(eq(vehiclePaymentSchedules.vehicleId, linkedVehicle.id),
+            ne(vehiclePaymentSchedules.status, "waived")));
+        dealSummary = { ...agreement, paid: Number(receipts.total) * Number(invoice.exchangeRate || 1),
+          scheduleTotal: schedule.total };
+      }
     }
 
     // Fetch related invoice details if this is a credit/debit note
@@ -1836,7 +1859,7 @@ export class DatabaseStorage implements IStorage {
       relatedFiscalCode,
       relatedReceiptGlobalNo,
       relatedReceiptCounter,
-      vehicle: linkedVehicle || undefined,
+      vehicle: linkedVehicle ? { ...linkedVehicle, dealSummary } : undefined,
       vehicleCosts: vehicleCostsRows.length ? vehicleCostsRows : undefined,
     };
   }

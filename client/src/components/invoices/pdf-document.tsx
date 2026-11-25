@@ -2,7 +2,7 @@
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { formatCurrencyAmount } from "@shared/currency";
-import { vehicleInvoiceDisbursements } from "@/lib/vehicle-invoice-costs";
+import { vehicleInvoiceDisbursements, vehicleDealTotals } from "@/lib/vehicle-invoice-costs";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 import { pdfFontFamily } from "@/lib/pdf-fonts";
@@ -752,7 +752,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     </View>
                 </View>
 
-                {isAgencyFeeInvoice && disbursements.length > 0 ? (
+                {isAgencyFeeInvoice && (disbursements.length > 0 || invoice.vehicle?.dealSummary) ? (
                     <View style={{ marginTop: 14, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
                         <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: "uppercase" }}>Vehicle import cost breakdown</Text>
                         <Text style={{ fontSize: 7, color: "#64748b", lineHeight: 1.5 }}>
@@ -768,6 +768,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             <Text>Total customer-funded costs</Text>
                             <Text>{formatCurrencyAmount(disbursements.reduce((sum, cost) => sum + cost.amount, 0), invoice.currency || "USD")}</Text>
                         </View>
+                        {vehicleDealTotals(disbursements, Number(invoice.total), invoice.vehicle?.dealSummary).map(row => (
+                            <View key={row.label} wrap={false} style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
+                                <Text>{row.label}</Text><Text>{formatCurrencyAmount(row.amount, invoice.currency)}</Text>
+                            </View>
+                        ))}
                     </View>
                 ) : null}
 

@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout";
 import { VehicleModuleNav } from "@/components/vehicles/module-nav";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { QuickAddCostDialog } from "@/components/vehicles/quick-add-cost-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SummaryStatCard } from "@/components/ui/summary-stat-card";
+import { ReportMetrics } from "@/components/vehicles/report-metrics";
+import { ReportPagination } from "@/components/vehicles/report-pagination";
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -106,6 +107,12 @@ export default function VehicleCostingPage() {
   const [status, setStatus] = useState("all");
   const [stage, setStage] = useState("all");
   const [search, setSearch] = useState("");
+  const [costPage, setCostPage] = useState(0);
+  const [consignmentPage, setConsignmentPage] = useState(0);
+  const [consignmentSearch, setConsignmentSearch] = useState("");
+  const pageSize = 10;
+  useEffect(() => setCostPage(0), [from, to, supplierId, status, stage, search, companyId]);
+  useEffect(() => setConsignmentPage(0), [consignmentSearch, companyId]);
   const [weights, setWeights] = useState<"purchase" | "equal">("purchase");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [addFor, setAddFor] = useState<{ id: number; label: string } | null>(null);
@@ -113,7 +120,7 @@ export default function VehicleCostingPage() {
 
   const filters = { from, to, supplierId, status, stage, search };
   const { data, isLoading, isError, refetch } = useVehicleReport<{ totals: any; items: CostingRow[] }>(companyId, "costing", allowed, filters);
-  const { data: consignmentData, isLoading: consignmentLoading } = useVehicleReport<{ items: ConsignmentRow[] }>(
+  const { data: consignmentData, isLoading: consignmentLoading, isError: consignmentError, refetch: refetchConsignments } = useVehicleReport<{ items: ConsignmentRow[] }>(
     companyId,
     "consignments",
     allowed,
@@ -121,6 +128,11 @@ export default function VehicleCostingPage() {
   const allocate = useAllocateConsignment(companyId);
 
   const items = data?.items ?? [];
+  const consignmentTerm = consignmentSearch.trim().toLowerCase();
+  const consignments = (consignmentData?.items ?? []).filter(row => [row.referenceNumber, row.supplierName, row.forwarderName]
+    .some(value => value?.toLowerCase().includes(consignmentTerm)));
+  const shownCostPage = Math.min(costPage, Math.max(0, Math.ceil(items.length / pageSize) - 1));
+  const shownConsignmentPage = Math.min(consignmentPage, Math.max(0, Math.ceil(consignments.length / pageSize) - 1));
   const totals = data?.totals;
   const alerts = useMemo(
     () => items.filter((i) => (i.accountingModel !== "agent" && (i.negativeMargin || i.lowMargin)) || i.hasUnpaidCosts),
@@ -194,15 +206,14 @@ export default function VehicleCostingPage() {
           </TabsList>
 
           <TabsContent value="costing" className="space-y-6 pt-4">
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-              <SummaryStatCard label={`Landed cost (${totals?.vehicles ?? 0} vehicles)`} value={fmtMoney(totals?.landedCost)} icon={Package} tone="blue" />
-              <SummaryStatCard label="Import costs" value={fmtMoney(totals?.importCosts)} icon={Wallet} tone="violet" />
-              <SummaryStatCard label="Recorded customer import costs" value={fmtMoney(items.filter((i) => i.accountingModel !== "principal").reduce((s, i) => s + i.landedCost, 0))} icon={Wallet} tone="blue" />
-              <SummaryStatCard label="Agreed processing fees" value={fmtMoney(items.reduce((s, i) => s + (i.processingFee ?? 0), 0))} icon={Banknote} tone="emerald" />
-              <SummaryStatCard label="Pending / unpaid costs" value={fmtMoney(totals?.pendingCosts)} icon={Banknote} tone="amber" />
-              <SummaryStatCard label="Paid costs" value={fmtMoney(totals?.paidCosts)} icon={TrendingUp} tone="emerald" />
-            </div>
-
+            {!isError && <ReportMetrics metrics={[
+              { label: "Landed costs", value: isLoading ? "—" : fmtMoney(totals?.landedCost) },
+              { label: "Import costs", value: isLoading ? "—" : fmtMoney(totals?.importCosts) },
+              { label: "Customer import costs", value: isLoading ? "—" : fmtMoney(items.filter(row => row.accountingModel !== "principal").reduce((sum, row) => sum + row.landedCost, 0)) },
+              { label: "Agreed processing fees", value: isLoading ? "—" : fmtMoney(items.reduce((sum, row) => sum + (row.processingFee ?? 0), 0)) },
+              { label: "Unpaid costs", value: isLoading ? "—" : fmtMoney(totals?.pendingCosts) },
+              { label: "Paid costs", value: isLoading ? "—" : fmtMoney(totals?.paidCosts) },
+            ]} />}
             <Card className="border-slate-200/80">
               <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
                 <div className="space-y-1.5">
@@ -250,6 +261,10 @@ export default function VehicleCostingPage() {
                   <Label htmlFor="costing-search">Search</Label>
                   <Input id="costing-search" placeholder="Stock, VIN, model…" value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
+                {(from || to || supplierId !== "all" || status !== "all" || stage !== "all" || search) &&
+                  <Button variant="link" className="justify-self-start px-0" onClick={() => {
+                    setFrom(""); setTo(""); setSupplierId("all"); setStatus("all"); setStage("all"); setSearch("");
+                  }}>Clear filters</Button>}
               </CardContent>
             </Card>
 
@@ -273,138 +288,81 @@ export default function VehicleCostingPage() {
             )}
 
             <Card className="border-slate-200/80">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8" />
-                      <TableHead>Vehicle</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Purchase</TableHead>
-                      <TableHead className="whitespace-nowrap">Import costs</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Landed cost</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Selling price</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Processing fee</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Profit / fee</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Margin</TableHead>
-                      <TableHead className="w-10" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading ? (
-                      <TableRow><TableCell colSpan={11}><LoadingRows rows={5} /></TableCell></TableRow>
-                    ) : items.length === 0 ? (
-                      <TableRow><TableCell colSpan={11} className="text-center py-12 text-slate-500">No vehicles match these filters.</TableCell></TableRow>
-                    ) : (
-                      <>
-                        {items.map((i) => {
-                          const isOpen = expanded === i.id;
-                          const cats = COST_CATEGORIES
-                            .filter((c) => c.value !== "purchase" && Number(i.costsByCategory?.[c.value] || 0) > 0)
-                            .map((c) => ({ ...c, amount: Number(i.costsByCategory[c.value]) }))
-                            .sort((a, b) => b.amount - a.amount);
-                          const purchase = Number(i.costsByCategory?.purchase ?? i.purchasePrice ?? 0);
-                          return (
-                            <Fragment key={i.id}>
-                              <TableRow className="hover:bg-slate-50 cursor-pointer" onClick={() => setExpanded(isOpen ? null : i.id)}>
-                                <TableCell className="pr-0">
-                                  {isOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                                </TableCell>
-                                <TableCell className="min-w-[200px]">
-                                  <Link href={`/vehicles/${i.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold hover:text-blue-700">{i.description}</Link>
-                                  <div className="text-xs text-slate-500 flex items-center gap-2">
-                                    <span className="font-mono">{i.stockNumber}</span>
-                                    <Badge className={`${statusTone[i.status] ?? ""} border-0 capitalize text-[10px] py-0`}>{i.status}</Badge>
-                                    <span className="text-[10px] text-slate-400">{stageLabel(i.stage)}</span>
-                                    <Badge variant="outline" className="text-[10px] py-0 capitalize">{(i.accountingModel ?? "agent") === "agent" ? "agent" : "principal"}</Badge>
-                                    {(i.accountingModel !== "agent" && (i.negativeMargin || i.lowMargin)) && <AlertTriangle className={`w-3.5 h-3.5 ${i.negativeMargin ? "text-rose-500" : "text-amber-500"}`} />}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right text-sm whitespace-nowrap">{purchase ? fmtMoney(purchase) : <span className="text-slate-300">—</span>}</TableCell>
-                                <TableCell className="min-w-[220px]">
-                                  <div className="font-medium text-sm">{fmtMoney(i.importCosts)}</div>
-                                  <div className="mt-1 flex flex-wrap gap-1">
-                                    {cats.slice(0, 3).map((c) => (
-                                      <span key={c.value} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 whitespace-nowrap">
-                                        {c.label.split(" ")[0]} {fmtMoney(c.amount)}
-                                      </span>
-                                    ))}
-                                    {cats.length > 3 && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">+{cats.length - 3} more</span>}
-                                    {i.pendingCosts > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">{fmtMoney(i.pendingCosts)} unpaid</span>}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right font-semibold whitespace-nowrap">{fmtMoney(i.landedCost)}</TableCell>
-                                <TableCell className="text-right whitespace-nowrap">
-                                  {fmtMoney(i.sellingPrice)}
-                                  {i.isProjected && <span className="block text-[10px] text-slate-400">target</span>}
-                                </TableCell>
-                                <TableCell className="text-right whitespace-nowrap">{i.accountingModel === "agent" ? fmtMoney(i.processingFee ?? 0) : <span className="text-slate-300">—</span>}</TableCell>
-                                <TableCell className={`text-right font-bold whitespace-nowrap ${i.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(i.profit)}</TableCell>
-                                <TableCell className={`text-right whitespace-nowrap ${i.marginPercent < 0 ? "text-rose-600" : ""}`}>{i.accountingModel === "principal" ? i.marginPercent + "%" : "—"}</TableCell>
-                                <TableCell onClick={(e) => e.stopPropagation()}>
-                                  {canEditCosts && (
-                                    <Button
-                                      id={`add-cost-${i.id}`}
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 whitespace-nowrap"
-                                      onClick={() => setAddFor({ id: i.id, label: `${i.stockNumber} · ${i.description}` })}
-                                    >
-                                      <Plus className="w-3.5 h-3.5 mr-1" />Cost
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                              {isOpen && (
-                                <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
-                                  <TableCell />
-                                  <TableCell colSpan={9} className="py-4">
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                                      {COST_CATEGORIES.map((c) => {
-                                        const amt = Number(i.costsByCategory?.[c.value] || 0);
-                                        return (
-                                          <div key={c.value} className={`rounded-lg border px-3 py-2 ${amt ? "bg-white border-slate-200" : "bg-transparent border-dashed border-slate-200"}`}>
-                                            <div className="text-[11px] text-slate-500">{c.label}</div>
-                                            <div className={`text-sm font-semibold ${amt ? "text-slate-900" : "text-slate-300"}`}>{amt ? fmtMoney(amt) : "—"}</div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
-                                      <span>Paid: <strong className="text-emerald-700">{fmtMoney(i.paidCosts)}</strong></span>
-                                      <span>Pending: <strong className="text-amber-700">{fmtMoney(i.pendingCosts)}</strong></span>
-                                      {i.disputedCosts > 0 && <span>Disputed: <strong className="text-rose-700">{fmtMoney(i.disputedCosts)}</strong></span>}
-                                      <span>{i.costCount} cost line(s)</span>
-                                      {i.customerName && <span>Customer: <strong>{i.customerName}</strong></span>}
-                                      <Link href={`/vehicles/${i.id}`} className="ml-auto text-blue-700 hover:underline">Open vehicle →</Link>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </Fragment>
-                          );
-                        })}
-                        <TableRow className="border-t-2 bg-slate-50 font-semibold">
-                          <TableCell />
-                          <TableCell>Totals ({items.length})</TableCell>
-                          <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.byCategory?.purchase ?? 0)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{fmtMoney(totals?.importCosts)}</TableCell>
-                          <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.landedCost)}</TableCell>
-                          <TableCell className="text-right whitespace-nowrap">{fmtMoney(totals?.sellingPrice)}</TableCell>
-                          <TableCell className="text-right whitespace-nowrap">{fmtMoney(items.reduce((s, i) => s + (i.processingFee ?? 0), 0))}</TableCell>
-                          <TableCell className={`text-right whitespace-nowrap ${(totals?.profit ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmtMoney(totals?.profit)}</TableCell>
-                          <TableCell />
-                          <TableCell />
+              <Table className="table-fixed">
+                <TableHeader><TableRow>
+                  <TableHead className="w-9 px-1"><span className="sr-only">Cost details</span></TableHead>
+                  <TableHead>Vehicle</TableHead>
+                  <TableHead className="w-24 px-2 text-right sm:w-40">Landed cost</TableHead>
+                  <TableHead className="hidden w-32 text-right md:table-cell">Fee / profit</TableHead>
+                  <TableHead className="w-12 px-1 text-right sm:w-24"><span className="sr-only">Actions</span></TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {isLoading ? <TableRow><TableCell colSpan={5}><LoadingRows rows={5} /></TableCell></TableRow>
+                    : items.length === 0 ? <TableRow><TableCell colSpan={5} className="py-8 text-center text-slate-600">No vehicles match these filters.</TableCell></TableRow>
+                    : items.slice(shownCostPage * pageSize, (shownCostPage + 1) * pageSize).map(i => {
+                      const isOpen = expanded === i.id;
+                      const agency = i.accountingModel !== "principal";
+                      const costs = COST_CATEGORIES.filter(category => Number(i.costsByCategory?.[category.value] ?? 0) !== 0);
+                      return <Fragment key={i.id}>
+                        <TableRow>
+                          <TableCell className="px-1"><Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-expanded={isOpen} aria-label={"Cost breakdown for " + i.stockNumber} onClick={() => setExpanded(isOpen ? null : i.id)}>
+                            {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </Button></TableCell>
+                          <TableCell className="break-words px-1 sm:px-3">
+                            <Link href={"/vehicles/" + i.id} className="font-semibold text-blue-700 hover:underline">{i.description}</Link>
+                            <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-600">
+                              <span className="font-mono">{i.stockNumber}</span>
+                              <Badge className={"capitalize " + (statusTone[i.status] ?? "")}>{i.status}</Badge>
+                              <span className="hidden sm:inline">{stageLabel(i.stage)}</span>
+                            </div>
+                            {i.pendingCosts > 0 && <span className="mt-1 block text-xs text-amber-800">{fmtMoney(i.pendingCosts)} unpaid</span>}
+                          </TableCell>
+                          <TableCell className="px-2 text-right text-sm font-semibold tabular-nums">{fmtMoney(i.landedCost)}</TableCell>
+                          <TableCell className={"hidden text-right tabular-nums md:table-cell " + (i.profit < 0 ? "text-rose-700" : "text-slate-800")}>
+                            {fmtMoney(agency ? i.processingFee ?? 0 : i.profit)}<span className="block text-xs text-slate-500">{agency ? "Processing fee" : i.marginPercent + "% margin"}</span>
+                          </TableCell>
+                          <TableCell className="px-1 text-right">{canEditCosts && <Button id={"add-cost-" + i.id} size="sm" variant="outline" className="h-8 px-2" aria-label={"Add cost for " + i.stockNumber} onClick={() => setAddFor({ id: i.id, label: i.stockNumber + " · " + i.description })}>
+                            <Plus className="h-4 w-4" /><span className="ml-1 hidden sm:inline">Cost</span>
+                          </Button>}</TableCell>
                         </TableRow>
-                      </>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                        {isOpen && <TableRow className="bg-slate-50"><TableCell colSpan={5} className="space-y-3 p-3 sm:p-4">
+                          <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                            <div><dt className="text-slate-600">Purchase</dt><dd className="font-medium">{fmtMoney(i.purchasePrice)}</dd></div>
+                            <div><dt className="text-slate-600">Import costs</dt><dd className="font-medium">{fmtMoney(i.importCosts)}</dd></div>
+                            <div><dt className="text-slate-600">{i.isProjected ? "Target price" : "Selling price"}</dt><dd className="font-medium">{fmtMoney(i.sellingPrice)}</dd></div>
+                            <div><dt className="text-slate-600">{agency ? "Processing fee" : "Profit"}</dt><dd className="font-medium">{fmtMoney(agency ? i.processingFee ?? 0 : i.profit)}{!agency && " · " + i.marginPercent + "%"}</dd></div>
+                          </dl>
+                          {costs.length > 0 && <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-xs md:grid-cols-4">
+                            {costs.map(category => <div key={category.value}><dt className="text-slate-600">{category.label}</dt><dd className="font-medium">{fmtMoney(i.costsByCategory[category.value])}</dd></div>)}
+                          </dl>}
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                            <span>Paid <strong className="text-emerald-700">{fmtMoney(i.paidCosts)}</strong></span>
+                            <span>Pending <strong className="text-amber-700">{fmtMoney(i.pendingCosts)}</strong></span>
+                            {i.disputedCosts > 0 && <span>Disputed <strong className="text-rose-700">{fmtMoney(i.disputedCosts)}</strong></span>}
+                            {i.customerName && <span>Customer <strong>{i.customerName}</strong></span>}
+                          </div>
+                        </TableCell></TableRow>}
+                      </Fragment>;
+                    })}
+                </TableBody>
+              </Table>
+              <ReportPagination total={items.length} pageSize={pageSize} page={shownCostPage} onChange={value => { setCostPage(value); setExpanded(null); }} />
+              {items.length > 0 && <details className="border-t px-4 py-3 text-sm">
+                <summary className="cursor-pointer font-medium">Totals for {items.length} matching vehicles</summary>
+                <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  <div><dt className="text-slate-600">Purchase</dt><dd>{fmtMoney(totals?.byCategory?.purchase)}</dd></div>
+                  <div><dt className="text-slate-600">Import costs</dt><dd>{fmtMoney(totals?.importCosts)}</dd></div>
+                  <div><dt className="text-slate-600">Landed costs</dt><dd>{fmtMoney(totals?.landedCost)}</dd></div>
+                  <div><dt className="text-slate-600">Selling prices</dt><dd>{fmtMoney(totals?.sellingPrice)}</dd></div>
+                  <div><dt className="text-slate-600">Profit / fees</dt><dd>{fmtMoney(totals?.profit)}</dd></div>
+                </dl>
+              </details>}
             </Card>
             <QuickAddCostDialog companyId={companyId} vehicle={addFor} open={!!addFor} onOpenChange={(o) => !o && setAddFor(null)} />
           </TabsContent>
 
           <TabsContent value="consignments" className="space-y-4 pt-4">
+            <Input aria-label="Search consignments" value={consignmentSearch} onChange={event => setConsignmentSearch(event.target.value)} placeholder="Search by reference, supplier or forwarder" className="max-w-md" />
             <Card className="border-slate-200/80">
               <CardHeader className="flex flex-row items-center justify-between gap-4">
                 <div>
@@ -426,62 +384,37 @@ export default function VehicleCostingPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Consignment</TableHead>
-                        <TableHead>Forwarder</TableHead>
-                        <TableHead>Method</TableHead>
-                        <TableHead className="text-right">Vehicles</TableHead>
-                        <TableHead className="text-right">Shipping</TableHead>
-                        <TableHead className="text-right">Insurance</TableHead>
-                        <TableHead className="text-right">Duty</TableHead>
-                        <TableHead className="text-right">Handling</TableHead>
-                        <TableHead className="text-right">Total cost</TableHead>
-                        <TableHead className="text-right">Allocated</TableHead>
-                        <TableHead />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {consignmentLoading ? (
-                        <TableRow><TableCell colSpan={11}><LoadingRows rows={4} /></TableCell></TableRow>
-                      ) : (consignmentData?.items ?? []).length === 0 ? (
-                        <TableRow><TableCell colSpan={11} className="text-center py-12 text-slate-500">No consignments yet.</TableCell></TableRow>
-                      ) : (consignmentData?.items ?? []).map((c) => (
-                        <TableRow key={c.id}>
-                          <TableCell>
-                            <div className="font-semibold">{c.referenceNumber}</div>
-                            <div className="text-xs text-slate-500">{c.supplierName || "—"}</div>
-                          </TableCell>
-                          <TableCell className="text-sm">{c.forwarderName || "—"}</TableCell>
-                          <TableCell className="text-sm">{c.shippingMethod}</TableCell>
-                          <TableCell className="text-right">{c.vehicleCount}</TableCell>
-                          <TableCell className="text-right text-xs">{fmtMoney(c.shippingCost)}</TableCell>
-                          <TableCell className="text-right text-xs">{fmtMoney(c.insuranceCost)}</TableCell>
-                          <TableCell className="text-right text-xs">{fmtMoney(c.customsDuty)}</TableCell>
-                          <TableCell className="text-right text-xs">{fmtMoney(c.handlingCharges)}</TableCell>
-                          <TableCell className="text-right font-medium">{fmtMoney(c.totalCost)}</TableCell>
-                          <TableCell className="text-right">
-                            <span className={c.allocatedTotal > 0 ? "text-emerald-700" : "text-slate-400"}>{fmtMoney(c.allocatedTotal)}</span>
-                            {c.allocatedRows > 0 && <span className="block text-[10px] text-slate-400">{c.allocatedRows} lines</span>}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant={c.allocatedRows > 0 ? "outline" : "default"}
-                              disabled={!c.canAllocate || allocate.isPending}
-                              onClick={() => runAllocation(c)}
-                            >
-                              <Sparkles className="w-3.5 h-3.5 mr-1" />
-                              {c.allocatedRows > 0 ? "Re-allocate" : "Allocate"}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                <Table className="table-fixed">
+                  <TableHeader><TableRow><TableHead>Consignment</TableHead><TableHead className="w-24 px-2 text-right sm:w-36">Total cost</TableHead><TableHead className="hidden w-36 text-right md:table-cell">Allocated</TableHead><TableHead className="w-24 px-1 text-right sm:w-32"><span className="sr-only">Allocation</span></TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {consignmentLoading ? <TableRow><TableCell colSpan={4}><LoadingRows rows={4} /></TableCell></TableRow>
+                      : consignmentError ? <TableRow><TableCell colSpan={4} className="py-8 text-center text-rose-700">Could not load consignments. <Button variant="link" onClick={() => refetchConsignments()}>Retry</Button></TableCell></TableRow>
+                      : consignments.length === 0 ? <TableRow><TableCell colSpan={4} className="py-8 text-center text-slate-600">{consignmentTerm ? "No consignments match this search." : "No consignments yet."}</TableCell></TableRow>
+                      : consignments.slice(shownConsignmentPage * pageSize, (shownConsignmentPage + 1) * pageSize).map(c => <TableRow key={c.id}>
+                        <TableCell className="break-words px-2 sm:px-4">
+                          <div className="font-semibold">{c.referenceNumber}</div>
+                          <div className="text-xs text-slate-600">{[c.supplierName, c.vehicleCount + " vehicles"].filter(Boolean).join(" · ")}</div>
+                          <details className="mt-1 text-xs text-slate-600">
+                            <summary className="cursor-pointer">Freight breakdown</summary>
+                            <dl className="mt-2 space-y-1">
+                              {c.forwarderName && <div><dt>Forwarder</dt><dd>{c.forwarderName}</dd></div>}
+                              <div><dt>Method</dt><dd>{c.shippingMethod}</dd></div>
+                              {Object.entries({ Shipping: c.shippingCost, Insurance: c.insuranceCost, Duty: c.customsDuty, Handling: c.handlingCharges }).map(([label, amount]) => <div key={label} className="flex flex-wrap justify-between gap-x-2"><dt>{label}</dt><dd>{fmtMoney(amount)}</dd></div>)}
+                              <div className="md:hidden"><dt>Allocated</dt><dd>{fmtMoney(c.allocatedTotal)}</dd></div>
+                            </dl>
+                          </details>
+                        </TableCell>
+                        <TableCell className="px-2 text-right text-sm font-semibold tabular-nums">{fmtMoney(c.totalCost)}</TableCell>
+                        <TableCell className="hidden text-right tabular-nums text-emerald-700 md:table-cell">{fmtMoney(c.allocatedTotal)}{c.allocatedRows > 0 && <span className="block text-xs text-slate-600">{c.allocatedRows} lines</span>}</TableCell>
+                        <TableCell className="px-1 text-right">
+                          <Button size="sm" className="px-2" variant={c.allocatedRows > 0 ? "outline" : "default"} disabled={!c.canAllocate || allocate.isPending} onClick={() => runAllocation(c)}>
+                            <Sparkles className="mr-1 hidden h-4 w-4 sm:inline" />{c.allocatedRows > 0 ? "Re-allocate" : "Allocate"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>)}
+                  </TableBody>
+                </Table>
+                <ReportPagination total={consignments.length} pageSize={pageSize} page={shownConsignmentPage} onChange={setConsignmentPage} />
               </CardContent>
             </Card>
             <div className="flex items-start gap-2 text-xs text-slate-500">

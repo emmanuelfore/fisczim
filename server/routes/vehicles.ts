@@ -2299,6 +2299,62 @@ export function createVehiclesRouter(requireAuth: any, requireCompanyAccess: any
 
   // ── customer account (agency model) ──────────────────────────────────────
 
+  router.get("/companies/:companyId/vehicles/:id/statement", ...need("vehicles.view"), async (req, res, next) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const vehicle = await loadVehicle(companyId, Number(req.params.id));
+      if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
+      const agency = isAgencyVehicle(vehicle);
+      const [agreements, customersFound, schedule, invoiceRows, receipts, costs] = await Promise.all([
+        db.select().from(vehicleSalesAgreements).where(and(eq(vehicleSalesAgreements.companyId, companyId), eq(vehicleSalesAgreements.vehicleId, vehicle.id))),
+        vehicle.customerId ? db.select({ name: customers.name }).from(customers)
+          .where(and(eq(customers.companyId, companyId), eq(customers.id, vehicle.customerId))) : [],
+        db.select().from(vehiclePaymentSchedules).where(eq(vehiclePaymentSchedules.vehicleId, vehicle.id)),
+        vehicle.invoiceId ? db.select({ number: invoices.invoiceNumber, total: invoices.total, currency: invoices.currency, rate: invoices.exchangeRate })
+          .from(invoices).where(and(eq(invoices.id, vehicle.invoiceId), eq(invoices.companyId, companyId))) : [],
+        db.select().from(payments).where(and(eq(payments.companyId, companyId),
+          !agency && vehicle.invoiceId
+            ? or(eq(payments.vehicleId, vehicle.id), eq(payments.invoiceId, vehicle.invoiceId))
+            : eq(payments.vehicleId, vehicle.id),
+        )).orderBy(asc(payments.paymentDate), asc(payments.id)),
+        agency ? customerStatementCosts(db, vehicle.id) : [],
+      ]);
+      const [agreement] = agreements;
+      const [invoice] = invoiceRows;
+      const currency = agreement?.currency ?? vehicle.saleCurrency ?? "USD";
+      const rate = agreement?.exchangeRate ?? vehicle.saleExchangeRate;
+      const received = round2(receipts.reduce((sum, receipt) => sum + fromBase(baseAmountOf(receipt), rate), 0));
+      const lines = openScheduleLines(schedule, received);
+      const agreedPrice = Number(agreement?.agreedPrice ?? vehicle.salePrice ?? 0);
+      const scheduledTotal = round2(lines.reduce((sum, line) => sum + line.amount, 0));
+      const payable = Math.max(agreedPrice, scheduledTotal, !agency && invoice ? fromBase(toBase(invoice.total, invoice.rate), rate) : 0);
+      const adminFee = Number(agreement?.adminFee ?? 0);
+      const deposit = Number(agreement?.depositAmount ?? lines.find(line => line.type === "deposit")?.amount ?? 0);
+      const financingCharges = agreement && agreement.months >= 1 && deposit <= agreedPrice
+        ? calculateVehiclePaymentPlan({
+          agreedPrice, depositAmount: deposit, months: agreement.months, interestType: agreement.interestType,
+          interestRate: Number(agreement.interestRate), adminFee, startDate: agreement.startDate,
+        }).interest : 0;
+      res.json({
+        stockNumber: vehicle.stockNumber, description: [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" "),
+        customerName: customersFound[0]?.name ?? null, currency,
+        agreementNumber: agreement?.agreementNumber ?? null, agreementStatus: agreement?.status ?? null,
+        agreedPrice, scheduledTotal, payable, received, balance: round2(payable - received),
+        deposit, adminFee, financingCharges,
+        processingFee: agency ? Number(agreement?.processingFeeAmount ?? 0) : null,
+        invoice: invoice ?? null,
+        schedule: lines,
+        receipts: receipts.map(receipt => ({
+          id: receipt.id, date: receipt.paymentDate, reference: receipt.reference, method: receipt.paymentMethod,
+          amount: fromBase(baseAmountOf(receipt), rate),
+        })),
+        costs: costs.map((cost: typeof vehicleCosts.$inferSelect) => ({
+          id: cost.id, category: cost.category, description: cost.description, amount: fromBase(chargeOf(cost), rate),
+        })),
+      });
+    } catch (error) { next(error); }
+  });
+
   router.get("/companies/:companyId/vehicles/:id/customer-account", ...need("vehicles.view"), async (req: any, res) => {
     try {
       const companyId = Number(req.params.companyId), vehicleId = Number(req.params.id);

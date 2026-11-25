@@ -333,6 +333,28 @@ describe("vehicle imports and CRM handoff", () => {
     }]);
   });
 
+  test("vehicle statement uses agreement terms and actual receipts in the deal currency", async () => {
+    script("vehicles", [{ ...vehicle, customerId: 3, salePrice: "2000.00", saleCurrency: "ZWG", saleExchangeRate: "20" }]);
+    script("customers", [{ name: "Customer" }]);
+    script("vehicle_sales_agreements", [{
+      agreementNumber: "AG-7", agreedPrice: "2000.00", currency: "ZWG", exchangeRate: "20",
+      depositAmount: "500.00", interestType: "fixed_amount", interestRate: "200.00", adminFee: "0",
+      status: "active", startDate: "2026-11-25", months: 1, processingFeeAmount: "100.00",
+    }]);
+    script("payments", [{ id: 1, amount: "30.00", exchangeRate: "1", paymentMethod: "Transfer" }]);
+    script("vehicle_payment_schedules", [
+      { id: 1, type: "deposit", amount: "500.00", dueDate: "2026-11-25" },
+      { id: 2, type: "balance", amount: "1700.00", dueDate: "2026-12-25" },
+    ]);
+    const result = await request("GET", url + "/statement");
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      customerName: "Customer", agreementNumber: "AG-7", currency: "ZWG", deposit: 500,
+      agreedPrice: 2000, payable: 2200, received: 600, balance: 1600, financingCharges: 200,
+      schedule: [{ open: 0 }, { open: 1600 }], receipts: [{ amount: 600 }],
+    });
+  });
+
   test("retrying a completed CRM conversion reuses the customer without adding activity", async () => {
     const lead = { ...enquiry, customerId: null, assignedTo: null, phone: null, email: null };
     const linked = { ...lead, customerId: 12 };

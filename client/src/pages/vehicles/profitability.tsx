@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { SummaryStatCard } from "@/components/ui/summary-stat-card";
+import { ReportMetrics } from "@/components/vehicles/report-metrics";
 import { LoadingRows } from "@/components/ui/page-skeleton";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -116,15 +116,14 @@ export default function VehicleProfitabilityPage() {
 
         <VehicleModuleNav />
         {isError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">Could not load this report. <Button variant="link" onClick={() => refetch()}>Retry</Button></div>}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <SummaryStatCard label={`Agreed sales and fees (${sold.length} priced)`} value={fmtMoney(agencyFeeRevenue + principalSales)} icon={Banknote} tone="blue" />
-          <SummaryStatCard label="Agreed processing fees" value={fmtMoney(agencyFeeRevenue)} icon={Banknote} tone="emerald" />
-          <SummaryStatCard label="Agreed stock sales" value={fmtMoney(principalSales)} icon={Banknote} tone="blue" />
-          <SummaryStatCard label="Recorded customer import costs" value={fmtMoney(customerFunded)} icon={Wallet} tone="violet" />
-          <SummaryStatCard label="Estimated stock profit / fees" value={fmtMoney(sold.reduce((s, i) => s + i.profit, 0))} icon={TrendingUp} tone="emerald" />
-          <SummaryStatCard label="Stock at landed cost" value={fmtMoney(t?.stockValue)} icon={Package} tone="slate" />
-        </div>
-
+        {!isError && <ReportMetrics metrics={[
+          { label: "Agreed sales and fees", value: isLoading ? "—" : fmtMoney(agencyFeeRevenue + principalSales) },
+          { label: "Agreed stock sales", value: isLoading ? "—" : fmtMoney(principalSales) },
+          { label: "Agreed processing fees", value: isLoading ? "—" : fmtMoney(agencyFeeRevenue) },
+          { label: "Customer import costs", value: isLoading ? "—" : fmtMoney(customerFunded) },
+          { label: "Estimated stock profit / fees", value: isLoading ? "—" : fmtMoney(sold.reduce((sum, row) => sum + row.profit, 0)) },
+          { label: "Stock at landed cost", value: isLoading ? "—" : fmtMoney(t?.stockValue) },
+        ]} />}
         <Card className="border-slate-200/80 bg-slate-50/60">
           <CardContent className="p-4 text-xs text-slate-600"><details className="space-y-2"><summary className="cursor-pointer font-medium">How the report groups deals</summary>
             <p><strong className="text-slate-900">Agent model:</strong> the customer funds purchase, shipping, duty and other third-party costs. Prime Imports recognises only the processing fee as revenue; customer money held for suppliers is a liability, not turnover. Cost-sheet lines are disbursements, not cost of sales.</p>
@@ -204,17 +203,17 @@ export default function VehicleProfitabilityPage() {
         <div className="flex flex-wrap items-center gap-2">
           {(["all", "sold", "stock"] as const).map((k) => (
             <Button key={k} size="sm" variant={view === k ? "default" : "outline"} onClick={() => setView(k)}>
-              {k === "all" ? "All" : k === "sold" ? "Sold" : "Unsold (projected)"}
+              {k === "all" ? "All vehicles" : k === "sold" ? "Priced deals" : "Estimates"}
             </Button>
           ))}
           <div className="ml-auto flex items-center gap-2">
-            <Label className="text-xs whitespace-nowrap">Accounting model</Label>
+            <Label className="text-xs whitespace-nowrap">Deal type</Label>
             <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All models</SelectItem>
-                <SelectItem value="agent">Agent (fee revenue)</SelectItem>
-                <SelectItem value="principal">Principal (sale/COGS)</SelectItem>
+                <SelectItem value="all">All deal types</SelectItem>
+                <SelectItem value="agent">Customer import</SelectItem>
+                <SelectItem value="principal">Vehicle sale</SelectItem>
               </SelectContent>
             </Select>
           </div>

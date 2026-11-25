@@ -25,7 +25,7 @@ import { format } from "date-fns";
 import { Download, FileText, Loader2, Printer, Search, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
-import { VehicleAccountStatementPDF } from "@/components/vehicles/vehicle-account-statement-pdf";
+import { VehicleStatementPreview } from "@/components/vehicles/statement-preview";
 import { Link } from "wouter";
 
 /* ── helpers ── */
@@ -84,69 +84,6 @@ function VehicleAllocationRow({ companyId, vehicle }: { companyId: number; vehic
   );
 }
 
-/** Customer-facing vehicle account statement, shareable from the statements desk. */
-function VehicleStatementDownload({ companyId, vehicles, company, companyName }: { companyId: number; vehicles: VehicleRow[]; company: any; companyName: string }) {
-  const [vehicleId, setVehicleId] = useState<string>("");
-  const selected = vehicles.find((v) => String(v.id) === vehicleId) ?? vehicles[0];
-  const { data, isLoading } = useVehicleCustomerAccount(companyId, selected?.id ?? 0);
-
-  if (!vehicles.length) return null;
-  return (
-    <Card className="no-print border-slate-200/80 shadow-sm">
-      <CardContent className="p-4 space-y-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">Vehicle account statement</p>
-          <p className="text-xs text-slate-500">Cost sheet, funds received and supplier settlements for one vehicle.</p>
-        </div>
-        <Select value={selected ? String(selected.id) : ""} onValueChange={setVehicleId}>
-          <SelectTrigger className="h-9">
-            <SelectValue placeholder="Choose a vehicle…" />
-          </SelectTrigger>
-          <SelectContent>
-            {vehicles.map((v) => (
-              <SelectItem key={v.id} value={String(v.id)}>
-                {v.stockNumber} · {v.make} {v.model}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selected && data && !isLoading ? (
-          <div className="flex gap-2">
-            <PDFDownloadLink
-              document={
-                <VehicleAccountStatementPDF
-                  data={data}
-                  vehicle={data.vehicle || selected}
-                  company={{ ...(company || {}), tradingName: companyName || company?.tradingName }}
-                />
-              }
-              fileName={`Vehicle-Account-Statement-${selected.stockNumber}.pdf`}
-              className="flex-1"
-            >
-              {({ loading, error }) => (
-                <Button variant="default" disabled={loading} className="w-full gap-2" title={error ? String(error) : undefined}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  {error ? "PDF error" : "Download vehicle statement"}
-                </Button>
-              )}
-            </PDFDownloadLink>
-            <Link href={`/vehicles/${selected.id}`} className="flex-1">
-              <Button variant="outline" className="w-full gap-2">
-                <FileText className="h-4 w-4" /> Open vehicle
-              </Button>
-            </Link>
-          </div>
-        ) : (
-          <p className="text-xs text-slate-400">{isLoading ? "Preparing statement…" : "Select a vehicle to prepare its statement."}</p>
-        )}
-        <p className="text-[10px] leading-snug text-slate-400">
-          Agency deals show third-party costs as customer-funded disbursements; Prime Imports&apos; revenue is the processing fee only.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
 function VehicleAllocationSummary({ companyId, vehicles }: { companyId: number; vehicles: VehicleRow[] }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -172,6 +109,7 @@ export default function VehicleStatementsPage() {
   const { data: vehicles = [] } = useVehicles(activeCompanyId);
 
   const qp = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const [statementMode, setStatementMode] = useState<"vehicle" | "ledger">("vehicle");
   const [selectedCustomerId, setSelectedCustomerId] = useState(qp.get("customerId") || "");
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo());
@@ -223,7 +161,7 @@ export default function VehicleStatementsPage() {
       if (!res.ok) throw new Error("Failed to fetch statement");
       return res.json();
     },
-    enabled: !!selectedCustomerId,
+    enabled: !!selectedCustomerId && statementMode === "ledger",
   });
 
   const companyName = stmt?.company?.trading_name || stmt?.company?.name || company?.tradingName || company?.name || "";
@@ -324,9 +262,14 @@ export default function VehicleStatementsPage() {
             </CardContent>
           </Card>
 
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant={statementMode === "vehicle" ? "default" : "outline"} onClick={() => setStatementMode("vehicle")}>Vehicle statement</Button>
+            <Button size="sm" variant={statementMode === "ledger" ? "default" : "outline"} onClick={() => setStatementMode("ledger")}>Customer ledger</Button>
+          </div>
+          {statementMode === "ledger" && (
           <Card className="border-slate-200/80 shadow-sm">
             <CardContent className="p-4 space-y-3">
-              <p className="text-sm font-semibold text-slate-900">Statement period</p>
+              <p className="text-sm font-semibold text-slate-900">Customer ledger period</p>
               <div className="space-y-1">
                 <Label className="text-xs text-slate-500">Customer</Label>
                 <Select
@@ -394,19 +337,13 @@ export default function VehicleStatementsPage() {
               </div>
             </CardContent>
           </Card>
-
-          {selectedCustomerId && agencyVehicles.length > 0 && (
-            <VehicleStatementDownload
-              companyId={activeCompanyId || 0}
-              vehicles={agencyVehicles}
-              company={company}
-              companyName={companyName}
-            />
           )}
         </div>
 
         {/* ── Right: statement ── */}
         <div className="min-w-0">
+          {statementMode === "vehicle" ? <VehicleStatementPreview companyId={activeCompanyId || 0} vehicles={selectedCustomerVehicles} companyName={companyName} /> : <>
+
           {isLoading && (
             <div className="flex justify-center py-20">
               <LoadingRows rows={6} />
@@ -572,6 +509,7 @@ export default function VehicleStatementsPage() {
               </div>
             </div>
           )}
+          </>}
         </div>
       </div>
     </Layout>

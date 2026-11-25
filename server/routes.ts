@@ -398,6 +398,18 @@ export async function registerRoutes(
 
   const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+  const getInvoicePriceExchangeRate = async (companyId: number, currency: string) => {
+    const [configuredCurrency] = await db.select({ exchangeRate: currencies.exchangeRate })
+      .from(currencies)
+      .where(and(eq(currencies.companyId, companyId), eq(currencies.code, currency)))
+      .limit(1);
+    const rate = Number(configuredCurrency?.exchangeRate ?? (currency === "USD" ? 1 : NaN));
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw validationFailure(`No valid exchange rate is configured for ${currency}`);
+    }
+    return rate;
+  };
+
   type ResolvedLinePrice = {
     productId: number;
     variationId: number | null;
@@ -434,6 +446,7 @@ export async function registerRoutes(
       departmentId?: number | string | null;
       customerId?: number | string | null;
       asOf?: Date;
+      priceExchangeRate?: number;
       declared?: { subtotal?: unknown; taxAmount?: unknown; total?: unknown; discountAmount?: unknown };
     } = {},
   ): Promise<ComputedInvoiceAmounts> => {
@@ -501,11 +514,11 @@ export async function registerRoutes(
           asOf,
           fallbackUnitPrice: product.price,
         });
-        unitPrice = resolved.unitPrice;
+        unitPrice = roundMoney(resolved.unitPrice * (options.priceExchangeRate ?? 1));
         pricing.push({
           productId: Number(product.id),
           variationId: raw?.variationId != null ? Number(raw.variationId) : null,
-          unitPrice: resolved.unitPrice,
+          unitPrice,
           source: resolved.source,
           priceListId: resolved.priceListId,
           priceListItemId: resolved.priceListItemId,
@@ -12583,13 +12596,20 @@ export async function registerRoutes(
       // Money is recomputed after department/customer context is final: line
       // prices come from company price lists, and client totals are only
       // compared. Approval thresholds use the pre-discount gross total.
+      // Invoice forms submit document-currency prices. POS submits catalogue
+      // amounts and handles tender conversion separately.
+      const priceExchangeRate = effectiveIsPos
+        ? undefined
+        : await getInvoicePriceExchangeRate(companyId, input.currency || "USD");
       const computed = await computeInvoiceAmountsServer(companyId, input.items, {
         taxInclusive: input.taxInclusive ?? (company as any)?.taxInclusive ?? false,
         departmentId: (input as any).departmentId,
         customerId: input.customerId,
         asOf: input.issueDate instanceof Date ? input.issueDate : new Date(),
+        priceExchangeRate,
         declared: input as any,
       });
+      if (priceExchangeRate !== undefined) input.exchangeRate = priceExchangeRate.toFixed(6);
       (input as any).items = computed.items;
       (input as any).subtotal = computed.subtotal.toFixed(2);
       (input as any).taxAmount = computed.taxAmount.toFixed(2);
@@ -13416,16 +13436,29 @@ export async function registerRoutes(
       }
 
       const lineSource = input.items || existingInvoice.items || [];
+      // The stored discount includes line discounts that were already deducted
+      // from the subtotal and tax. Only carry forward the payable reduction.
+      const savedHeaderDiscount = Math.max(0, Math.min(
+        Number(existingInvoice.discountAmount ?? 0),
+        roundMoney(Number(existingInvoice.subtotal) + Number(existingInvoice.taxAmount) - Number(existingInvoice.total)),
+      ));
+      const invoiceCurrency = input.currency || existingInvoice.currency || "USD";
+      const savedRate = Number(existingInvoice.exchangeRate);
+      const priceExchangeRate = existingInvoice.isPos ? undefined
+        : invoiceCurrency === existingInvoice.currency && Number.isFinite(savedRate) && savedRate > 0
+          ? savedRate
+          : await getInvoicePriceExchangeRate(existingInvoice.companyId, invoiceCurrency);
       const computed = await computeInvoiceAmountsServer(existingInvoice.companyId, lineSource, {
         taxInclusive: input.taxInclusive ?? existingInvoice.taxInclusive ?? false,
         departmentId: input.departmentId ?? existingInvoice.departmentId,
         customerId: input.customerId ?? existingInvoice.customerId,
         asOf: input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || existingInvoice.issueDate || Date.now()),
+        priceExchangeRate,
         declared: {
           subtotal: input.subtotal,
           taxAmount: input.taxAmount,
           total: input.total,
-          discountAmount: input.discountAmount ?? existingInvoice.discountAmount,
+          discountAmount: input.discountAmount ?? savedHeaderDiscount,
         },
       });
 
@@ -13443,6 +13476,7 @@ export async function registerRoutes(
       updateData.subtotal = computed.subtotal.toFixed(2);
       updateData.taxAmount = computed.taxAmount.toFixed(2);
       updateData.total = computed.total.toFixed(2);
+      if (priceExchangeRate !== undefined) updateData.exchangeRate = priceExchangeRate.toFixed(6);
       updateData.discountAmount = computed.discountAmount.toFixed(2);
       if (input.items) updateData.items = computed.items;
 

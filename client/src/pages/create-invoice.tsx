@@ -489,7 +489,7 @@ export default function CreateInvoicePage() {
     setItems(items.filter((item) => item.localId !== localId));
   };
 
-  const handleProductSelect = (localId: string, productId: string) => {
+  const handleProductSelect = (localId: string, productId: string, append = false) => {
     const product = products?.find((p) => p.id === parseInt(productId));
     if (product) {
       if ((product as any).costCenterId && !costCenterId) {
@@ -498,41 +498,27 @@ export default function CreateInvoicePage() {
       if ((product as any).departmentId && !departmentId) {
         setDepartmentId(String((product as any).departmentId));
       }
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.localId !== localId) return item;
+      let taxRate = company?.vatRegistered ? Number(product.taxRate ?? 15) : 0;
+      if (company?.vatRegistered && product.taxCategoryId && taxTypes.data) {
+        const category = taxTypes.data.find((t: any) => t.id === product.taxCategoryId);
+        if (category) {
+          taxRate = Number(category.rate);
+        }
+      }
 
-          let taxRate = company?.vatRegistered
-            ? Number(product.taxRate ?? 15)
-            : 0;
-
-          if (
-            company?.vatRegistered &&
-            product.taxCategoryId &&
-            taxTypes.data
-          ) {
-            const category = taxTypes.data.find(
-              (t: any) => t.id === product.taxCategoryId,
-            );
-            if (category) {
-              taxRate = Number(category.rate);
-            }
-          }
-
-          const rate = Number(exchangeRate);
-          const scaledPrice = Number(product.price) * rate;
-
-          return {
-            ...item,
-            productId: product.id,
-            description: product.name,
-            quantity: 1,
-            unitPrice: scaledPrice,
-            taxRate: taxRate,
-            hsCode: product.hsCode || "0000",
-            taxTypeId: product.taxTypeId,
-          };
-        }),
+      const productLine = {
+        localId,
+        productId: product.id,
+        description: product.name,
+        quantity: 1,
+        unitPrice: Number(product.price) * Number(exchangeRate),
+        taxRate,
+        hsCode: product.hsCode || "0000",
+        taxTypeId: product.taxTypeId,
+      };
+      setItems((prev) => append
+        ? [...prev, productLine]
+        : prev.map((item) => item.localId === localId ? { ...item, ...productLine } : item),
       );
     }
   };
@@ -546,15 +532,16 @@ export default function CreateInvoicePage() {
   };
 
   const calculateTotals = () => {
+    const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
     let subtotal = 0;
     let taxAmount = 0;
 
     items.forEach((item) => {
-      const lineTotal = item.quantity * item.unitPrice;
+      const lineTotal = item.quantity * roundMoney(item.unitPrice);
 
       if (taxInclusive) {
-        const taxPortion = lineTotal - lineTotal / (1 + item.taxRate / 100);
-        const netPortion = lineTotal - taxPortion;
+        const netPortion = lineTotal / (1 + item.taxRate / 100);
+        const taxPortion = lineTotal - netPortion;
         subtotal += netPortion;
         taxAmount += taxPortion;
       } else {
@@ -564,10 +551,12 @@ export default function CreateInvoicePage() {
       }
     });
 
+    subtotal = roundMoney(subtotal);
+    taxAmount = roundMoney(taxAmount);
     return {
       subtotal,
       taxAmount,
-      total: subtotal + taxAmount,
+      total: roundMoney(subtotal + taxAmount),
     };
   };
 
@@ -1798,14 +1787,7 @@ export default function CreateInvoicePage() {
                               p.sku === barcode || p.barcode === barcode || p.name?.toLowerCase().includes(barcode.toLowerCase())
                             );
                             if (product) {
-                              setItems([...items, {
-                                localId: Math.random().toString(36).substring(2, 11),
-                                productId: product.id,
-                                description: product.name,
-                                quantity: 1,
-                                unitPrice: Number(product.sellingPrice || product.price || 0),
-                                taxRate: getDefaultTaxRate(),
-                              }]);
+                              handleProductSelect(Math.random().toString(36).substring(2, 11), String(product.id), true);
                             } else {
                               toast({ title: 'Product not found', description: `No product matching "${barcode}"`, variant: 'destructive' });
                             }

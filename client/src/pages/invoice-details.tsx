@@ -887,6 +887,8 @@ export default function InvoiceDetailsPage() {
                         </DropdownMenuItem>
                       )}
                       {invoice.status === "issued" &&
+                        invoice.transactionType !== "CreditNote" &&
+                        invoice.transactionType !== "DebitNote" &&
                         !invoice.fiscalCode &&
                         !invoice.syncedWithFdms && (
                           <DropdownMenuItem
@@ -929,7 +931,16 @@ export default function InvoiceDetailsPage() {
                 <div className="px-4 pt-2 shrink-0">
                   <ValidationErrorsDisplay
                     errors={(invoice as any).validationErrors}
-                    onEdit={!invoice.syncedWithFdms ? () => setLocation(`/invoices/new?edit=${invoiceId}`) : undefined}
+                    onEdit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
+                      (invoice.status === "draft" || (invoice.status === "issued" &&
+                        invoice.transactionType !== "CreditNote" && invoice.transactionType !== "DebitNote"))
+                      ? () => setLocation(`/invoices/new?edit=${invoiceId}`)
+                      : undefined}
+                    onResubmit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
+                      ["issued", "partial", "paid"].includes(invoice.status || "")
+                      ? () => fiscalize.mutate(invoiceId)
+                      : undefined}
+                    isResubmitting={fiscalize.isPending || isFiscalizing}
                   />
                 </div>
               )}

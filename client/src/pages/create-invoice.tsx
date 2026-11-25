@@ -573,6 +573,10 @@ export default function CreateInvoicePage() {
 
   const { subtotal, taxAmount, total } = calculateTotals();
   const hasDirectAccess = !requiresApproval("invoice_issue", total);
+  const canFiscalizeSavedDocument = !!existingInvoice &&
+    (existingInvoice.hasPostedJournal || ["issued", "partial", "paid"].includes(existingInvoice.status || "")) &&
+    !existingInvoice.fiscalCode &&
+    !existingInvoice.syncedWithFdms;
 
   const calculateTaxBreakdown = () => {
     const breakdown: Record<
@@ -986,6 +990,16 @@ export default function CreateInvoicePage() {
   };
 
   const handleActionClick = (action: InvoiceAction) => {
+    if (action === "issueAndFiscalize" && existingInvoice && canFiscalizeSavedDocument) {
+      setLoadingAction("issueAndFiscalize");
+      void fiscalizeInvoice.mutateAsync(existingInvoice.id)
+        .then(() => setLocation(`/invoices/${existingInvoice.id}`))
+        .catch(() => {
+          // The fiscalization mutation displays the gateway error.
+        })
+        .finally(() => setLoadingAction(null));
+      return;
+    }
     const warnings = validateInvoice(action);
     if (warnings.length > 0) {
       setValidationWarnings(warnings);
@@ -1153,7 +1167,7 @@ export default function CreateInvoicePage() {
             </Button>
             <Button
               onClick={() => handleActionClick("issue")}
-              disabled={loadingAction !== null || isLockedByOther}
+              disabled={loadingAction !== null || isLockedByOther || existingInvoice?.hasPostedJournal}
               className="h-9 gap-2 bg-[#2563EB] text-white shadow-sm hover:bg-[#1D4ED8]"
             >
               {loadingAction === "issue" ? (
@@ -1163,11 +1177,11 @@ export default function CreateInvoicePage() {
               )}
               {hasDirectAccess ? "Issue Invoice" : "Request Approval"}
             </Button>
-            {hasDirectAccess && (
+            {(hasDirectAccess || canFiscalizeSavedDocument) && (
               <Button
                 onClick={() => handleActionClick("issueAndFiscalize")}
                 disabled={
-                  loadingAction !== null || isLockedByOther || !hasFiscalDevice
+                  loadingAction !== null || (!canFiscalizeSavedDocument && isLockedByOther) || !hasFiscalDevice
                 }
                 className="h-9 gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:bg-slate-300"
                 title={
@@ -1181,7 +1195,7 @@ export default function CreateInvoicePage() {
                 ) : (
                   <ShieldCheck className="w-4 h-4" />
                 )}
-                Issue & Fiscalize
+                {canFiscalizeSavedDocument ? "Fiscalize Saved Document" : "Issue & Fiscalize"}
               </Button>
             )}
           </div>
@@ -2610,7 +2624,7 @@ export default function CreateInvoicePage() {
                       variant="outline"
                       className="h-11 rounded-xl gap-2 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
                       onClick={() => handleActionClick("issue")}
-                      disabled={loadingAction !== null || isLockedByOther}
+                      disabled={loadingAction !== null || isLockedByOther || existingInvoice?.hasPostedJournal}
                     >
                       {loadingAction === "issue" ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -2619,13 +2633,13 @@ export default function CreateInvoicePage() {
                       )}
                       {hasDirectAccess ? "Review & Issue Invoice" : "Review & Request Approval"}
                     </Button>
-                    {hasDirectAccess && (
+                    {(hasDirectAccess || canFiscalizeSavedDocument) && (
                       <Button
                         className="h-11 rounded-xl gap-2 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-300"
                         onClick={() => handleActionClick("issueAndFiscalize")}
                         disabled={
                           loadingAction !== null ||
-                          isLockedByOther ||
+                          (!canFiscalizeSavedDocument && isLockedByOther) ||
                           !hasFiscalDevice
                         }
                         title={
@@ -2639,7 +2653,7 @@ export default function CreateInvoicePage() {
                         ) : (
                           <ShieldCheck className="h-4 w-4" />
                         )}
-                        Issue & Fiscalize
+                        {canFiscalizeSavedDocument ? "Fiscalize Saved Document" : "Issue & Fiscalize"}
                       </Button>
                     )}
                   </div>

@@ -1,7 +1,7 @@
 import { storage } from "../storage.js";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
 import { LekukaDevice, LekukaConfig, LekukaReceipt, LekukaReceiptLine, LekukaReceiptPayment, LekukaTaxType, prepareLekukaReceipt, getLekukaReceiptSignatureInput, calculateLekukaVerificationCode } from "../lekuka.js";
-import { Invoice, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
+import { Invoice, journalEntries, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
 import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../../shared/lekuka.js";
 import fs from "fs";
 import path from "path";
@@ -396,6 +396,17 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.fiscalCode) {
         throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted again.`);
+    }
+    if (invoice.status === "draft" && (invoice.transactionType === "CreditNote" || invoice.transactionType === "DebitNote")) {
+        const [posted] = await db.select({ id: journalEntries.id }).from(journalEntries).where(and(
+            eq(journalEntries.companyId, invoice.companyId),
+            eq(journalEntries.referenceType, "INVOICE"),
+            eq(journalEntries.referenceId, String(invoiceId)),
+            eq(journalEntries.status, "POSTED"),
+        )).limit(1);
+        if (!posted) {
+            throw new Error("Issue this draft note before fiscalizing it.");
+        }
     }
 
     // Check permissions

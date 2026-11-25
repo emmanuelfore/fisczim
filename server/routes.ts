@@ -13401,6 +13401,9 @@ export async function registerRoutes(
       const requestedStatus = input.status ? String(input.status).toLowerCase() : currentStatus;
       const isIssueTransition = requestedStatus === "issued" &&
         DRAFT_INVOICE_STATUSES.has(currentStatus);
+      const draftNoteId = isIssueTransition && currentStatus === "draft" &&
+        (existingInvoice.transactionType === "CreditNote" || existingInvoice.transactionType === "DebitNote")
+        ? invoiceId : undefined;
       const invalidStatusTransition =
         !SERVER_EDITABLE_INVOICE_STATUSES.has(requestedStatus) ||
         (currentStatus === "issued" && requestedStatus !== "issued");
@@ -13501,7 +13504,7 @@ export async function registerRoutes(
             type: APPROVAL_TYPES.INVOICE_ISSUE,
             title: `Invoice issuance${approvalInvoiceData.invoiceNumber ? `: ${approvalInvoiceData.invoiceNumber}` : ""}`,
             description: input.notes || undefined,
-            payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing },
+            payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing, draftNoteId },
             referenceType: "invoice_draft",
             requestedBy: userId,
           });
@@ -13522,7 +13525,7 @@ export async function registerRoutes(
           amount: computed.discountAmount,
           title: `Approve discount of ${computed.discountAmount.toFixed(2)}`,
           description: "A discount was applied and must be authorised before the invoice is issued.",
-          payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing },
+          payload: { invoiceData: approvalInvoiceData, items: computed.items, pricing: computed.pricing, draftNoteId },
           referenceType: "discount",
         });
         if (discountGate.requiresApproval) {
@@ -13534,7 +13537,9 @@ export async function registerRoutes(
         }
       }
 
-      const invoice = await storage.updateInvoice(invoiceId, updateData as any);
+      const invoice = draftNoteId === undefined
+        ? await storage.updateInvoice(invoiceId, updateData as any)
+        : await storage.createInvoice(approvalInvoiceData as any, undefined, draftNoteId);
       await logAction(existingInvoice.companyId, userId || "system", "INVOICE_UPDATED", "invoice", String(invoiceId), {
         status: invoice?.status,
         total: invoice?.total,
@@ -14239,7 +14244,22 @@ export async function registerRoutes(
       const hasAccess = await checkCompanyAccess(storage, req.user, invoice.companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
-      res.json(invoice);
+      // Older drafts can already have a posted journal. Let the client offer
+      // fiscalization of the saved document while keeping its values locked.
+      const [activeJournal] = invoice.status === "draft" ? await db
+        .select({ status: journalEntries.status })
+        .from(journalEntries)
+        .where(and(
+          eq(journalEntries.companyId, invoice.companyId),
+          eq(journalEntries.referenceType, "INVOICE"),
+          eq(journalEntries.referenceId, String(invoice.id)),
+          ne(journalEntries.status, "VOID"),
+        ))
+        .limit(1) : [];
+
+      const draftIssueBlockedReasons = invoice.status === "draft" ? invoiceImmutabilityReasons(invoice) : [];
+      if (activeJournal) draftIssueBlockedReasons.push("a general-ledger entry already exists");
+      res.json({ ...invoice, hasPostedJournal: activeJournal?.status === "POSTED", draftIssueBlockedReasons });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to fetch invoice" });

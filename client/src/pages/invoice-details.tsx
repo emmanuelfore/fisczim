@@ -364,6 +364,12 @@ export default function InvoiceDetailsPage() {
   };
 
   const isCreditNote = invoice?.transactionType === "CreditNote";
+  const blockedReasons = invoice?.draftIssueBlockedReasons ?? [];
+  const isLockedDraft = invoice?.status === "draft" && (blockedReasons.length > 0 || invoice.hasPostedJournal);
+  const canIssueDraft = invoice?.status === "draft" && !isLockedDraft;
+  const lockedDraftStatus = invoice?.fiscalCode || invoice?.syncedWithFdms ||
+    invoice?.fdmsStatus === "fiscalized" ? "fiscalized" :
+    invoice?.hasPostedJournal ? "posted" : "pending";
   const canPreview = !invoice?.fiscalCode || !!qrCodeDataUrl;
 
   return (
@@ -695,15 +701,15 @@ export default function InvoiceDetailsPage() {
                   </span>
                   <StatusBadge
                     status={
-                      invoice.fdmsStatus === "failed" ||
-                      invoice.validationStatus === "red"
-                        ? "failed"
-                        : invoice.status!
+                      isLockedDraft ? lockedDraftStatus : canIssueDraft ? "draft" :
+                        invoice.fdmsStatus === "failed" || invoice.validationStatus === "red" ? "failed" : invoice.status!
                     }
-                  />
+                  >
+                    {isLockedDraft && lockedDraftStatus === "pending" ? "Needs review" : undefined}
+                  </StatusBadge>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
-                  {["issued", "partial", "paid"].includes(invoice.status || "") &&
+                  {(invoice.hasPostedJournal || ["issued", "partial", "paid"].includes(invoice.status || "")) &&
                     !invoice.fiscalCode && (
                       <Button
                         size="sm"
@@ -745,7 +751,7 @@ export default function InvoiceDetailsPage() {
                         <CreditCard className="w-3 h-3" /> Pay
                       </Button>
                     )}
-                  {invoice.status === "draft" && (
+                  {canIssueDraft && (
                     <Button
                       size="sm"
                       className="h-8 px-3 text-xs gap-1.5 bg-primary hover:bg-primary/90"
@@ -868,7 +874,7 @@ export default function InvoiceDetailsPage() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      {invoice.status === "draft" && (
+                      {canIssueDraft && (
                         <DropdownMenuItem
                           onClick={() =>
                             setLocation(`/invoices/new?edit=${invoiceId}`)
@@ -887,6 +893,8 @@ export default function InvoiceDetailsPage() {
                         </DropdownMenuItem>
                       )}
                       {invoice.status === "issued" &&
+                        invoice.transactionType !== "CreditNote" &&
+                        invoice.transactionType !== "DebitNote" &&
                         !invoice.fiscalCode &&
                         !invoice.syncedWithFdms && (
                           <DropdownMenuItem
@@ -924,12 +932,30 @@ export default function InvoiceDetailsPage() {
                 </div>
               </div>
 
+              {isLockedDraft && (
+                <p className="mx-4 mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {lockedDraftStatus === "posted" ? "This document is already posted to the general ledger." :
+                    lockedDraftStatus === "fiscalized" ? "Fiscal proof is already recorded for this document." :
+                      "Review the existing fiscal or accounting record before proceeding."}
+                  {blockedReasons.length > 0 && <span className="block text-xs text-slate-600">{blockedReasons.join(", ")}</span>}
+                </p>
+              )}
+
               {/* Validation banners */}
               {(invoice as any)?.validationErrors?.length > 0 && (
                 <div className="px-4 pt-2 shrink-0">
                   <ValidationErrorsDisplay
                     errors={(invoice as any).validationErrors}
-                    onEdit={!invoice.syncedWithFdms ? () => setLocation(`/invoices/new?edit=${invoiceId}`) : undefined}
+                    onEdit={!invoice.hasPostedJournal && !invoice.syncedWithFdms && !invoice.fiscalCode &&
+                      (canIssueDraft || (invoice.status === "issued" &&
+                        invoice.transactionType !== "CreditNote" && invoice.transactionType !== "DebitNote"))
+                      ? () => setLocation(`/invoices/new?edit=${invoiceId}`)
+                      : undefined}
+                    onResubmit={!invoice.syncedWithFdms && !invoice.fiscalCode &&
+                      (invoice.hasPostedJournal || ["issued", "partial", "paid"].includes(invoice.status || ""))
+                      ? () => fiscalize.mutate(invoiceId)
+                      : undefined}
+                    isResubmitting={fiscalize.isPending || isFiscalizing}
                   />
                 </div>
               )}

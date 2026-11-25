@@ -247,7 +247,7 @@ export interface IStorage {
   getInvoiceByNumber(companyId: number, invoiceNumber: string): Promise<Invoice | undefined>;
   getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined>;
   getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number; vehicle?: any; vehicleCosts?: any[] }) | undefined>;
-  createInvoice(invoice: CreateInvoiceRequest, tx?: any): Promise<Invoice>;
+  createInvoice(invoice: CreateInvoiceRequest, tx?: any, draftNoteId?: number): Promise<Invoice>;
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
   deleteInvoice(id: number): Promise<void>;
@@ -1890,7 +1890,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createInvoice(data: CreateInvoiceRequest, providedTx?: any): Promise<Invoice> {
+  async createInvoice(data: CreateInvoiceRequest, providedTx?: any, draftNoteId?: number): Promise<Invoice> {
     const { applyPartnershipToInvoiceData } = await import("./lib/partnerships.js");
     const enriched = await applyPartnershipToInvoiceData(data);
     const revenueAccountCodeOverride = (data as any).revenueAccountCode
@@ -1920,14 +1920,49 @@ export class DatabaseStorage implements IStorage {
         orderNumber = `#${nextNum.toString().padStart(3, '0')}`;
       }
 
-      const [invoice] = await tx.insert(invoices).values({
+      const invoiceValues = {
         ...invoiceData,
         orderNumber,
-        invoiceNumber: await this.getNextInvoiceNumber(invoiceData.companyId, invoiceData.transactionType === 'CreditNote' ? 'CN' : (invoiceData.transactionType === 'DebitNote' ? 'DN' : 'INV')),
         dueDate: invoiceData.dueDate 
           ? new Date(invoiceData.dueDate) 
           : (invoiceData.issueDate ? new Date(new Date(invoiceData.issueDate).getTime() + 7 * 24 * 60 * 60 * 1000) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
-      }).returning();
+      };
+      const isNote = invoiceData.transactionType === "CreditNote" || invoiceData.transactionType === "DebitNote";
+      let invoice: Invoice;
+      if (draftNoteId !== undefined) {
+        const [draft] = await tx.select().from(invoices).where(and(
+          eq(invoices.id, draftNoteId),
+          eq(invoices.companyId, invoiceData.companyId),
+        )).for("update");
+        const [posted] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(
+          eq(journalEntries.companyId, invoiceData.companyId),
+          eq(journalEntries.referenceType, "INVOICE"),
+          eq(journalEntries.referenceId, String(draftNoteId)),
+          ne(journalEntries.status, "VOID"),
+        )).limit(1);
+        if (!isNote || invoiceData.status !== "issued" || draft?.status !== "draft" ||
+          draft.transactionType !== invoiceData.transactionType || posted || invoiceImmutableReasons(draft).length) {
+          throw Object.assign(new Error("This note can no longer be issued from draft."), { statusCode: 409 });
+        }
+        [invoice] = await tx.update(invoices).set({
+          ...invoiceValues,
+          invoiceNumber: draft.invoiceNumber,
+          createdAt: undefined,
+          lockedAt: undefined,
+          lastValidationAttempt: undefined,
+        })
+          .where(eq(invoices.id, draftNoteId)).returning();
+        await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, draftNoteId));
+      } else {
+        [invoice] = await tx.insert(invoices).values({
+          ...invoiceValues,
+          invoiceNumber: await this.getNextInvoiceNumber(invoiceData.companyId, invoiceData.transactionType === "CreditNote" ? "CN" : invoiceData.transactionType === "DebitNote" ? "DN" : "INV"),
+        }).returning();
+      }
+      if (isNote && invoice.status === "draft") {
+        const savedItems = await tx.insert(invoiceItems).values(items.map(item => ({ ...item, invoiceId: invoice.id }))).returning();
+        return { ...invoice, items: savedItems };
+      }
 
       // Enterprise Inventory Isolation:
       // Resolve the branch warehouse location and adjust stock through inventory_location_stocks.
@@ -2516,7 +2551,9 @@ export class DatabaseStorage implements IStorage {
       fdmsStatus,
       validationStatus,
       lastValidationAttempt,
-      status: syncedWithFdms ? "issued" : "draft"
+      status: syncedWithFdms
+        ? sql`case when ${invoices.status} in ('issued', 'partial', 'paid') then ${invoices.status} else 'issued' end`
+        : invoices.status,
     };
     // Strip null/undefined values to prevent drizzle Object.entries(null) crash on JSONB columns
     for (const key of Object.keys(setData)) {

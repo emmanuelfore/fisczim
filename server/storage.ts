@@ -1790,7 +1790,7 @@ export class DatabaseStorage implements IStorage {
       }).from(vehicleSalesAgreements).where(and(
         eq(vehicleSalesAgreements.vehicleId, linkedVehicle.id),
         eq(vehicleSalesAgreements.companyId, invoice.companyId),
-        eq(vehicleSalesAgreements.currency, invoice.currency),
+        eq(vehicleSalesAgreements.currency, invoice.currency ?? "USD"),
       ));
       if (agreement) {
         const [receipts] = await db.select({

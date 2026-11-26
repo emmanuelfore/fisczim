@@ -9,7 +9,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import NotFound from "@/pages/not-found";
-import LandingPage from "@/pages/landing";
 import AuthPage from "@/pages/auth";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
@@ -1004,7 +1003,7 @@ function Router() {
       <Route path="/hr/reports/remittances">
         {() => <ProtectedRoute component={HRStatutoryRemittances} />}
       </Route>
-      <Route path="/">{user ? <AuthRedirect /> : <LandingPage />}</Route>
+      <Route path="/">{user ? <AuthRedirect /> : <AuthPage />}</Route>
       <Route component={NotFound} />
     </Switch>
     </Suspense>

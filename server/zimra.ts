@@ -79,7 +79,7 @@ export interface ReceiptLine {
     receiptLineNo: number;
     receiptLineHSCode: string;
     receiptLineName: string;
-    receiptLinePrice: number;
+    receiptLinePrice?: number;
     receiptLineQuantity: number;
     receiptLineTotal: number;
     taxPercent?: number;
@@ -762,19 +762,18 @@ export class ZimraDevice {
                 else taxID = 3; // Default
             }
 
-            let linePrice = line.receiptLinePrice;
-            // RCPT024: the gateway checks total == price*qty with arithmetical
-            // rounding, so the total MUST be derived from the SENT price/quantity
-            // with exact decimal math — float math (0.09*571.5=51.434999999999995)
-            // flips cent rounding and goes Red. Cap at the spec's 6dp precision.
-            const sentPrice = exactRound6(line.receiptLinePrice);
+            // FDMS makes receiptLinePrice optional. Preserve the saved line
+            // total when its cent rounding cannot be represented by price ×
+            // quantity; recompute only when a unit price is supplied.
+            const hasUnitPrice = line.receiptLinePrice != null && Number.isFinite(Number(line.receiptLinePrice));
+            const sentPrice = hasUnitPrice ? exactRound6(Number(line.receiptLinePrice)) : undefined;
             const sentQty = exactRound6(line.receiptLineQuantity);
-            linePrice = sentPrice;
-            let lineTotal = exactMul2(sentPrice, sentQty);
+            let linePrice = sentPrice;
+            let lineTotal = sentPrice === undefined ? exactRound2(line.receiptLineTotal) : exactMul2(sentPrice, sentQty);
 
             // ZIMRA Rule: CreditNote values must be negative
             if (receipt.receiptType === 'CreditNote') {
-                if (linePrice > 0) linePrice = -linePrice;
+                if (linePrice !== undefined && linePrice > 0) linePrice = -linePrice;
                 if (lineTotal > 0) lineTotal = -lineTotal;
             }
 
@@ -806,13 +805,14 @@ export class ZimraDevice {
                 receiptLineType: line.receiptLineType || 'Sale',
                 receiptLineHSCode: (line.receiptLineHSCode || '04021099').trim(), // Default per Python
                 receiptLineName: (line.receiptLineName || '').trim() || 'Item without description',
-                receiptLinePrice: linePrice,
                 receiptLineQuantity: sentQty,
                 receiptLineTotal: lineTotal,
                 taxID,
                 taxPercent: line.taxPercent,
                 taxCode
             };
+            if (linePrice === undefined) delete result.receiptLinePrice;
+            else result.receiptLinePrice = linePrice;
 
             // "In case of exempt which does not send tax percent value"
             if (taxID === 1) {

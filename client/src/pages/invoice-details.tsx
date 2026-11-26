@@ -324,6 +324,39 @@ export default function InvoiceDetailsPage() {
     );
   };
 
+  const handlePrint = () => {
+    if (!pdfBlobUrl || pdfGenerating || (invoice?.fiscalCode && !qrCodeDataUrl)) {
+      toast({
+        title: "Fiscal PDF is still preparing",
+        description: "Wait for the QR code and PDF preview before printing.",
+      });
+      return;
+    }
+
+    const printWindow = window.open("about:blank", "_blank");
+    if (!printWindow) {
+      const link = document.createElement("a");
+      link.href = pdfBlobUrl;
+      link.download = (invoice?.invoiceNumber || "fiscal-document") + ".pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast({
+        title: "PDF downloaded",
+        description: "Your browser blocked the print window. Open the downloaded PDF to print it.",
+      });
+      return;
+    }
+
+    printWindow.addEventListener("load", () => {
+      window.setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 700);
+    }, { once: true });
+    printWindow.location.replace(pdfBlobUrl);
+  };
+
   const handleSendEmail = async (email: string) => {
     if (!invoice || !company) return;
     setIsSendingEmail(true);
@@ -924,7 +957,10 @@ export default function InvoiceDetailsPage() {
                         </>
                       )}
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => window.print()}>
+                      <DropdownMenuItem
+                        onClick={handlePrint}
+                        disabled={pdfGenerating || !pdfBlobUrl || (!!invoice.fiscalCode && !qrCodeDataUrl)}
+                      >
                         <Printer className="w-4 h-4 mr-2" /> Print
                       </DropdownMenuItem>
                     </DropdownMenuContent>

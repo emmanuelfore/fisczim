@@ -948,34 +948,23 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             // Build receipt line, conditionally omitting taxPercent for exempt items
             const sentQuantity = exactRound2(Number(item.quantity || 0));
             const sentPrice = parseFloat(Number(unitPrice).toFixed(2));
-            // RCPT024: ZIMRA checks receiptLineTotal == price * qty. The stored
-            // line total was computed from the FULL-precision quantity (weighed
-            // goods: 3.528kg), but the column keeps quantity at 2dp (3.53), so
-            // the stored total and the sent quantity drift apart and the whole
-            // receipt is rejected as Red (RCPT024, then RCPT027/RCPT039 for the
-            // total and payment). Snap the total onto the values actually being
-            // sent — but only within the precision lost by rounding quantity, so
-            // a genuine line discount (always far larger) is left untouched.
+            const receiptLineTotal = parseFloat(Number(lineTotal).toFixed(2));
+            // Keep the saved billed amount authoritative. FDMS permits omitting
+            // receiptLinePrice; do so when price × quantity changes the amount
+            // after currency rounding, including legacy rounding and discounts.
             const computedLineTotal = exactMul2(sentPrice, sentQuantity);
-            const driftBound = Math.abs(sentPrice) * 0.005 + 0.005;
-            const receiptLineTotal = Math.abs(lineTotal - computedLineTotal) <= driftBound
-                ? computedLineTotal
-                : lineTotal;
+            const unitPriceMatchesStoredLine = computedLineTotal === receiptLineTotal;
             const receiptLine: any = {
                 receiptLineType: ((currentInvoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (currentInvoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(unitPrice) < 0) ? 'Discount' : 'Sale',
                 receiptLineNo: index + 1,
                 receiptLineHSCode: hsCode,
                 receiptLineName: (item.description || '').trim() || 'Item without description',
-                receiptLinePrice: sentPrice,
                 receiptLineQuantity: sentQuantity,
-                receiptLineTotal: parseFloat(Number(receiptLineTotal).toFixed(2)),
+                receiptLineTotal,
                 taxID: taxID,
             };
-
-            // Only include taxPercent if not exempt (Tax ID 1)
-            if (taxID !== 1) {
-                receiptLine.taxPercent = taxPercent;
-            }
+            if (unitPriceMatchesStoredLine) receiptLine.receiptLinePrice = sentPrice;
+            if (taxID !== 1) receiptLine.taxPercent = taxPercent;
 
             return receiptLine;
         }));
@@ -988,14 +977,6 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             if (['EFT', 'RTGS', 'TRANSFER', 'ZIPIT', 'BANKTRANSFER'].includes(m)) return 'BankTransfer';
             return 'Other';
         };
-
-        // ── RCPT024: Normalize totals to the gateway's exact arithmetic ──
-        // Line totals must equal price × quantity (2dp, arithmetical rounding).
-        // Derive them from the SENT price/quantity with exact-decimal math —
-        // float math flips cent rounding on fractional quantities (Red RCPT024).
-        for (const line of receiptLines) {
-            line.receiptLineTotal = exactMul2(line.receiptLineQuantity, line.receiptLinePrice);
-        }
 
         const totalAmount = parseFloat(Number(invoice.total).toFixed(2));
         let payments: Array<{ moneyTypeCode: string, paymentAmount: number }> = [];

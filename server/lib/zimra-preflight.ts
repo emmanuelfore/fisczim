@@ -274,9 +274,8 @@ export async function assertReceiptPreflight(args: {
       if (!originalInvoice.fiscalCode || !originalInvoice.receiptGlobalNo || !originalInvoice.fiscalDayNo) {
         addIssue(issues, "RCPT032", `${receiptType} original invoice is not fully fiscalized.`);
       }
-      if (originalInvoice.validationStatus === "red") {
-        addIssue(issues, "RCPT032", `${receiptType} original invoice has red validation status.`);
-      }
+      // FDMS RCPT032 validates that the credited receipt exists; a red
+      // validation result does not mean the original receipt is absent.
       if ((originalInvoice.currency || "USD") !== receiptData.receiptCurrency) {
         addIssue(issues, "RCPT042", `${receiptType} currency must match original invoice currency.`);
       }

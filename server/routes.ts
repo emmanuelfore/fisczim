@@ -447,6 +447,8 @@ export async function registerRoutes(
       customerId?: number | string | null;
       asOf?: Date;
       priceExchangeRate?: number;
+      vatRegistered?: boolean;
+      allowManualPriceOverride?: boolean;
       declared?: { subtotal?: unknown; taxAmount?: unknown; total?: unknown; discountAmount?: unknown };
     } = {},
   ): Promise<ComputedInvoiceAmounts> => {
@@ -514,7 +516,18 @@ export async function registerRoutes(
           asOf,
           fallbackUnitPrice: product.price,
         });
-        unitPrice = roundMoney(resolved.unitPrice * (options.priceExchangeRate ?? 1));
+        const resolvedDocumentUnitPrice = roundMoney(
+          resolved.unitPrice * (options.priceExchangeRate ?? 1),
+        );
+        const requestedUnitPrice = Number(raw?.unitPrice);
+        const hasRequestedUnitPrice = raw?.unitPrice !== undefined &&
+          raw?.unitPrice !== null && raw?.unitPrice !== "";
+        const isManualPriceOverride = options.allowManualPriceOverride &&
+          hasRequestedUnitPrice && Number.isFinite(requestedUnitPrice) &&
+          Math.abs(requestedUnitPrice - resolvedDocumentUnitPrice) > 0.01;
+        // The invoice form supports editable line prices. Keep those entered
+        // document-currency prices while still computing every total on-server.
+        unitPrice = roundMoney(isManualPriceOverride ? requestedUnitPrice : resolvedDocumentUnitPrice);
         pricing.push({
           productId: Number(product.id),
           variationId: raw?.variationId != null ? Number(raw.variationId) : null,
@@ -526,7 +539,7 @@ export async function registerRoutes(
         });
       }
 
-      const taxTypeId = raw?.taxTypeId != null ? Number(raw.taxTypeId) : product?.taxTypeId ?? null;
+      let taxTypeId = raw?.taxTypeId != null ? Number(raw.taxTypeId) : product?.taxTypeId ?? null;
       // An explicit, company-valid tax type on the line wins; otherwise use
       // the company product's tax data. Client-supplied rates are a last
       // resort for freetext lines only.
@@ -534,6 +547,12 @@ export async function registerRoutes(
         ? Number(taxRateById.get(taxTypeId))
         : product ? Number(product.taxRate ?? 0)
         : Number(raw?.taxRate ?? 0);
+      // A company without VAT registration must not charge VAT from a stale
+      // product/tax-type default.
+      if (options.vatRegistered === false && taxRate > 0) {
+        taxRate = 0;
+        taxTypeId = null;
+      }
       if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
         throw validationFailure("Invoice line tax rate must be between 0 and 100");
       }
@@ -635,8 +654,10 @@ export async function registerRoutes(
     const declared = quotationData.discountAmount !== undefined
       ? { ...quotationData, discountAmount: quotationData.discountAmount }
       : quotationData;
+    const company = await storage.getCompany(companyId);
     const computed = await computeInvoiceAmountsServer(companyId, rawItems, {
       taxInclusive: Boolean(quotationData.taxInclusive),
+      vatRegistered: Boolean(company?.vatRegistered),
       departmentId: quotationData.departmentId,
       customerId: quotationData.customerId,
       declared,
@@ -12604,11 +12625,12 @@ export async function registerRoutes(
         : await getInvoicePriceExchangeRate(companyId, input.currency || "USD");
       const computed = await computeInvoiceAmountsServer(companyId, input.items, {
         taxInclusive: input.taxInclusive ?? (company as any)?.taxInclusive ?? false,
+        vatRegistered: Boolean((company as any)?.vatRegistered),
+        allowManualPriceOverride: true,
         departmentId: (input as any).departmentId,
         customerId: input.customerId,
         asOf: input.issueDate instanceof Date ? input.issueDate : new Date(),
         priceExchangeRate,
-        declared: input as any,
       });
       if (priceExchangeRate !== undefined) input.exchangeRate = priceExchangeRate.toFixed(6);
       (input as any).items = computed.items;
@@ -13440,6 +13462,7 @@ export async function registerRoutes(
       }
 
       const lineSource = input.items || existingInvoice.items || [];
+      const invoiceCompany = await storage.getCompany(existingInvoice.companyId);
       // The stored discount includes line discounts that were already deducted
       // from the subtotal and tax. Only carry forward the payable reduction.
       const savedHeaderDiscount = Math.max(0, Math.min(
@@ -13454,16 +13477,12 @@ export async function registerRoutes(
           : await getInvoicePriceExchangeRate(existingInvoice.companyId, invoiceCurrency);
       const computed = await computeInvoiceAmountsServer(existingInvoice.companyId, lineSource, {
         taxInclusive: input.taxInclusive ?? existingInvoice.taxInclusive ?? false,
+        vatRegistered: Boolean(invoiceCompany?.vatRegistered),
+        allowManualPriceOverride: true,
         departmentId: input.departmentId ?? existingInvoice.departmentId,
         customerId: input.customerId ?? existingInvoice.customerId,
         asOf: input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || existingInvoice.issueDate || Date.now()),
         priceExchangeRate,
-        declared: {
-          subtotal: input.subtotal,
-          taxAmount: input.taxAmount,
-          total: input.total,
-          discountAmount: input.discountAmount ?? savedHeaderDiscount,
-        },
       });
 
       const editableFields = [
@@ -13657,6 +13676,7 @@ export async function registerRoutes(
 
       const computed = await computeInvoiceAmountsServer(company.id, rawItems, {
         taxInclusive: (company as any)?.taxInclusive ?? false,
+        vatRegistered: Boolean((company as any)?.vatRegistered),
         departmentId: dimensions?.departmentId,
         customerId: genericCustomerId,
         asOf: new Date(),
@@ -13952,20 +13972,109 @@ export async function registerRoutes(
     }
   });
 
-  // Helper: compute subtotal/taxAmount/total from supplied items array
-  function computeNoteTotals(items: any[]) {
-    let subtotal = 0, taxAmount = 0;
-    for (const item of items) {
-      const lineTotal = parseFloat(item.lineTotal || "0");
-      const taxRate = parseFloat(item.taxRate || "0") / 100;
-      const taxPortion = lineTotal * taxRate / (1 + taxRate);
-      taxAmount += taxPortion;
-      subtotal += lineTotal - taxPortion;
+  // Build adjustment lines exclusively from the source invoice's saved tax and
+  // price snapshot. Client supplied catalog prices/tax rates are not authoritative
+  // for a credit/debit note and can differ from what was fiscalized.
+  function buildAdjustmentNote(originalInvoice: any, requestedItems?: any[]) {
+    const sourceItems = Array.isArray(originalInvoice.items) ? originalInvoice.items : [];
+    if (sourceItems.length === 0) throw validationFailure("The source invoice has no lines");
+
+    const useCustomItems = Array.isArray(requestedItems) && requestedItems.length > 0;
+    if (!useCustomItems) {
+      return {
+        noteItems: sourceItems.map((item: any) => {
+          const copy = { ...item };
+          delete copy.id;
+          return copy;
+        }),
+        totals: {
+          subtotal: originalInvoice.subtotal,
+          taxAmount: originalInvoice.taxAmount,
+          total: originalInvoice.total,
+        },
+      };
     }
+
+    const used = new Set<number>();
+    const normalized = requestedItems.map((raw: any, index: number) => {
+      let sourceIndex = -1;
+      const sourceId = Number(raw?.invoiceItemId ?? raw?.sourceInvoiceItemId ?? raw?.id);
+      if (Number.isInteger(sourceId) && sourceId > 0) {
+        sourceIndex = sourceItems.findIndex((item: any, i: number) =>
+          !used.has(i) && Number(item.id) === sourceId);
+      }
+      if (sourceIndex < 0 && raw?.productId != null) {
+        sourceIndex = sourceItems.findIndex((item: any, i: number) =>
+          !used.has(i) && Number(item.productId) === Number(raw.productId));
+      }
+      if (sourceIndex < 0 && raw?.description) {
+        sourceIndex = sourceItems.findIndex((item: any, i: number) =>
+          !used.has(i) && String(item.description || "").trim() === String(raw.description).trim());
+      }
+      if (sourceIndex < 0) {
+        throw validationFailure("Adjustment note lines must refer to lines on the source invoice");
+      }
+
+      used.add(sourceIndex);
+      const source = sourceItems[sourceIndex];
+      const quantity = Number(raw?.quantity);
+      const sourceQuantity = Number(source.quantity);
+      const unitPrice = Number(source.unitPrice);
+      const taxRate = Number(source.taxRate ?? 0);
+      if (!Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(sourceQuantity) || sourceQuantity <= 0 ||
+          !Number.isFinite(unitPrice) || !Number.isFinite(taxRate) ||
+          taxRate < 0 || taxRate > 100) {
+        throw validationFailure("Adjustment note lines must have valid source quantities and amounts");
+      }
+
+      const grossBeforeDiscount = roundMoney(quantity * unitPrice);
+      const defaultDiscount = Number(source.discountAmount || 0) * Math.min(quantity / sourceQuantity, 1);
+      const discountAmount = raw?.discountAmount == null
+        ? roundMoney(defaultDiscount)
+        : roundMoney(Number(raw.discountAmount));
+      if (!Number.isFinite(discountAmount) || discountAmount < 0 ||
+          discountAmount > grossBeforeDiscount + 0.01) {
+        throw validationFailure("Adjustment note line discount is invalid");
+      }
+      const gross = roundMoney(grossBeforeDiscount - discountAmount);
+      const sourceFields = { ...source };
+      delete sourceFields.id;
+      return {
+        ...sourceFields,
+        productId: source.productId ?? null,
+        quantity: String(quantity),
+        unitPrice: unitPrice.toFixed(2),
+        taxRate: taxRate.toFixed(2),
+        taxTypeId: source.taxTypeId ?? null,
+        discountAmount: discountAmount.toFixed(2),
+        lineTotal: gross.toFixed(2),
+      };
+    });
+
+    let subtotal = 0;
+    let taxAmount = 0;
+    for (const item of normalized) {
+      const gross = Number(item.lineTotal);
+      const rate = Number(item.taxRate) / 100;
+      if (originalInvoice.taxInclusive) {
+        const net = gross / (1 + rate);
+        subtotal += net;
+        taxAmount += gross - net;
+      } else {
+        subtotal += gross;
+        taxAmount += gross * rate;
+      }
+    }
+    subtotal = roundMoney(subtotal);
+    taxAmount = roundMoney(taxAmount);
     return {
-      subtotal: subtotal.toFixed(2),
-      taxAmount: taxAmount.toFixed(2),
-      total: (subtotal + taxAmount).toFixed(2),
+      noteItems: normalized,
+      totals: {
+        subtotal: subtotal.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        total: roundMoney(subtotal + taxAmount).toFixed(2),
+      },
     };
   }
 
@@ -13995,22 +14104,7 @@ export async function registerRoutes(
       }
 
       const { items: bodyItems, reason, cashierName, isPos } = req.body || {};
-      const useCustomItems = Array.isArray(bodyItems) && bodyItems.length > 0;
-      const noteItems = useCustomItems
-        ? bodyItems
-        : originalInvoice.items.map(item => ({
-            productId: item.productId,
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            taxRate: item.taxRate,
-            taxTypeId: item.taxTypeId,
-            lineTotal: item.lineTotal
-          }));
-
-      const totals = useCustomItems
-        ? computeNoteTotals(noteItems)
-        : { subtotal: originalInvoice.subtotal, taxAmount: originalInvoice.taxAmount, total: originalInvoice.total };
+      const { noteItems, totals } = buildAdjustmentNote(originalInvoice, bodyItems);
 
       const gate = await requireApprovalOrContinue({
         userId: invoiceUserId,
@@ -14162,22 +14256,7 @@ export async function registerRoutes(
       }
 
       const { items: bodyItems, reason, cashierName, isPos } = req.body || {};
-      const useCustomItems = Array.isArray(bodyItems) && bodyItems.length > 0;
-      const noteItems = useCustomItems
-        ? bodyItems
-        : originalInvoice.items.map(item => ({
-            productId: item.productId,
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            taxRate: item.taxRate,
-            taxTypeId: item.taxTypeId,
-            lineTotal: item.lineTotal
-          }));
-
-      const totals = useCustomItems
-        ? computeNoteTotals(noteItems)
-        : { subtotal: originalInvoice.subtotal, taxAmount: originalInvoice.taxAmount, total: originalInvoice.total };
+      const { noteItems, totals } = buildAdjustmentNote(originalInvoice, bodyItems);
 
       const dn = await storage.createInvoice({
         companyId: originalInvoice.companyId,
